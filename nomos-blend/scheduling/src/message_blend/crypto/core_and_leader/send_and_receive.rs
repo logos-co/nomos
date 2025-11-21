@@ -6,13 +6,12 @@ use nomos_blend_message::{
         PoQVerificationInputsMinusSigningKey, quota::inputs::prove::public::LeaderInputs,
     },
     encap::{
-        ProofsVerifier as ProofsVerifierTrait,
+        ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulationOutput,
         validated::RequiredProofOfSelectionVerificationInputs,
     },
 };
 
 use crate::{
-    DecapsulationOutput,
     membership::Membership,
     message_blend::{
         crypto::{

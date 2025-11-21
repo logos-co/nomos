@@ -3,9 +3,8 @@ mod swarm;
 
 use futures::future::{AbortHandle, Abortable};
 use libp2p::PeerId;
-use nomos_blend_scheduling::{
-    membership::Membership, message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-};
+use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+use nomos_blend_scheduling::membership::Membership;
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
 pub use settings::Libp2pBlendBackendSettings;

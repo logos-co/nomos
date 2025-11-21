@@ -14,17 +14,17 @@ use libp2p::{
 };
 use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
-    encap::ProofsVerifier as ProofsVerifierTrait,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
 };
 use nomos_blend_network::core::{
     NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
     with_edge::behaviour::Event as CoreToEdgeEvent,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-};
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};

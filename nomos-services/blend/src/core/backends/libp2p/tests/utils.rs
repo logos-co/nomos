@@ -9,17 +9,18 @@ use libp2p::{
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_message::{
-    crypto::keys::Ed25519PrivateKey, encap::ProofsVerifier as ProofsVerifierTrait,
+    crypto::keys::Ed25519PrivateKey,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
 };
 use nomos_blend_network::core::{
     Config, NetworkBehaviour,
     with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
     with_edge::behaviour::Config as CoreToEdgeConfig,
 };
-use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-};
+use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;

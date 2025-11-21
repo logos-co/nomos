@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error, MessageIdentifier, PayloadType,
+    Error, MessageIdentifier, PaddedPayloadBody, PayloadType,
     crypto::{
         keys::{Ed25519PrivateKey, X25519PrivateKey},
         proofs::{quota::VerifiedProofOfQuota, selection::inputs::VerifyInputs},
@@ -12,7 +12,7 @@ use crate::{
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
         encapsulated::{EncapsulatedMessage, EncapsulatedPart},
     },
-    input::EncapsulationInputs,
+    input::EncapsulationInput,
     message::public_header::VerifiedPublicHeader,
     reward::BlendingToken,
 };
@@ -27,16 +27,14 @@ pub struct RequiredProofOfSelectionVerificationInputs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-pub struct EncapsulatedMessageWithVerifiedPublicHeader<const ENCAPSULATION_COUNT: usize> {
+pub struct EncapsulatedMessageWithVerifiedPublicHeader {
     pub validated_public_header: VerifiedPublicHeader,
-    pub encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+    pub encapsulated_part: EncapsulatedPart,
 }
 
-impl<const ENCAPSULATION_COUNT: usize>
-    EncapsulatedMessageWithVerifiedPublicHeader<ENCAPSULATION_COUNT>
-{
+impl EncapsulatedMessageWithVerifiedPublicHeader {
     #[must_use]
-    pub fn from_message_unchecked(message: EncapsulatedMessage<ENCAPSULATION_COUNT>) -> Self {
+    pub fn from_message_unchecked(message: EncapsulatedMessage) -> Self {
         let (public_header, encapsulated_part) = message.into_components();
         Self::from_components(
             VerifiedPublicHeader::from_header_unchecked(&public_header),
@@ -44,17 +42,18 @@ impl<const ENCAPSULATION_COUNT: usize>
         )
     }
 
+    #[must_use]
     pub fn new(
-        inputs: &EncapsulationInputs<ENCAPSULATION_COUNT>,
+        inputs: &[EncapsulationInput],
         payload_type: PayloadType,
-        payload_body: &[u8],
-    ) -> Result<Self, Error> {
+        payload_body: PaddedPayloadBody,
+    ) -> Self {
         // Create the encapsulated part.
         let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
             (
                 // Start with an initialized encapsulated part,
                 // a random signing key, and proof of quota.
-                EncapsulatedPart::initialize(inputs, payload_type, payload_body)?,
+                EncapsulatedPart::initialize(inputs, payload_type, payload_body),
                 Ed25519PrivateKey::generate(),
                 VerifiedProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
@@ -80,16 +79,16 @@ impl<const ENCAPSULATION_COUNT: usize>
             part.sign(&signing_key),
         );
 
-        Ok(Self {
+        Self {
             validated_public_header,
             encapsulated_part: part,
-        })
+        }
     }
 
     #[must_use]
     pub const fn from_components(
         validated_public_header: VerifiedPublicHeader,
-        encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+        encapsulated_part: EncapsulatedPart,
     ) -> Self {
         Self {
             validated_public_header,
@@ -99,7 +98,7 @@ impl<const ENCAPSULATION_COUNT: usize>
 
     /// Consume the message to return its components.
     #[must_use]
-    pub fn into_components(self) -> (VerifiedPublicHeader, EncapsulatedPart<ENCAPSULATION_COUNT>) {
+    pub fn into_components(self) -> (VerifiedPublicHeader, EncapsulatedPart) {
         (self.validated_public_header, self.encapsulated_part)
     }
 
@@ -126,7 +125,7 @@ impl<const ENCAPSULATION_COUNT: usize>
             total_membership_size,
         }: &RequiredProofOfSelectionVerificationInputs,
         verifier: &Verifier,
-    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<DecapsulationOutput, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -155,10 +154,10 @@ impl<const ENCAPSULATION_COUNT: usize>
                 let blending_token =
                     BlendingToken::new(verified_proof_of_quota, verified_proof_of_selection);
                 Ok(DecapsulationOutput::Incompleted {
-                    remaining_encapsulated_message: EncapsulatedMessage::from_components(
-                        public_header,
+                    remaining_encapsulated_message: Box::new(EncapsulatedMessage::from_components(
+                        *public_header,
                         encapsulated_part,
-                    ),
+                    )),
                     blending_token,
                 })
             }
@@ -186,11 +185,8 @@ impl<const ENCAPSULATION_COUNT: usize>
     }
 }
 
-impl<const ENCAPSULATION_COUNT: usize>
-    From<EncapsulatedMessageWithVerifiedPublicHeader<ENCAPSULATION_COUNT>>
-    for EncapsulatedMessage<ENCAPSULATION_COUNT>
-{
-    fn from(value: EncapsulatedMessageWithVerifiedPublicHeader<ENCAPSULATION_COUNT>) -> Self {
+impl From<EncapsulatedMessageWithVerifiedPublicHeader> for EncapsulatedMessage {
+    fn from(value: EncapsulatedMessageWithVerifiedPublicHeader) -> Self {
         Self::from_components(
             value.validated_public_header.into(),
             value.encapsulated_part,

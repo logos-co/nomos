@@ -24,7 +24,10 @@ use nomos_blend_message::{
         },
         random_sized_bytes,
     },
-    encap::ProofsVerifier as ProofsVerifierTrait,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
     reward::{
         self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
         SessionBlendingTokenCollector,
@@ -32,10 +35,7 @@ use nomos_blend_message::{
 };
 use nomos_blend_scheduling::{
     SessionMessageScheduler,
-    message_blend::{
-        crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-        provers::core_and_leader::CoreAndLeaderProofsGenerator,
-    },
+    message_blend::provers::core_and_leader::CoreAndLeaderProofsGenerator,
     message_scheduler::{
         OldSessionMessageScheduler, ProcessedMessageScheduler,
         round_info::{RoundInfo, RoundReleaseType},

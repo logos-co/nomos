@@ -18,16 +18,16 @@ use nomos_blend_message::{
             selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
-    encap::ProofsVerifier,
+    encap::{
+        ProofsVerifier, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
     reward,
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::{
-            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
-        },
+        crypto::SessionCryptographicProcessorSettings,
         provers::{
             BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
         },

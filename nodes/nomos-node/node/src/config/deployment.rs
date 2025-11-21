@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::config::blend::deployment::Settings as BlendDeploymentSettings;
+use crate::config::{
+    blend::deployment::Settings as BlendDeploymentSettings,
+    network::deployment::Settings as NetworkDeploymentSettings,
+};
 
 /// Well-known deployments supported by the Nomos binary.
 ///
@@ -16,4 +19,5 @@ pub enum Settings {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CustomDeployment {
     pub blend: BlendDeploymentSettings,
+    pub network: NetworkDeploymentSettings,
 }

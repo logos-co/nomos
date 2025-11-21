@@ -1,20 +1,22 @@
-#[cfg(feature = "libp2p")]
-pub mod libp2p;
-
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey,
-    quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+use nomos_blend_message::{
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    },
+    encap::{
+        encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader, session::SessionEvent,
-};
+use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
+
+#[cfg(feature = "libp2p")]
+pub mod libp2p;
 
 pub type EpochInfo = LeaderInputs;
 

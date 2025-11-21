@@ -2,7 +2,7 @@ use core::{hash::Hash, marker::PhantomData};
 use std::num::NonZeroU64;
 
 use nomos_blend_message::{
-    Error, PayloadType,
+    Error, PaddedPayloadBody, PayloadType,
     crypto::{
         keys::X25519PrivateKey,
         proofs::{
@@ -17,8 +17,7 @@ use crate::{
     membership::Membership,
     message_blend::{
         crypto::{
-            EncapsulatedMessageWithVerifiedPublicHeader, EncapsulationInputs,
-            SessionCryptographicProcessorSettings,
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
         },
         provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
@@ -146,6 +145,8 @@ where
         payload_type: PayloadType,
         payload: &[u8],
     ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
+        // We validate the payload early on so we don't generate proofs unnecessarily.
+        let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         match payload_type {
@@ -193,22 +194,23 @@ where
                 )
             });
 
-        let inputs = EncapsulationInputs::new(
-            proofs_and_signing_keys
-                .into_iter()
-                .map(|(proof, receiver_non_ephemeral_signing_key)| {
-                    EncapsulationInput::new(
-                        proof.ephemeral_signing_key,
-                        &receiver_non_ephemeral_signing_key,
-                        proof.proof_of_quota,
-                        proof.proof_of_selection,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )?;
+        let inputs = proofs_and_signing_keys
+            .into_iter()
+            .map(|(proof, receiver_non_ephemeral_signing_key)| {
+                EncapsulationInput::new(
+                    proof.ephemeral_signing_key,
+                    &receiver_non_ephemeral_signing_key,
+                    proof.proof_of_quota,
+                    proof.proof_of_selection,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        EncapsulatedMessageWithVerifiedPublicHeader::new(&inputs, payload_type, payload)
+        Ok(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &inputs,
+            payload_type,
+            validated_payload,
+        ))
     }
 }
 

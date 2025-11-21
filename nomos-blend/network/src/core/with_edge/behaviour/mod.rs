@@ -20,12 +20,12 @@ use libp2p::{
 use nomos_blend_message::{
     Error,
     crypto::proofs::quota::{self, inputs::prove::public::LeaderInputs},
-    encap,
+    encap::{
+        self, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-};
+use nomos_blend_scheduling::{deserialize_encapsulated_message, membership::Membership};
 
 use crate::core::with_edge::behaviour::handler::{ConnectionHandler, FromBehaviour, ToBehaviour};
 

@@ -21,12 +21,15 @@ use libp2p::{
     },
 };
 use nomos_blend_message::{
-    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
+    MessageIdentifier,
+    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
+    encap::{
+        self, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, deserialize_encapsulated_message, membership::Membership,
-    message_blend::crypto::EncapsulatedMessageWithVerifiedPublicHeader,
-    serialize_encapsulated_message,
+    deserialize_encapsulated_message, membership::Membership, serialize_encapsulated_message,
 };
 
 use crate::core::with_core::{

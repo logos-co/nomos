@@ -7,14 +7,10 @@ use crate::{
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
 #[derive(Clone)]
-pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub enum DecapsulationOutput {
     Incompleted {
-        remaining_encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+        remaining_encapsulated_message: Box<EncapsulatedMessage>,
         blending_token: BlendingToken,
     },
     Completed {
@@ -24,16 +20,12 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 }
 
 /// The output of [`EncapsulatedPart::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
-pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub(super) enum PartDecapsulationOutput {
     Incompleted {
         // Encapsulated part of the next layer.
-        encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
+        encapsulated_part: EncapsulatedPart,
         // Public (unverified) header of the next layer.
-        public_header: PublicHeader,
+        public_header: Box<PublicHeader>,
         // Verified PoSel of the current layer.
         verified_proof_of_selection: VerifiedProofOfSelection,
     },
@@ -75,17 +67,17 @@ impl DecapsulatedMessage {
 }
 
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
-pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub(super) enum PrivateHeaderDecapsulationOutput {
     Incompleted {
         // Encapsulated part of the next layer.
-        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        encapsulated_private_header: EncapsulatedPrivateHeader,
         // Public (unverified) header of the next layer.
         public_header: PublicHeader,
         // Verified PoSel of the current layer.
         proof_of_selection: VerifiedProofOfSelection,
     },
     Completed {
-        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        encapsulated_private_header: EncapsulatedPrivateHeader,
         public_header: PublicHeader,
         proof_of_selection: VerifiedProofOfSelection,
     },

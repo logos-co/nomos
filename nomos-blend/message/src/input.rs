@@ -1,41 +1,7 @@
-use crate::{
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
-        proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
-    },
-    error::Error,
+use crate::crypto::{
+    keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
+    proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
 };
-
-/// A list of [`EncapsulationInput`]s.
-/// This ensures that the number of inputs is (0, `ENCAPSULATION_COUNT`].
-pub struct EncapsulationInputs<const ENCAPSULATION_COUNT: usize>(Box<[EncapsulationInput]>);
-
-impl<const ENCAPSULATION_COUNT: usize> EncapsulationInputs<ENCAPSULATION_COUNT> {
-    pub fn new(inputs: Box<[EncapsulationInput]>) -> Result<Self, Error> {
-        if inputs.len() > ENCAPSULATION_COUNT {
-            return Err(Error::EncapsulationCountExceeded);
-        }
-        if inputs.is_empty() {
-            return Err(Error::EmptyEncapsulationInputs);
-        }
-        Ok(Self(inputs))
-    }
-
-    pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &EncapsulationInput> {
-        self.0.iter()
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    /// Returns `ENCAPSULATION_COUNT` - [`Self::len`].
-    pub(crate) fn num_empty_slots(&self) -> usize {
-        ENCAPSULATION_COUNT
-            .checked_sub(self.len())
-            .expect("len must be <= ENCAPSULATION_COUNT")
-    }
-}
 
 /// Input for a single encapsulation,
 pub struct EncapsulationInput {
@@ -92,53 +58,5 @@ impl EncapsulationInput {
     #[must_use]
     pub const fn proof_of_selection(&self) -> &VerifiedProofOfSelection {
         &self.proof_of_selection
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const ENCAPSULATION_COUNT: usize = 3;
-
-    #[test]
-    fn valid_encapsulation_inputs() {
-        let inputs = generate_inputs(2).unwrap();
-        assert_eq!(inputs.len(), 2);
-        assert_eq!(inputs.num_empty_slots(), ENCAPSULATION_COUNT - 2);
-    }
-
-    #[test]
-    fn encapsulation_count_exceeded() {
-        assert!(matches!(
-            generate_inputs(ENCAPSULATION_COUNT + 1).err(),
-            Some(Error::EncapsulationCountExceeded)
-        ));
-    }
-
-    #[test]
-    fn empty_inputs() {
-        assert!(matches!(
-            generate_inputs(0).err(),
-            Some(Error::EmptyEncapsulationInputs)
-        ));
-    }
-
-    fn generate_inputs(cnt: usize) -> Result<EncapsulationInputs<ENCAPSULATION_COUNT>, Error> {
-        EncapsulationInputs::new(
-            std::iter::repeat_with(Ed25519PrivateKey::generate)
-                .take(cnt)
-                .map(|recipient_signing_key| {
-                    let recipient_signing_pubkey = recipient_signing_key.public_key();
-                    EncapsulationInput::new(
-                        Ed25519PrivateKey::generate(),
-                        &recipient_signing_pubkey,
-                        VerifiedProofOfQuota::dummy(),
-                        VerifiedProofOfSelection::dummy(),
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )
     }
 }

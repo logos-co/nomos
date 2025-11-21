@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use futures::StreamExt as _;
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_scheduling::EncapsulatedMessage;
+use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};

@@ -7,15 +7,19 @@ use std::{
 use nomos_blend_message::{
     Error as InnerError,
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+        encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
     reward::BlendingToken,
 };
 use nomos_blend_scheduling::{
-    DecapsulationOutput, EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
-            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
+            SessionCryptographicProcessorSettings,
             core_and_leader::send_and_receive::SessionCryptographicProcessor,
         },
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
@@ -107,7 +111,7 @@ impl From<DecapsulationOutput> for DecapsulatedMessageType {
             DecapsulationOutput::Incompleted {
                 remaining_encapsulated_message,
                 ..
-            } => Self::Incompleted(Box::new(remaining_encapsulated_message)),
+            } => Self::Incompleted(remaining_encapsulated_message),
         }
     }
 }
@@ -221,12 +225,10 @@ mod tests {
                 selection::{self, VerifiedProofOfSelection},
             },
         },
+        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
         input::EncapsulationInput,
     };
-    use nomos_blend_scheduling::message_blend::crypto::{
-        EncapsulatedMessageWithVerifiedPublicHeader, EncapsulationInputs,
-        SessionCryptographicProcessorSettings,
-    };
+    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
 
     use crate::{
@@ -442,21 +444,21 @@ mod tests {
     fn mock_message(
         recipient_signing_pubkey: &Ed25519PublicKey,
     ) -> EncapsulatedMessageWithVerifiedPublicHeader {
-        let inputs = EncapsulationInputs::new(
-            std::iter::repeat_with(|| {
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    recipient_signing_pubkey,
-                    VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
-                    VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
-                )
-            })
-            .take(3)
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+        let inputs = std::iter::repeat_with(|| {
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                recipient_signing_pubkey,
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
+            )
+        })
+        .take(3)
+        .collect::<Vec<_>>();
+        EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &inputs,
+            PayloadType::Cover,
+            b"".as_slice().try_into().unwrap(),
         )
-        .unwrap();
-        EncapsulatedMessageWithVerifiedPublicHeader::new(&inputs, PayloadType::Cover, b"").unwrap()
     }
 
     fn settings(local_id: NodeId) -> SessionCryptographicProcessorSettings {

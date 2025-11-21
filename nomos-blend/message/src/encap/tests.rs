@@ -19,11 +19,9 @@ use crate::{
             EncapsulatedMessageWithVerifiedPublicHeader, RequiredProofOfSelectionVerificationInputs,
         },
     },
-    input::{EncapsulationInput, EncapsulationInputs},
+    input::EncapsulationInput,
     message::payload::MAX_PAYLOAD_BODY_SIZE,
 };
-
-const ENCAPSULATION_COUNT: usize = 3;
 
 struct NeverFailingProofsVerifier;
 
@@ -124,15 +122,12 @@ fn encapsulate_and_decapsulate() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = NeverFailingProofsVerifier;
 
-    let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
-    let msg = EncapsulatedMessage::from(
-        EncapsulatedMessageWithVerifiedPublicHeader::<ENCAPSULATION_COUNT>::new(
-            &inputs,
-            PayloadType::Data,
-            PAYLOAD_BODY,
-        )
-        .unwrap(),
-    );
+    let (inputs, blend_node_enc_keys) = generate_inputs(2);
+    let msg = EncapsulatedMessage::from(EncapsulatedMessageWithVerifiedPublicHeader::new(
+        &inputs,
+        PayloadType::Data,
+        PAYLOAD_BODY.try_into().unwrap(),
+    ));
 
     // NOTE: We expect that the decapsulations can be done
     // in the "reverse" order of blend_node_enc_keys.
@@ -192,17 +187,16 @@ fn encapsulate_and_decapsulate() {
 }
 
 #[test]
+#[should_panic(expected = "Payload too large")]
 fn payload_too_long() {
-    let (inputs, _) = generate_inputs(1).unwrap();
-    assert!(matches!(
-        EncapsulatedMessageWithVerifiedPublicHeader::<ENCAPSULATION_COUNT>::new(
-            &inputs,
-            PayloadType::Data,
-            &vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
-        )
-        .err(),
-        Some(Error::PayloadTooLarge)
-    ));
+    let (inputs, _) = generate_inputs(1);
+    let _ = EncapsulatedMessageWithVerifiedPublicHeader::new(
+        &inputs,
+        PayloadType::Data,
+        vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
+            .try_into()
+            .expect("Payload too large"),
+    );
 }
 
 #[test]
@@ -211,15 +205,12 @@ fn invalid_public_header_signature() {
     let verifier = NeverFailingProofsVerifier;
 
     let msg_with_invalid_signature = {
-        let (inputs, _) = generate_inputs(2).unwrap();
-        let mut msg = EncapsulatedMessage::from(
-            EncapsulatedMessageWithVerifiedPublicHeader::<ENCAPSULATION_COUNT>::new(
-                &inputs,
-                PayloadType::Data,
-                PAYLOAD_BODY,
-            )
-            .unwrap(),
-        );
+        let (inputs, _) = generate_inputs(2);
+        let mut msg = EncapsulatedMessage::from(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &inputs,
+            PayloadType::Data,
+            PAYLOAD_BODY.try_into().unwrap(),
+        ));
         *msg.public_header_mut().signature_mut() = Signature::from([100u8; SIGNATURE_SIZE]);
         msg
     };
@@ -239,15 +230,12 @@ fn invalid_public_header_proof_of_quota() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfQuotaVerifier;
 
-    let (inputs, _) = generate_inputs(2).unwrap();
-    let msg = EncapsulatedMessage::from(
-        EncapsulatedMessageWithVerifiedPublicHeader::<ENCAPSULATION_COUNT>::new(
-            &inputs,
-            PayloadType::Data,
-            PAYLOAD_BODY,
-        )
-        .unwrap(),
-    );
+    let (inputs, _) = generate_inputs(2);
+    let msg = EncapsulatedMessage::from(EncapsulatedMessageWithVerifiedPublicHeader::new(
+        &inputs,
+        PayloadType::Data,
+        PAYLOAD_BODY.try_into().unwrap(),
+    ));
 
     let public_header_verification_result = msg.verify_public_header(&verifier);
     assert!(matches!(
@@ -265,16 +253,12 @@ fn invalid_blend_header_proof_of_selection() {
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfSelectionVerifier;
 
-    let (inputs, blend_node_enc_keys) = generate_inputs(2).unwrap();
-    let msg = EncapsulatedMessage::from(
-        EncapsulatedMessageWithVerifiedPublicHeader::<ENCAPSULATION_COUNT>::new(
-            &inputs,
-            PayloadType::Data,
-            PAYLOAD_BODY,
-        )
-        .unwrap(),
-    );
-
+    let (inputs, blend_node_enc_keys) = generate_inputs(2);
+    let msg = EncapsulatedMessage::from(EncapsulatedMessageWithVerifiedPublicHeader::new(
+        &inputs,
+        PayloadType::Data,
+        PAYLOAD_BODY.try_into().unwrap(),
+    ));
     let validated_message = msg.verify_public_header(&verifier).unwrap();
 
     let validated_message_decapsulation_result = validated_message.decapsulate(
@@ -290,37 +274,26 @@ fn invalid_blend_header_proof_of_selection() {
     ));
 }
 
-fn generate_inputs(
-    cnt: usize,
-) -> Result<
-    (
-        EncapsulationInputs<ENCAPSULATION_COUNT>,
-        Vec<X25519PrivateKey>,
-    ),
-    Error,
-> {
+fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey>) {
     let recipient_signing_keys = core::iter::repeat_with(Ed25519PrivateKey::generate)
         .take(cnt)
         .collect::<Vec<_>>();
-    let inputs = EncapsulationInputs::new(
-        recipient_signing_keys
-            .iter()
-            .map(|recipient_signing_key| {
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_key.public_key(),
-                    VerifiedProofOfQuota::dummy(),
-                    VerifiedProofOfSelection::dummy(),
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )?;
-    Ok((
+    let inputs = recipient_signing_keys
+        .iter()
+        .map(|recipient_signing_key| {
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                &recipient_signing_key.public_key(),
+                VerifiedProofOfQuota::dummy(),
+                VerifiedProofOfSelection::dummy(),
+            )
+        })
+        .collect::<Vec<_>>();
+    (
         inputs,
         recipient_signing_keys
             .iter()
             .map(Ed25519PrivateKey::derive_x25519)
             .collect(),
-    ))
+    )
 }
