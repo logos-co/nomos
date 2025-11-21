@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use reqwest::{Client, Response};
 use serde::de::DeserializeOwned;
 
-use crate::server::ClientIp;
+use crate::{config::HostPorts, server::ClientIp};
 
 async fn deserialize_response<Config: DeserializeOwned>(
     response: Response,
@@ -21,12 +21,17 @@ pub async fn get_config<Config: DeserializeOwned>(
     ip: Ipv4Addr,
     identifier: String,
     url: &str,
+    ports: Option<HostPorts>,
 ) -> Result<Config, String> {
     let client = Client::new();
 
     let response = client
         .post(url)
-        .json(&ClientIp { ip, identifier })
+        .json(&ClientIp {
+            ip,
+            identifier,
+            ports,
+        })
         .send()
         .await
         .map_err(|err| format!("Failed to send IP announcement: {err}"))?;

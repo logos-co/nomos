@@ -25,25 +25,35 @@ pub struct ConfigRepo {
     da_params: DaParams,
     tracing_settings: TracingSettings,
     timeout_duration: Duration,
+    prebuilt_configs: HashMap<String, GeneralConfig>,
 }
 
 impl From<CfgSyncConfig> for Arc<ConfigRepo> {
     fn from(config: CfgSyncConfig) -> Self {
+        ConfigRepo::from_with_prebuilt(&config, HashMap::new())
+    }
+}
+
+impl ConfigRepo {
+    #[must_use]
+    pub fn from_with_prebuilt(
+        config: &CfgSyncConfig,
+        prebuilt_configs: HashMap<String, GeneralConfig>,
+    ) -> Arc<Self> {
         let consensus_params = config.to_consensus_params();
         let da_params = config.to_da_params();
         let tracing_settings = config.to_tracing_settings();
 
-        ConfigRepo::new(
+        Self::new(
             config.n_hosts,
             consensus_params,
             da_params,
             tracing_settings,
             Duration::from_secs(config.timeout),
+            prebuilt_configs,
         )
     }
-}
 
-impl ConfigRepo {
     #[must_use]
     pub fn new(
         n_hosts: usize,
@@ -51,6 +61,7 @@ impl ConfigRepo {
         da_params: DaParams,
         tracing_settings: TracingSettings,
         timeout_duration: Duration,
+        prebuilt_configs: HashMap<String, GeneralConfig>,
     ) -> Arc<Self> {
         let repo = Arc::new(Self {
             waiting_hosts: Mutex::new(HashMap::new()),
@@ -59,6 +70,7 @@ impl ConfigRepo {
             da_params,
             tracing_settings,
             timeout_duration,
+            prebuilt_configs,
         });
 
         let repo_clone = Arc::clone(&repo);
@@ -88,6 +100,7 @@ impl ConfigRepo {
                 &self.da_params,
                 &self.tracing_settings,
                 hosts,
+                Some(&self.prebuilt_configs),
             );
 
             for (host, sender) in waiting_hosts.drain() {

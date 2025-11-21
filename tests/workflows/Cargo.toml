@@ -10,11 +10,12 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
-serial_test                    = "2"
-testing-framework-core         = { workspace = true }
-testing-framework-runner-local = { workspace = true }
-testing-framework-workflows    = { workspace = true }
-tokio                          = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+serial_test                      = "2"
+testing-framework-core           = { workspace = true }
+testing-framework-runner-compose = { workspace = true }
+testing-framework-runner-local   = { workspace = true }
+testing-framework-workflows      = { workspace = true }
+tokio                            = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true

@@ -1,7 +1,9 @@
 use std::{
+    collections::HashMap,
     env,
     net::{Ipv4Addr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use anyhow::Context as _;
@@ -15,8 +17,12 @@ use testing_framework_core::{
         http_probe::{HttpReadinessError, NodeRole},
         spawn_block_feed,
     },
-    topology::{GeneratedNodeConfig, GeneratedTopology, ReadinessError},
+    topology::{
+        GeneratedNodeConfig, GeneratedTopology, ReadinessError,
+        configs::GeneralConfig as IntegrationGeneralConfig,
+    },
 };
+use tokio::time::sleep;
 use tracing::{error, info};
 use url::ParseError;
 use uuid::Uuid;
@@ -58,6 +64,7 @@ impl ComposeRunner {
 }
 
 const PROMETHEUS_PORT_ENV: &str = "TEST_FRAMEWORK_PROMETHEUS_PORT";
+const DEFAULT_PROMETHEUS_PORT: u16 = 9090;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeRunnerError {
@@ -177,24 +184,27 @@ impl Deployer for ComposeRunner {
         let prometheus_port = desired_prometheus_port();
         let mut environment = prepare_environment(&descriptors, prometheus_port).await?;
 
-        info!("waiting for validator HTTP endpoints");
-        if let Err(err) = ensure_validators_ready(&descriptors).await {
-            environment.fail("validator readiness failed").await;
-            return Err(err.into());
-        }
-
-        info!("waiting for executor HTTP endpoints");
-        if let Err(err) = ensure_executors_ready(&descriptors).await {
-            environment.fail("executor readiness failed").await;
-            return Err(err.into());
-        }
-
         if self.readiness_checks {
+            info!("waiting for validator HTTP endpoints");
+            if let Err(err) = ensure_validators_ready(&descriptors).await {
+                environment.fail("validator readiness failed").await;
+                return Err(err.into());
+            }
+
+            info!("waiting for executor HTTP endpoints");
+            if let Err(err) = ensure_executors_ready(&descriptors).await {
+                environment.fail("executor readiness failed").await;
+                return Err(err.into());
+            }
+
             info!("waiting for remote service readiness");
             if let Err(err) = ensure_remote_readiness(&descriptors).await {
                 environment.fail("remote readiness probe failed").await;
                 return Err(err.into());
             }
+        } else {
+            info!("readiness checks disabled; giving the stack a short grace period");
+            sleep(Duration::from_secs(5)).await;
         }
 
         info!("compose stack ready; building node clients");
@@ -236,7 +246,15 @@ fn desired_prometheus_port() -> u16 {
     env::var(PROMETHEUS_PORT_ENV)
         .ok()
         .and_then(|raw| raw.parse::<u16>().ok())
-        .unwrap_or(9090)
+        .unwrap_or_else(|| allocate_prometheus_port().unwrap_or(DEFAULT_PROMETHEUS_PORT))
+}
+
+fn allocate_prometheus_port() -> Option<u16> {
+    let try_bind = |port| StdTcpListener::bind((Ipv4Addr::LOCALHOST, port));
+    let listener = try_bind(DEFAULT_PROMETHEUS_PORT)
+        .or_else(|_| try_bind(0))
+        .ok()?;
+    listener.local_addr().ok().map(|addr| addr.port())
 }
 
 fn build_node_clients(descriptors: &GeneratedTopology) -> Result<NodeClients, NodeClientError> {
@@ -284,7 +302,7 @@ async fn spawn_block_feed_with(
     node_clients: &NodeClients,
 ) -> Result<(BlockFeed, BlockFeedTask), ComposeRunnerError> {
     let block_source_client = node_clients
-        .any_client()
+        .random_validator()
         .cloned()
         .ok_or(ComposeRunnerError::BlockFeedMissing)?;
 
@@ -372,6 +390,32 @@ fn collect_executor_ports(descriptors: &GeneratedTopology) -> Vec<u16> {
         .collect()
 }
 
+fn collect_prebuilt_configs(
+    descriptors: &GeneratedTopology,
+) -> HashMap<String, IntegrationGeneralConfig> {
+    let mut configs = HashMap::new();
+    for node in descriptors.validators() {
+        configs.insert(
+            node_identifier(NodeRole::Validator, node.index()),
+            node.general.clone(),
+        );
+    }
+    for node in descriptors.executors() {
+        configs.insert(
+            node_identifier(NodeRole::Executor, node.index()),
+            node.general.clone(),
+        );
+    }
+    configs
+}
+
+fn node_identifier(role: NodeRole, index: usize) -> String {
+    match role {
+        NodeRole::Validator => format!("validator-{index}"),
+        NodeRole::Executor => format!("executor-{index}"),
+    }
+}
+
 struct WorkspaceState {
     workspace: ComposeWorkspace,
     root: PathBuf,
@@ -397,7 +441,13 @@ async fn prepare_environment(
     let workspace = prepare_workspace_logged()?;
     update_cfgsync_logged(&workspace, descriptors)?;
 
-    let (cfgsync_port, mut cfgsync_handle) = start_cfgsync_stage(&workspace).await?;
+    let prebuilt_configs = collect_prebuilt_configs(descriptors);
+    assert!(
+        !prebuilt_configs.is_empty(),
+        "compose runner must inject prebuilt configs for cfgsync"
+    );
+    let (cfgsync_port, mut cfgsync_handle) =
+        start_cfgsync_stage(&workspace, prebuilt_configs).await?;
     let compose_path =
         render_compose_logged(&workspace, descriptors, cfgsync_port, prometheus_port)?;
 
@@ -447,10 +497,11 @@ fn update_cfgsync_logged(
 
 async fn start_cfgsync_stage(
     workspace: &WorkspaceState,
+    prebuilt_configs: HashMap<String, IntegrationGeneralConfig>,
 ) -> Result<(u16, CfgsyncServerHandle), ComposeRunnerError> {
     let cfgsync_port = allocate_cfgsync_port()?;
     info!(cfgsync_port = cfgsync_port, "launching cfgsync server");
-    let handle = launch_cfgsync(&workspace.cfgsync_path, cfgsync_port).await?;
+    let handle = launch_cfgsync(&workspace.cfgsync_path, cfgsync_port, prebuilt_configs).await?;
     Ok((cfgsync_port, handle))
 }
 
@@ -482,8 +533,9 @@ fn allocate_cfgsync_port() -> Result<u16, ConfigError> {
 async fn launch_cfgsync(
     cfgsync_path: &Path,
     port: u16,
+    prebuilt_configs: HashMap<String, IntegrationGeneralConfig>,
 ) -> Result<CfgsyncServerHandle, ConfigError> {
-    start_cfgsync_server(cfgsync_path, port)
+    start_cfgsync_server(cfgsync_path, port, prebuilt_configs)
         .await
         .map_err(|source| ConfigError::CfgsyncStart { port, source })
 }
@@ -634,5 +686,211 @@ impl CleanupGuard for ComposeCleanupGuard {
             CleanupGuard::cleanup(Box::new(block_feed));
         }
         CleanupGuard::cleanup(Box::new(self.environment));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, net::Ipv4Addr};
+
+    use cfgsync::config::{Host, HostPorts, create_node_configs};
+    use groth16::Fr;
+    use nomos_core::{
+        mantle::{GenesisTx as GenesisTxTrait, ledger::NoteId},
+        sdp::{ProviderId, ServiceType},
+    };
+    use nomos_ledger::LedgerState;
+    use nomos_tracing_service::TracingSettings;
+    use testing_framework_core::{
+        scenario::ScenarioBuilder,
+        topology::{GeneratedNodeConfig, GeneratedTopology, NodeRole},
+    };
+    use zksign::PublicKey;
+
+    use super::collect_prebuilt_configs;
+
+    #[test]
+    fn cfgsync_prebuilt_configs_preserve_genesis() {
+        let scenario = ScenarioBuilder::with_node_counts(1, 1).build();
+        let topology = scenario.topology().clone();
+        let hosts = hosts_from_topology(&topology);
+        let prebuilt = collect_prebuilt_configs(&topology);
+        let tracing_settings = tracing_settings(&topology);
+
+        let configs = create_node_configs(
+            &topology.config().consensus_params,
+            &topology.config().da_params,
+            &tracing_settings,
+            hosts,
+            Some(&prebuilt),
+        );
+        let configs_by_identifier: HashMap<_, _> = configs
+            .into_iter()
+            .map(|(host, config)| (host.identifier, config))
+            .collect();
+
+        for node in topology.nodes() {
+            let identifier = identifier_for(node.role(), node.index());
+            let cfgsync_config = configs_by_identifier
+                .get(&identifier)
+                .unwrap_or_else(|| panic!("missing cfgsync config for {identifier}"));
+            let expected_genesis = &node.general.consensus_config.genesis_tx;
+            let actual_genesis = &cfgsync_config.consensus_config.genesis_tx;
+            if std::env::var("PRINT_GENESIS").is_ok() {
+                println!(
+                    "[fingerprint {identifier}] expected={:?}",
+                    declaration_fingerprint(expected_genesis)
+                );
+                println!(
+                    "[fingerprint {identifier}] actual={:?}",
+                    declaration_fingerprint(actual_genesis)
+                );
+            }
+            assert_eq!(
+                expected_genesis.mantle_tx().ledger_tx,
+                actual_genesis.mantle_tx().ledger_tx,
+                "ledger tx mismatch for {identifier}"
+            );
+            assert_eq!(
+                declaration_fingerprint(expected_genesis),
+                declaration_fingerprint(actual_genesis),
+                "declaration entries mismatch for {identifier}"
+            );
+        }
+    }
+
+    #[test]
+    fn cfgsync_genesis_proofs_verify_against_ledger() {
+        let scenario = ScenarioBuilder::with_node_counts(1, 1).build();
+        let topology = scenario.topology().clone();
+        let hosts = hosts_from_topology(&topology);
+        let prebuilt = collect_prebuilt_configs(&topology);
+        let tracing_settings = tracing_settings(&topology);
+
+        let configs = create_node_configs(
+            &topology.config().consensus_params,
+            &topology.config().da_params,
+            &tracing_settings,
+            hosts,
+            Some(&prebuilt),
+        );
+        let configs_by_identifier: HashMap<_, _> = configs
+            .into_iter()
+            .map(|(host, config)| (host.identifier, config))
+            .collect();
+
+        for node in topology.nodes() {
+            let identifier = identifier_for(node.role(), node.index());
+            let cfgsync_config = configs_by_identifier
+                .get(&identifier)
+                .unwrap_or_else(|| panic!("missing cfgsync config for {identifier}"));
+            LedgerState::from_genesis_tx::<()>(
+                cfgsync_config.consensus_config.genesis_tx.clone(),
+                &cfgsync_config.consensus_config.ledger_config,
+                Fr::from(0u64),
+            )
+            .unwrap_or_else(|err| panic!("ledger rejected genesis for {identifier}: {err:?}"));
+        }
+    }
+
+    #[test]
+    fn cfgsync_docker_overrides_produce_valid_genesis() {
+        let scenario = ScenarioBuilder::with_node_counts(1, 1).build();
+        let topology = scenario.topology().clone();
+        let prebuilt = collect_prebuilt_configs(&topology);
+        let tracing_settings = tracing_settings(&topology);
+        let hosts = docker_style_hosts(&topology);
+
+        let configs = create_node_configs(
+            &topology.config().consensus_params,
+            &topology.config().da_params,
+            &tracing_settings,
+            hosts,
+            Some(&prebuilt),
+        );
+
+        for (host, config) in configs {
+            let genesis = &config.consensus_config.genesis_tx;
+            LedgerState::from_genesis_tx::<()>(
+                genesis.clone(),
+                &config.consensus_config.ledger_config,
+                Fr::from(0u64),
+            )
+            .unwrap_or_else(|err| {
+                panic!("ledger rejected genesis for {}: {err:?}", host.identifier)
+            });
+        }
+    }
+
+    fn hosts_from_topology(topology: &GeneratedTopology) -> Vec<Host> {
+        topology.nodes().map(host_from_node).collect()
+    }
+
+    fn docker_style_hosts(topology: &GeneratedTopology) -> Vec<Host> {
+        topology
+            .nodes()
+            .map(|node| docker_host(node, 10 + node.index() as u8))
+            .collect()
+    }
+
+    fn host_from_node(node: &GeneratedNodeConfig) -> Host {
+        let ports = HostPorts {
+            network_port: node.network_port(),
+            da_network_port: node.da_port,
+            blend_port: node.blend_port,
+            api_port: node.api_port(),
+            testing_http_port: node.testing_http_port(),
+        };
+        let identifier = identifier_for(node.role(), node.index());
+        let ip = Ipv4Addr::LOCALHOST;
+        match node.role() {
+            NodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
+            NodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
+        }
+    }
+
+    fn docker_host(node: &GeneratedNodeConfig, octet: u8) -> Host {
+        let ports = HostPorts {
+            network_port: node.network_port() + 1000,
+            da_network_port: node.da_port + 1000,
+            blend_port: node.blend_port + 1000,
+            api_port: node.api_port() + 1000,
+            testing_http_port: node.testing_http_port() + 1000,
+        };
+        let identifier = identifier_for(node.role(), node.index());
+        let ip = Ipv4Addr::new(172, 23, 0, octet);
+        match node.role() {
+            NodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
+            NodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
+        }
+    }
+
+    fn tracing_settings(topology: &GeneratedTopology) -> TracingSettings {
+        topology
+            .validators()
+            .first()
+            .or_else(|| topology.executors().first())
+            .expect("topology must contain at least one node")
+            .general
+            .tracing_config
+            .tracing_settings
+            .clone()
+    }
+
+    fn identifier_for(role: NodeRole, index: usize) -> String {
+        match role {
+            NodeRole::Validator => format!("validator-{index}"),
+            NodeRole::Executor => format!("executor-{index}"),
+        }
+    }
+
+    fn declaration_fingerprint<G>(genesis: &G) -> Vec<(ServiceType, ProviderId, NoteId, PublicKey)>
+    where
+        G: GenesisTxTrait,
+    {
+        genesis
+            .sdp_declarations()
+            .map(|(op, _)| (op.service_type, op.provider_id, op.locked_note_id, op.zk_id))
+            .collect()
     }
 }

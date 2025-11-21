@@ -47,7 +47,7 @@ use nomos_time::{
     TimeServiceSettings,
     backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
 };
-use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
+use nomos_utils::math::NonNegativeF64;
 use nomos_wallet::WalletServiceSettings;
 
 use crate::{
@@ -62,10 +62,6 @@ use crate::{
     reason = "Validator config wiring aggregates many service settings"
 )]
 pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
-    let testing_http_address = format!("127.0.0.1:{}", get_available_tcp_port().unwrap())
-        .parse()
-        .unwrap();
-
     let da_policy_settings = config.da_config.policy_settings;
     let (blend_user_config, deployment_settings) = build_blend_service_config(&config.blend_config);
     ValidatorConfig {
@@ -218,7 +214,7 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
         key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: NodeAxumBackendSettings {
-                address: testing_http_address,
+                address: config.api_config.testing_http_address,
                 rate_limit_per_second: 10000,
                 rate_limit_burst: 10000,
                 max_concurrent_requests: 1000,

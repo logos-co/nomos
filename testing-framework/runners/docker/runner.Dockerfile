@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG VERSION=v0.2.0
+ARG VERSION=v0.3.1
 ARG NOMOS_CIRCUITS_PLATFORM=linux-x86_64
 
 # ===========================

@@ -15,7 +15,7 @@ use tests::{
 use tokio::sync::oneshot::channel;
 
 use crate::{
-    config::Host,
+    config::{Host, HostPorts},
     repo::{ConfigRepo, RepoResponse},
 };
 
@@ -112,16 +112,22 @@ impl CfgSyncConfig {
 pub struct ClientIp {
     pub ip: Ipv4Addr,
     pub identifier: String,
+    #[serde(default)]
+    pub ports: Option<HostPorts>,
 }
 
 async fn validator_config(
     State(config_repo): State<Arc<ConfigRepo>>,
     Json(payload): Json<ClientIp>,
 ) -> impl IntoResponse {
-    let ClientIp { ip, identifier } = payload;
-
+    let ClientIp {
+        ip,
+        identifier,
+        ports,
+    } = payload;
     let (reply_tx, reply_rx) = channel();
-    config_repo.register(Host::default_validator_from_ip(ip, identifier), reply_tx);
+    let host = Host::validator_from_ip(ip, identifier, ports);
+    config_repo.register(host, reply_tx);
 
     (reply_rx.await).map_or_else(
         |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),
@@ -139,10 +145,14 @@ async fn executor_config(
     State(config_repo): State<Arc<ConfigRepo>>,
     Json(payload): Json<ClientIp>,
 ) -> impl IntoResponse {
-    let ClientIp { ip, identifier } = payload;
-
+    let ClientIp {
+        ip,
+        identifier,
+        ports,
+    } = payload;
     let (reply_tx, reply_rx) = channel();
-    config_repo.register(Host::default_executor_from_ip(ip, identifier), reply_tx);
+    let host = Host::executor_from_ip(ip, identifier, ports);
+    config_repo.register(host, reply_tx);
 
     (reply_rx.await).map_or_else(
         |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),

@@ -1,6 +1,6 @@
 use std::{env, fs, net::Ipv4Addr, process};
 
-use cfgsync::client::get_config;
+use cfgsync::{client::get_config, config::HostPorts};
 use nomos_executor::config::Config as ExecutorConfig;
 use nomos_node::Config as ValidatorConfig;
 use serde::{Serialize, de::DeserializeOwned};
@@ -17,8 +17,9 @@ async fn pull_to_file<Config: Serialize + DeserializeOwned>(
     identifier: String,
     url: &str,
     config_file: &str,
+    ports: Option<HostPorts>,
 ) -> Result<(), String> {
-    let config = get_config::<Config>(ip, identifier, url).await?;
+    let config = get_config::<Config>(ip, identifier, url, ports).await?;
     let yaml = serde_yaml::to_string(&config)
         .map_err(|err| format!("Failed to serialize config to YAML: {err}"))?;
 
@@ -38,6 +39,7 @@ async fn main() {
         env::var("CFG_HOST_IDENTIFIER").unwrap_or_else(|_| "unidentified-node".to_owned());
 
     let host_kind = env::var("CFG_HOST_KIND").unwrap_or_else(|_| "validator".to_owned());
+    let ports = collect_ports_from_env();
 
     let node_config_endpoint = match host_kind.as_str() {
         "executor" => format!("{server_addr}/executor"),
@@ -46,8 +48,14 @@ async fn main() {
 
     let config_result = match host_kind.as_str() {
         "executor" => {
-            pull_to_file::<ExecutorConfig>(ip, identifier, &node_config_endpoint, &config_file_path)
-                .await
+            pull_to_file::<ExecutorConfig>(
+                ip,
+                identifier,
+                &node_config_endpoint,
+                &config_file_path,
+                ports,
+            )
+            .await
         }
         _ => {
             pull_to_file::<ValidatorConfig>(
@@ -55,6 +63,7 @@ async fn main() {
                 identifier,
                 &node_config_endpoint,
                 &config_file_path,
+                ports,
             )
             .await
         }
@@ -65,4 +74,28 @@ async fn main() {
         eprintln!("Error: {err}");
         process::exit(1);
     }
+}
+
+fn read_port_env(key: &str) -> Option<u16> {
+    env::var(key).ok()?.parse().ok()
+}
+
+fn override_port(key: &str, target: &mut u16) -> bool {
+    read_port_env(key).is_some_and(|port| {
+        *target = port;
+        true
+    })
+}
+
+fn collect_ports_from_env() -> Option<HostPorts> {
+    let mut ports = HostPorts::default();
+    let mut any_override = false;
+
+    any_override |= override_port("CFG_NETWORK_PORT", &mut ports.network_port);
+    any_override |= override_port("CFG_DA_PORT", &mut ports.da_network_port);
+    any_override |= override_port("CFG_BLEND_PORT", &mut ports.blend_port);
+    any_override |= override_port("CFG_API_PORT", &mut ports.api_port);
+    any_override |= override_port("CFG_TESTING_HTTP_PORT", &mut ports.testing_http_port);
+
+    any_override.then_some(ports)
 }

@@ -29,7 +29,7 @@ async fn compose_runner_tx_workload() {
         .with_run_duration(Duration::from_secs(15))
         .build();
 
-    let deployer = ComposeRunner::new();
+    let deployer = ComposeRunner::new().with_readiness(false);
     let runner: Runner = deployer.deploy(&plan).await.expect("scenario deployment");
     let context = runner.context();
     assert!(

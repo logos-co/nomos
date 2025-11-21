@@ -283,6 +283,7 @@ impl NodeDescriptor {
         cfgsync_port: u16,
     ) -> Self {
         let mut environment = base_environment(cfgsync_port);
+        let identifier = kind.instance_name(index);
         environment.extend([
             EnvEntry::new(
                 "CFG_NETWORK_PORT",
@@ -302,6 +303,7 @@ impl NodeDescriptor {
                     .port()
                     .to_string(),
             ),
+            EnvEntry::new("CFG_HOST_IDENTIFIER", identifier),
         ]);
 
         let ports = vec![

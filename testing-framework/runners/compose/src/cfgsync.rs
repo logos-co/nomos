@@ -1,4 +1,4 @@
-use std::{net::Ipv4Addr, path::Path, sync::Arc};
+use std::{collections::HashMap, net::Ipv4Addr, path::Path};
 
 use anyhow::Context as _;
 use axum::serve;
@@ -8,7 +8,7 @@ use cfgsync::{
 };
 use testing_framework_core::{
     scenario::cfgsync::{apply_topology_overrides, load_cfgsync_template, write_cfgsync_template},
-    topology::GeneratedTopology,
+    topology::{GeneratedTopology, configs::GeneralConfig as IntegrationGeneralConfig},
 };
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
@@ -41,11 +41,12 @@ pub fn update_cfgsync_config(
 pub async fn start_cfgsync_server(
     cfgsync_path: &Path,
     port: u16,
+    prebuilt_configs: HashMap<String, IntegrationGeneralConfig>,
 ) -> anyhow::Result<CfgsyncServerHandle> {
     let cfg_path = cfgsync_path.to_path_buf();
     let config = ServerCfgSyncConfig::load_from_file(&cfg_path)
         .map_err(|err| anyhow::anyhow!("loading cfgsync config: {err}"))?;
-    let repo: Arc<ConfigRepo> = config.into();
+    let repo = ConfigRepo::from_with_prebuilt(&config, prebuilt_configs);
 
     let listener = TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))
         .await

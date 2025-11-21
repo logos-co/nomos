@@ -1,8 +1,13 @@
 [package]
-edition.workspace = true
-license.workspace = true
-name              = "testing-framework-runner-compose"
-version           = "0.1.0"
+categories.workspace  = true
+description.workspace = true
+edition.workspace     = true
+keywords.workspace    = true
+license.workspace     = true
+name                  = "testing-framework-runner-compose"
+readme.workspace      = true
+repository.workspace  = true
+version               = "0.1.0"
 
 [lints]
 workspace = true
@@ -22,3 +27,10 @@ tokio                  = { workspace = true, features = ["macros", "net", "proce
 tracing                = { workspace = true }
 url                    = { version = "2" }
 uuid                   = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+groth16               = { workspace = true }
+nomos-core            = { workspace = true }
+nomos-ledger          = { workspace = true }
+nomos-tracing-service = { workspace = true }
+zksign                = { workspace = true }

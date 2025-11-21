@@ -8,7 +8,6 @@ async fn main() -> Result<()> {
     let is_dry_run = cli_args.dry_run();
     let must_blend_service_group_start = cli_args.must_blend_service_group_start();
     let must_da_service_group_start = cli_args.must_da_service_group_start();
-
     let config =
         serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
             .update_from_args(cli_args)?;

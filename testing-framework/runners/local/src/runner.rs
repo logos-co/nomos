@@ -119,13 +119,11 @@ async fn wait_for_readiness(
 async fn spawn_block_feed_with(
     node_clients: &NodeClients,
 ) -> Result<(BlockFeed, BlockFeedTask), LocalDeployerError> {
-    let block_source_client =
-        node_clients
-            .any_client()
-            .cloned()
-            .ok_or_else(|| LocalDeployerError::WorkloadFailed {
-                source: "block feed requires at least one validator".into(),
-            })?;
+    let block_source_client = node_clients.random_validator().cloned().ok_or_else(|| {
+        LocalDeployerError::WorkloadFailed {
+            source: "block feed requires at least one validator".into(),
+        }
+    })?;
 
     spawn_block_feed(block_source_client)
         .await
