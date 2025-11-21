@@ -1,0 +1,38 @@
+image: "nomos-testnet:local"
+imagePullPolicy: IfNotPresent
+
+cfgsync:
+  port: 4400
+  config: ""
+
+scripts:
+  runCfgsyncSh: ""
+  runNomosNodeSh: ""
+  runNomosExecutorSh: ""
+
+validators:
+  count: 1
+  nodes: []
+
+executors:
+  count: 1
+  nodes: []
+
+kzg:
+  hostPath: "/var/lib/nomos/kzgrs_test_params"
+  hostPathType: "Directory"
+  storageSize: "1Gi"
+
+prometheus:
+  enabled: true
+  image: "prom/prometheus:v3.0.1"
+  imagePullPolicy: IfNotPresent
+  retention: "7d"
+  service:
+    type: NodePort
+    nodePort: null
+  config: |
+    global:
+      evaluation_interval: 15s
+      external_labels:
+        monitor: "NomosRunner"

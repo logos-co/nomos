@@ -68,13 +68,30 @@ pub async fn wait_for_http_ports(
     timeout_duration: Duration,
     poll_interval: Duration,
 ) -> Result<(), HttpReadinessError> {
+    wait_for_http_ports_with_host(ports, role, "127.0.0.1", timeout_duration, poll_interval).await
+}
+
+pub async fn wait_for_http_ports_with_host(
+    ports: &[u16],
+    role: NodeRole,
+    host: &str,
+    timeout_duration: Duration,
+    poll_interval: Duration,
+) -> Result<(), HttpReadinessError> {
     if ports.is_empty() {
         return Ok(());
     }
 
     let client = ReqwestClient::new();
     let probes = ports.iter().copied().map(|port| {
-        wait_for_single_port(client.clone(), port, role, timeout_duration, poll_interval)
+        wait_for_single_port(
+            client.clone(),
+            port,
+            role,
+            host,
+            timeout_duration,
+            poll_interval,
+        )
     });
 
     try_join_all(probes).await.map(|_| ())
@@ -84,10 +101,11 @@ async fn wait_for_single_port(
     client: ReqwestClient,
     port: u16,
     role: NodeRole,
+    host: &str,
     timeout_duration: Duration,
     poll_interval: Duration,
 ) -> Result<(), HttpReadinessError> {
-    let url = format!("http://127.0.0.1:{port}{}", paths::CRYPTARCHIA_INFO);
+    let url = format!("http://{host}:{port}{}", paths::CRYPTARCHIA_INFO);
     let probe = async {
         loop {
             let is_ready = client
