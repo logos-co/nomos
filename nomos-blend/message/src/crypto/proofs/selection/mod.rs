@@ -98,6 +98,7 @@ impl PartialEq<VerifiedProofOfSelection> for ProofOfSelection {
     }
 }
 
+/// A verified Proof of Selection.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfSelection(ProofOfSelection);
 

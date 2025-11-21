@@ -30,6 +30,6 @@ mod tests {
 
         let deserialized_proof_as_unverified =
             ProofOfQuota::from_bytes(&serialized_proof[..]).unwrap();
-        assert!(proof.as_ref() == &deserialized_proof_as_unverified);
+        assert!(proof == deserialized_proof_as_unverified);
     }
 }

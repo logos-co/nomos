@@ -793,10 +793,11 @@ where
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
-            && let Ok(old_session_validated_message) =
-                old_session.verify_encapsulated_message_public_header(message.clone())
+            && old_session
+                .validate_and_publish_message(message.clone())
+                .is_ok()
         {
-            return old_session.publish_message(&old_session_validated_message);
+            return Ok(());
         }
 
         let validated_message =

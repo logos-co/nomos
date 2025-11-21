@@ -26,7 +26,7 @@ use crate::{
 
 pub type MessageIdentifier = Ed25519PublicKey;
 
-/// An unverified encapsulated message that is sent across the blend network.
+/// An unverified encapsulated message that is received from a peer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedMessage {
     /// A public header that is not encapsulated.
@@ -162,36 +162,40 @@ impl EncapsulatedPart {
             .decapsulate(key, posel_verification_input, verifier)?
         {
             PrivateHeaderDecapsulationOutput::Incompleted {
-                encapsulated_private_header: private_header,
+                encapsulated_private_header,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
                 verify_intermediate_reconstructed_public_header(
                     &public_header,
-                    &private_header,
+                    &encapsulated_private_header,
                     &payload,
                     verifier,
                 )?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
-                        private_header,
+                        private_header: encapsulated_private_header,
                         payload,
                     },
                     public_header: Box::new(public_header),
-                    verified_proof_of_selection: proof_of_selection,
+                    verified_proof_of_selection,
                 })
             }
             PrivateHeaderDecapsulationOutput::Completed {
-                encapsulated_private_header: private_header,
+                encapsulated_private_header,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_last_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_last_reconstructed_public_header(
+                    &public_header,
+                    &encapsulated_private_header,
+                    &payload,
+                )?;
                 Ok(PartDecapsulationOutput::Completed {
                     payload: payload.try_deserialize()?,
-                    verified_proof_of_selection: proof_of_selection,
+                    verified_proof_of_selection,
                 })
             }
         }
@@ -293,6 +297,8 @@ impl EncapsulatedPrivateHeader {
     }
 
     /// Encapsulates the private header.
+    // TODO: Use two different types for encapsulated and unencapsulated blending
+    // headers?
     fn encapsulate(
         mut self,
         shared_key: &SharedKey,
@@ -374,13 +380,13 @@ impl EncapsulatedPrivateHeader {
             Ok(PrivateHeaderDecapsulationOutput::Completed {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection: verified_proof_of_selection,
+                verified_proof_of_selection,
             })
         } else {
             Ok(PrivateHeaderDecapsulationOutput::Incompleted {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection: verified_proof_of_selection,
+                verified_proof_of_selection,
             })
         }
     }

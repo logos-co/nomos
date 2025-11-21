@@ -74,11 +74,11 @@ pub(super) enum PrivateHeaderDecapsulationOutput {
         // Public (unverified) header of the next layer.
         public_header: PublicHeader,
         // Verified PoSel of the current layer.
-        proof_of_selection: VerifiedProofOfSelection,
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
     Completed {
         encapsulated_private_header: EncapsulatedPrivateHeader,
         public_header: PublicHeader,
-        proof_of_selection: VerifiedProofOfSelection,
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 }

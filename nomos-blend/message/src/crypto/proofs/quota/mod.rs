@@ -74,6 +74,7 @@ impl PartialEq<VerifiedProofOfQuota> for ProofOfQuota {
     }
 }
 
+/// A verified Proof of Quota.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfQuota(ProofOfQuota);
 
@@ -140,6 +141,11 @@ impl VerifiedProofOfQuota {
         Self::from_bytes_unchecked([0u8; _])
     }
 
+    /// Returns an unverified Proof of Quota from a verified one without
+    /// performing any checks.
+    ///
+    /// This is useful to use a locally-generated proof in contexts where an
+    /// unverified one is expected.
     #[must_use]
     pub const fn from_proof_of_quota_unchecked(proof: ProofOfQuota) -> Self {
         Self(proof)

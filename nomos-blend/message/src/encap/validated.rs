@@ -26,10 +26,11 @@ pub struct RequiredProofOfSelectionVerificationInputs {
     pub total_membership_size: u64,
 }
 
+/// A received encapsulated message whose public header has been verified.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct EncapsulatedMessageWithVerifiedPublicHeader {
-    pub validated_public_header: VerifiedPublicHeader,
-    pub encapsulated_part: EncapsulatedPart,
+    validated_public_header: VerifiedPublicHeader,
+    encapsulated_part: EncapsulatedPart,
 }
 
 impl EncapsulatedMessageWithVerifiedPublicHeader {

@@ -49,11 +49,12 @@ where
 
     /// Validates the public header of an encapsulated message, and
     /// if valid, forwards it to all negotiated peers.
-    pub fn publish_message(
+    pub fn validate_and_publish_message(
         &mut self,
-        message: &EncapsulatedMessageWithVerifiedPublicHeader,
+        message: EncapsulatedMessage,
     ) -> Result<(), Error> {
-        self.forward_validated_message_and_maybe_exclude(message, None)
+        let validated_message = self.verify_encapsulated_message_public_header(message)?;
+        self.forward_validated_message_and_maybe_exclude(&validated_message, None)
     }
 
     pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {

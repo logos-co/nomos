@@ -25,7 +25,7 @@ use nomos_blend_message::{
         random_sized_bytes,
     },
     encap::{
-        ProofsVerifier as ProofsVerifierTrait,
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
     reward::{
@@ -1226,7 +1226,6 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Locally generated data message had the outermost {} layers addressed to this same node. Propagating only the remaining encapsulated layers.", collected_blending_tokens.len());
-            // We generated the proofs, so it cannot be invalid.
             ProcessedMessage::from(*remaining_encapsulated_message)
         }
     };
@@ -1526,7 +1525,7 @@ where
         )
         .await
     {
-        message_futures.push(backend.publish(encapsulated_cover_message.into()).boxed());
+        message_futures.push(backend.publish(encapsulated_cover_message).boxed());
     }
 
     message_futures.shuffle(rng);
@@ -1640,7 +1639,7 @@ async fn generate_and_try_to_decapsulate_cover_message<
     >,
     blending_token_collector: &mut SessionBlendingTokenCollector,
     state_updater: &mut state::StateUpdater<BackendSettings, BroadcastSettings>,
-) -> Option<EncapsulatedMessageWithVerifiedPublicHeader>
+) -> Option<EncapsulatedMessage>
 where
     NodeId: Eq + Hash + 'static,
     BackendSettings: Sync,
@@ -1659,7 +1658,7 @@ where
         // hence we consume a core quota.
         tracing::debug!(target: LOG_TARGET, "Locally generated cover message does not have its outermost layer addressed to us. Sending it out fully encapsulated...");
         state_updater.consume_core_quota(1);
-        return Some(encapsulated_cover_message);
+        return Some(encapsulated_cover_message.into());
     };
     let (collected_blending_tokens, message_type) =
         multi_layer_decapsulation_output.into_components();
@@ -1673,12 +1672,7 @@ where
         // decapsulated a cover message, we don't do anything.
         DecapsulatedMessageType::Completed(_) => None,
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
-            // We generated the proofs, so it cannot be invalid.
-            Some(
-                EncapsulatedMessageWithVerifiedPublicHeader::from_message_unchecked(
-                    *remaining_encapsulated_message,
-                ),
-            )
+            Some(*remaining_encapsulated_message)
         }
     }
 }
