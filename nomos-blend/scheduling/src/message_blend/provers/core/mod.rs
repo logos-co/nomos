@@ -7,7 +7,7 @@ use nomos_blend_message::crypto::{
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::inputs::prove::{PublicInputs, public::LeaderInputs},
-        selection::ProofOfSelection,
+        selection::VerifiedProofOfSelection,
     },
 };
 
@@ -142,7 +142,7 @@ where
                     )
                     .await
                     .ok()?;
-                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                let proof_of_selection = VerifiedProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,

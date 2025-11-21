@@ -8,12 +8,12 @@ use nomos_blend_message::{
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                self, ProofOfQuota,
+                self, ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{
                     PublicInputs, private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
                 },
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::ProofsVerifier,
@@ -53,8 +53,8 @@ impl LeaderProofsGenerator for TestEpochChangeLeaderProofsGenerator {
 
     async fn get_next_proof(&mut self) -> BlendLayerProof {
         BlendLayerProof {
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked([0; _]),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked([0; _]),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             ephemeral_signing_key: [0; _].into(),
         }
     }
@@ -67,11 +67,12 @@ impl CoreProofOfQuotaGenerator for MockCorePoQGenerator {
         &self,
         _public_inputs: &PublicInputs,
         _key_index: u64,
-    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+    ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+    {
         use groth16::Field as _;
 
         ready(Ok((
-            ProofOfQuota::from_bytes_unchecked([0; _]),
+            VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
             ZkHash::ZERO,
         )))
     }
@@ -131,19 +132,19 @@ impl ProofsVerifier for TestEpochChangeProofsVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
-        _proof: ProofOfSelection,
+        proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
+        Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+            proof,
+        ))
     }
 }

@@ -10,7 +10,7 @@ use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::{
         private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
     },
-    encap::encapsulated::EncapsulatedMessage,
+    encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use nomos_blend_scheduling::{
     membership::Membership,
@@ -183,7 +183,7 @@ where
 
     fn shutdown(self) {}
 
-    async fn send(&self, _: EncapsulatedMessage) {
+    async fn send(&self, _: EncapsulatedMessageWithVerifiedPublicHeader) {
         let node_id = self
             .membership
             .choose_remote_nodes(&mut OsRng, 1)

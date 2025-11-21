@@ -16,15 +16,20 @@ pub(super) mod proof {
 mod tests {
     use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-    use crate::crypto::proofs::quota::ProofOfQuota;
+    use crate::crypto::proofs::quota::{ProofOfQuota, VerifiedProofOfQuota};
 
     #[test]
     fn serialize_deserialize() {
-        let proof = ProofOfQuota::from_bytes_unchecked([0; _]);
+        let proof = VerifiedProofOfQuota::from_bytes_unchecked([0; _]);
 
         let serialized_proof = &proof.to_bytes().unwrap();
-        let deserialized_proof = ProofOfQuota::from_bytes(&serialized_proof[..]).unwrap();
 
-        assert!(proof == deserialized_proof);
+        let deserialized_proof_as_verified =
+            VerifiedProofOfQuota::from_bytes(&serialized_proof[..]).unwrap();
+        assert!(proof == deserialized_proof_as_verified);
+
+        let deserialized_proof_as_unverified =
+            ProofOfQuota::from_bytes(&serialized_proof[..]).unwrap();
+        assert!(proof == deserialized_proof_as_unverified);
     }
 }

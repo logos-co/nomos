@@ -5,8 +5,7 @@ use nomos_blend_message::{
     Error,
     crypto::keys::Ed25519PrivateKey,
     encap::{
-        encapsulated::EncapsulatedMessage,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
@@ -35,7 +34,9 @@ pub struct SessionCryptographicProcessorSettings {
 }
 
 #[must_use]
-pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
+pub fn serialize_encapsulated_message(
+    message: &EncapsulatedMessageWithVerifiedPublicHeader,
+) -> Vec<u8> {
     message
         .to_bytes()
         .expect("EncapsulatedMessage should be serializable")

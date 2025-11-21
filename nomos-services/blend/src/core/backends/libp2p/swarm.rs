@@ -15,12 +15,8 @@ use libp2p::{
 use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
     encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        encapsulated::EncapsulatedMessage,
-        validated::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        },
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
 use nomos_blend_network::core::{
@@ -79,8 +75,7 @@ where
 {
     swarm: Swarm<BlendBehaviour<ProofsVerifier, ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     public_info: PublicInfo<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
@@ -93,8 +88,7 @@ pub struct SwarmParams<'config, Rng> {
     pub current_public_info: PublicInfo<PeerId>,
     pub rng: Rng,
     pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    pub incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
 }
 
@@ -230,7 +224,7 @@ where
         match blend_event {
             nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&(*msg).clone().into(), conn);
+                self.forward_validated_swarm_message(&(*msg).clone(), conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
@@ -339,7 +333,7 @@ where
 
     fn publish_validated_swarm_message(
         &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
     ) {
         if let Err(e) = self
             .swarm
@@ -357,7 +351,7 @@ where
 
     fn forward_validated_swarm_message(
         &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
@@ -378,7 +372,7 @@ where
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
+    fn report_message_to_service(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         if let Err(e) = self.incoming_message_sender.send(msg) {
@@ -417,7 +411,7 @@ where
         match blend_event {
             nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg.clone().into());
+                self.publish_validated_swarm_message(&msg);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
@@ -541,9 +535,7 @@ where
         identity: &libp2p::identity::Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        >,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
         current_public_info: PublicInfo<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,

@@ -4,7 +4,7 @@ use nomos_blend_message::crypto::{
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::{
-            self, ProofOfQuota,
+            self, VerifiedProofOfQuota,
             fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
             inputs::prove::{
                 PrivateInputs, PublicInputs as PoQPublicInputs,
@@ -96,8 +96,9 @@ impl CoreProofOfQuotaGenerator for CorePoQGeneratorFromPrivateCoreQuotaInputs {
         &self,
         public_inputs: &PoQPublicInputs,
         key_index: u64,
-    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
-        ready(ProofOfQuota::new(
+    ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+    {
+        ready(VerifiedProofOfQuota::new(
             public_inputs,
             PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
         ))

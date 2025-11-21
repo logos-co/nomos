@@ -1,6 +1,3 @@
-#[cfg(feature = "libp2p")]
-pub mod libp2p;
-
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
@@ -10,14 +7,16 @@ use nomos_blend_message::{
         quota::inputs::prove::public::{CoreInputs, LeaderInputs},
     },
     encap::{
-        encapsulated::EncapsulatedMessage,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
 use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
+
+#[cfg(feature = "libp2p")]
+pub mod libp2p;
 
 pub type EpochInfo = LeaderInputs;
 
@@ -143,5 +142,5 @@ pub trait BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId> {
     /// Listen to messages received from the blend network.
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>;
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>>;
 }

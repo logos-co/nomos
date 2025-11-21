@@ -10,14 +10,15 @@ use nomos_blend_message::{
             quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
         },
     },
-    encap::encapsulated::EncapsulatedMessage,
     input::EncapsulationInput,
 };
 
 use crate::{
     membership::Membership,
     message_blend::{
-        crypto::SessionCryptographicProcessorSettings,
+        crypto::{
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
+        },
         provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -106,7 +107,7 @@ where
     pub async fn encapsulate_cover_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         self.encapsulate_payload(PayloadType::Cover, payload).await
     }
 
@@ -122,7 +123,7 @@ where
     pub async fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         self.encapsulate_payload(PayloadType::Data, payload).await
     }
 
@@ -143,7 +144,7 @@ where
         &mut self,
         payload_type: PayloadType,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         // We validate the payload early on so we don't generate proofs unnecessarily.
         let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
@@ -205,7 +206,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        Ok(EncapsulatedMessage::new(
+        Ok(EncapsulatedMessageWithVerifiedPublicHeader::new(
             &inputs,
             payload_type,
             validated_payload,

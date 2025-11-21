@@ -4,6 +4,7 @@ use futures::{StreamExt as _, select};
 use libp2p::PeerId;
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
+use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 use nomos_blend_scheduling::serialize_encapsulated_message;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
@@ -39,7 +40,7 @@ async fn receive_valid_message() {
             _ = edge_swarm.select_next_some() => {}
             core_swarm_event = core_swarm.select_next_some() => {
                 if let SwarmEvent::Behaviour(Event::Message(received_message)) = core_swarm_event {
-                    assert_eq!(received_message, message.clone().verify_public_header(&AlwaysTrueVerifier).unwrap());
+                    assert_eq!(received_message, EncapsulatedMessage::from(message.clone()).verify_public_header(&AlwaysTrueVerifier).unwrap());
                     break;
                 }
             }
