@@ -23,6 +23,7 @@ use tests::topology::{
         network::{GeneralNetworkConfig, NetworkParams},
         time::default_time_config,
         tracing::GeneralTracingConfig,
+        wallet::{WalletAccount, WalletConfig},
     },
     create_kms_configs,
 };
@@ -292,8 +293,11 @@ fn generate_random_configs(
         blend_ports.push(get_available_udp_port().unwrap());
     }
 
-    let mut consensus_configs =
-        configs::consensus::create_consensus_configs(&ids, consensus_params);
+    let mut consensus_configs = configs::consensus::create_consensus_configs(
+        &ids,
+        consensus_params,
+        &WalletConfig::default(),
+    );
     let bootstrap_configs =
         configs::bootstrap::create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let da_configs = configs::da::create_da_configs(&ids, da_params, &da_ports);
@@ -310,7 +314,7 @@ fn generate_random_configs(
         c.genesis_tx = genesis_tx.clone();
     }
 
-    let kms_configs = create_kms_configs(&blend_configs, &da_configs);
+    let kms_configs = create_kms_configs(&blend_configs, &da_configs, &[] as &[WalletAccount]);
 
     let host_network_init_peers = update_network_init_peers(&hosts);
     let mut configured_hosts = HashMap::new();

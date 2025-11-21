@@ -1,7 +1,9 @@
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use super::{expectation::Expectation, runtime::context::RunMetrics, workload::Workload};
-use crate::topology::{GeneratedTopology, TopologyBuilder, TopologyConfig};
+use crate::topology::{
+    GeneratedTopology, TopologyBuilder, TopologyConfig, configs::wallet::WalletConfig,
+};
 
 /// Immutable scenario definition shared between the runner, workloads, and
 /// expectations.
@@ -111,6 +113,12 @@ impl<Caps> Builder<Caps> {
     #[must_use]
     pub fn map_topology(mut self, f: impl FnOnce(TopologyBuilder) -> TopologyBuilder) -> Self {
         self.topology = f(self.topology);
+        self
+    }
+
+    #[must_use]
+    pub fn with_wallet_config(mut self, wallet: WalletConfig) -> Self {
+        self.topology = self.topology.with_wallet_config(wallet);
         self
     }
 

@@ -53,7 +53,9 @@ use nomos_wallet::WalletServiceSettings;
 use crate::{
     adjust_timeout,
     common::kms::key_id_for_preload_backend,
-    topology::configs::{GeneralConfig, blend::GeneralBlendConfig as TopologyBlendConfig},
+    topology::configs::{
+        GeneralConfig, blend::GeneralBlendConfig as TopologyBlendConfig, wallet::WalletAccount,
+    },
 };
 
 #[must_use]
@@ -209,7 +211,17 @@ pub fn create_validator_config(config: GeneralConfig) -> ValidatorConfig {
         },
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {
-            known_keys: HashSet::from_iter([config.consensus_config.leader_config.pk]),
+            known_keys: {
+                let mut keys = HashSet::from_iter([config.consensus_config.leader_config.pk]);
+                keys.extend(
+                    config
+                        .consensus_config
+                        .wallet_accounts
+                        .iter()
+                        .map(WalletAccount::public_key),
+                );
+                keys
+            },
         },
         key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {
