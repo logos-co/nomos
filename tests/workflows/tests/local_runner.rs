@@ -27,6 +27,10 @@ async fn local_runner_mixed_workloads() {
         .apply();
 
     let workloads = topology
+        .initialize_wallet(100, 4)
+        .wallet_transactions()
+        .rate(4)
+        .apply()
         .transactions()
         .rate(MIXED_TXS_PER_BLOCK)
         .apply()
