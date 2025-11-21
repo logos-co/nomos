@@ -1,7 +1,7 @@
-use std::num::NonZeroU64;
+use std::num::{NonZeroU64, NonZeroUsize};
 
 use integration_configs::topology::configs::network::Libp2pNetworkLayout;
-use testing_framework_core::scenario::ScenarioBuilder;
+use testing_framework_core::{scenario::ScenarioBuilder, topology::configs::wallet::WalletConfig};
 
 use crate::{
     expectations::ConsensusLiveness,
@@ -31,6 +31,7 @@ pub trait ScenarioBuilderExt: Sized {
     fn transactions(self) -> TransactionFlowBuilder;
     fn da(self) -> DataAvailabilityFlowBuilder;
     fn expect_consensus_liveness(self) -> ScenarioBuilder;
+    fn initialize_wallet(self, total_funds: u64, users: usize) -> ScenarioBuilder;
 }
 
 impl ScenarioBuilderExt for ScenarioBuilder {
@@ -48,6 +49,12 @@ impl ScenarioBuilderExt for ScenarioBuilder {
 
     fn expect_consensus_liveness(self) -> ScenarioBuilder {
         self.with_expectation(ConsensusLiveness)
+    }
+
+    fn initialize_wallet(self, total_funds: u64, users: usize) -> ScenarioBuilder {
+        let user_count = NonZeroUsize::new(users).expect("wallet user count must be non-zero");
+        let wallet = WalletConfig::uniform(total_funds, user_count);
+        self.with_wallet_config(wallet)
     }
 }
 

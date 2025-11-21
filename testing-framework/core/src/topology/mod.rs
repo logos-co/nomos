@@ -14,6 +14,7 @@ use configs::{
     da::{DaParams, create_da_configs},
     network::{Libp2pNetworkLayout, NetworkParams, create_network_configs},
     tracing::create_tracing_configs,
+    wallet::{WalletAccount, WalletConfig},
 };
 use futures::future::join_all;
 use groth16::fr_to_bytes;
@@ -59,6 +60,7 @@ pub struct TopologyConfig {
     pub consensus_params: ConsensusParams,
     pub da_params: DaParams,
     pub network_params: NetworkParams,
+    pub wallet_config: WalletConfig,
 }
 
 impl TopologyConfig {
@@ -70,6 +72,7 @@ impl TopologyConfig {
             consensus_params: ConsensusParams::default_for_participants(2),
             da_params: DaParams::default(),
             network_params: NetworkParams::default(),
+            wallet_config: WalletConfig::default(),
         }
     }
 
@@ -95,6 +98,7 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
+            wallet_config: WalletConfig::default(),
         }
     }
 
@@ -128,6 +132,7 @@ impl TopologyConfig {
             consensus_params: ConsensusParams::default_for_participants(participants),
             da_params,
             network_params: NetworkParams::default(),
+            wallet_config: WalletConfig::default(),
         }
     }
 
@@ -157,7 +162,13 @@ impl TopologyConfig {
                 ..Default::default()
             },
             network_params: NetworkParams::default(),
+            wallet_config: WalletConfig::default(),
         }
+    }
+
+    #[must_use]
+    pub const fn wallet(&self) -> &WalletConfig {
+        &self.wallet_config
     }
 }
 
@@ -236,6 +247,11 @@ impl GeneratedTopology {
         self.validators
             .first()
             .map(|node| node.general.time_config.slot_duration)
+    }
+
+    #[must_use]
+    pub fn wallet_accounts(&self) -> &[WalletAccount] {
+        &self.config.wallet_config.accounts
     }
 
     pub async fn spawn_local(&self) -> Topology {
@@ -465,6 +481,12 @@ impl TopologyBuilder {
     }
 
     #[must_use]
+    pub fn with_wallet_config(mut self, wallet: WalletConfig) -> Self {
+        self.config.wallet_config = wallet;
+        self
+    }
+
+    #[must_use]
     pub fn build(self) -> GeneratedTopology {
         let Self {
             config,
@@ -480,7 +502,8 @@ impl TopologyBuilder {
         let da_ports = resolve_ports(da_ports, n_participants, "DA");
         let blend_ports = resolve_ports(blend_ports, n_participants, "Blend");
 
-        let mut consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
+        let mut consensus_configs =
+            create_consensus_configs(&ids, &config.consensus_params, &config.wallet_config);
         let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
@@ -523,7 +546,8 @@ impl TopologyBuilder {
             c.genesis_tx = genesis_tx.clone();
         }
 
-        let kms_configs = create_kms_configs(&blend_configs, &da_configs);
+        let kms_configs =
+            create_kms_configs(&blend_configs, &da_configs, &config.wallet_config.accounts);
 
         let mut validators = Vec::with_capacity(config.n_validators);
         let mut executors = Vec::with_capacity(config.n_executors);
@@ -597,7 +621,8 @@ impl Topology {
             blend_ports.push(get_available_udp_port().unwrap());
         }
 
-        let mut consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
+        let mut consensus_configs =
+            create_consensus_configs(&ids, &config.consensus_params, &config.wallet_config);
         let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
@@ -643,7 +668,8 @@ impl Topology {
         }
 
         // Set Blend and DA keys in KMS of each node config.
-        let kms_configs = create_kms_configs(&blend_configs, &da_configs);
+        let kms_configs =
+            create_kms_configs(&blend_configs, &da_configs, &config.wallet_config.accounts);
 
         let mut node_configs = vec![];
 
@@ -679,7 +705,8 @@ impl Topology {
     ) -> Self {
         let n_participants = config.n_validators + config.n_executors;
 
-        let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
+        let consensus_configs =
+            create_consensus_configs(ids, &config.consensus_params, &config.wallet_config);
         let bootstrapping_config = create_bootstrap_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
@@ -1232,6 +1259,7 @@ fn find_expected_peer_counts(
 pub fn create_kms_configs(
     blend_configs: &[GeneralBlendConfig],
     da_configs: &[GeneralDaConfig],
+    _wallet_accounts: &[WalletAccount],
 ) -> Vec<PreloadKMSBackendSettings> {
     da_configs
         .iter()

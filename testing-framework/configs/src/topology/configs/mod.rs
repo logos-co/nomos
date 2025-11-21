@@ -6,6 +6,7 @@ pub mod da;
 pub mod network;
 pub mod time;
 pub mod tracing;
+pub mod wallet;
 
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
@@ -22,6 +23,7 @@ use nomos_core::{
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use tracing::GeneralTracingConfig;
+use wallet::WalletConfig;
 
 use crate::{
     common::kms::key_id_for_preload_backend,
@@ -87,7 +89,8 @@ pub fn create_general_configs_with_blend_core_subset(
     }
 
     let consensus_params = ConsensusParams::default_for_participants(n_nodes);
-    let mut consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
+    let mut consensus_configs =
+        consensus::create_consensus_configs(&ids, &consensus_params, &WalletConfig::default());
     let bootstrap_config =
         bootstrap::create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let network_configs = network::create_network_configs(&ids, network_params);

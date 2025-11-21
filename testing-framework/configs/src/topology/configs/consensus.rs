@@ -20,6 +20,8 @@ use nomos_node::{SignedMantleTx, Transaction as _};
 use num_bigint::BigUint;
 use zksign::{PublicKey, SecretKey};
 
+use super::wallet::{WalletAccount, WalletConfig};
+
 #[derive(Clone)]
 pub struct ConsensusParams {
     pub n_participants: usize,
@@ -74,6 +76,7 @@ pub struct GeneralConsensusConfig {
     pub utxos: Vec<Utxo>,
     pub blend_notes: Vec<ServiceNote>,
     pub da_notes: Vec<ServiceNote>,
+    pub wallet_accounts: Vec<WalletAccount>,
 }
 
 #[derive(Clone)]
@@ -118,6 +121,7 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
 pub fn create_consensus_configs(
     ids: &[[u8; 32]],
     consensus_params: &ConsensusParams,
+    wallet: &WalletConfig,
 ) -> Vec<GeneralConsensusConfig> {
     let mut leader_keys = Vec::new();
     let mut blend_notes = Vec::new();
@@ -129,6 +133,7 @@ pub fn create_consensus_configs(
         &mut blend_notes,
         &mut da_notes,
     );
+    let utxos = append_wallet_utxos(utxos, wallet);
     let genesis_tx = create_genesis_tx(&utxos);
     let ledger_config = nomos_ledger::Config {
         epoch_config: EpochConfig {
@@ -182,6 +187,7 @@ pub fn create_consensus_configs(
             utxos: utxos.clone(),
             da_notes: da_notes.clone(),
             blend_notes: blend_notes.clone(),
+            wallet_accounts: wallet.accounts.clone(),
         })
         .collect()
 }
@@ -254,6 +260,18 @@ fn create_utxos_for_leader_and_services(
             output_index: 0,
         });
         output_index += 1;
+    }
+
+    utxos
+}
+
+fn append_wallet_utxos(mut utxos: Vec<Utxo>, wallet: &WalletConfig) -> Vec<Utxo> {
+    for account in &wallet.accounts {
+        utxos.push(Utxo {
+            note: Note::new(account.value, account.public_key()),
+            tx_hash: BigUint::from(0u8).into(),
+            output_index: 0,
+        });
     }
 
     utxos
