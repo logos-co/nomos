@@ -8,7 +8,6 @@ use nomos_blend_message::{
     Error as InnerError,
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
-    reward::BlendingToken,
 };
 use nomos_blend_scheduling::{
     DecapsulationOutput, EncapsulatedMessage,
@@ -22,6 +21,7 @@ use nomos_blend_scheduling::{
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
     },
 };
+use nomos_core::blend::BlendingToken;
 
 pub struct CoreCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>(
     SessionCryptographicProcessor<NodeId, CorePoQGenerator, ProofsGenerator, ProofsVerifier>,

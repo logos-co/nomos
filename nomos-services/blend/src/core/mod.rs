@@ -26,7 +26,7 @@ use nomos_blend_message::{
     },
     encap::ProofsVerifier as ProofsVerifierTrait,
     reward::{
-        self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
+        self, BlendingTokenCollector, OldSessionBlendingTokenCollector,
         SessionBlendingTokenCollector,
     },
 };
@@ -44,7 +44,10 @@ use nomos_blend_scheduling::{
     session::{SessionEvent, UninitializedSessionEventStream},
     stream::UninitializedFirstReadyStream,
 };
-use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    sdp::BlendActivityProof,
+};
 use nomos_network::NetworkService;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
@@ -1790,6 +1793,6 @@ fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, CorePoQ
 }
 
 /// Submits an activity proof to the SDP service.
-fn submit_activity_proof(_proof: ActivityProof) {
+fn submit_activity_proof(_proof: BlendActivityProof) {
     todo!()
 }

@@ -1,15 +1,12 @@
-mod activity;
 mod session;
-mod token;
 
 use std::collections::HashSet;
 
-pub use activity::ActivityProof;
-use nomos_core::sdp::SessionNumber;
+use nomos_core::{
+    blend::{BlendingToken, SessionRandomness},
+    sdp::{BlendActivityProof, SessionNumber},
+};
 pub use session::SessionInfo;
-pub use token::BlendingToken;
-
-pub use crate::reward::session::SessionRandomness;
 
 const LOG_TARGET: &str = "blend::message::reward";
 
@@ -78,7 +75,7 @@ impl OldSessionBlendingTokenCollector {
     /// It returns `None` if there was no blending token satisfying the
     /// activity threshold calculated.
     #[must_use]
-    pub fn compute_activity_proof(self) -> Option<ActivityProof> {
+    pub fn compute_activity_proof(self) -> Option<BlendActivityProof> {
         // Find the blending token with the smallest Hamming distance.
         let maybe_token = self
             .collector
@@ -97,7 +94,10 @@ impl OldSessionBlendingTokenCollector {
         if let Some((token, distance)) = maybe_token
             && distance <= self.collector.activity_threshold
         {
-            Some(ActivityProof::new(self.collector.session_number, token))
+            Some(BlendActivityProof::new(
+                self.collector.session_number,
+                token,
+            ))
         } else {
             None
         }
@@ -119,12 +119,11 @@ impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
 #[cfg(test)]
 mod tests {
     use nomos_core::{
-        blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
+        blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE, ProofOfQuota, ProofOfSelection},
         crypto::ZkHash,
     };
 
     use super::*;
-    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {

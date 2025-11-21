@@ -12,7 +12,7 @@ use strum::EnumIter;
 use zksign::PublicKey;
 
 use crate::{
-    blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
+    blend::{BlendingToken, PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
     block::BlockNumber,
     mantle::NoteId,
 };
@@ -366,30 +366,48 @@ fn parse_length_prefixed_bytes(input: &[u8]) -> IResult<&[u8], Vec<u8>> {
     Ok((input, data.to_vec()))
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+/// A Blend activity proof for a session, made of the blending token
+/// that has the smallest Hamming distance satisfying the activity threshold.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct BlendActivityProof {
-    pub session: SessionNumber,
-    #[serde(with = "serde_big_array::BigArray")]
-    pub proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE],
-    pub proof_of_selection: [u8; PROOF_OF_SELECTION_SIZE],
+    session_number: SessionNumber,
+    token: BlendingToken,
 }
 
 const BLEND_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
 
 impl BlendActivityProof {
     #[must_use]
+    pub const fn new(session_number: SessionNumber, token: BlendingToken) -> Self {
+        Self {
+            session_number,
+            token,
+        }
+    }
+
+    #[must_use]
+    pub const fn token(&self) -> &BlendingToken {
+        &self.token
+    }
+
+    #[must_use]
     fn to_metadata_bytes(&self) -> Vec<u8> {
+        let session_number = self.session_number.to_le_bytes();
+        let proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE] = self.token.proof_of_quota().into();
+        let proof_of_selection: [u8; PROOF_OF_SELECTION_SIZE] =
+            self.token.proof_of_selection().into();
+
         let total_size = 2 // type + version byte
-            + size_of::<SessionNumber>()
-            + self.proof_of_quota.len()
-            + self.proof_of_selection.len();
+            + session_number.len()
+            + proof_of_quota.len()
+            + proof_of_selection.len();
 
         let mut bytes = Vec::with_capacity(total_size);
         bytes.push(ACTIVE_METADATA_BLEND_TYPE);
         bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
-        bytes.extend(&self.session.to_le_bytes());
-        bytes.extend(&self.proof_of_quota);
-        bytes.extend(&self.proof_of_selection);
+        bytes.extend(&session_number);
+        bytes.extend(&proof_of_quota);
+        bytes.extend(&proof_of_selection);
         bytes
     }
 
@@ -417,9 +435,18 @@ fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof
             nom::error::ErrorKind::Verify,
         )));
     }
+
     let (input, session) = parse_session_number(input)?;
+
     let (input, proof_of_quota) = parse_const_size_bytes::<PROOF_OF_QUOTA_SIZE>(input)?;
+    let proof_of_quota = proof_of_quota.try_into().map_err(|_| {
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
+    })?;
+
     let (input, proof_of_selection) = parse_const_size_bytes::<PROOF_OF_SELECTION_SIZE>(input)?;
+    let proof_of_selection = proof_of_selection.try_into().map_err(|_| {
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Verify))
+    })?;
 
     if !input.is_empty() {
         return Err(nom::Err::Error(nom::error::Error::new(
@@ -430,11 +457,10 @@ fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof
 
     Ok((
         input,
-        BlendActivityProof {
+        BlendActivityProof::new(
             session,
-            proof_of_quota,
-            proof_of_selection,
-        },
+            BlendingToken::new(proof_of_quota, proof_of_selection),
+        ),
     ))
 }
 
@@ -486,7 +512,10 @@ impl ActivityMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mantle::encoding::encode_sdp_active;
+    use crate::{
+        blend::{ProofOfQuota, ProofOfSelection},
+        mantle::encoding::encode_sdp_active,
+    };
 
     #[test]
     fn test_da_activity_proof_roundtrip_empty_opinions() {
@@ -645,11 +674,13 @@ mod tests {
 
     #[test]
     fn test_blend_activity_proof_roundtrip() {
-        let proof = BlendActivityProof {
-            session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
-        };
+        let proof = BlendActivityProof::new(
+            10,
+            BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([1; _]),
+            ),
+        );
 
         let bytes = proof.to_metadata_bytes();
         let decoded = BlendActivityProof::from_metadata_bytes(&bytes).unwrap();
@@ -659,11 +690,13 @@ mod tests {
 
     #[test]
     fn test_blend_activity_proof_invalid_version() {
-        let proof = BlendActivityProof {
-            session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
-        };
+        let proof = BlendActivityProof::new(
+            10,
+            BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([1; _]),
+            ),
+        );
         let mut bytes = proof.to_metadata_bytes();
         bytes[0] = 0x99; // Invalid version
 
@@ -683,11 +716,13 @@ mod tests {
 
     #[test]
     fn test_blend_activity_proof_too_long() {
-        let proof = BlendActivityProof {
-            session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
-        };
+        let proof = BlendActivityProof::new(
+            10,
+            BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([1; _]),
+            ),
+        );
         let mut bytes = proof.to_metadata_bytes();
         bytes.push(0xFF); // An extra byte
 
@@ -718,11 +753,13 @@ mod tests {
 
     #[test]
     fn test_blend_activity_metadata_roundtrip() {
-        let proof = BlendActivityProof {
-            session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
-        };
+        let proof = BlendActivityProof::new(
+            10,
+            BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([1; _]),
+            ),
+        );
         let metadata = ActivityMetadata::Blend(proof.clone());
 
         let bytes = metadata.to_metadata_bytes();
