@@ -1,7 +1,8 @@
 #[cfg(feature = "libp2p")]
 pub mod libp2p;
 
-use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};
+use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
+use nomos_blend_scheduling::membership::Membership;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 

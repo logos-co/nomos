@@ -14,11 +14,10 @@ use nomos_blend_message::{
         keys::Ed25519PrivateKey,
         proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
     },
+    encap::encapsulated::EncapsulatedMessage,
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage, membership::Membership, message_blend::crypto::EncapsulationInputs,
-};
+use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
@@ -28,9 +27,11 @@ pub struct TestEncapsulatedMessage(EncapsulatedMessage);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(), PayloadType::Data, payload).unwrap(),
-        )
+        Self(EncapsulatedMessage::new(
+            &generate_valid_inputs(),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
     }
 
     pub fn into_inner(self) -> EncapsulatedMessage {
@@ -52,23 +53,19 @@ impl DerefMut for TestEncapsulatedMessage {
     }
 }
 
-fn generate_valid_inputs() -> EncapsulationInputs {
-    EncapsulationInputs::new(
-        repeat_with(Ed25519PrivateKey::generate)
-            .take(3)
-            .map(|recipient_signing_key| {
-                let recipient_signing_pubkey = recipient_signing_key.public_key();
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_pubkey,
-                    ProofOfQuota::from_bytes_unchecked([0; _]),
-                    ProofOfSelection::from_bytes_unchecked([0; _]),
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )
-    .unwrap()
+fn generate_valid_inputs() -> Vec<EncapsulationInput> {
+    repeat_with(Ed25519PrivateKey::generate)
+        .take(3)
+        .map(|recipient_signing_key| {
+            let recipient_signing_pubkey = recipient_signing_key.public_key();
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                &recipient_signing_pubkey,
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([0; _]),
+            )
+        })
+        .collect::<Vec<_>>()
 }
 
 /// Instantiate a new memory-based Swarm that uses the configured timeout for

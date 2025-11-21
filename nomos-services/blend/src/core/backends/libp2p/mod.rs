@@ -8,11 +8,10 @@ use futures::{
 use libp2p::PeerId;
 use nomos_blend_message::{
     crypto::proofs::quota::inputs::prove::public::LeaderInputs,
-    encap::ProofsVerifier as ProofsVerifierTrait,
-};
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    message_blend::crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    },
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;

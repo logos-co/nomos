@@ -23,13 +23,10 @@ use nomos_blend_message::{
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
-    encap::ProofsVerifier,
+    encap::{ProofsVerifier, encapsulated::EncapsulatedMessage},
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    message_blend::{crypto::EncapsulationInputs, provers::BlendLayerProof},
-};
+use nomos_blend_scheduling::message_blend::provers::BlendLayerProof;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, ed25519, upgrade::Version};
 
@@ -109,10 +106,11 @@ pub struct TestEncapsulatedMessage(EncapsulatedMessage);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(0), PayloadType::Data, payload)
-                .unwrap(),
-        )
+        Self(EncapsulatedMessage::new(
+            &generate_valid_inputs(0),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
     }
 
     pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
@@ -131,10 +129,11 @@ pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessage);
 
 impl TestEncapsulatedMessageWithSession {
     pub fn new(session: SessionNumber, payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(session), PayloadType::Data, payload)
-                .unwrap(),
-        )
+        Self(EncapsulatedMessage::new(
+            &generate_valid_inputs(session),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
     }
 
     pub fn into_inner(self) -> EncapsulatedMessage {
@@ -142,23 +141,19 @@ impl TestEncapsulatedMessageWithSession {
     }
 }
 
-fn generate_valid_inputs(session: SessionNumber) -> EncapsulationInputs {
-    EncapsulationInputs::new(
-        repeat_with(Ed25519PrivateKey::generate)
-            .take(3)
-            .map(|recipient_signing_key| {
-                let proofs = session_based_mock_blend_proof(session);
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_key.public_key(),
-                    proofs.proof_of_quota,
-                    proofs.proof_of_selection,
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )
-    .unwrap()
+fn generate_valid_inputs(session: SessionNumber) -> Vec<EncapsulationInput> {
+    repeat_with(Ed25519PrivateKey::generate)
+        .take(3)
+        .map(|recipient_signing_key| {
+            let proofs = session_based_mock_blend_proof(session);
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                &recipient_signing_key.public_key(),
+                proofs.proof_of_quota,
+                proofs.proof_of_selection,
+            )
+        })
+        .collect::<Vec<_>>()
 }
 
 impl Deref for TestEncapsulatedMessage {

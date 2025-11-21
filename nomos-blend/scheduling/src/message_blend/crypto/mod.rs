@@ -5,14 +5,9 @@ use nomos_blend_message::{
     Error,
     crypto::keys::Ed25519PrivateKey,
     encap::{
-        decapsulated::DecapsulationOutput as InternalDecapsulationOutput,
-        encapsulated::EncapsulatedMessage as InternalEncapsulatedMessage,
-        validated::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader as InternalIncomingEncapsulatedMessageWithValidatedPublicHeader,
-            OutgoingEncapsulatedMessageWithValidatedPublicHeader as InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        },
+        encapsulated::EncapsulatedMessage,
+        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
     },
-    input::EncapsulationInputs as InternalEncapsulationInputs,
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
@@ -26,15 +21,6 @@ pub use self::leader::send::SessionCryptographicProcessor as LeaderSenderOnlySes
 
 #[cfg(test)]
 mod test_utils;
-
-const ENCAPSULATION_COUNT: usize = 3;
-pub type EncapsulatedMessage = InternalEncapsulatedMessage<ENCAPSULATION_COUNT>;
-pub type EncapsulationInputs = InternalEncapsulationInputs<ENCAPSULATION_COUNT>;
-pub type DecapsulationOutput = InternalDecapsulationOutput<ENCAPSULATION_COUNT>;
-pub type IncomingEncapsulatedMessageWithValidatedPublicHeader =
-    InternalIncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
-pub type OutgoingEncapsulatedMessageWithValidatedPublicHeader =
-    InternalOutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>;
 
 #[derive(Clone, Derivative, serde::Serialize, serde::Deserialize)]
 #[derivative(Debug)]

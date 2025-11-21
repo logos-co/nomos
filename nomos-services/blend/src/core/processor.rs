@@ -7,15 +7,18 @@ use std::{
 use nomos_blend_message::{
     Error as InnerError,
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulatedMessage},
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+        encapsulated::EncapsulatedMessage,
+        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     reward::BlendingToken,
 };
 use nomos_blend_scheduling::{
-    DecapsulationOutput, EncapsulatedMessage,
     membership::Membership,
     message_blend::{
         crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
             SessionCryptographicProcessorSettings,
             core_and_leader::send_and_receive::SessionCryptographicProcessor,
         },
@@ -108,7 +111,7 @@ impl From<DecapsulationOutput> for DecapsulatedMessageType {
             DecapsulationOutput::Incompleted {
                 remaining_encapsulated_message,
                 ..
-            } => Self::Incompleted(Box::new(remaining_encapsulated_message)),
+            } => Self::Incompleted(remaining_encapsulated_message),
         }
     }
 }
@@ -156,7 +159,7 @@ where
                     collected_blending_tokens.push(blending_token.clone());
                     let Ok(nested_layer_decapsulation_output) = self
                         .0
-                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(remaining_encapsulated_message.clone()))
+                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(*remaining_encapsulated_message.clone()))
                     else {
                         break;
                     };
@@ -216,13 +219,13 @@ mod tests {
                 selection::{self, ProofOfSelection},
             },
         },
-        encap::validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        encap::{
+            encapsulated::EncapsulatedMessage,
+            validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        },
         input::EncapsulationInput,
     };
-    use nomos_blend_scheduling::{
-        EncapsulatedMessage,
-        message_blend::crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
-    };
+    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
 
     use crate::{
@@ -452,21 +455,21 @@ mod tests {
     }
 
     fn mock_message(recipient_signing_pubkey: &Ed25519PublicKey) -> EncapsulatedMessage {
-        let inputs = EncapsulationInputs::new(
-            std::iter::repeat_with(|| {
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    recipient_signing_pubkey,
-                    ProofOfQuota::from_bytes_unchecked([0; _]),
-                    ProofOfSelection::from_bytes_unchecked([0; _]),
-                )
-            })
-            .take(3)
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+        let inputs = std::iter::repeat_with(|| {
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                recipient_signing_pubkey,
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([0; _]),
+            )
+        })
+        .take(3)
+        .collect::<Vec<_>>();
+        EncapsulatedMessage::new(
+            &inputs,
+            PayloadType::Cover,
+            b"".as_slice().try_into().unwrap(),
         )
-        .unwrap();
-        EncapsulatedMessage::new(&inputs, PayloadType::Cover, b"").unwrap()
     }
 
     fn settings(local_id: NodeId) -> SessionCryptographicProcessorSettings {
