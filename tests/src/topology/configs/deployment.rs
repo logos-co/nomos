@@ -11,6 +11,7 @@ use nomos_node::config::{
         Settings as BlendDeploymentSettings,
     },
     deployment::{CustomDeployment, Settings as DeploymentSettings},
+    network::deployment::Settings as NetworkDeploymentSettings,
 };
 use nomos_utils::math::NonNegativeF64;
 
@@ -57,6 +58,10 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
                     },
                 },
             },
+        },
+        network: NetworkDeploymentSettings {
+            identify_protocol_name: StreamProtocol::new("/integration/nomos/identify/1.0.0"),
+            kademlia_protocol_name: StreamProtocol::new("/integration/nomos/kad/1.0.0"),
         },
     })
 }

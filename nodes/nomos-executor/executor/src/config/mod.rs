@@ -3,7 +3,8 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
         BlendArgs, blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, update_blend, update_cryptarchia_leader_consensus, update_network,
+        mempool::MempoolConfig, network::serde::Config as NetworkConfig, update_blend,
+        update_cryptarchia_leader_consensus, update_network,
     },
     generic_services::SdpService,
 };
@@ -13,15 +14,14 @@ use serde::{Deserialize, Serialize};
 use crate::{
     ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
     DaDispersalService, DaNetworkService, DaSamplingService, DaVerifierService,
-    KeyManagementService, NetworkService, RuntimeServiceId, StorageService, TimeService,
-    WalletService,
+    KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
 };
 
 #[derive(Deserialize, Debug, Clone, Serialize)]
 pub struct Config {
     #[cfg(feature = "tracing")]
     pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
-    pub network: <NetworkService as ServiceData>::Settings,
+    pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
@@ -61,7 +61,7 @@ impl Config {
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
         nomos_node::config::update_tracing(&mut self.tracing, log_args)?;
-        update_network::<RuntimeServiceId>(&mut self.network, network_args)?;
+        update_network(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
