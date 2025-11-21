@@ -195,7 +195,8 @@ jobs:
         with:
           name: integration-test-artifacts-${{ runner.os }}-${{ github.sha }}
           include-hidden-files: true
-          path: tests/.tmp*
+          path: ${{ github.workspace }}/tests/.tmp*
+          if-no-files-found: warn
   
   build-docker:
     name: Trigger Docker build
