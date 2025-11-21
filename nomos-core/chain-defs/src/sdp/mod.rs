@@ -20,10 +20,13 @@ use crate::{
 pub type SessionNumber = u64;
 pub type StakeThreshold = u64;
 
+const ACTIVE_METADATA_DA_TYPE: u8 = 0x00;
+const ACTIVE_METADATA_BLEND_TYPE: u8 = 0x01;
+
 const DA_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
 type DaMetadataLengthPrefix = u32;
-const DA_MIN_METADATA_SIZE: usize =
-    1 + size_of::<SessionNumber>() + size_of::<DaMetadataLengthPrefix>() * 2;
+const DA_MIN_METADATA_SIZE: usize = 2 // type + version byte
++ size_of::<SessionNumber>() + size_of::<DaMetadataLengthPrefix>() * 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct MinStake {
@@ -262,7 +265,7 @@ pub struct DaActivityProof {
 impl DaActivityProof {
     #[must_use]
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
-        let total_size = 1 // version byte
+        let total_size = 2 // type + version byte 
             + size_of::<SessionNumber>()
             + size_of::<DaMetadataLengthPrefix>() // previous_session_opinions_length
             + self.previous_session_opinions.len()
@@ -270,6 +273,7 @@ impl DaActivityProof {
             + self.current_session_opinions.len();
 
         let mut bytes = Vec::with_capacity(total_size);
+        bytes.push(ACTIVE_METADATA_DA_TYPE);
         bytes.push(DA_ACTIVE_METADATA_VERSION_BYTE);
         bytes.extend(&self.current_session.to_le_bytes());
 
@@ -310,6 +314,14 @@ impl DaActivityProof {
 }
 
 fn parse_da_activity_proof(input: &[u8]) -> IResult<&[u8], DaActivityProof> {
+    let (input, metadata_type) = nom_u8(input)?;
+    if metadata_type != ACTIVE_METADATA_DA_TYPE {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+
     let (input, version) = nom_u8(input)?;
     if version != DA_ACTIVE_METADATA_VERSION_BYTE {
         return Err(nom::Err::Error(nom::error::Error::new(
@@ -366,13 +378,14 @@ const BLEND_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
 
 impl BlendActivityProof {
     #[must_use]
-    pub fn to_metadata_bytes(&self) -> Vec<u8> {
-        let total_size = 1 // version byte
+    fn to_metadata_bytes(&self) -> Vec<u8> {
+        let total_size = 2 // type + version byte
             + size_of::<SessionNumber>()
             + self.proof_of_quota.len()
             + self.proof_of_selection.len();
 
         let mut bytes = Vec::with_capacity(total_size);
+        bytes.push(ACTIVE_METADATA_BLEND_TYPE);
         bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
         bytes.extend(&self.session.to_le_bytes());
         bytes.extend(&self.proof_of_quota);
@@ -381,7 +394,7 @@ impl BlendActivityProof {
     }
 
     /// Parse metadata bytes using nom combinators
-    pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
+    fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(parse_blend_activity_proof(bytes)
             .map_err(|e| format!("Failed to parse metadata: {e}"))?
             .1)
@@ -389,6 +402,14 @@ impl BlendActivityProof {
 }
 
 fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof> {
+    let (input, metadata_type) = nom_u8(input)?;
+    if metadata_type != ACTIVE_METADATA_BLEND_TYPE {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+
     let (input, version) = nom_u8(input)?;
     if version != BLEND_ACTIVE_METADATA_VERSION_BYTE {
         return Err(nom::Err::Error(nom::error::Error::new(
@@ -445,15 +466,19 @@ impl ActivityMetadata {
             return Err("empty metadata bytes".to_owned().into());
         }
 
-        // Read version byte to determine variant
-        let version = bytes[0];
+        // Read metadata type byte to determine variant
+        let metadata_type = bytes[0];
 
-        match version {
-            DA_ACTIVE_METADATA_VERSION_BYTE => {
+        match metadata_type {
+            ACTIVE_METADATA_DA_TYPE => {
                 let proof_opt = DaActivityProof::from_metadata_bytes(bytes)?;
                 Ok(Self::DataAvailability(proof_opt))
             }
-            _ => Err(format!("Unknown metadata version: {version:#x}").into()),
+            ACTIVE_METADATA_BLEND_TYPE => {
+                let proof_opt = BlendActivityProof::from_metadata_bytes(bytes)?;
+                Ok(Self::Blend(proof_opt))
+            }
+            _ => Err(format!("Unknown metadata type: {metadata_type:#x}").into()),
         }
     }
 }
@@ -500,31 +525,32 @@ mod tests {
 
         let bytes = proof.to_metadata_bytes();
 
-        // Verify format: version(1) + session(8) + prev_len(4) + prev_data +
+        // Verify format: type(1) + version(1) + session(8) + prev_len(4) + prev_data +
         // curr_len(4) + curr_data
-        assert_eq!(bytes[0], DA_ACTIVE_METADATA_VERSION_BYTE); // version
+        assert_eq!(bytes[0], ACTIVE_METADATA_DA_TYPE); // version
+        assert_eq!(bytes[1], DA_ACTIVE_METADATA_VERSION_BYTE); // version
 
         // Session number (little-endian u64)
-        let session_bytes: [u8; 8] = bytes[1..9].try_into().unwrap();
+        let session_bytes: [u8; 8] = bytes[2..10].try_into().unwrap();
         assert_eq!(u64::from_le_bytes(session_bytes), 1);
 
         // Previous opinions length
-        let prev_len_bytes: [u8; 4] = bytes[9..13].try_into().unwrap();
+        let prev_len_bytes: [u8; 4] = bytes[10..14].try_into().unwrap();
         assert_eq!(u32::from_le_bytes(prev_len_bytes), 1);
 
         // Previous opinions data
-        assert_eq!(bytes[13], 0xAA);
+        assert_eq!(bytes[14], 0xAA);
 
         // Current opinions length
-        let curr_len_bytes: [u8; 4] = bytes[14..18].try_into().unwrap();
+        let curr_len_bytes: [u8; 4] = bytes[15..19].try_into().unwrap();
         assert_eq!(u32::from_le_bytes(curr_len_bytes), 2);
 
         // Current opinions data
-        assert_eq!(bytes[18], 0xBB);
-        assert_eq!(bytes[19], 0xCC);
+        assert_eq!(bytes[19], 0xBB);
+        assert_eq!(bytes[20], 0xCC);
 
         // Total length check
-        assert_eq!(bytes.len(), 20); // 1 + 8 + 4 + 1 + 4 + 2
+        assert_eq!(bytes.len(), 21); // 1 + 1 + 8 + 4 + 1 + 4 + 2
     }
 
     #[test]
@@ -569,10 +595,13 @@ mod tests {
 
     #[test]
     fn test_da_activity_proof_invalid_version() {
-        let mut bytes = vec![0x99]; // Wrong version
-        bytes.extend(&1u64.to_le_bytes()); // session
-        bytes.extend(&0u32.to_le_bytes()); // prev len
-        bytes.extend(&0u32.to_le_bytes()); // curr len
+        let proof = DaActivityProof {
+            current_session: 1,
+            previous_session_opinions: vec![0xAA],
+            current_session_opinions: vec![0xBB, 0xCC],
+        };
+        let mut bytes = proof.to_metadata_bytes();
+        bytes[1] = 0x99; // Invalid version
 
         let result = DaActivityProof::from_metadata_bytes(&bytes);
         assert!(result.is_err());
@@ -668,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn test_activity_metadata_roundtrip() {
+    fn test_da_activity_metadata_roundtrip() {
         let proof = DaActivityProof {
             current_session: 456,
             previous_session_opinions: vec![0x12, 0x34],
@@ -688,21 +717,41 @@ mod tests {
     }
 
     #[test]
+    fn test_blend_activity_metadata_roundtrip() {
+        let proof = BlendActivityProof {
+            session: 10,
+            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
+            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
+        };
+        let metadata = ActivityMetadata::Blend(proof.clone());
+
+        let bytes = metadata.to_metadata_bytes();
+        let decoded = ActivityMetadata::from_metadata_bytes(&bytes).unwrap();
+
+        assert_eq!(metadata, decoded);
+
+        let ActivityMetadata::Blend(decoded_proof) = decoded else {
+            panic!("Unexpected ActivityMetadata variant");
+        };
+        assert_eq!(proof, decoded_proof);
+    }
+
+    #[test]
     fn test_activity_metadata_empty_bytes() {
         let result = ActivityMetadata::from_metadata_bytes(&[]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_activity_metadata_unknown_version() {
-        let bytes = vec![0xFF]; // Unknown version
+    fn test_activity_metadata_unknown_type() {
+        let bytes = vec![0xFF]; // Unknown type
         let result = ActivityMetadata::from_metadata_bytes(&bytes);
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Unknown metadata version")
+                .contains("Unknown metadata type")
         );
     }
 
