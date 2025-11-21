@@ -42,6 +42,14 @@ impl BlendingToken {
 
         hamming_distance(&token_hash, &session_randomness_hash)
     }
+
+    pub(crate) const fn proof_of_quota(&self) -> &ProofOfQuota {
+        &self.proof_of_quota
+    }
+
+    pub(crate) const fn proof_of_selection(&self) -> &ProofOfSelection {
+        &self.proof_of_selection
+    }
 }
 
 /// Compute blake-2b hash of `input`, producing `output_size` bytes.
@@ -72,8 +80,9 @@ fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use nomos_core::blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE};
+
     use super::*;
-    use crate::crypto::proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
 
     #[test]
     fn test_hamming_distance() {

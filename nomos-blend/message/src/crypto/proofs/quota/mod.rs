@@ -2,8 +2,11 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
-use nomos_core::crypto::ZkHash;
+use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
+use nomos_core::{
+    blend::{KEY_NULLIFIER_SIZE, PROOF_CIRCUIT_SIZE, PROOF_OF_QUOTA_SIZE},
+    crypto::ZkHash,
+};
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
@@ -22,10 +25,6 @@ mod tests;
 
 #[cfg(any(test, feature = "unsafe-test-functions"))]
 pub mod fixtures;
-
-const KEY_NULLIFIER_SIZE: usize = size_of::<ZkHash>();
-const PROOF_CIRCUIT_SIZE: usize = size_of::<PoQProof>();
-pub const PROOF_OF_QUOTA_SIZE: usize = KEY_NULLIFIER_SIZE.checked_add(PROOF_CIRCUIT_SIZE).unwrap();
 
 /// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
 // TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
@@ -119,6 +118,33 @@ impl ProofOfQuota {
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
+    }
+}
+
+impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(bytes: &[u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
+        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
+        let key_nullifier = fr_from_bytes(key_nullifier_bytes).map_err(Box::new)?;
+        let (pi_a, pi_b, pi_c) = split_proof_components::<
+            <Bn254 as CompressSize>::G1CompressedSize,
+            <Bn254 as CompressSize>::G2CompressedSize,
+        >(proof_circuit_bytes.try_into().map_err(Box::new)?);
+
+        Ok(Self {
+            key_nullifier,
+            proof: PoQProof::new(pi_a, pi_b, pi_c),
+        })
+    }
+}
+
+impl From<&ProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
+    fn from(proof: &ProofOfQuota) -> Self {
+        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
+        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.key_nullifier));
+        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.proof.to_bytes());
+        bytes
     }
 }
 

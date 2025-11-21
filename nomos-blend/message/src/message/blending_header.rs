@@ -1,11 +1,9 @@
+use nomos_core::blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE};
 use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE},
-    proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
-    },
+    proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
     pseudo_random_sized_bytes, random_sized_bytes,
     signatures::{SIGNATURE_SIZE, Signature},
 };
