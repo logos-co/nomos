@@ -1,5 +1,7 @@
 use core::convert::Infallible;
 
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+
 use crate::{
     Error, PayloadType,
     crypto::{
@@ -272,6 +274,24 @@ fn invalid_blend_header_proof_of_selection() {
             PoSelError::Verification
         ))
     ));
+}
+
+#[test]
+fn serde_encapsulated_and_verified() {
+    let (inputs, _) = generate_inputs(3);
+    let msg = EncapsulatedMessageWithVerifiedPublicHeader::new(
+        &inputs,
+        PayloadType::Data,
+        b"".as_slice().try_into().unwrap(),
+    );
+    let serialized_encapsulated_message = msg.to_bytes().unwrap();
+
+    let deserialized_as_unverified =
+        EncapsulatedMessage::from_bytes(&serialized_encapsulated_message).unwrap();
+    assert_eq!(deserialized_as_unverified, msg.into());
+    deserialized_as_unverified
+        .verify_public_header(&NeverFailingProofsVerifier)
+        .unwrap();
 }
 
 fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey>) {

@@ -157,6 +157,12 @@ where
                     blending_token,
                 } => {
                     collected_blending_tokens.push(blending_token.clone());
+                    // If we find a message with an invalid public header, we still bubble it up for
+                    // the scheduler to schedule it. At the time of release, the message will be
+                    // ignored since its public header cannot be verified. This is not the most
+                    // efficient way, but it's the less invasive way since by decapsulation we
+                    // currently mean decrypting an encrypted Blend header. No additional checks are
+                    // performed on the nested public header.
                     let Ok(message_with_validated_public_header) = remaining_encapsulated_message
                         .clone()
                         .verify_public_header(self.verifier())

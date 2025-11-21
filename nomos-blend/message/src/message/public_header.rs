@@ -88,8 +88,8 @@ impl PublicHeader {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedPublicHeader {
     version: u8,
-    proof_of_quota: VerifiedProofOfQuota,
     signing_pubkey: Ed25519PublicKey,
+    proof_of_quota: VerifiedProofOfQuota,
     signature: Signature,
 }
 
@@ -116,8 +116,8 @@ impl VerifiedPublicHeader {
             PublicHeader::new(signing_pubkey, proof_of_quota.as_ref(), signature).into_components();
         Self {
             version,
-            proof_of_quota,
             signing_pubkey,
+            proof_of_quota,
             signature,
         }
     }
@@ -160,5 +160,29 @@ impl VerifiedPublicHeader {
             self.proof_of_quota,
             self.signature,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+
+    use crate::{
+        crypto::proofs::quota::VerifiedProofOfQuota,
+        message::{PublicHeader, public_header::VerifiedPublicHeader},
+    };
+
+    #[test]
+    fn serde_verified_and_unverified() {
+        let verified_header = VerifiedPublicHeader {
+            version: 1,
+            signing_pubkey: [200; 32].try_into().unwrap(),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([201; _]),
+            signature: [202; 64].into(),
+        };
+        let serialized_header = verified_header.to_bytes().unwrap();
+
+        let deserialized_as_unverified = PublicHeader::from_bytes(&serialized_header).unwrap();
+        assert_eq!(deserialized_as_unverified, verified_header.into());
     }
 }

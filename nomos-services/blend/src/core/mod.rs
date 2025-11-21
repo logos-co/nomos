@@ -1425,8 +1425,6 @@ where
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Processed encapsulated data message: {remaining_encapsulated_message:?}");
-            // TODO: We need to discard a message if the public header is invalid. So change
-            // this after we get all the code compiling.
             let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
             scheduler.schedule_processed_message(processed_message.clone());
             assert_eq!(
