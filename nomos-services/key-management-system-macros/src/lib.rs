@@ -90,7 +90,6 @@ fn build_operators_enum(
     let operations_impl =
         build_operations_impl_for_enum(&operator_enum_ident, base_enum_ident, variants);
 
-    // let operator_variants = operators_variants.iter().map(|i| i);
     quote! {
         #[derive(Debug)]
         pub enum #operator_enum_ident {
@@ -110,7 +109,7 @@ fn build_operations_impl_for_enum(
         .iter()
         .map(|variant| {
             let variant = &variant.ident;
-            quote! { (Self::#variant(inner), Self::Key::#variant(key)) => inner.execute(key).await }
+            quote! { (Self::#variant(inner), #keys_idents::#variant(key)) => inner.execute(key).await }
         })
         .collect();
 
@@ -119,10 +118,10 @@ fn build_operations_impl_for_enum(
         impl crate::keys::secured_key::SecureKeyOperator for #enum_ident {
             type Key = #keys_idents;
             type Error = crate::keys::errors::KeyError;
-            async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
-                match (self, key) {
+            async fn execute(self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error> {
+                match (*self, key) {
                     #(#variants,)*
-                    (operator, key) => Err(KeyError::UnsupportedKeyOperator {
+                    (operator, key) => Err(crate::keys::errors::KeyError::UnsupportedKeyOperator {
                         operator: format!("{operator:?}"),
                         key: format!("{key:?}"),
                     }),
@@ -201,7 +200,6 @@ fn build_key_enum_impl_secured_key(
             type Signature = SignatureEncoding;
             type PublicKey = PublicKeyEncoding;
             type Error = crate::keys::errors::KeyError;
-            // type Operations = KeyOperators;
 
             #key_enum_impl_secured_key_method_sign
             #key_enum_impl_secured_key_method_sign_multiple
