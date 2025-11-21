@@ -78,7 +78,7 @@ async fn invalid_public_header_message_publish() {
     assert_eq!(
         dialing_swarm
             .behaviour_mut()
-            .publish_validated_message(&invalid_signature_message),
+            .validate_and_publish_message(invalid_signature_message.into_inner().into()),
         Err(Error::InvalidMessage)
     );
 }

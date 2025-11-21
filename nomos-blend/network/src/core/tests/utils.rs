@@ -118,6 +118,24 @@ impl TestEncapsulatedMessage {
             Signature::from([100u8; SIGNATURE_SIZE]);
         self_instance
     }
+
+    pub fn into_inner(self) -> EncapsulatedMessageWithVerifiedPublicHeader {
+        self.0
+    }
+}
+
+impl Deref for TestEncapsulatedMessage {
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TestEncapsulatedMessage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessageWithVerifiedPublicHeader);
@@ -153,20 +171,6 @@ fn generate_valid_inputs(session: SessionNumber) -> Vec<EncapsulationInput> {
             )
         })
         .collect::<Vec<_>>()
-}
-
-impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TestEncapsulatedMessage {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
 }
 
 pub struct SessionBasedMockProofsVerifier(pub SessionNumber);
