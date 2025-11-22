@@ -247,6 +247,23 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                         )))
                     }
                     dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                        let session = if let Some(Op::ChannelBlob(BlobOp { session, .. })) =
+                            signed_mantle_tx.mantle_tx.ops.first()
+                        {
+                            *session
+                        } else {
+                            tracing::debug!("Rejecting TX without BlobOp");
+                            return Poll::Pending;
+                        };
+
+                        let current_session = self.membership.session_id();
+                        if session != current_session {
+                            tracing::debug!(
+                                "Rejecting TX from session {session}, current session is {current_session}",
+                            );
+                            return Poll::Pending;
+                        }
+
                         let assignations = self.membership.membership(local_peer_id).len();
                         Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx((
                             assignations as u16,
