@@ -1,19 +1,28 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     num::NonZeroU64,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
 use async_trait::async_trait;
 use integration_configs::topology::configs::wallet::WalletAccount;
-use nomos_core::mantle::{
-    GenesisTx as _, Note, SignedMantleTx, Transaction as _, Utxo, tx_builder::MantleTxBuilder,
+use nomos_core::{
+    header::HeaderId,
+    mantle::{
+        AuthenticatedMantleTx as _, GenesisTx as _, Note, SignedMantleTx, Transaction as _, Utxo,
+        tx_builder::MantleTxBuilder,
+    },
 };
 use testing_framework_core::{
-    scenario::{DynError, RunContext, RunMetrics, Workload as ScenarioWorkload},
+    scenario::{DynError, Expectation, RunContext, RunMetrics, Workload as ScenarioWorkload},
     topology::{GeneratedNodeConfig, GeneratedTopology},
 };
-use tokio::time::sleep;
+use thiserror::Error;
+use tokio::{sync::broadcast, time::sleep};
 use zksign::{PublicKey, SecretKey};
 
 #[derive(Clone)]
@@ -32,6 +41,12 @@ struct WalletInput {
 impl ScenarioWorkload for Workload {
     fn name(&self) -> &'static str {
         "wallet_tx_workload"
+    }
+
+    fn expectations(&self) -> Vec<Box<dyn Expectation>> {
+        vec![Box::new(WalletTxInclusionExpectation::new(
+            self.txs_per_block,
+        ))]
     }
 
     fn init(
@@ -210,4 +225,124 @@ fn submission_plan(
     };
 
     Ok((total_usize, interval))
+}
+
+#[derive(Clone)]
+struct WalletTxInclusionExpectation {
+    txs_per_block: NonZeroU64,
+    capture_state: Option<WalletCaptureState>,
+}
+
+#[derive(Clone)]
+struct WalletCaptureState {
+    observed: Arc<AtomicU64>,
+    expected: u64,
+}
+
+const WALLET_MIN_INCLUSION_RATIO: f64 = 0.5;
+
+impl WalletTxInclusionExpectation {
+    const NAME: &'static str = "wallet_tx_inclusion";
+
+    const fn new(txs_per_block: NonZeroU64) -> Self {
+        Self {
+            txs_per_block,
+            capture_state: None,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum WalletExpectationError {
+    #[error("wallet workload requires seeded accounts")]
+    MissingAccounts,
+    #[error("wallet workload planned zero transactions")]
+    NoPlannedTransactions,
+    #[error("wallet inclusion expectation not captured")]
+    NotCaptured,
+    #[error("wallet inclusion observed {observed} below required {required}")]
+    InsufficientInclusions { observed: u64, required: u64 },
+}
+
+#[async_trait]
+impl Expectation for WalletTxInclusionExpectation {
+    fn name(&self) -> &'static str {
+        Self::NAME
+    }
+
+    async fn start_capture(&mut self, ctx: &RunContext) -> Result<(), DynError> {
+        if self.capture_state.is_some() {
+            return Ok(());
+        }
+
+        let wallet_accounts = ctx.descriptors().config().wallet().accounts.clone();
+        if wallet_accounts.is_empty() {
+            return Err(WalletExpectationError::MissingAccounts.into());
+        }
+
+        let (requested, _) = submission_plan(self.txs_per_block, ctx)?;
+        let planned = requested.min(wallet_accounts.len());
+        if planned == 0 {
+            return Err(WalletExpectationError::NoPlannedTransactions.into());
+        }
+
+        let wallet_pks = wallet_accounts
+            .into_iter()
+            .map(|account| account.secret_key.to_public_key())
+            .collect::<HashSet<_>>();
+
+        let observed = Arc::new(AtomicU64::new(0));
+        let receiver = ctx.block_feed().subscribe();
+        let tracked_accounts = Arc::new(wallet_pks);
+        let spawn_accounts = Arc::clone(&tracked_accounts);
+        let spawn_observed = Arc::clone(&observed);
+
+        tokio::spawn(async move {
+            let mut receiver = receiver;
+            let genesis_parent = HeaderId::from([0; 32]);
+            loop {
+                match receiver.recv().await {
+                    Ok(record) => {
+                        if record.block.header().parent_block() == genesis_parent {
+                            continue;
+                        }
+
+                        'txs: for tx in record.block.transactions() {
+                            for note in &tx.mantle_tx().ledger_tx.outputs {
+                                if spawn_accounts.contains(&note.pk) {
+                                    spawn_observed.fetch_add(1, Ordering::Relaxed);
+                                    break 'txs;
+                                }
+                            }
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+
+        self.capture_state = Some(WalletCaptureState {
+            observed,
+            expected: planned as u64,
+        });
+
+        Ok(())
+    }
+
+    async fn evaluate(&mut self, _ctx: &RunContext) -> Result<(), DynError> {
+        let state = self
+            .capture_state
+            .as_ref()
+            .ok_or(WalletExpectationError::NotCaptured)?;
+
+        let observed = state.observed.load(Ordering::Relaxed);
+        let required = ((state.expected as f64) * WALLET_MIN_INCLUSION_RATIO).ceil() as u64;
+
+        if observed >= required {
+            Ok(())
+        } else {
+            Err(WalletExpectationError::InsufficientInclusions { observed, required }.into())
+        }
+    }
 }
