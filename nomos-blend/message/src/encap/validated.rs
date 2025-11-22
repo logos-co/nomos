@@ -24,16 +24,10 @@ pub struct RequiredProofOfSelectionVerificationInputs {
 /// It can be decapsulated, but before being sent out as-is, it needs to be
 /// converted into its outgoing variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
-    EncapsulatedMessage<ENCAPSULATION_COUNT>,
-);
+pub struct IncomingEncapsulatedMessageWithValidatedPublicHeader(EncapsulatedMessage);
 
-impl<const ENCAPSULATION_COUNT: usize>
-    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
-    pub(super) const fn from_message(
-        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
-    ) -> Self {
+impl IncomingEncapsulatedMessageWithValidatedPublicHeader {
+    pub(super) const fn from_message(encapsulated_message: EncapsulatedMessage) -> Self {
         Self::from_message_unchecked(encapsulated_message)
     }
 
@@ -43,9 +37,7 @@ impl<const ENCAPSULATION_COUNT: usize>
     /// This function should only be called from context where it's guaranteed
     /// the message has a valid public header.
     #[must_use]
-    pub const fn from_message_unchecked(
-        encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
-    ) -> Self {
+    pub const fn from_message_unchecked(encapsulated_message: EncapsulatedMessage) -> Self {
         Self(encapsulated_message)
     }
 
@@ -72,7 +64,7 @@ impl<const ENCAPSULATION_COUNT: usize>
             total_membership_size,
         }: &RequiredProofOfSelectionVerificationInputs,
         verifier: &Verifier,
-    ) -> Result<DecapsulationOutput<ENCAPSULATION_COUNT>, Error>
+    ) -> Result<DecapsulationOutput, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -100,10 +92,10 @@ impl<const ENCAPSULATION_COUNT: usize>
                 let blending_token =
                     BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
                 Ok(DecapsulationOutput::Incompleted {
-                    remaining_encapsulated_message: EncapsulatedMessage::from_components(
-                        public_header,
+                    remaining_encapsulated_message: Box::new(EncapsulatedMessage::from_components(
+                        *public_header,
                         encapsulated_part,
-                    ),
+                    )),
                     blending_token,
                 })
             }
@@ -124,13 +116,9 @@ impl<const ENCAPSULATION_COUNT: usize>
             }
         }
     }
-}
 
-impl<const ENCAPSULATION_COUNT: usize>
-    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
     #[must_use]
-    pub fn into_inner(self) -> EncapsulatedMessage<ENCAPSULATION_COUNT> {
+    pub fn into_inner(self) -> EncapsulatedMessage {
         self.0
     }
 }
@@ -142,34 +130,27 @@ impl<const ENCAPSULATION_COUNT: usize>
 /// used for outgoing messages that need serialization, hence it is used in
 /// places where an `EncapsulatedMessage` is expected.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader<const ENCAPSULATION_COUNT: usize>(
-    IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
+pub struct OutgoingEncapsulatedMessageWithValidatedPublicHeader(
+    IncomingEncapsulatedMessageWithValidatedPublicHeader,
 );
 
-impl<const ENCAPSULATION_COUNT: usize>
-    OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
+impl OutgoingEncapsulatedMessageWithValidatedPublicHeader {
     #[must_use]
     pub const fn id(&self) -> MessageIdentifier {
         self.0.0.id()
     }
 }
 
-impl<const ENCAPSULATION_COUNT: usize>
-    From<IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>>
-    for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
+impl From<IncomingEncapsulatedMessageWithValidatedPublicHeader>
+    for OutgoingEncapsulatedMessageWithValidatedPublicHeader
 {
-    fn from(
-        value: IncomingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>,
-    ) -> Self {
+    fn from(value: IncomingEncapsulatedMessageWithValidatedPublicHeader) -> Self {
         Self(value)
     }
 }
 
-impl<const ENCAPSULATION_COUNT: usize> AsRef<EncapsulatedMessage<ENCAPSULATION_COUNT>>
-    for OutgoingEncapsulatedMessageWithValidatedPublicHeader<ENCAPSULATION_COUNT>
-{
-    fn as_ref(&self) -> &EncapsulatedMessage<ENCAPSULATION_COUNT> {
+impl AsRef<EncapsulatedMessage> for OutgoingEncapsulatedMessageWithValidatedPublicHeader {
+    fn as_ref(&self) -> &EncapsulatedMessage {
         &self.0.0
     }
 }

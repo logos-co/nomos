@@ -24,18 +24,18 @@ use nomos_blend_message::{
         },
         random_sized_bytes,
     },
-    encap::ProofsVerifier as ProofsVerifierTrait,
+    encap::{
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+    },
     reward::{
         self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
         SessionBlendingTokenCollector,
     },
 };
 use nomos_blend_scheduling::{
-    EncapsulatedMessage, SessionMessageScheduler,
-    message_blend::{
-        crypto::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        provers::core_and_leader::CoreAndLeaderProofsGenerator,
-    },
+    SessionMessageScheduler,
+    message_blend::provers::core_and_leader::CoreAndLeaderProofsGenerator,
     message_scheduler::{
         OldSessionMessageScheduler, ProcessedMessageScheduler,
         round_info::{RoundInfo, RoundReleaseType},

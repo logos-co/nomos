@@ -1,5 +1,5 @@
 mod command;
-mod config;
+pub mod config;
 pub(crate) mod swarm;
 
 pub use nomos_libp2p::{

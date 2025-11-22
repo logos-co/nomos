@@ -290,10 +290,8 @@ impl LedgerState {
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,
-        config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        self.mantle_ledger
-            .active_session_providers(service_type, config)
+        self.mantle_ledger.active_session_providers(service_type)
     }
 
     #[must_use]

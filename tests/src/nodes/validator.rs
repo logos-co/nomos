@@ -44,10 +44,7 @@ use nomos_http_api_common::paths::{
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, MANTLE_SDP_DECLARATIONS,
     NETWORK_INFO, STORAGE_BLOCK,
 };
-use nomos_network::{
-    backends::libp2p::{Libp2pConfig, Libp2pInfo},
-    config::NetworkConfig,
-};
+use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
     api::{
@@ -458,12 +455,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
 
     let da_policy_settings = config.da_config.policy_settings;
     Config {
-        network: NetworkConfig {
-            backend: Libp2pConfig {
-                inner: config.network_config.swarm_config,
-                initial_peers: config.network_config.initial_peers,
-            },
-        },
+        network: config.network_config,
         blend: config.blend_config.0,
         deployment: default_e2e_deployment_settings(),
         cryptarchia: CryptarchiaSettings {

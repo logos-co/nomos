@@ -49,10 +49,7 @@ use nomos_http_api_common::paths::{
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, DA_UNBLOCK_PEER,
     MANTLE_METRICS, NETWORK_INFO, STORAGE_BLOCK,
 };
-use nomos_network::{
-    backends::libp2p::{Libp2pConfig, Libp2pInfo},
-    config::NetworkConfig,
-};
+use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::{
     RocksBackendSettings,
     api::{handlers::GetCommitmentsRequest, testing::handlers::HistoricSamplingRequest},
@@ -374,12 +371,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         .unwrap();
 
     Config {
-        network: NetworkConfig {
-            backend: Libp2pConfig {
-                inner: config.network_config.swarm_config,
-                initial_peers: config.network_config.initial_peers,
-            },
-        },
+        network: config.network_config,
         blend: config.blend_config.0,
         deployment: default_e2e_deployment_settings(),
         cryptarchia: CryptarchiaSettings {

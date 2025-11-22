@@ -7,14 +7,10 @@ use crate::{
 };
 
 /// The output of [`EncapsulatedMessage::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
 #[derive(Clone)]
-pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub enum DecapsulationOutput {
     Incompleted {
-        remaining_encapsulated_message: EncapsulatedMessage<ENCAPSULATION_COUNT>,
+        remaining_encapsulated_message: Box<EncapsulatedMessage>,
         blending_token: BlendingToken,
     },
     Completed {
@@ -24,14 +20,10 @@ pub enum DecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
 }
 
 /// The output of [`EncapsulatedPart::decapsulate`]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Size difference between variants is not too large (small ENCAPSULATION_COUNT)"
-)]
-pub(super) enum PartDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub(super) enum PartDecapsulationOutput {
     Incompleted {
-        encapsulated_part: EncapsulatedPart<ENCAPSULATION_COUNT>,
-        public_header: PublicHeader,
+        encapsulated_part: EncapsulatedPart,
+        public_header: Box<PublicHeader>,
         proof_of_selection: ProofOfSelection,
     },
 
@@ -72,14 +64,14 @@ impl DecapsulatedMessage {
 }
 
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
-pub(super) enum PrivateHeaderDecapsulationOutput<const ENCAPSULATION_COUNT: usize> {
+pub(super) enum PrivateHeaderDecapsulationOutput {
     Incompleted {
-        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        encapsulated_private_header: EncapsulatedPrivateHeader,
         public_header: PublicHeader,
         proof_of_selection: ProofOfSelection,
     },
     Completed {
-        encapsulated_private_header: EncapsulatedPrivateHeader<ENCAPSULATION_COUNT>,
+        encapsulated_private_header: EncapsulatedPrivateHeader,
         public_header: PublicHeader,
         proof_of_selection: ProofOfSelection,
     },

@@ -7,9 +7,9 @@ pub use nat::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::protocol_name::ProtocolName;
+use crate::protocol_name::StreamProtocol;
 
-mod gossipsub;
+pub mod gossipsub;
 mod identify;
 mod kademlia;
 mod nat;
@@ -31,17 +31,8 @@ pub struct SwarmConfig {
     )]
     pub gossipsub_config: libp2p::gossipsub::Config,
 
-    /// Protocol name env for Kademlia and Identify protocol names.
-    ///
-    /// Allowed values:
-    /// - `mainnet`
-    /// - `testnet`
-    /// - `unittest`
-    /// - `integration`
-    ///
-    /// Default: `unittest`
-    #[serde(default)]
-    pub protocol_name_env: ProtocolName,
+    pub kad_protocol_name: StreamProtocol,
+    pub identify_protocol_name: StreamProtocol,
 
     /// Kademlia config (required; Identify must be enabled too)
     #[serde(default)]
@@ -58,22 +49,6 @@ pub struct SwarmConfig {
     /// Nat config
     #[serde(default)]
     pub nat_config: nat::Settings,
-}
-
-impl Default for SwarmConfig {
-    fn default() -> Self {
-        Self {
-            host: std::net::Ipv4Addr::UNSPECIFIED,
-            port: 60000,
-            node_key: ed25519::SecretKey::generate(),
-            gossipsub_config: libp2p::gossipsub::Config::default(),
-            protocol_name_env: ProtocolName::default(),
-            kademlia_config: kademlia::Settings::default(),
-            identify_config: identify::Settings::default(),
-            chain_sync_config: cryptarchia_sync::Config::default(),
-            nat_config: nat::Settings::default(),
-        }
-    }
 }
 
 pub mod secret_key_serde {
@@ -102,6 +77,23 @@ pub mod secret_key_serde {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl Default for SwarmConfig {
+        fn default() -> Self {
+            Self {
+                host: std::net::Ipv4Addr::UNSPECIFIED,
+                port: 60000,
+                node_key: ed25519::SecretKey::generate(),
+                gossipsub_config: libp2p::gossipsub::Config::default(),
+                identify_protocol_name: StreamProtocol::new("/identify/test"),
+                kad_protocol_name: StreamProtocol::new("/kademlia/test"),
+                kademlia_config: kademlia::Settings::default(),
+                identify_config: identify::Settings::default(),
+                chain_sync_config: cryptarchia_sync::Config::default(),
+                nat_config: nat::Settings::default(),
+            }
+        }
+    }
 
     #[test]
     fn config_serde() {

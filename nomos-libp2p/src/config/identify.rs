@@ -1,9 +1,7 @@
 use std::time::Duration;
 
-use libp2p::{identify, identity};
+use libp2p::{StreamProtocol, identify, identity};
 use serde::{Deserialize, Serialize};
-
-use crate::protocol_name::ProtocolName;
 
 /// A serializable representation of Identify configuration options.
 /// When a value is None, the libp2p defaults are used.
@@ -41,12 +39,9 @@ impl Settings {
     pub fn to_libp2p_config(
         &self,
         public_key: identity::PublicKey,
-        protocol_name: ProtocolName,
+        protocol_name: &StreamProtocol,
     ) -> identify::Config {
-        let mut config = identify::Config::new(
-            protocol_name.identify_protocol_name().to_owned(),
-            public_key,
-        );
+        let mut config = identify::Config::new(protocol_name.to_string(), public_key);
 
         // Apply only the settings that were specified, leaving libp2p defaults for the
         // rest

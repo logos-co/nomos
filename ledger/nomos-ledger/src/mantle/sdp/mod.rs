@@ -34,13 +34,11 @@ impl Service {
     fn try_apply_header(self, block_number: u64, config: &ServiceParameters) -> (Self, Vec<Utxo>) {
         match self {
             Self::DataAvailability(state) => {
-                let (new_state, utxos) =
-                    state.try_apply_header(block_number, config, ServiceType::DataAvailability);
+                let (new_state, utxos) = state.try_apply_header(block_number, config);
                 (Self::DataAvailability(new_state), utxos)
             }
             Self::BlendNetwork(state) => {
-                let (new_state, utxos) =
-                    state.try_apply_header(block_number, config, ServiceType::BlendNetwork);
+                let (new_state, utxos) = state.try_apply_header(block_number, config);
                 (Self::BlendNetwork(new_state), utxos)
             }
         }
@@ -210,20 +208,38 @@ impl SessionState {
     }
 }
 
+const fn is_active(
+    declaration: &Declaration,
+    current_block: u64,
+    config: &ServiceParameters,
+) -> bool {
+    declaration.active
+        + (config.inactivity_period + config.retention_period) * config.session_duration
+        >= current_block
+}
+
 impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(
         mut self,
         block_number: u64,
         config: &ServiceParameters,
-        _service_type: ServiceType,
     ) -> (Self, Vec<Utxo>) {
-        // TODO: remove expired declarations based on retention_period
         let current_session = config.session_for_block(block_number);
         let reward_utxos;
 
         // shift all session!
         if current_session == self.active.session_n + 1 {
-            // Calculate new rewards for the ending session (to be distributed at N+2)
+            // Remove expired declarations based on retention_period
+            // This essentially duplicates the declaration set so it's only triggered at
+            // session boundaries
+            self.declarations = self
+                .declarations
+                .iter()
+                .filter(|(_id, declaration)| is_active(declaration, block_number, config))
+                .map(|(id, declaration)| (*id, declaration.clone()))
+                .collect();
+
+            // Update rewards with current session state and distribute rewards
             (self.rewards, reward_utxos) = self.rewards.update_session(&self.active, config);
             self.active = self.forming.clone();
             self.forming = SessionState {
@@ -535,31 +551,21 @@ impl SdpLedger {
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,
-        config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
         let service = self.services.get(&service_type)?;
-        let service_params = config.service_params.get(&service_type)?;
 
         let providers = service
             .active_session()
             .declarations
             .iter()
-            .filter_map(|(_, declaration)| {
-                // Check if provider is still active
-                // A provider is active if: declaration.active + inactivity_period >=
-                // current_block_number
-                #[expect(clippy::if_then_some_else_none, reason = "suggestion is ugly")]
-                if declaration.active + service_params.inactivity_period >= self.block_number {
-                    Some((
-                        declaration.provider_id,
-                        ProviderInfo {
-                            locators: declaration.locators.clone(),
-                            zk_id: declaration.zk_id,
-                        },
-                    ))
-                } else {
-                    None
-                }
+            .map(|(_, declaration)| {
+                (
+                    declaration.provider_id,
+                    ProviderInfo {
+                        locators: declaration.locators.clone(),
+                        zk_id: declaration.zk_id,
+                    },
+                )
             })
             .collect();
 
@@ -686,6 +692,38 @@ mod tests {
 
     fn create_signing_key() -> SigningKey {
         SigningKey::from_bytes(&[0; 32])
+    }
+
+    fn gc_test_config() -> Config {
+        let mut params = HashMap::new();
+        params.insert(
+            ServiceType::BlendNetwork,
+            ServiceParameters {
+                inactivity_period: 1,
+                lock_period: 5,
+                retention_period: 4,
+                timestamp: 0,
+                session_duration: 5,
+            },
+        );
+        params.insert(
+            ServiceType::DataAvailability,
+            ServiceParameters {
+                inactivity_period: 9,
+                lock_period: 5,
+                retention_period: 1,
+                timestamp: 0,
+                session_duration: 5,
+            },
+        );
+
+        Config {
+            service_params: Arc::new(params),
+            min_stake: MinStake {
+                threshold: 1,
+                timestamp: 0,
+            },
+        }
     }
 
     fn apply_declare_with_dummies(
@@ -1214,5 +1252,115 @@ mod tests {
         assert_eq!(active_session.session_n, 3);
         assert!(active_session.declarations.contains_key(&declaration_id_1));
         assert!(active_session.declarations.contains_key(&declaration_id_2));
+    }
+
+    #[test]
+    fn test_garbage_collection_different_services() {
+        // Tests: multiple services with different retention periods
+        // blocks BN config: retention_period=10, session_duration=5 → effective
+        let config = gc_test_config();
+        let service_da = ServiceType::DataAvailability;
+        let service_bn = ServiceType::BlendNetwork;
+        let signing_key = create_signing_key();
+        let zk_key = create_zk_key(0);
+        let zk_key_2 = create_zk_key(1);
+
+        let mut sdp_ledger = SdpLedger::new()
+            .with_service(service_da)
+            .with_service(service_bn);
+
+        // Create declarations for both services at block 0
+        let declare_op_da = &SDPDeclareOp {
+            service_type: service_da,
+            locked_note_id: utxo().id(),
+            zk_id: zk_key.to_public_key(),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id_da = declare_op_da.id();
+
+        let declare_op_bn = &SDPDeclareOp {
+            service_type: service_bn,
+            locked_note_id: utxo().id(),
+            zk_id: zk_key.to_public_key(),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let (sk, utxo) = utxo_with_sk();
+        let declare_op_bn_2 = &SDPDeclareOp {
+            service_type: service_bn,
+            locked_note_id: utxo.id(),
+            zk_id: zk_key_2.to_public_key(),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id_bn = declare_op_bn.id();
+        let declaration_id_bn_2 = declare_op_bn_2.id();
+
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_da, &zk_key, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_bn, &zk_key, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_bn_2, &zk_key_2, &config).unwrap();
+
+        // Move to block 25 (past BN's 20-block retention, at session boundary)
+        for _ in 1..26 {
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        // Both declarations are still present, BN expires at 26 but next session
+        // boundary is at 30
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(declarations_da.contains_key(&declaration_id_da));
+        let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
+        assert!(declarations_bn.contains_key(&declaration_id_bn));
+        assert!(declarations_bn.contains_key(&declaration_id_bn_2));
+
+        // Send active message to update the declaration's active field to block 25
+        let active_op = SDPActiveOp {
+            declaration_id: declaration_id_bn_2,
+            nonce: 1,
+            metadata: nomos_core::sdp::ActivityMetadata::DataAvailability(
+                nomos_core::sdp::DaActivityProof {
+                    current_session: 2,
+                    previous_session_opinions: vec![],
+                    current_session_opinions: vec![],
+                },
+            ),
+        };
+
+        let tx_hash = TxHash(Fr::from(2u8));
+        let zk_sig = zksign::SecretKey::multi_sign(&[sk, zk_key_2], &tx_hash.0).unwrap();
+
+        sdp_ledger = sdp_ledger
+            .apply_active_msg(&active_op, &zk_sig, tx_hash, &config)
+            .unwrap();
+
+        // Move to block 30
+        for _ in 26..31 {
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        assert_eq!(sdp_ledger.block_number, 30);
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(declarations_da.contains_key(&declaration_id_da));
+        let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
+        assert!(!declarations_bn.contains_key(&declaration_id_bn));
+        // Second BN declaration should still be present due to active msg
+        assert!(declarations_bn.contains_key(&declaration_id_bn_2));
+
+        // Move to block 55
+        for _ in 31..56 {
+            (sdp_ledger, _) = sdp_ledger.try_apply_header(&config).unwrap();
+        }
+
+        assert_eq!(sdp_ledger.block_number, 55);
+        // Now also DA declaration and second BN declaration should be removed
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(!declarations_da.contains_key(&declaration_id_da));
+        let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
+        assert!(!declarations_bn.contains_key(&declaration_id_bn));
+        assert!(!declarations_bn.contains_key(&declaration_id_bn_2));
     }
 }

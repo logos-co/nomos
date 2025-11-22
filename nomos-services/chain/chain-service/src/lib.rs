@@ -346,7 +346,7 @@ impl Cryptarchia {
             .ok_or(Error::HeaderIdNotFound(*block_id))?;
 
         ledger
-            .active_session_providers(service_type, self.ledger.config())
+            .active_session_providers(service_type)
             .ok_or(Error::ServiceSessionNotFound(service_type))
     }
 

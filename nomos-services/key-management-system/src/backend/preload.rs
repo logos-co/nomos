@@ -140,7 +140,7 @@ mod tests {
         type Key = Key;
         type Error = Error;
 
-        async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
+        async fn execute(self: Box<Self>, _key: &Self::Key) -> Result<(), Self::Error> {
             Ok(())
         }
     }

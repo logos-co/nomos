@@ -6,7 +6,7 @@ use zeroize::ZeroizeOnDrop;
 pub trait SecureKeyOperator {
     type Key;
     type Error;
-    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error>;
+    async fn execute(self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error>;
 }
 
 pub trait DebugSecureKeyOperator: SecureKeyOperator + Debug {}
@@ -32,10 +32,10 @@ pub trait SecuredKey: ZeroizeOnDrop {
         Self: Sized;
     fn as_public_key(&self) -> Self::PublicKey;
 
-    async fn execute<Operation>(&self, mut operator: Operation) -> Result<(), Self::Error>
+    async fn execute<Operation>(&self, operator: Operation) -> Result<(), Self::Error>
     where
         Operation: SecureKeyOperator<Key = Self, Error = Self::Error> + Send + Debug,
     {
-        operator.execute(self).await
+        Box::new(operator).execute(self).await
     }
 }
