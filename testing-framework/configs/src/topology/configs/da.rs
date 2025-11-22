@@ -141,13 +141,28 @@ pub fn create_da_configs(
             da_params.subnetwork_size,
             da_params.dispersal_factor,
         );
-        let mut assignations: HashMap<u16, HashSet<PeerId>> = (0..da_params.subnetwork_size)
-            .map(|id| (u16::try_from(id).unwrap_or(0), HashSet::new()))
-            .collect();
-        for (idx, peer_id) in peer_ids.iter().enumerate() {
-            let subnet_id = u16::try_from(idx % da_params.subnetwork_size).unwrap_or_default();
-            assignations.entry(subnet_id).or_default().insert(*peer_id);
+        let mut assignations: HashMap<u16, HashSet<PeerId>> = HashMap::new();
+        if peer_ids.is_empty() {
+            for id in 0..da_params.subnetwork_size {
+                assignations.insert(u16::try_from(id).unwrap_or_default(), HashSet::new());
+            }
+        } else {
+            let mut sorted_peers = peer_ids.clone();
+            sorted_peers.sort_unstable();
+            let dispersal = da_params.dispersal_factor.max(1);
+            let mut peer_cycle = sorted_peers.iter().cycle();
+            for id in 0..da_params.subnetwork_size {
+                let mut members = HashSet::new();
+                for _ in 0..dispersal {
+                    // cycle() only yields None when the iterator is empty, which we guard against.
+                    if let Some(peer) = peer_cycle.next() {
+                        members.insert(*peer);
+                    }
+                }
+                assignations.insert(u16::try_from(id).unwrap_or_default(), members);
+            }
         }
+
         template.init(SessionNumber::default(), assignations)
     };
 
