@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     num::{NonZeroU64, NonZeroUsize},
     path::PathBuf,
     time::Duration,
@@ -8,10 +8,7 @@ use std::{
 use chain_leader::LeaderSettings;
 use chain_service::{CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig};
 use cryptarchia_engine::time::SlotConfig;
-use key_management_system::{
-    backend::preload::PreloadKMSBackendSettings,
-    keys::{Key, ZkKey},
-};
+use key_management_system::keys::{Key, ZkKey};
 use nomos_blend_service::{
     core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
     settings::TimingSettings,
@@ -236,9 +233,7 @@ pub fn create_executor_config(config: GeneralConfig) -> ExecutorConfig {
                 keys
             },
         },
-        key_management: PreloadKMSBackendSettings {
-            keys: HashMap::new(),
-        },
+        key_management: config.kms_config,
 
         testing_http: nomos_api::ApiServiceSettings {
             backend_settings: NodeAxumBackendSettings {

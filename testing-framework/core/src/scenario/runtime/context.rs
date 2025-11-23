@@ -131,6 +131,7 @@ impl RunHandle {
 pub struct RunMetrics {
     run_duration: Duration,
     expected_blocks: u64,
+    block_interval_hint: Option<Duration>,
 }
 
 impl RunMetrics {
@@ -148,9 +149,12 @@ impl RunMetrics {
         let active_slot_coeff = descriptors.config().consensus_params.active_slot_coeff;
         let expected_blocks =
             calculate_expected_blocks(run_duration, slot_duration, active_slot_coeff);
+        let block_interval_hint =
+            slot_duration.map(|duration| duration.mul_f64(active_slot_coeff.clamp(0.0, 1.0)));
         Self {
             run_duration,
             expected_blocks,
+            block_interval_hint,
         }
     }
 
@@ -162,6 +166,11 @@ impl RunMetrics {
     #[must_use]
     pub const fn expected_consensus_blocks(&self) -> u64 {
         self.expected_blocks
+    }
+
+    #[must_use]
+    pub const fn block_interval_hint(&self) -> Option<Duration> {
+        self.block_interval_hint
     }
 }
 

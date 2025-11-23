@@ -1,7 +1,10 @@
 use std::{any::Any, panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
 use futures::FutureExt as _;
-use tokio::{task::JoinSet, time::timeout};
+use tokio::{
+    task::JoinSet,
+    time::{sleep, timeout},
+};
 
 use super::deployer::ScenarioError;
 use crate::scenario::{
@@ -57,6 +60,8 @@ impl Runner {
             self.cleanup();
             return Err(error);
         }
+
+        Self::cooldown(&context).await;
 
         if let Err(error) =
             Self::run_expectations(scenario.expectations_mut(), context.as_ref()).await
@@ -115,6 +120,19 @@ impl Runner {
             .join("\n");
 
         Err(ScenarioError::Expectations(summary.into()))
+    }
+
+    async fn cooldown(context: &Arc<RunContext>) {
+        let metrics = context.run_metrics();
+        if let Some(interval) = metrics.block_interval_hint() {
+            if interval.is_zero() {
+                return;
+            }
+            let wait = interval.mul_f64(5.0);
+            if !wait.is_zero() {
+                sleep(wait).await;
+            }
+        }
     }
 
     /// Spawns each workload inside its own task and returns the join set for

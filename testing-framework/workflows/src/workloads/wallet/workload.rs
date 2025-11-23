@@ -307,11 +307,11 @@ impl Expectation for WalletTxInclusionExpectation {
                             continue;
                         }
 
-                        'txs: for tx in record.block.transactions() {
+                        for tx in record.block.transactions() {
                             for note in &tx.mantle_tx().ledger_tx.outputs {
                                 if spawn_accounts.contains(&note.pk) {
                                     spawn_observed.fetch_add(1, Ordering::Relaxed);
-                                    break 'txs;
+                                    break;
                                 }
                             }
                         }
