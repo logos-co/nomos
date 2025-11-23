@@ -206,22 +206,26 @@ fn submission_plan(
     txs_per_block: NonZeroU64,
     ctx: &RunContext,
 ) -> Result<(usize, Duration), DynError> {
-    let blocks = ctx.expected_blocks().max(1);
-    let total = blocks
-        .checked_mul(txs_per_block.get())
-        .ok_or("wallet workload transaction total exceeds capacity")?;
+    let window = ctx.run_duration();
+    let window_secs = window.as_secs_f64();
+
+    let block_interval_secs = ctx
+        .run_metrics()
+        .block_interval_hint()
+        .map_or(window_secs, |duration| duration.as_secs_f64());
+
+    let expected_blocks = window_secs / block_interval_secs;
+
+    let total = (expected_blocks * txs_per_block.get() as f64)
+        .floor()
+        .clamp(0.0, u64::MAX as f64) as u64;
 
     let total_usize = usize::try_from(total).map_err(|_| "wallet workload total too large")?;
 
     let interval = if total == 0 {
         Duration::ZERO
     } else {
-        let secs = ctx.run_duration().as_secs_f64();
-        if !secs.is_finite() || secs <= 0.0 {
-            Duration::ZERO
-        } else {
-            Duration::from_secs_f64(secs / total as f64)
-        }
+        Duration::from_secs_f64(ctx.run_duration().as_secs_f64() / total as f64)
     };
 
     Ok((total_usize, interval))
