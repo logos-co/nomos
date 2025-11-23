@@ -80,6 +80,8 @@ pub enum ComposeRunnerError {
         "compose runner requires at least one validator (validators={validators}, executors={executors})"
     )]
     MissingValidator { validators: usize, executors: usize },
+    #[error("docker does not appear to be available on this host")]
+    DockerUnavailable,
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
@@ -192,6 +194,7 @@ where
     type Error = ComposeRunnerError;
 
     async fn deploy(&self, scenario: &Scenario<Caps>) -> Result<Runner, Self::Error> {
+        ensure_docker_available()?;
         let descriptors = scenario.topology().clone();
         ensure_supported_topology(&descriptors)?;
 
@@ -421,6 +424,21 @@ impl NodeControlHandle for ComposeNodeControl {
 
 fn localhost_url(port: u16) -> Result<Url, ParseError> {
     Url::parse(&format!("http://127.0.0.1:{port}/"))
+}
+
+fn ensure_docker_available() -> Result<(), ComposeRunnerError> {
+    let available = StdCommand::new("docker")
+        .arg("info")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if available {
+        Ok(())
+    } else {
+        Err(ComposeRunnerError::DockerUnavailable)
+    }
 }
 
 fn metrics_handle_from_port(port: u16) -> Result<Metrics, MetricsError> {

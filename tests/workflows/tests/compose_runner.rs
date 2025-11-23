@@ -1,11 +1,8 @@
-use std::{
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::time::Duration;
 
 use serial_test::serial;
 use testing_framework_core::scenario::{Deployer as _, Runner, ScenarioBuilder};
-use testing_framework_runner_compose::ComposeRunner;
+use testing_framework_runner_compose::{ComposeRunner, ComposeRunnerError};
 use tests_workflows::{ChaosBuilderExt as _, ScenarioBuilderExt as _};
 
 const RUN_DURATION: Duration = Duration::from_secs(120);
@@ -15,24 +12,9 @@ const MIXED_TXS_PER_BLOCK: u64 = 5;
 const TOTAL_WALLETS: usize = 64;
 const TRANSACTION_WALLETS: usize = 8;
 
-fn docker_available() -> bool {
-    Command::new("docker")
-        .arg("info")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
 #[tokio::test]
 #[serial]
 async fn compose_runner_mixed_workloads() {
-    if !docker_available() {
-        eprintln!("Skipping compose_runner_mixed_workloads: Docker is unavailable");
-        return;
-    }
-
     let topology = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
         .enable_node_control()
         .chaos_random_restart()
@@ -62,7 +44,14 @@ async fn compose_runner_mixed_workloads() {
         .build();
 
     let deployer = ComposeRunner::new().with_readiness(false);
-    let runner: Runner = deployer.deploy(&plan).await.expect("scenario deployment");
+    let runner: Runner = match deployer.deploy(&plan).await {
+        Ok(runner) => runner,
+        Err(ComposeRunnerError::DockerUnavailable) => {
+            eprintln!("Skipping compose_runner_mixed_workloads: Docker is unavailable");
+            return;
+        }
+        Err(err) => panic!("scenario deployment: {err}"),
+    };
     let context = runner.context();
     assert!(
         context.telemetry().is_configured(),
