@@ -11,7 +11,7 @@ use testing_framework_core::{
 
 use crate::{
     expectations::ConsensusLiveness,
-    workloads::{channel, chaos::RandomRestartWorkload, transaction},
+    workloads::{chaos::RandomRestartWorkload, da, transaction},
 };
 
 macro_rules! non_zero_rate_fn {
@@ -201,7 +201,7 @@ impl<Caps> DataAvailabilityFlowBuilder<Caps> {
     #[must_use]
     pub fn apply(mut self) -> CoreScenarioBuilder<Caps> {
         let count = (self.channel_rate.get() * self.blob_rate.get()) as usize;
-        let workload = channel::Workload::with_channel_count(count.max(1));
+        let workload = da::Workload::with_channel_count(count.max(1));
         self.builder = self.builder.with_workload(workload);
         self.builder
     }

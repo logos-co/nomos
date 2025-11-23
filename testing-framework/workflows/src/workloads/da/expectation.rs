@@ -13,7 +13,7 @@ use thiserror::Error;
 use tokio::sync::broadcast;
 
 #[derive(Debug)]
-pub struct ChannelWorkloadExpectation {
+pub struct DaWorkloadExpectation {
     planned_channels: Vec<ChannelId>,
     capture_state: Option<CaptureState>,
 }
@@ -28,8 +28,8 @@ struct CaptureState {
 const MIN_INCLUSION_RATIO: f64 = 0.8;
 
 #[derive(Debug, Error)]
-enum ChannelExpectationError {
-    #[error("channel workload expectation not started")]
+enum DaExpectationError {
+    #[error("da workload expectation not started")]
     NotCaptured,
     #[error("missing inscriptions for {missing:?}")]
     MissingInscriptions { missing: Vec<ChannelId> },
@@ -37,7 +37,7 @@ enum ChannelExpectationError {
     MissingBlobs { missing: Vec<ChannelId> },
 }
 
-impl ChannelWorkloadExpectation {
+impl DaWorkloadExpectation {
     pub const fn new(planned_channels: Vec<ChannelId>) -> Self {
         Self {
             planned_channels,
@@ -47,9 +47,9 @@ impl ChannelWorkloadExpectation {
 }
 
 #[async_trait]
-impl Expectation for ChannelWorkloadExpectation {
+impl Expectation for DaWorkloadExpectation {
     fn name(&self) -> &'static str {
-        "channel_workload_inclusions"
+        "da_workload_inclusions"
     }
 
     async fn start_capture(&mut self, ctx: &RunContext) -> Result<(), DynError> {
@@ -99,7 +99,7 @@ impl Expectation for ChannelWorkloadExpectation {
         let state = self
             .capture_state
             .as_ref()
-            .ok_or(ChannelExpectationError::NotCaptured)
+            .ok_or(DaExpectationError::NotCaptured)
             .map_err(DynError::from)?;
 
         let planned_total = state.planned.len();
@@ -112,7 +112,7 @@ impl Expectation for ChannelWorkloadExpectation {
         };
         let required_inscriptions = minimum_required(planned_total, MIN_INCLUSION_RATIO);
         if planned_total.saturating_sub(missing_inscriptions.len()) < required_inscriptions {
-            return Err(ChannelExpectationError::MissingInscriptions {
+            return Err(DaExpectationError::MissingInscriptions {
                 missing: missing_inscriptions,
             }
             .into());
@@ -124,7 +124,7 @@ impl Expectation for ChannelWorkloadExpectation {
         };
         let required_blobs = minimum_required(planned_total, MIN_INCLUSION_RATIO);
         if planned_total.saturating_sub(missing_blobs.len()) < required_blobs {
-            return Err(ChannelExpectationError::MissingBlobs {
+            return Err(DaExpectationError::MissingBlobs {
                 missing: missing_blobs,
             }
             .into());

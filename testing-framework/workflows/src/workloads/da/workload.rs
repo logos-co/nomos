@@ -17,7 +17,7 @@ use testing_framework_core::{
 };
 use tokio::sync::broadcast;
 
-use super::expectation::ChannelWorkloadExpectation;
+use super::expectation::DaWorkloadExpectation;
 use crate::{util::tx, workloads::util::find_channel_op};
 
 const TEST_KEY_BYTES: [u8; 32] = [0u8; 32];
@@ -39,7 +39,7 @@ impl Default for Workload {
 impl Workload {
     #[must_use]
     pub fn with_channel_count(count: usize) -> Self {
-        assert!(count > 0, "channel workload requires positive count");
+        assert!(count > 0, "da workload requires positive count");
         Self {
             planned_channels: Arc::from(planned_channel_ids(count)),
         }
@@ -58,7 +58,7 @@ impl ScenarioWorkload for Workload {
 
     fn expectations(&self) -> Vec<Box<dyn Expectation>> {
         let planned = self.plan().to_vec();
-        vec![Box::new(ChannelWorkloadExpectation::new(planned))]
+        vec![Box::new(DaWorkloadExpectation::new(planned))]
     }
 
     async fn start(&self, ctx: &RunContext) -> Result<(), DynError> {
@@ -81,13 +81,13 @@ async fn run_channel_flow(
         .node_clients()
         .random_validator()
         .cloned()
-        .ok_or_else(|| "channel workload requires at least one validator".to_owned())?;
+        .ok_or_else(|| "da workload requires at least one validator".to_owned())?;
 
     let executor = ctx
         .node_clients()
         .random_executor()
         .cloned()
-        .ok_or_else(|| "channel workload requires at least one executor".to_owned())?;
+        .ok_or_else(|| "da workload requires at least one executor".to_owned())?;
 
     let tx = tx::create_inscription_transaction_with_id(channel_id);
     validator.submit_transaction(&tx).await?;
