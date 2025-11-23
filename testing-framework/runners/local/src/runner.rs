@@ -109,11 +109,10 @@ async fn wait_for_readiness(
     skip_membership: bool,
 ) -> Result<(), ReadinessError> {
     topology.wait_network_ready().await?;
-    if skip_membership {
-        Ok(())
-    } else {
-        topology.wait_membership_ready().await
+    if !skip_membership {
+        topology.wait_membership_ready().await?;
     }
+    topology.wait_da_balancer_ready().await
 }
 
 async fn spawn_block_feed_with(

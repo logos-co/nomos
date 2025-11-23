@@ -26,7 +26,7 @@ use nomos_core::{
     mantle::GenesisTx as _,
     sdp::{Locator, ServiceType, SessionNumber},
 };
-use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings};
 use nomos_da_network_service::MembershipResponse;
 use nomos_http_api_common::paths;
 use nomos_network::backends::libp2p::Libp2pInfo;
@@ -795,6 +795,21 @@ impl Topology {
         Ok(())
     }
 
+    pub async fn wait_da_balancer_ready(&self) -> Result<(), ReadinessError> {
+        if self.validators.is_empty() && self.executors.is_empty() {
+            return Ok(());
+        }
+
+        let labels = self.node_labels();
+        let check = DaBalancerReadiness {
+            topology: self,
+            labels: &labels,
+        };
+
+        check.wait().await?;
+        Ok(())
+    }
+
     pub async fn wait_membership_ready(&self) -> Result<(), ReadinessError> {
         self.wait_membership_ready_for_session(SessionNumber::from(0u64))
             .await
@@ -1112,6 +1127,68 @@ impl<'a> ReadinessCheck<'a> for HttpMembershipReadiness<'a> {
         let summary = build_membership_summary(self.labels, &statuses, description);
         format!("timed out waiting for DA membership readiness ({description}): {summary}")
     }
+}
+
+struct DaBalancerReadiness<'a> {
+    topology: &'a Topology,
+    labels: &'a [String],
+}
+
+#[async_trait::async_trait]
+impl<'a> ReadinessCheck<'a> for DaBalancerReadiness<'a> {
+    type Data = Vec<(String, usize, BalancerStats)>;
+
+    async fn collect(&'a self) -> Self::Data {
+        let mut data = Vec::new();
+        for (idx, validator) in self.topology.validators.iter().enumerate() {
+            data.push((
+                self.labels[idx].clone(),
+                validator.config().da_network.subnet_threshold,
+                validator.balancer_stats().await,
+            ));
+        }
+        for (offset, executor) in self.topology.executors.iter().enumerate() {
+            let label_index = self.topology.validators.len() + offset;
+            data.push((
+                self.labels[label_index].clone(),
+                executor.config().da_network.subnet_threshold,
+                executor.balancer_stats().await,
+            ));
+        }
+        data
+    }
+
+    fn is_ready(&self, data: &Self::Data) -> bool {
+        data.iter().all(|(_, threshold, stats)| {
+            if *threshold == 0 {
+                return true;
+            }
+            connected_subnetworks(stats) >= *threshold
+        })
+    }
+
+    fn timeout_message(&self, data: Self::Data) -> String {
+        let summary = data
+            .into_iter()
+            .map(|(label, threshold, stats)| {
+                let connected = connected_subnetworks(&stats);
+                format!("{label}: connected={connected}, required={threshold}")
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("timed out waiting for DA balancer readiness: {summary}")
+    }
+
+    fn poll_interval(&self) -> Duration {
+        Duration::from_secs(1)
+    }
+}
+
+fn connected_subnetworks(stats: &BalancerStats) -> usize {
+    stats
+        .values()
+        .filter(|stat| stat.inbound > 0 || stat.outbound > 0)
+        .count()
 }
 
 fn build_timeout_summary(
