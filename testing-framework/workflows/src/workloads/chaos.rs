@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use rand::{Rng as _, seq::SliceRandom as _, thread_rng};
 use testing_framework_core::scenario::{DynError, RunContext, Workload};
 use tokio::time::sleep;
+use tracing::info;
 
 pub struct RandomRestartWorkload {
     min_delay: Duration,
@@ -30,9 +31,14 @@ impl RandomRestartWorkload {
 
     fn targets(&self, ctx: &RunContext) -> Vec<Target> {
         let mut targets = Vec::new();
+        let validator_count = ctx.descriptors().validators().len();
         if self.include_validators {
-            for index in 0..ctx.descriptors().validators().len() {
-                targets.push(Target::Validator(index));
+            if validator_count > 1 {
+                for index in 0..validator_count {
+                    targets.push(Target::Validator(index));
+                }
+            } else if validator_count == 1 {
+                info!("chaos restart skipping validators: only one validator configured");
             }
         }
         if self.include_executors {
@@ -70,27 +76,27 @@ impl Workload for RandomRestartWorkload {
             .node_control()
             .ok_or_else(|| "chaos restart workload requires node control".to_owned())?;
 
-        let mut targets = self.targets(ctx);
+        let targets = self.targets(ctx);
         if targets.is_empty() {
             return Err("chaos restart workload has no eligible targets".into());
         }
 
         loop {
-            targets.shuffle(&mut thread_rng());
-            for target in targets.iter().copied() {
-                sleep(self.random_delay()).await;
+            sleep(self.random_delay()).await;
+            let target = targets
+                .choose(&mut thread_rng())
+                .copied()
+                .expect("chaos restart workload has targets");
 
-                match target {
-                    Target::Validator(index) => handle
-                        .restart_validator(index)
-                        .await
-                        .map_err(|err| format!("validator restart failed: {err}"))?,
-
-                    Target::Executor(index) => handle
-                        .restart_executor(index)
-                        .await
-                        .map_err(|err| format!("executor restart failed: {err}"))?,
-                }
+            match target {
+                Target::Validator(index) => handle
+                    .restart_validator(index)
+                    .await
+                    .map_err(|err| format!("validator restart failed: {err}"))?,
+                Target::Executor(index) => handle
+                    .restart_executor(index)
+                    .await
+                    .map_err(|err| format!("executor restart failed: {err}"))?,
             }
         }
     }
