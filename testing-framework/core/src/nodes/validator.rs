@@ -23,7 +23,7 @@ use tempfile::NamedTempFile;
 use tokio::time::error::Elapsed;
 use tx_service::MempoolMetrics;
 
-use super::{ApiClient, create_tempdir, persist_tempdir};
+use super::{ApiClient, create_tempdir, persist_tempdir, should_persist_tempdir};
 use crate::{IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX};
 
 const BIN_PATH: &str = "target/debug/nomos-node";
@@ -48,7 +48,7 @@ pub struct Validator {
 
 impl Drop for Validator {
     fn drop(&mut self) {
-        if std::thread::panicking()
+        if should_persist_tempdir()
             && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-node")
         {
             println!("failed to persist tempdir: {e}");

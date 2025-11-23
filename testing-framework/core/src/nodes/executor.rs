@@ -24,7 +24,7 @@ use nomos_tracing_service::LoggerLayer;
 use reqwest::Url;
 use tempfile::NamedTempFile;
 
-use super::{ApiClient, create_tempdir, persist_tempdir};
+use super::{ApiClient, create_tempdir, persist_tempdir, should_persist_tempdir};
 use crate::{IS_DEBUG_TRACING, adjust_timeout, nodes::LOGS_PREFIX};
 
 const BIN_PATH: &str = "target/debug/nomos-executor";
@@ -44,7 +44,7 @@ pub struct Executor {
 
 impl Drop for Executor {
     fn drop(&mut self) {
-        if std::thread::panicking()
+        if should_persist_tempdir()
             && let Err(e) = persist_tempdir(&mut self.tempdir, "nomos-executor")
         {
             println!("failed to persist tempdir: {e}");

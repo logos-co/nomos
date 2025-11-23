@@ -15,7 +15,7 @@ use tokio::sync::broadcast;
 
 use super::workload::{TxPlanError, planned_channel_ids, planned_transaction_totals};
 
-const MIN_INCLUSION_RATIO: f64 = 0.8;
+const MIN_INCLUSION_RATIO: f64 = 1.0;
 
 #[derive(Debug, Error)]
 enum TxInclusionError {
