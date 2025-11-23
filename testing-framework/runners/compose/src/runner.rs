@@ -4,6 +4,7 @@ use std::{
     net::{Ipv4Addr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
+    sync::Arc,
     time::Duration,
 };
 
@@ -13,8 +14,8 @@ use reqwest::Url;
 use testing_framework_core::{
     nodes::ApiClient,
     scenario::{
-        BlockFeed, BlockFeedTask, CleanupGuard, Deployer, Metrics, MetricsError, NodeClients,
-        RunContext, Runner, Scenario,
+        BlockFeed, BlockFeedTask, CleanupGuard, Deployer, DynError, Metrics, MetricsError,
+        NodeClients, NodeControlHandle, RequiresNodeControl, RunContext, Runner, Scenario,
         http_probe::{HttpReadinessError, NodeRole},
         spawn_block_feed,
     },
@@ -184,10 +185,13 @@ pub enum NodeClientError {
 }
 
 #[async_trait]
-impl Deployer for ComposeRunner {
+impl<Caps> Deployer<Caps> for ComposeRunner
+where
+    Caps: RequiresNodeControl + Send + Sync,
+{
     type Error = ComposeRunnerError;
 
-    async fn deploy(&self, scenario: &Scenario) -> Result<Runner, Self::Error> {
+    async fn deploy(&self, scenario: &Scenario<Caps>) -> Result<Runner, Self::Error> {
         let descriptors = scenario.topology().clone();
         ensure_supported_topology(&descriptors)?;
 
@@ -234,6 +238,12 @@ impl Deployer for ComposeRunner {
             }
         };
         let telemetry = metrics_handle_from_port(prometheus_port)?;
+        let node_control = Caps::REQUIRED.then(|| {
+            Arc::new(ComposeNodeControl::new(
+                environment.compose_path().to_path_buf(),
+                environment.project_name().to_owned(),
+            )) as Arc<dyn NodeControlHandle>
+        });
         let (block_feed, block_feed_guard) = match spawn_block_feed_with_retry(&node_clients).await
         {
             Ok(pair) => pair,
@@ -253,6 +263,7 @@ impl Deployer for ComposeRunner {
             scenario.duration(),
             telemetry,
             block_feed,
+            node_control,
         );
 
         Ok(Runner::new(context, Some(cleanup_guard)))
@@ -346,6 +357,66 @@ async fn spawn_block_feed_with_retry(
     }
 
     Err(last_err.expect("block feed retry should capture an error"))
+}
+
+async fn restart_compose_service(
+    compose_file: &Path,
+    project_name: &str,
+    service: &str,
+) -> Result<(), ComposeRunnerError> {
+    let mut command = Command::new("docker");
+    command
+        .arg("compose")
+        .arg("-f")
+        .arg(compose_file)
+        .arg("-p")
+        .arg(project_name)
+        .arg("restart")
+        .arg(service);
+
+    let description = "docker compose restart";
+    run_docker_command(command, description, Duration::from_secs(120)).await
+}
+
+struct ComposeNodeControl {
+    compose_file: PathBuf,
+    project_name: String,
+}
+
+impl ComposeNodeControl {
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "PathBuf and String construction is not const on stable"
+    )]
+    fn new(compose_file: PathBuf, project_name: String) -> Self {
+        Self {
+            compose_file,
+            project_name,
+        }
+    }
+}
+
+#[async_trait]
+impl NodeControlHandle for ComposeNodeControl {
+    async fn restart_validator(&self, index: usize) -> Result<(), DynError> {
+        restart_compose_service(
+            &self.compose_file,
+            &self.project_name,
+            &format!("validator-{index}"),
+        )
+        .await
+        .map_err(|err| format!("validator restart failed: {err}").into())
+    }
+
+    async fn restart_executor(&self, index: usize) -> Result<(), DynError> {
+        restart_compose_service(
+            &self.compose_file,
+            &self.project_name,
+            &format!("executor-{index}"),
+        )
+        .await
+        .map_err(|err| format!("executor restart failed: {err}").into())
+    }
 }
 
 fn localhost_url(port: u16) -> Result<Url, ParseError> {

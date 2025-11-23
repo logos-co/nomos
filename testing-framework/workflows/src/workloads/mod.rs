@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod chaos;
 pub mod transaction;
 pub mod util;
 

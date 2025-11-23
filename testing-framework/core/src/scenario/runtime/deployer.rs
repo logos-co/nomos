@@ -15,8 +15,8 @@ pub enum ScenarioError {
 }
 
 #[async_trait]
-pub trait Deployer: Send + Sync {
+pub trait Deployer<Caps = ()>: Send + Sync {
     type Error;
 
-    async fn deploy(&self, scenario: &Scenario) -> Result<Runner, Self::Error>;
+    async fn deploy(&self, scenario: &Scenario<Caps>) -> Result<Runner, Self::Error>;
 }

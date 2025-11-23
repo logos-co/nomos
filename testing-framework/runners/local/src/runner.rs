@@ -46,10 +46,10 @@ impl From<ScenarioError> for LocalDeployerError {
 }
 
 #[async_trait]
-impl Deployer for LocalDeployer {
+impl Deployer<()> for LocalDeployer {
     type Error = LocalDeployerError;
 
-    async fn deploy(&self, scenario: &Scenario) -> Result<Runner, Self::Error> {
+    async fn deploy(&self, scenario: &Scenario<()>) -> Result<Runner, Self::Error> {
         let topology = Self::prepare_topology(scenario, self.membership_check).await?;
         let node_clients = NodeClients::from_topology(scenario.topology(), &topology);
 
@@ -62,6 +62,7 @@ impl Deployer for LocalDeployer {
             scenario.duration(),
             Metrics::empty(),
             block_feed,
+            None,
         );
 
         Ok(Runner::new(context, Some(Box::new(block_feed_guard))))
@@ -81,7 +82,7 @@ impl LocalDeployer {
     }
 
     async fn prepare_topology(
-        scenario: &Scenario,
+        scenario: &Scenario<()>,
         membership_check: bool,
     ) -> Result<Topology, LocalDeployerError> {
         let descriptors = scenario.topology();

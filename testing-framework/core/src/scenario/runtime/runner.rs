@@ -47,7 +47,13 @@ impl Runner {
     /// Executes the scenario by driving workloads first and then evaluating all
     /// expectations. On any failure it cleans up resources and propagates the
     /// error to the caller.
-    pub async fn run(mut self, scenario: &mut Scenario) -> Result<RunHandle, ScenarioError> {
+    pub async fn run<Caps>(
+        mut self,
+        scenario: &mut Scenario<Caps>,
+    ) -> Result<RunHandle, ScenarioError>
+    where
+        Caps: Send + Sync,
+    {
         let context = self.context();
         if let Err(error) =
             Self::prepare_expectations(scenario.expectations_mut(), context.as_ref()).await
@@ -87,10 +93,13 @@ impl Runner {
 
     /// Spawns every workload, waits until the configured duration elapses (or a
     /// workload fails), and then aborts the remaining tasks.
-    async fn run_workloads(
+    async fn run_workloads<Caps>(
         context: &Arc<RunContext>,
-        scenario: &Scenario,
-    ) -> Result<(), ScenarioError> {
+        scenario: &Scenario<Caps>,
+    ) -> Result<(), ScenarioError>
+    where
+        Caps: Send + Sync,
+    {
         let mut workloads = Self::spawn_workloads(scenario, context);
         let _ = Self::drive_until_timer(&mut workloads, scenario.duration()).await?;
         Self::drain_workloads(&mut workloads).await
@@ -124,20 +133,36 @@ impl Runner {
 
     async fn cooldown(context: &Arc<RunContext>) {
         let metrics = context.run_metrics();
+        let needs_stabilization = context.node_control().is_some();
+
         if let Some(interval) = metrics.block_interval_hint() {
             if interval.is_zero() {
                 return;
             }
-            let wait = interval.mul_f64(5.0);
+            let mut wait = interval.mul_f64(5.0);
+            if needs_stabilization {
+                let minimum = Duration::from_secs(30);
+                if wait < minimum {
+                    wait = minimum;
+                }
+            }
             if !wait.is_zero() {
                 sleep(wait).await;
             }
+        } else if needs_stabilization {
+            sleep(Duration::from_secs(30)).await;
         }
     }
 
     /// Spawns each workload inside its own task and returns the join set for
     /// cooperative management.
-    fn spawn_workloads(scenario: &Scenario, context: &Arc<RunContext>) -> JoinSet<WorkloadOutcome> {
+    fn spawn_workloads<Caps>(
+        scenario: &Scenario<Caps>,
+        context: &Arc<RunContext>,
+    ) -> JoinSet<WorkloadOutcome>
+    where
+        Caps: Send + Sync,
+    {
         let mut workloads = JoinSet::new();
         for workload in scenario.workloads() {
             let workload = Arc::clone(workload);

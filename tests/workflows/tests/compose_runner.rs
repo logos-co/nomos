@@ -6,9 +6,9 @@ use std::{
 use serial_test::serial;
 use testing_framework_core::scenario::{Deployer as _, Runner, ScenarioBuilder};
 use testing_framework_runner_compose::ComposeRunner;
-use tests_workflows::ScenarioBuilderExt as _;
+use tests_workflows::{ChaosBuilderExt as _, ScenarioBuilderExt as _};
 
-const RUN_DURATION: Duration = Duration::from_secs(60);
+const RUN_DURATION: Duration = Duration::from_secs(120);
 const VALIDATORS: usize = 1;
 const EXECUTORS: usize = 1;
 const MIXED_TXS_PER_BLOCK: u64 = 5;
@@ -34,6 +34,11 @@ async fn compose_runner_mixed_workloads() {
     }
 
     let topology = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
+        .enable_node_control()
+        .chaos_random_restart()
+        .min_delay(Duration::from_secs(45))
+        .max_delay(Duration::from_secs(75))
+        .apply()
         .topology()
         .validators(VALIDATORS)
         .executors(EXECUTORS)

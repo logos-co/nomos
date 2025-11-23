@@ -1,15 +1,17 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
-use testing_framework_core::{
-    nodes::ApiClient,
-    scenario::{DynError, Expectation, RunContext},
-};
+use testing_framework_core::scenario::{DynError, Expectation, RunContext};
 use thiserror::Error;
+use tokio::time::sleep;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ConsensusLiveness;
 
 const LAG_ALLOWANCE: u64 = 2;
 const MIN_PROGRESS_BLOCKS: u64 = 5;
+const REQUEST_RETRIES: usize = 5;
+const REQUEST_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 #[async_trait]
 impl Expectation for ConsensusLiveness {
@@ -18,9 +20,9 @@ impl Expectation for ConsensusLiveness {
     }
 
     async fn evaluate(&mut self, ctx: &RunContext) -> Result<(), DynError> {
-        let participants = Self::participants(ctx)?;
+        Self::ensure_participants(ctx)?;
         let target_hint = Self::target_blocks(ctx);
-        let check = Self::collect_results(participants).await;
+        let check = Self::collect_results(ctx).await;
         Self::report(target_hint, check)
     }
 }
@@ -69,34 +71,57 @@ impl ConsensusLiveness {
         consensus_target_blocks(ctx)
     }
 
-    fn participants(ctx: &RunContext) -> Result<Vec<&ApiClient>, DynError> {
-        let nodes: Vec<_> = ctx.node_clients().all_clients().collect();
-        if nodes.is_empty() {
+    fn ensure_participants(ctx: &RunContext) -> Result<(), DynError> {
+        if ctx.node_clients().all_clients().count() == 0 {
             Err(Box::new(ConsensusLivenessError::MissingParticipants))
         } else {
-            Ok(nodes)
+            Ok(())
         }
     }
 
-    async fn collect_results(nodes: Vec<&ApiClient>) -> LivenessCheck {
-        let mut samples = Vec::with_capacity(nodes.len());
+    async fn collect_results(ctx: &RunContext) -> LivenessCheck {
+        let participant_count = ctx.node_clients().all_clients().count().max(1);
+        let max_attempts = participant_count * REQUEST_RETRIES;
+        let mut samples = Vec::with_capacity(participant_count);
         let mut issues = Vec::new();
 
-        for (index, client) in nodes.into_iter().enumerate() {
-            let label = format!("node-{index}");
-            match client.consensus_info().await {
-                Ok(info) => samples.push(NodeSample {
-                    label,
-                    height: info.height,
-                }),
+        for attempt in 0..max_attempts {
+            match Self::fetch_cluster_height(ctx).await {
+                Ok(height) => {
+                    samples.push(NodeSample {
+                        label: format!("sample-{attempt}"),
+                        height,
+                    });
+                    if samples.len() >= participant_count {
+                        break;
+                    }
+                }
                 Err(err) => issues.push(ConsensusLivenessIssue::RequestFailed {
-                    node: label,
-                    source: err.into(),
+                    node: format!("sample-{attempt}"),
+                    source: err,
                 }),
+            }
+
+            if samples.len() < participant_count {
+                sleep(REQUEST_RETRY_DELAY).await;
             }
         }
 
         LivenessCheck { samples, issues }
+    }
+
+    async fn fetch_cluster_height(ctx: &RunContext) -> Result<u64, DynError> {
+        ctx.cluster_client()
+            .try_all_clients(|client| {
+                Box::pin(async move {
+                    client
+                        .consensus_info()
+                        .await
+                        .map(|info| info.height)
+                        .map_err(|err| -> DynError { err.into() })
+                })
+            })
+            .await
     }
 
     fn report(target_hint: u64, mut check: LivenessCheck) -> Result<(), DynError> {

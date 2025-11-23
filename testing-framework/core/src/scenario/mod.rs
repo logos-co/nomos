@@ -1,5 +1,6 @@
 //! Scenario orchestration primitives shared by integration tests and runners.
 
+mod capabilities;
 pub mod cfgsync;
 mod definition;
 mod expectation;
@@ -9,7 +10,8 @@ mod workload;
 
 pub type DynError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
-pub use definition::{Scenario, ScenarioBuilder};
+pub use capabilities::{NodeControlCapability, NodeControlHandle, RequiresNodeControl};
+pub use definition::{Builder, Scenario, ScenarioBuilder};
 pub use expectation::Expectation;
 pub use runtime::{
     BlockFeed, BlockFeedTask, BlockRecord, BlockStats, CleanupGuard, Deployer, NodeClients,

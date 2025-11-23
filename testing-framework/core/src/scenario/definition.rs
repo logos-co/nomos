@@ -1,6 +1,9 @@
-use std::{marker::PhantomData, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
-use super::{expectation::Expectation, runtime::context::RunMetrics, workload::Workload};
+use super::{
+    NodeControlCapability, expectation::Expectation, runtime::context::RunMetrics,
+    workload::Workload,
+};
 use crate::topology::{
     GeneratedTopology, TopologyBuilder, TopologyConfig, configs::wallet::WalletConfig,
 };
@@ -9,25 +12,28 @@ const DEFAULT_FUNDS_PER_WALLET: u64 = 100;
 
 /// Immutable scenario definition shared between the runner, workloads, and
 /// expectations.
-pub struct Scenario {
+pub struct Scenario<Caps = ()> {
     topology: GeneratedTopology,
     workloads: Vec<Arc<dyn Workload>>,
     expectations: Vec<Box<dyn Expectation>>,
     duration: Duration,
+    capabilities: Caps,
 }
 
-impl Scenario {
+impl<Caps> Scenario<Caps> {
     fn new(
         topology: GeneratedTopology,
         workloads: Vec<Arc<dyn Workload>>,
         expectations: Vec<Box<dyn Expectation>>,
         duration: Duration,
+        capabilities: Caps,
     ) -> Self {
         Self {
             topology,
             workloads,
             expectations,
             duration,
+            capabilities,
         }
     }
 
@@ -55,6 +61,11 @@ impl Scenario {
     pub const fn duration(&self) -> Duration {
         self.duration
     }
+
+    #[must_use]
+    pub const fn capabilities(&self) -> &Caps {
+        &self.capabilities
+    }
 }
 
 /// Builder used by callers to describe the desired scenario.
@@ -63,12 +74,12 @@ pub struct Builder<Caps = ()> {
     workloads: Vec<Arc<dyn Workload>>,
     expectations: Vec<Box<dyn Expectation>>,
     duration: Duration,
-    _caps: PhantomData<Caps>,
+    capabilities: Caps,
 }
 
 pub type ScenarioBuilder = Builder<()>;
 
-impl<Caps> Builder<Caps> {
+impl<Caps: Default> Builder<Caps> {
     #[must_use]
     pub fn new(topology: TopologyBuilder) -> Self {
         Self {
@@ -76,7 +87,7 @@ impl<Caps> Builder<Caps> {
             workloads: Vec::new(),
             expectations: Vec::new(),
             duration: Duration::ZERO,
-            _caps: PhantomData,
+            capabilities: Caps::default(),
         }
     }
 
@@ -85,6 +96,37 @@ impl<Caps> Builder<Caps> {
         Self::new(TopologyBuilder::new(TopologyConfig::with_node_numbers(
             validators, executors,
         )))
+    }
+}
+
+impl<Caps> Builder<Caps> {
+    #[must_use]
+    pub fn with_capabilities<NewCaps>(self, capabilities: NewCaps) -> Builder<NewCaps> {
+        let Self {
+            topology,
+            workloads,
+            expectations,
+            duration,
+            ..
+        } = self;
+
+        Builder {
+            topology,
+            workloads,
+            expectations,
+            duration,
+            capabilities,
+        }
+    }
+
+    #[must_use]
+    pub const fn capabilities(&self) -> &Caps {
+        &self.capabilities
+    }
+
+    #[must_use]
+    pub const fn capabilities_mut(&mut self) -> &mut Caps {
+        &mut self.capabilities
     }
 
     #[must_use]
@@ -135,12 +177,13 @@ impl<Caps> Builder<Caps> {
     }
 
     #[must_use]
-    pub fn build(self) -> Scenario {
+    pub fn build(self) -> Scenario<Caps> {
         let Self {
             topology,
             mut workloads,
             mut expectations,
             duration,
+            capabilities,
             ..
         } = self;
 
@@ -149,7 +192,14 @@ impl<Caps> Builder<Caps> {
         let run_metrics = RunMetrics::from_topology(&generated, duration);
         initialize_components(&generated, &run_metrics, &mut workloads, &mut expectations);
 
-        Scenario::new(generated, workloads, expectations, duration)
+        Scenario::new(generated, workloads, expectations, duration, capabilities)
+    }
+}
+
+impl Builder<()> {
+    #[must_use]
+    pub fn enable_node_control(self) -> Builder<NodeControlCapability> {
+        self.with_capabilities(NodeControlCapability)
     }
 }
 
@@ -196,11 +246,7 @@ fn enforce_min_duration(descriptors: &GeneratedTopology, requested: Duration) ->
     const MIN_BLOCKS: u32 = 2;
     const FALLBACK_SECS: u64 = 10;
 
-    let slot_duration = descriptors
-        .slot_duration()
-        .filter(|duration| !duration.is_zero());
-
-    let min_duration = slot_duration.map_or_else(
+    let min_duration = descriptors.slot_duration().map_or_else(
         || Duration::from_secs(FALLBACK_SECS),
         |slot| slot * MIN_BLOCKS,
     );

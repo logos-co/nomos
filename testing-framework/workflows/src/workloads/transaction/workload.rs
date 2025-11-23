@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     num::{NonZeroU64, NonZeroUsize},
+    sync::Arc,
     time::Duration,
 };
 
@@ -14,13 +15,9 @@ use testing_framework_core::{
     topology::{GeneratedNodeConfig, GeneratedTopology},
 };
 use tokio::time::sleep;
-use tracing::warn;
 use zksign::{PublicKey, SecretKey};
 
 use super::expectation::TxInclusionExpectation;
-
-const TX_SUBMIT_MAX_ATTEMPTS: usize = 5;
-const TX_SUBMIT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub struct Workload {
@@ -168,32 +165,19 @@ impl<'a> Submission<'a> {
 }
 
 async fn submit_wallet_transaction(ctx: &RunContext, input: &WalletInput) -> Result<(), DynError> {
-    let client = ctx
-        .random_node_client()
-        .ok_or("transaction workload requires at least one API client")?;
+    let signed_tx = Arc::new(build_wallet_transaction(input)?);
 
-    let signed_tx = build_wallet_transaction(input)?;
-
-    let mut last_err = None;
-    for attempt in 1..=TX_SUBMIT_MAX_ATTEMPTS {
-        match client.submit_transaction(&signed_tx).await {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                last_err = Some(err);
-                if attempt < TX_SUBMIT_MAX_ATTEMPTS {
-                    warn!(attempt, "transaction submission failed; retrying");
-                    sleep(TX_SUBMIT_RETRY_DELAY).await;
-                }
-            }
-        }
-    }
-
-    Err(last_err
-        .map_or_else(
-            || "transaction submission failed".to_owned(),
-            |err| format!("transaction submission failed: {err}"),
-        )
-        .into())
+    ctx.cluster_client()
+        .try_all_clients(|client| {
+            let signed_tx = Arc::clone(&signed_tx);
+            Box::pin(async move {
+                client
+                    .submit_transaction(&signed_tx)
+                    .await
+                    .map_err(|err| -> DynError { err.into() })
+            })
+        })
+        .await
 }
 
 fn build_wallet_transaction(input: &WalletInput) -> Result<SignedMantleTx, DynError> {

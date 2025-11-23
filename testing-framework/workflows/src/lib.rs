@@ -3,6 +3,6 @@ pub mod expectations;
 pub mod util;
 pub mod workloads;
 
-pub use builder::ScenarioBuilderExt;
+pub use builder::{ChaosBuilderExt, ScenarioBuilderExt};
 pub use expectations::ConsensusLiveness;
 pub use workloads::transaction::TxInclusionExpectation;

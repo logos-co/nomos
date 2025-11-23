@@ -1,5 +1,8 @@
 use testing_framework_core::scenario::Metrics;
-pub use testing_framework_workflows::{builder::ScenarioBuilderExt, expectations, util, workloads};
+pub use testing_framework_workflows::{
+    builder::{ChaosBuilderExt, ScenarioBuilderExt},
+    expectations, util, workloads,
+};
 
 /// Metrics are currently disabled in this branch; return a stub handle.
 #[must_use]

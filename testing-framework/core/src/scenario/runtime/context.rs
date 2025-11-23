@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use super::{block_feed::BlockFeed, metrics::Metrics};
+use super::{block_feed::BlockFeed, metrics::Metrics, node_clients::ClusterClient};
 use crate::{
     nodes::ApiClient,
-    scenario::NodeClients,
+    scenario::{NodeClients, NodeControlHandle},
     topology::{GeneratedTopology, Topology, configs::wallet::WalletAccount},
 };
 
@@ -14,6 +14,7 @@ pub struct RunContext {
     metrics: RunMetrics,
     telemetry: Metrics,
     block_feed: BlockFeed,
+    node_control: Option<Arc<dyn NodeControlHandle>>,
 }
 
 impl RunContext {
@@ -28,6 +29,7 @@ impl RunContext {
         run_duration: Duration,
         telemetry: Metrics,
         block_feed: BlockFeed,
+        node_control: Option<Arc<dyn NodeControlHandle>>,
     ) -> Self {
         let metrics = RunMetrics::new(&descriptors, run_duration);
 
@@ -38,6 +40,7 @@ impl RunContext {
             metrics,
             telemetry,
             block_feed,
+            node_control,
         }
     }
 
@@ -89,6 +92,16 @@ impl RunContext {
     #[must_use]
     pub const fn run_metrics(&self) -> RunMetrics {
         self.metrics
+    }
+
+    #[must_use]
+    pub fn node_control(&self) -> Option<Arc<dyn NodeControlHandle>> {
+        self.node_control.clone()
+    }
+
+    #[must_use]
+    pub const fn cluster_client(&self) -> ClusterClient<'_> {
+        self.node_clients.cluster_client()
     }
 }
 

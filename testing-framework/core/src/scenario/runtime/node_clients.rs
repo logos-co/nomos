@@ -1,7 +1,10 @@
-use rand::{Rng as _, thread_rng};
+use std::pin::Pin;
+
+use rand::{Rng as _, seq::SliceRandom as _, thread_rng};
 
 use crate::{
     nodes::ApiClient,
+    scenario::DynError,
     topology::{GeneratedTopology, Topology},
 };
 
@@ -84,5 +87,49 @@ impl NodeClients {
         } else {
             self.executors.get(choice - validator_count)
         }
+    }
+
+    #[must_use]
+    pub const fn cluster_client(&self) -> ClusterClient<'_> {
+        ClusterClient::new(self)
+    }
+}
+
+pub struct ClusterClient<'a> {
+    node_clients: &'a NodeClients,
+}
+
+impl<'a> ClusterClient<'a> {
+    #[must_use]
+    pub const fn new(node_clients: &'a NodeClients) -> Self {
+        Self { node_clients }
+    }
+
+    pub async fn try_all_clients<T, E>(
+        &self,
+        mut f: impl for<'b> FnMut(
+            &'b ApiClient,
+        ) -> Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'b>>
+        + Send,
+    ) -> Result<T, DynError>
+    where
+        E: Into<DynError>,
+    {
+        let mut clients: Vec<&ApiClient> = self.node_clients.all_clients().collect();
+        if clients.is_empty() {
+            return Err("cluster client has no api clients".into());
+        }
+
+        clients.shuffle(&mut thread_rng());
+
+        let mut last_err = None;
+        for client in clients {
+            match f(client).await {
+                Ok(value) => return Ok(value),
+                Err(err) => last_err = Some(err.into()),
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| "cluster client exhausted all nodes".into()))
     }
 }
