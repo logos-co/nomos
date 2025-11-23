@@ -88,10 +88,6 @@ fn submission_plan(
     ))
 }
 
-fn planned_blocks(ctx: &RunContext) -> u64 {
-    ctx.expected_blocks().max(1)
-}
-
 fn transmission_interval(run_duration: Duration, total_txs: u64) -> Duration {
     if total_txs == 0 {
         return Duration::ZERO;
@@ -120,8 +116,6 @@ pub fn planned_channel_ids(total: usize) -> Vec<ChannelId> {
 
 #[derive(Debug, Error)]
 pub enum TxPlanError {
-    #[error("tx workload total transactions exceed u64 capacity")]
-    TotalOverflow,
     #[error("tx workload total transactions exceed usize capacity")]
     CapacityOverflow,
 }
@@ -130,12 +124,28 @@ pub fn planned_transaction_totals(
     txs_per_block: NonZeroU64,
     ctx: &RunContext,
 ) -> Result<(u64, usize), TxPlanError> {
-    let blocks = planned_blocks(ctx);
-    let total = blocks
-        .checked_mul(txs_per_block.get())
-        .ok_or(TxPlanError::TotalOverflow)?;
-    let total_usize = usize::try_from(total).map_err(|_| TxPlanError::CapacityOverflow)?;
-    Ok((total, total_usize))
+    let window = ctx.run_duration();
+    let window_secs = window.as_secs_f64();
+    if window_secs <= 0.0 || !window_secs.is_finite() {
+        return Ok((0, 0));
+    }
+
+    let metrics = ctx.run_metrics();
+    let block_interval_secs = metrics
+        .block_interval_hint()
+        .map(|duration| duration.as_secs_f64())
+        .filter(|secs| *secs > 0.0 && secs.is_finite())
+        .unwrap_or(window_secs);
+
+    if block_interval_secs <= 0.0 || !block_interval_secs.is_finite() {
+        return Ok((0, 0));
+    }
+
+    let expected_blocks = window_secs / block_interval_secs;
+    let total = expected_blocks * txs_per_block.get() as f64;
+    let total_u64 = total.floor().clamp(0.0, u64::MAX as f64) as u64;
+    let total_usize = usize::try_from(total_u64).map_err(|_| TxPlanError::CapacityOverflow)?;
+    Ok((total_u64, total_usize))
 }
 
 struct Submission<'a> {
