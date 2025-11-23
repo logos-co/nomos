@@ -142,15 +142,15 @@ impl RunMetrics {
 
     #[must_use]
     pub fn from_topology(descriptors: &GeneratedTopology, run_duration: Duration) -> Self {
-        let slot_duration = descriptors
-            .slot_duration()
-            .filter(|duration| !duration.is_zero());
+        let slot_duration = descriptors.slot_duration();
 
         let active_slot_coeff = descriptors.config().consensus_params.active_slot_coeff;
         let expected_blocks =
             calculate_expected_blocks(run_duration, slot_duration, active_slot_coeff);
+
         let block_interval_hint =
             slot_duration.map(|duration| duration.mul_f64(active_slot_coeff.clamp(0.0, 1.0)));
+
         Self {
             run_duration,
             expected_blocks,
