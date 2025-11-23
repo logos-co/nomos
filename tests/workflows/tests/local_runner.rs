@@ -9,16 +9,14 @@ const RUN_DURATION: Duration = Duration::from_secs(60);
 const VALIDATORS: usize = 1;
 const EXECUTORS: usize = 1;
 const MIXED_TXS_PER_BLOCK: u64 = 5;
+const TOTAL_WALLETS: usize = 64;
+const TRANSACTION_WALLETS: usize = 8;
 
 #[tokio::test]
 #[serial]
 /// Drives both workloads concurrently to mimic a user mixing transaction flow
 /// with blob publishing on the same topology.
 async fn local_runner_mixed_workloads() {
-    println!(
-        "running mixed workloads with {VALIDATORS} validators / {EXECUTORS} executors ({MIXED_TXS_PER_BLOCK} txs/block) for {RUN_DURATION:?}",
-    );
-
     let topology = ScenarioBuilder::with_node_counts(VALIDATORS, EXECUTORS)
         .topology()
         .validators(VALIDATORS)
@@ -27,12 +25,10 @@ async fn local_runner_mixed_workloads() {
         .apply();
 
     let workloads = topology
-        .initialize_wallet(100, 4)
-        .wallet_transactions()
-        .rate(4)
-        .apply()
+        .wallets(TOTAL_WALLETS)
         .transactions()
         .rate(MIXED_TXS_PER_BLOCK)
+        .users(TRANSACTION_WALLETS)
         .apply()
         .da()
         .rate(1)

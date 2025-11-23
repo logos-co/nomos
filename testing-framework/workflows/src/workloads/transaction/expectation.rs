@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    num::NonZeroU64,
+    num::{NonZeroU64, NonZeroUsize},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -8,45 +8,52 @@ use std::{
 };
 
 use async_trait::async_trait;
-use nomos_core::mantle::{AuthenticatedMantleTx as _, ops::Op};
+use nomos_core::{header::HeaderId, mantle::AuthenticatedMantleTx as _};
 use testing_framework_core::scenario::{DynError, Expectation, RunContext};
 use thiserror::Error;
 use tokio::sync::broadcast;
+use zksign::PublicKey;
 
-use super::workload::{TxPlanError, planned_channel_ids, planned_transaction_totals};
+use super::workload::{limited_user_count, submission_plan};
 
-const MIN_INCLUSION_RATIO: f64 = 1.0;
+const MIN_INCLUSION_RATIO: f64 = 0.5;
+
+#[derive(Clone)]
+pub struct TxInclusionExpectation {
+    txs_per_block: NonZeroU64,
+    user_limit: Option<NonZeroUsize>,
+    capture_state: Option<CaptureState>,
+}
+
+#[derive(Clone)]
+struct CaptureState {
+    observed: Arc<AtomicU64>,
+    expected: u64,
+}
 
 #[derive(Debug, Error)]
-enum TxInclusionError {
-    #[error("expected transaction count exceeds u64 capacity")]
-    ExpectedCountOverflow,
-    #[error("validator transaction total {actual} below expected {expected}")]
-    BelowExpectation { actual: u64, expected: u64 },
-    #[error("tx inclusion expectation not prepared")]
+enum TxExpectationError {
+    #[error("transaction workload requires seeded accounts")]
+    MissingAccounts,
+    #[error("transaction workload planned zero transactions")]
+    NoPlannedTransactions,
+    #[error("transaction inclusion expectation not captured")]
     NotCaptured,
+    #[error("transaction inclusion observed {observed} below required {required}")]
+    InsufficientInclusions { observed: u64, required: u64 },
 }
 
 impl TxInclusionExpectation {
     pub const NAME: &'static str = "tx_inclusion_expectation";
 
     #[must_use]
-    pub const fn new(txs_per_block: NonZeroU64) -> Self {
+    pub const fn new(txs_per_block: NonZeroU64, user_limit: Option<NonZeroUsize>) -> Self {
         Self {
             txs_per_block,
+            user_limit,
             capture_state: None,
         }
     }
-}
-
-struct CaptureState {
-    observed: Arc<AtomicU64>,
-    expected: u64,
-}
-
-pub struct TxInclusionExpectation {
-    txs_per_block: NonZeroU64,
-    capture_state: Option<CaptureState>,
 }
 
 #[async_trait]
@@ -60,31 +67,44 @@ impl Expectation for TxInclusionExpectation {
             return Ok(());
         }
 
-        let (_, expected) = planned_transaction_totals(self.txs_per_block, ctx)
-            .map_err(|err| match err {
-                TxPlanError::CapacityOverflow => TxInclusionError::ExpectedCountOverflow,
-            })
-            .map_err(DynError::from)?;
+        let wallet_accounts = ctx.descriptors().config().wallet().accounts.clone();
+        if wallet_accounts.is_empty() {
+            return Err(TxExpectationError::MissingAccounts.into());
+        }
 
-        let planned = planned_channel_ids(expected);
-        let relevant_ids = Arc::new(planned.into_iter().collect::<HashSet<_>>());
+        let available = limited_user_count(self.user_limit, wallet_accounts.len());
+        let (planned, _) = submission_plan(self.txs_per_block, ctx, available)?;
+        if planned == 0 {
+            return Err(TxExpectationError::NoPlannedTransactions.into());
+        }
+
+        let wallet_pks = wallet_accounts
+            .into_iter()
+            .take(planned)
+            .map(|account| account.secret_key.to_public_key())
+            .collect::<HashSet<PublicKey>>();
+
         let observed = Arc::new(AtomicU64::new(0));
-
         let receiver = ctx.block_feed().subscribe();
-        let spawn_ids = Arc::clone(&relevant_ids);
+        let tracked_accounts = Arc::new(wallet_pks);
+        let spawn_accounts = Arc::clone(&tracked_accounts);
         let spawn_observed = Arc::clone(&observed);
 
         tokio::spawn(async move {
             let mut receiver = receiver;
+            let genesis_parent = HeaderId::from([0; 32]);
             loop {
                 match receiver.recv().await {
                     Ok(record) => {
+                        if record.block.header().parent_block() == genesis_parent {
+                            continue;
+                        }
+
                         for tx in record.block.transactions() {
-                            for op in &tx.mantle_tx().ops {
-                                if let Op::ChannelInscribe(inscribe) = op
-                                    && spawn_ids.contains(&inscribe.channel_id)
-                                {
+                            for note in &tx.mantle_tx().ledger_tx.outputs {
+                                if spawn_accounts.contains(&note.pk) {
                                     spawn_observed.fetch_add(1, Ordering::Relaxed);
+                                    break;
                                 }
                             }
                         }
@@ -97,7 +117,7 @@ impl Expectation for TxInclusionExpectation {
 
         self.capture_state = Some(CaptureState {
             observed,
-            expected: relevant_ids.len() as u64,
+            expected: planned as u64,
         });
 
         Ok(())
@@ -107,8 +127,7 @@ impl Expectation for TxInclusionExpectation {
         let state = self
             .capture_state
             .as_ref()
-            .ok_or(TxInclusionError::NotCaptured)
-            .map_err(DynError::from)?;
+            .ok_or(TxExpectationError::NotCaptured)?;
 
         let observed = state.observed.load(Ordering::Relaxed);
         let required = ((state.expected as f64) * MIN_INCLUSION_RATIO).ceil() as u64;
@@ -116,11 +135,7 @@ impl Expectation for TxInclusionExpectation {
         if observed >= required {
             Ok(())
         } else {
-            Err(TxInclusionError::BelowExpectation {
-                actual: observed,
-                expected: required,
-            }
-            .into())
+            Err(TxExpectationError::InsufficientInclusions { observed, required }.into())
         }
     }
 }

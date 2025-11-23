@@ -4,7 +4,7 @@ use super::{block_feed::BlockFeed, metrics::Metrics};
 use crate::{
     nodes::ApiClient,
     scenario::NodeClients,
-    topology::{GeneratedTopology, Topology},
+    topology::{GeneratedTopology, Topology, configs::wallet::WalletAccount},
 };
 
 pub struct RunContext {
@@ -64,6 +64,11 @@ impl RunContext {
     #[must_use]
     pub fn block_feed(&self) -> BlockFeed {
         self.block_feed.clone()
+    }
+
+    #[must_use]
+    pub fn wallet_accounts(&self) -> &[WalletAccount] {
+        self.descriptors.wallet_accounts()
     }
 
     #[must_use]

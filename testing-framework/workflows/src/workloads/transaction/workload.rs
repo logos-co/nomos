@@ -1,20 +1,34 @@
-use std::{num::NonZeroU64, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    num::{NonZeroU64, NonZeroUsize},
+    time::Duration,
+};
 
 use async_trait::async_trait;
-use nomos_core::mantle::ops::channel::ChannelId;
+use integration_configs::topology::configs::wallet::WalletAccount;
+use nomos_core::mantle::{
+    GenesisTx as _, Note, SignedMantleTx, Transaction as _, Utxo, tx_builder::MantleTxBuilder,
+};
 use testing_framework_core::{
     scenario::{DynError, Expectation, RunContext, RunMetrics, Workload as ScenarioWorkload},
-    topology::GeneratedTopology,
+    topology::{GeneratedNodeConfig, GeneratedTopology},
 };
-use thiserror::Error;
+use tokio::time::sleep;
+use zksign::{PublicKey, SecretKey};
 
 use super::expectation::TxInclusionExpectation;
-use crate::util::tx;
 
-const DEFAULT_TXS_PER_BLOCK: NonZeroU64 = NonZeroU64::new(5).unwrap();
 #[derive(Clone)]
 pub struct Workload {
     txs_per_block: NonZeroU64,
+    user_limit: Option<NonZeroUsize>,
+    accounts: Vec<WalletInput>,
+}
+
+#[derive(Clone)]
+struct WalletInput {
+    account: WalletAccount,
+    utxo: Utxo,
 }
 
 #[async_trait]
@@ -24,7 +38,10 @@ impl ScenarioWorkload for Workload {
     }
 
     fn expectations(&self) -> Vec<Box<dyn Expectation>> {
-        vec![Box::new(self.inclusion_expectation()) as Box<dyn Expectation>]
+        vec![Box::new(TxInclusionExpectation::new(
+            self.txs_per_block,
+            self.user_limit,
+        ))]
     }
 
     fn init(
@@ -32,23 +49,53 @@ impl ScenarioWorkload for Workload {
         descriptors: &GeneratedTopology,
         _run_metrics: &RunMetrics,
     ) -> Result<(), DynError> {
-        let has_nodes = !descriptors.validators().is_empty() || !descriptors.executors().is_empty();
-        if !has_nodes {
-            return Err("tx workload requires at least one node in the topology".into());
+        let wallet_accounts = descriptors.config().wallet().accounts.clone();
+        if wallet_accounts.is_empty() {
+            return Err("transaction workload requires seeded accounts".into());
         }
 
+        let reference_node = descriptors
+            .validators()
+            .first()
+            .or_else(|| descriptors.executors().first())
+            .ok_or("transaction workload requires at least one node in the topology")?;
+
+        let utxo_map = wallet_utxo_map(reference_node);
+        let mut accounts = wallet_accounts
+            .into_iter()
+            .filter_map(|account| {
+                utxo_map
+                    .get(&account.public_key())
+                    .copied()
+                    .map(|utxo| WalletInput { account, utxo })
+            })
+            .collect::<Vec<_>>();
+
+        apply_user_limit(&mut accounts, self.user_limit);
+
+        if accounts.is_empty() {
+            return Err(
+                "transaction workload could not match any accounts to genesis UTXOs".into(),
+            );
+        }
+
+        self.accounts = accounts;
         Ok(())
     }
 
     async fn start(&self, ctx: &RunContext) -> Result<(), DynError> {
-        self.submit_transactions(ctx).await
+        Submission::new(self, ctx)?.execute().await
     }
 }
 
 impl Workload {
     #[must_use]
     pub const fn new(txs_per_block: NonZeroU64) -> Self {
-        Self { txs_per_block }
+        Self {
+            txs_per_block,
+            user_limit: None,
+            accounts: Vec::new(),
+        }
     }
 
     #[must_use]
@@ -57,108 +104,45 @@ impl Workload {
     }
 
     #[must_use]
-    pub const fn with_default_rate() -> Self {
-        Self::new(DEFAULT_TXS_PER_BLOCK)
+    pub const fn txs_per_block(&self) -> NonZeroU64 {
+        self.txs_per_block
     }
 
     #[must_use]
-    pub const fn inclusion_expectation(&self) -> TxInclusionExpectation {
-        TxInclusionExpectation::new(self.txs_per_block)
-    }
-
-    async fn submit_transactions(&self, ctx: &RunContext) -> Result<(), DynError> {
-        Submission::new(self, ctx)?.execute().await
+    pub const fn with_user_limit(mut self, user_limit: Option<NonZeroUsize>) -> Self {
+        self.user_limit = user_limit;
+        self
     }
 }
 
 impl Default for Workload {
     fn default() -> Self {
-        Self::with_default_rate()
+        Self::new(NonZeroU64::new(1).expect("non-zero"))
     }
-}
-
-fn submission_plan(
-    txs_per_block: NonZeroU64,
-    ctx: &RunContext,
-) -> Result<(usize, Duration), TxPlanError> {
-    let (total_u64, total_usize) = planned_transaction_totals(txs_per_block, ctx)?;
-    Ok((
-        total_usize,
-        transmission_interval(ctx.run_duration(), total_u64),
-    ))
-}
-
-fn transmission_interval(run_duration: Duration, total_txs: u64) -> Duration {
-    if total_txs == 0 {
-        return Duration::ZERO;
-    }
-
-    let secs = run_duration.as_secs_f64();
-    if !secs.is_finite() || secs <= 0.0 {
-        return Duration::ZERO;
-    }
-
-    Duration::from_secs_f64(secs / total_txs as f64)
-}
-
-fn deterministic_channel_id(index: u64) -> ChannelId {
-    let mut bytes = [0u8; 32];
-    bytes[..8].copy_from_slice(b"tx_wrkld");
-    bytes[24..].copy_from_slice(&index.to_be_bytes());
-    ChannelId::from(bytes)
-}
-
-pub fn planned_channel_ids(total: usize) -> Vec<ChannelId> {
-    (0..total as u64)
-        .map(deterministic_channel_id)
-        .collect::<Vec<_>>()
-}
-
-#[derive(Debug, Error)]
-pub enum TxPlanError {
-    #[error("tx workload total transactions exceed usize capacity")]
-    CapacityOverflow,
-}
-
-pub fn planned_transaction_totals(
-    txs_per_block: NonZeroU64,
-    ctx: &RunContext,
-) -> Result<(u64, usize), TxPlanError> {
-    let window = ctx.run_duration();
-    let window_secs = window.as_secs_f64();
-    if window_secs <= 0.0 || !window_secs.is_finite() {
-        return Ok((0, 0));
-    }
-
-    let metrics = ctx.run_metrics();
-    let block_interval_secs = metrics
-        .block_interval_hint()
-        .map(|duration| duration.as_secs_f64())
-        .filter(|secs| *secs > 0.0 && secs.is_finite())
-        .unwrap_or(window_secs);
-
-    if block_interval_secs <= 0.0 || !block_interval_secs.is_finite() {
-        return Ok((0, 0));
-    }
-
-    let expected_blocks = window_secs / block_interval_secs;
-    let total = expected_blocks * txs_per_block.get() as f64;
-    let total_u64 = total.floor().clamp(0.0, u64::MAX as f64) as u64;
-    let total_usize = usize::try_from(total_u64).map_err(|_| TxPlanError::CapacityOverflow)?;
-    Ok((total_u64, total_usize))
 }
 
 struct Submission<'a> {
-    plan: Vec<ChannelId>,
+    plan: VecDeque<WalletInput>,
     ctx: &'a RunContext,
     interval: Duration,
 }
 
 impl<'a> Submission<'a> {
     fn new(workload: &Workload, ctx: &'a RunContext) -> Result<Self, DynError> {
-        let (total, interval) = submission_plan(workload.txs_per_block, ctx)
-            .map_err(|err| -> DynError { err.into() })?;
-        let plan = planned_channel_ids(total);
+        if workload.accounts.is_empty() {
+            return Err("transaction workload has no available accounts".into());
+        }
+
+        let (planned, interval) =
+            submission_plan(workload.txs_per_block, ctx, workload.accounts.len())?;
+
+        let plan = workload
+            .accounts
+            .iter()
+            .take(planned)
+            .cloned()
+            .collect::<VecDeque<_>>();
+
         Ok(Self {
             plan,
             ctx,
@@ -166,18 +150,99 @@ impl<'a> Submission<'a> {
         })
     }
 
-    async fn execute(self) -> Result<(), DynError> {
-        for channel_id in self.plan {
-            let client = self
-                .ctx
-                .random_node_client()
-                .expect("node presence validated during initialization");
-            let tx = tx::create_inscription_transaction_with_id(channel_id);
-            client.submit_transaction(&tx).await?;
+    async fn execute(mut self) -> Result<(), DynError> {
+        while let Some(input) = self.plan.pop_front() {
+            submit_wallet_transaction(self.ctx, &input).await?;
+
             if !self.interval.is_zero() {
-                tokio::time::sleep(self.interval).await;
+                sleep(self.interval).await;
             }
         }
+
         Ok(())
     }
+}
+
+async fn submit_wallet_transaction(ctx: &RunContext, input: &WalletInput) -> Result<(), DynError> {
+    let client = ctx
+        .random_node_client()
+        .ok_or("transaction workload requires at least one API client")?;
+
+    let signed_tx = build_wallet_transaction(input)?;
+    client.submit_transaction(&signed_tx).await?;
+
+    Ok(())
+}
+
+fn build_wallet_transaction(input: &WalletInput) -> Result<SignedMantleTx, DynError> {
+    let builder = MantleTxBuilder::new()
+        .add_ledger_input(input.utxo)
+        .add_ledger_output(Note::new(input.utxo.note.value, input.account.public_key()));
+
+    let mantle_tx = builder.build();
+    let tx_hash = mantle_tx.hash();
+
+    let signature = SecretKey::multi_sign(
+        std::slice::from_ref(&input.account.secret_key),
+        tx_hash.as_ref(),
+    )
+    .map_err(|err| format!("transaction workload could not sign transaction: {err}"))?;
+
+    SignedMantleTx::new(mantle_tx, Vec::new(), signature).map_err(|err| {
+        format!("transaction workload constructed invalid transaction: {err}").into()
+    })
+}
+
+fn wallet_utxo_map(node: &GeneratedNodeConfig) -> HashMap<PublicKey, Utxo> {
+    let genesis_tx = node.general.consensus_config.genesis_tx.clone();
+    let ledger_tx = genesis_tx.mantle_tx().ledger_tx.clone();
+    let tx_hash = ledger_tx.hash();
+
+    ledger_tx
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(idx, note)| (note.pk, Utxo::new(tx_hash, idx, *note)))
+        .collect()
+}
+
+fn apply_user_limit<T>(items: &mut Vec<T>, user_limit: Option<NonZeroUsize>) {
+    if let Some(limit) = user_limit {
+        let allowed = limit.get().min(items.len());
+        items.truncate(allowed);
+    }
+}
+
+pub(super) fn limited_user_count(user_limit: Option<NonZeroUsize>, available: usize) -> usize {
+    user_limit.map_or(available, |limit| limit.get().min(available))
+}
+
+pub(super) fn submission_plan(
+    txs_per_block: NonZeroU64,
+    ctx: &RunContext,
+    available_accounts: usize,
+) -> Result<(usize, Duration), DynError> {
+    if available_accounts == 0 {
+        return Err("transaction workload scheduled zero transactions".into());
+    }
+
+    let run_secs = ctx.run_duration().as_secs_f64();
+    let block_secs = ctx
+        .run_metrics()
+        .block_interval_hint()
+        .unwrap_or_else(|| ctx.run_duration())
+        .as_secs_f64();
+
+    let expected_blocks = run_secs / block_secs;
+    let requested = (expected_blocks * txs_per_block.get() as f64)
+        .floor()
+        .clamp(0.0, u64::MAX as f64) as u64;
+
+    let planned = requested.min(available_accounts as u64) as usize;
+    if planned == 0 {
+        return Err("transaction workload scheduled zero transactions".into());
+    }
+
+    let interval = Duration::from_secs_f64(run_secs / planned as f64);
+    Ok((planned, interval))
 }

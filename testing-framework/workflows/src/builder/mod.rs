@@ -5,7 +5,7 @@ use testing_framework_core::{scenario::ScenarioBuilder, topology::configs::walle
 
 use crate::{
     expectations::ConsensusLiveness,
-    workloads::{channel, transaction, wallet},
+    workloads::{channel, transaction},
 };
 
 macro_rules! non_zero_rate_fn {
@@ -25,16 +25,11 @@ non_zero_rate_fn!(
 );
 non_zero_rate_fn!(channel_rate_checked, "channel rate must be non-zero");
 non_zero_rate_fn!(blob_rate_checked, "blob rate must be non-zero");
-non_zero_rate_fn!(
-    wallet_rate_checked,
-    "wallet transaction rate must be non-zero"
-);
 
 pub trait ScenarioBuilderExt: Sized {
     fn topology(self) -> TopologyConfigurator;
     fn transactions(self) -> TransactionFlowBuilder;
     fn da(self) -> DataAvailabilityFlowBuilder;
-    fn wallet_transactions(self) -> WalletFlowBuilder;
     fn expect_consensus_liveness(self) -> ScenarioBuilder;
     fn initialize_wallet(self, total_funds: u64, users: usize) -> ScenarioBuilder;
 }
@@ -50,10 +45,6 @@ impl ScenarioBuilderExt for ScenarioBuilder {
 
     fn da(self) -> DataAvailabilityFlowBuilder {
         DataAvailabilityFlowBuilder::new(self)
-    }
-
-    fn wallet_transactions(self) -> WalletFlowBuilder {
-        WalletFlowBuilder::new(self)
     }
 
     fn expect_consensus_liveness(self) -> ScenarioBuilder {
@@ -105,6 +96,7 @@ impl TopologyConfigurator {
 pub struct TransactionFlowBuilder {
     builder: ScenarioBuilder,
     rate: NonZeroU64,
+    users: Option<NonZeroUsize>,
 }
 
 impl TransactionFlowBuilder {
@@ -116,6 +108,7 @@ impl TransactionFlowBuilder {
         Self {
             builder,
             rate: Self::default_rate(),
+            users: None,
         }
     }
 
@@ -132,9 +125,19 @@ impl TransactionFlowBuilder {
     }
 
     #[must_use]
+    pub const fn users(mut self, users: usize) -> Self {
+        match NonZeroUsize::new(users) {
+            Some(value) => self.users = Some(value),
+            None => panic!("transaction user count must be non-zero"),
+        }
+        self
+    }
+
+    #[must_use]
     pub fn apply(mut self) -> ScenarioBuilder {
         let workload = transaction::Workload::with_rate(self.rate.get())
-            .expect("transaction rate must be non-zero");
+            .expect("transaction rate must be non-zero")
+            .with_user_limit(self.users);
         self.builder = self.builder.with_workload(workload);
         self.builder
     }
@@ -191,39 +194,6 @@ impl DataAvailabilityFlowBuilder {
     pub fn apply(mut self) -> ScenarioBuilder {
         let count = (self.channel_rate.get() * self.blob_rate.get()) as usize;
         let workload = channel::Workload::with_channel_count(count.max(1));
-        self.builder = self.builder.with_workload(workload);
-        self.builder
-    }
-}
-
-pub struct WalletFlowBuilder {
-    builder: ScenarioBuilder,
-    rate: NonZeroU64,
-}
-
-impl WalletFlowBuilder {
-    const fn default_rate() -> NonZeroU64 {
-        wallet_rate_checked(1)
-    }
-
-    const fn new(builder: ScenarioBuilder) -> Self {
-        Self {
-            builder,
-            rate: Self::default_rate(),
-        }
-    }
-
-    #[must_use]
-    pub const fn rate(mut self, rate: u64) -> Self {
-        self.rate = wallet_rate_checked(rate);
-        self
-    }
-
-    #[must_use]
-    pub fn apply(mut self) -> ScenarioBuilder {
-        let workload = wallet::Workload::with_rate(self.rate.get())
-            .expect("wallet transaction rate must be non-zero");
-
         self.builder = self.builder.with_workload(workload);
         self.builder
     }
