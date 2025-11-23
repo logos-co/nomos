@@ -62,9 +62,7 @@ impl Expectation for TxInclusionExpectation {
 
         let (_, expected) = planned_transaction_totals(self.txs_per_block, ctx)
             .map_err(|err| match err {
-                TxPlanError::TotalOverflow | TxPlanError::CapacityOverflow => {
-                    TxInclusionError::ExpectedCountOverflow
-                }
+                TxPlanError::CapacityOverflow => TxInclusionError::ExpectedCountOverflow,
             })
             .map_err(DynError::from)?;
 
