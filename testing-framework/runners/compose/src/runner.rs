@@ -3,6 +3,7 @@ use std::{
     env,
     net::{Ipv4Addr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
+    process::{Command as StdCommand, Stdio},
     time::Duration,
 };
 
@@ -22,8 +23,11 @@ use testing_framework_core::{
         configs::GeneralConfig as IntegrationGeneralConfig,
     },
 };
-use tokio::time::sleep;
-use tracing::{error, info};
+use tokio::{
+    process::Command,
+    time::{sleep, timeout},
+};
+use tracing::{error, info, warn};
 use url::ParseError;
 use uuid::Uuid;
 
@@ -32,7 +36,7 @@ use crate::{
     cleanup::RunnerCleanup,
     compose::{
         ComposeCommandError, ComposeDescriptor, DescriptorBuildError, TemplateError, compose_up,
-        dump_compose_logs, write_compose_file,
+        dump_compose_logs, repository_root, resolve_image, write_compose_file,
     },
     wait::{wait_for_executors, wait_for_validators},
     workspace::ComposeWorkspace,
@@ -65,6 +69,9 @@ impl ComposeRunner {
 
 const PROMETHEUS_PORT_ENV: &str = "TEST_FRAMEWORK_PROMETHEUS_PORT";
 const DEFAULT_PROMETHEUS_PORT: u16 = 9090;
+const IMAGE_BUILD_TIMEOUT: Duration = Duration::from_secs(600);
+const BLOCK_FEED_MAX_ATTEMPTS: usize = 5;
+const BLOCK_FEED_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeRunnerError {
@@ -88,6 +95,15 @@ pub enum ComposeRunnerError {
     BlockFeedMissing,
     #[error("failed to start block feed: {source}")]
     BlockFeed {
+        #[source]
+        source: anyhow::Error,
+    },
+    #[error(
+        "docker image '{image}' is not available; set NOMOS_TESTNET_IMAGE or build the image manually"
+    )]
+    MissingImage { image: String },
+    #[error("failed to prepare docker image: {source}")]
+    ImageBuild {
         #[source]
         source: anyhow::Error,
     },
@@ -218,7 +234,8 @@ impl Deployer for ComposeRunner {
             }
         };
         let telemetry = metrics_handle_from_port(prometheus_port)?;
-        let (block_feed, block_feed_guard) = match spawn_block_feed_with(&node_clients).await {
+        let (block_feed, block_feed_guard) = match spawn_block_feed_with_retry(&node_clients).await
+        {
             Ok(pair) => pair,
             Err(err) => {
                 environment.fail("failed to initialize block feed").await;
@@ -309,6 +326,26 @@ async fn spawn_block_feed_with(
     spawn_block_feed(block_source_client)
         .await
         .map_err(|source| ComposeRunnerError::BlockFeed { source })
+}
+
+async fn spawn_block_feed_with_retry(
+    node_clients: &NodeClients,
+) -> Result<(BlockFeed, BlockFeedTask), ComposeRunnerError> {
+    let mut last_err = None;
+    for attempt in 1..=BLOCK_FEED_MAX_ATTEMPTS {
+        match spawn_block_feed_with(node_clients).await {
+            Ok(result) => return Ok(result),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < BLOCK_FEED_MAX_ATTEMPTS {
+                    warn!(attempt, "block feed initialization failed; retrying");
+                    sleep(BLOCK_FEED_RETRY_DELAY).await;
+                }
+            }
+        }
+    }
+
+    Err(last_err.expect("block feed retry should capture an error"))
 }
 
 fn localhost_url(port: u16) -> Result<Url, ParseError> {
@@ -440,6 +477,7 @@ async fn prepare_environment(
 ) -> Result<StackEnvironment, ComposeRunnerError> {
     let workspace = prepare_workspace_logged()?;
     update_cfgsync_logged(&workspace, descriptors)?;
+    ensure_compose_image().await?;
 
     let prebuilt_configs = collect_prebuilt_configs(descriptors);
     assert!(
@@ -581,6 +619,142 @@ async fn bring_up_stack(
         return Err(ComposeRunnerError::Compose(err));
     }
     Ok(())
+}
+
+async fn ensure_compose_image() -> Result<(), ComposeRunnerError> {
+    let (image, platform) = resolve_image();
+    ensure_image_present(&image, platform.as_deref()).await
+}
+
+async fn ensure_image_present(
+    image: &str,
+    platform: Option<&str>,
+) -> Result<(), ComposeRunnerError> {
+    if docker_image_exists(image).await? {
+        return Ok(());
+    }
+
+    if image != "nomos-testnet:local" {
+        return Err(ComposeRunnerError::MissingImage {
+            image: image.to_owned(),
+        });
+    }
+
+    build_local_image(image, platform).await
+}
+
+async fn docker_image_exists(image: &str) -> Result<bool, ComposeRunnerError> {
+    let mut cmd = Command::new("docker");
+    cmd.arg("image")
+        .arg("inspect")
+        .arg(image)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    match cmd.status().await {
+        Ok(status) => Ok(status.success()),
+        Err(source) => Err(ComposeRunnerError::Compose(ComposeCommandError::Spawn {
+            command: format!("docker image inspect {image}"),
+            source,
+        })),
+    }
+}
+
+async fn build_local_image(image: &str, platform: Option<&str>) -> Result<(), ComposeRunnerError> {
+    let repo_root =
+        repository_root().map_err(|source| ComposeRunnerError::ImageBuild { source })?;
+    let dockerfile = repo_root.join("testing-framework/runners/docker/runner.Dockerfile");
+
+    info!(image, "building compose runner docker image");
+
+    let mut cmd = Command::new("docker");
+    cmd.arg("build");
+
+    if let Some(build_platform) = select_build_platform(platform)? {
+        cmd.arg("--platform").arg(&build_platform);
+    }
+
+    let circuits_platform = env::var("COMPOSE_CIRCUITS_PLATFORM")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| String::from("linux-x86_64"));
+
+    cmd.arg("--build-arg")
+        .arg(format!("NOMOS_CIRCUITS_PLATFORM={circuits_platform}"));
+
+    if let Some(value) = env::var("CIRCUITS_OVERRIDE")
+        .ok()
+        .filter(|val| !val.is_empty())
+    {
+        cmd.arg("--build-arg")
+            .arg(format!("CIRCUITS_OVERRIDE={value}"));
+    }
+
+    cmd.arg("-t")
+        .arg(image)
+        .arg("-f")
+        .arg(&dockerfile)
+        .arg(&repo_root);
+
+    run_docker_command(cmd, "docker build compose image", IMAGE_BUILD_TIMEOUT).await
+}
+
+async fn run_docker_command(
+    mut command: Command,
+    description: &str,
+    timeout_duration: Duration,
+) -> Result<(), ComposeRunnerError> {
+    match timeout(timeout_duration, command.status()).await {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(Ok(status)) => Err(ComposeRunnerError::Compose(ComposeCommandError::Failed {
+            command: description.to_owned(),
+            status,
+        })),
+        Ok(Err(source)) => Err(ComposeRunnerError::Compose(ComposeCommandError::Spawn {
+            command: description.to_owned(),
+            source,
+        })),
+        Err(_) => Err(ComposeRunnerError::Compose(ComposeCommandError::Timeout {
+            command: description.to_owned(),
+            timeout: timeout_duration,
+        })),
+    }
+}
+
+fn detect_docker_platform() -> Result<Option<String>, ComposeRunnerError> {
+    let output = StdCommand::new("docker")
+        .arg("info")
+        .arg("-f")
+        .arg("{{.Architecture}}")
+        .output()
+        .map_err(|source| ComposeRunnerError::ImageBuild {
+            source: source.into(),
+        })?;
+
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let arch = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if arch.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(format!("linux/{arch}")))
+}
+
+fn select_build_platform(requested: Option<&str>) -> Result<Option<String>, ComposeRunnerError> {
+    if let Some(value) = requested {
+        return Ok(Some(value.to_owned()));
+    }
+
+    detect_docker_platform()?.map_or_else(
+        || {
+            warn!("docker host architecture unavailable; letting docker choose default platform");
+            Ok(None)
+        },
+        |host_platform| Ok(Some(host_platform)),
+    )
 }
 
 async fn bring_up_stack_logged(

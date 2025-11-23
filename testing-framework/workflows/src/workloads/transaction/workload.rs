@@ -14,9 +14,13 @@ use testing_framework_core::{
     topology::{GeneratedNodeConfig, GeneratedTopology},
 };
 use tokio::time::sleep;
+use tracing::warn;
 use zksign::{PublicKey, SecretKey};
 
 use super::expectation::TxInclusionExpectation;
+
+const TX_SUBMIT_MAX_ATTEMPTS: usize = 5;
+const TX_SUBMIT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub struct Workload {
@@ -169,9 +173,27 @@ async fn submit_wallet_transaction(ctx: &RunContext, input: &WalletInput) -> Res
         .ok_or("transaction workload requires at least one API client")?;
 
     let signed_tx = build_wallet_transaction(input)?;
-    client.submit_transaction(&signed_tx).await?;
 
-    Ok(())
+    let mut last_err = None;
+    for attempt in 1..=TX_SUBMIT_MAX_ATTEMPTS {
+        match client.submit_transaction(&signed_tx).await {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt < TX_SUBMIT_MAX_ATTEMPTS {
+                    warn!(attempt, "transaction submission failed; retrying");
+                    sleep(TX_SUBMIT_RETRY_DELAY).await;
+                }
+            }
+        }
+    }
+
+    Err(last_err
+        .map_or_else(
+            || "transaction submission failed".to_owned(),
+            |err| format!("transaction submission failed: {err}"),
+        )
+        .into())
 }
 
 fn build_wallet_transaction(input: &WalletInput) -> Result<SignedMantleTx, DynError> {

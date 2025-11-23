@@ -11,6 +11,7 @@ FROM rust:1.91.0-slim-bookworm AS builder
 
 ARG VERSION
 ARG NOMOS_CIRCUITS_PLATFORM
+ARG TARGETARCH
 
 LABEL maintainer="logos devs" \
     source="https://github.com/logos-co/nomos-node" \
@@ -20,13 +21,19 @@ WORKDIR /nomos
 COPY . .
 
 RUN apt-get update && apt-get install -yq \
-    git gcc g++ clang libssl-dev pkg-config ca-certificates curl && \
+    git gcc g++ clang libssl-dev pkg-config ca-certificates curl wget \
+    build-essential cmake libgmp-dev libsodium-dev nasm m4 && \
     rm -rf /var/lib/apt/lists/*
 
 ENV NOMOS_CIRCUITS_PLATFORM=${NOMOS_CIRCUITS_PLATFORM}
 
 RUN chmod +x scripts/setup-nomos-circuits.sh && \
     scripts/setup-nomos-circuits.sh "$VERSION" "/opt/circuits"
+
+RUN if [ "${TARGETARCH:-amd64}" = "arm64" ]; then \
+        chmod +x scripts/build-rapidsnark.sh && \
+        scripts/build-rapidsnark.sh "/opt/circuits"; \
+    fi
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 

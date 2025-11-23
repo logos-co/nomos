@@ -156,9 +156,16 @@ main() {
     print_info "Installation directory: $INSTALL_DIR"
     echo
 
-    # Detect platform
-    local platform=$(detect_platform)
-    print_info "Detected platform: $platform"
+    # Detect platform (allow override via NOMOS_CIRCUITS_PLATFORM)
+    local platform_override="${NOMOS_CIRCUITS_PLATFORM:-}"
+    local platform
+    if [ -n "$platform_override" ]; then
+        platform="$platform_override"
+        print_info "Using overridden platform: $platform"
+    else
+        platform=$(detect_platform)
+        print_info "Detected platform: $platform"
+    fi
 
     # Check existing installation
     check_existing_installation

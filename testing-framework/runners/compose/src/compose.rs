@@ -420,7 +420,7 @@ impl TemplateSource {
     }
 }
 
-fn repository_root() -> anyhow::Result<PathBuf> {
+pub fn repository_root() -> anyhow::Result<PathBuf> {
     env::var("CARGO_WORKSPACE_DIR")
         .map(PathBuf::from)
         .or_else(|_| {
@@ -503,7 +503,7 @@ fn default_extra_hosts() -> Vec<String> {
     host_gateway_entry().into_iter().collect()
 }
 
-fn resolve_image() -> (String, Option<String>) {
+pub fn resolve_image() -> (String, Option<String>) {
     let image =
         env::var("NOMOS_TESTNET_IMAGE").unwrap_or_else(|_| String::from("nomos-testnet:local"));
     let platform = (image == "ghcr.io/logos-co/nomos:testnet").then(|| "linux/amd64".to_owned());
