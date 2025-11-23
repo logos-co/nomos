@@ -1,9 +1,11 @@
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{marker::PhantomData, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use super::{expectation::Expectation, runtime::context::RunMetrics, workload::Workload};
 use crate::topology::{
     GeneratedTopology, TopologyBuilder, TopologyConfig, configs::wallet::WalletConfig,
 };
+
+const DEFAULT_FUNDS_PER_WALLET: u64 = 100;
 
 /// Immutable scenario definition shared between the runner, workloads, and
 /// expectations.
@@ -120,6 +122,16 @@ impl<Caps> Builder<Caps> {
     pub fn with_wallet_config(mut self, wallet: WalletConfig) -> Self {
         self.topology = self.topology.with_wallet_config(wallet);
         self
+    }
+
+    #[must_use]
+    pub fn wallets(self, users: usize) -> Self {
+        let user_count = NonZeroUsize::new(users).expect("wallet user count must be non-zero");
+        let total_funds = DEFAULT_FUNDS_PER_WALLET
+            .checked_mul(users as u64)
+            .expect("wallet count exceeds capacity");
+        let wallet = WalletConfig::uniform(total_funds, user_count);
+        self.with_wallet_config(wallet)
     }
 
     #[must_use]
