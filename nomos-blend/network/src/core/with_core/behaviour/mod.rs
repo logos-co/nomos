@@ -291,26 +291,14 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         message: &EncapsulatedMessageWithVerifiedPublicHeader,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let Some(RemotePeerConnectionDetails { connection_id, .. }) =
-            self.negotiated_peers.get(&peer_id)
-        else {
-            return Err(Error::NoPeers);
-        };
         let serialized_message = serialize_encapsulated_message(message);
-        tracing::debug!(target: LOG_TARGET, "Notifying handler with peer {peer_id:?} on connection {connection_id:?} to deliver message.");
-        self.events.push_back(ToSwarm::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::One(*connection_id),
-            event: Either::Left(FromBehaviour::Message(serialized_message)),
-        });
-        self.try_wake();
-        Ok(())
+        self.force_send_serialized_message_to_peer(serialized_message, peer_id)
     }
 
     /// Force send a serialized message to a peer (without trying to deserialize
     /// nor validating it first), as long as the peer is connected, no
     /// matter the state the connection is in.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub fn force_send_serialized_message_to_peer(
         &mut self,
         serialized_message: Vec<u8>,
