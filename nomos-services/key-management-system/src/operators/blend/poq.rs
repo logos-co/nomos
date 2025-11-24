@@ -18,7 +18,7 @@ pub struct PoQOperator {
     core_path_and_selectors: CorePathAndSelectors,
     public_inputs: PublicInputs,
     key_index: u64,
-    response_channel: Option<oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>>,
+    response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
 }
 
 impl Debug for PoQOperator {
@@ -39,7 +39,7 @@ impl PoQOperator {
             core_path_and_selectors,
             public_inputs,
             key_index,
-            response_channel: Some(response_channel),
+            response_channel,
         }
     }
 }
@@ -49,7 +49,7 @@ impl SecureKeyOperator for PoQOperator {
     type Key = ZkKey;
     type Error = <ZkKey as SecuredKey>::Error;
 
-    async fn execute(&mut self, key: &Self::Key) -> Result<(), Self::Error> {
+    async fn execute(mut self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error> {
         let private_inputs = PrivateInputs::new_proof_of_core_quota_inputs(
             self.key_index,
             ProofOfCoreQuotaInputs {
@@ -64,12 +64,7 @@ impl SecureKeyOperator for PoQOperator {
             spawn_blocking(move || VerifiedProofOfQuota::new(&public_inputs, private_inputs))
                 .await
                 .map_err(Self::Error::FailedOperatorCall)?;
-        if let Err(e) = self
-            .response_channel
-            .take()
-            .expect("Channel to be available")
-            .send(poq_result)
-        {
+        if let Err(e) = self.response_channel.send(poq_result) {
             error!("Error building proof of quota: {e:?}");
         }
         Ok(())
