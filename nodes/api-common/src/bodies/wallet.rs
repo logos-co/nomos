@@ -3,12 +3,15 @@ pub mod balance {
         http::StatusCode,
         response::{IntoResponse, Response},
     };
-    use nomos_core::mantle::Value;
+    use nomos_core::{header::HeaderId, mantle::Value};
     use serde::{Deserialize, Serialize};
+    use zksign::PublicKey;
 
     #[derive(Serialize, Deserialize)]
     pub struct WalletBalanceResponseBody {
+        pub tip: HeaderId,
         pub balance: Value,
+        pub address: PublicKey,
     }
 
     impl IntoResponse for WalletBalanceResponseBody {

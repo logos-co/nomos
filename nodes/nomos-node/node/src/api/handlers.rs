@@ -67,9 +67,7 @@ use {
     tokio_stream::StreamExt as _,
 };
 
-use crate::api::{
-    backend::DaStorageBackend, responses, responses::overwatch::get_relay_or_response,
-};
+use crate::api::{backend::DaStorageBackend, responses, responses::overwatch::get_relay_or_500};
 
 #[macro_export]
 macro_rules! make_request_and_return_response {
@@ -521,7 +519,7 @@ where
     RuntimeServiceId:
         AsServiceId<StorageService<RocksBackend, RuntimeServiceId>> + Debug + Sync + Display,
 {
-    let relay = match get_relay_or_response(&handle).await {
+    let relay = match get_relay_or_500(&handle).await {
         Ok(relay) => relay,
         Err(error_response) => return error_response,
     };
@@ -610,7 +608,7 @@ where
         + Display
         + 'static,
 {
-    let relay = match get_relay_or_response(&handle).await {
+    let relay = match get_relay_or_500(&handle).await {
         Ok(relay) => relay,
         Err(error_response) => return error_response,
     };
@@ -645,7 +643,7 @@ where
         + Display
         + 'static,
 {
-    let relay = match get_relay_or_response(&handle).await {
+    let relay = match get_relay_or_500(&handle).await {
         Ok(relay) => relay,
         Err(error_response) => return error_response,
     };
@@ -680,7 +678,7 @@ where
         + 'static
         + AsServiceId<StorageService<RocksBackend, RuntimeServiceId>>,
 {
-    let relay = match get_relay_or_response(&handle).await {
+    let relay = match get_relay_or_500(&handle).await {
         Ok(relay) => relay,
         Err(error_response) => return error_response,
     };
@@ -1051,7 +1049,7 @@ pub mod wallet {
         RuntimeServiceId,
     >(
         State(handle): State<OverwatchHandle<RuntimeServiceId>>,
-        Path(public_key): Path<PublicKey>,
+        Path(address): Path<PublicKey>,
         Query(query): Query<TipQuery>,
     ) -> Response
     where
@@ -1080,7 +1078,7 @@ pub mod wallet {
             + AsServiceId<Cryptarchia<RuntimeServiceId>>,
     {
         let wallet_api = {
-            let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
+            let wallet_relay = match get_relay_or_500::<WalletService, _>(&handle).await {
                 Ok(relay) => relay,
                 Err(error_response) => return error_response,
             };
@@ -1103,10 +1101,19 @@ pub mod wallet {
             }
         };
 
-        let balance = wallet_api.get_balance(tip, public_key).await;
+        let balance = wallet_api.get_balance(tip, address).await;
         match balance {
-            Ok(Some(balance)) => WalletBalanceResponseBody { balance }.into_response(),
-            Ok(None) => (StatusCode::NOT_FOUND, "Wallet not found").into_response(),
+            Ok(Some(balance)) => WalletBalanceResponseBody {
+                tip,
+                balance,
+                address,
+            }
+            .into_response(),
+            Ok(None) => (
+                StatusCode::NOT_FOUND,
+                "The requested address could not be found in the wallet.",
+            )
+                .into_response(),
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
     }
@@ -1160,7 +1167,7 @@ pub mod wallet {
             + AsServiceId<Cryptarchia<RuntimeServiceId>>,
     {
         let wallet_api = {
-            let wallet_relay = match get_relay_or_response::<WalletService, _>(&handle).await {
+            let wallet_relay = match get_relay_or_500::<WalletService, _>(&handle).await {
                 Ok(relay) => relay,
                 Err(error_response) => return error_response,
             };

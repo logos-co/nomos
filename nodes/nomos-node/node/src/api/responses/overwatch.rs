@@ -7,7 +7,7 @@ use overwatch::{
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 
-pub async fn get_relay_or_response<Service, RuntimeServiceId>(
+pub async fn get_relay_or_500<Service, RuntimeServiceId>(
     handle: &OverwatchHandle<RuntimeServiceId>,
 ) -> Result<OutboundRelay<<Service as ServiceData>::Message>, Response>
 where
