@@ -264,44 +264,6 @@ impl<ProofsVerifier, ObservationWindowClockProvider>
         }
     }
 
-    /// Publish an already-encapsulated message to all connected peers.
-    ///
-    /// Public header validation checks are skipped, since the message is
-    /// assumed to have been properly formed.
-    pub fn publish_validated_message(
-        &mut self,
-        message: &EncapsulatedMessageWithVerifiedPublicHeader,
-    ) -> Result<(), Error> {
-        self.forward_validated_message_and_maybe_exclude(message, None)?;
-        Ok(())
-    }
-
-    /// Forwards a message to all healthy connections except the [`execpt`]
-    /// connection.
-    ///
-    /// If the [`except`] connection is part of the old session, the message is
-    /// forwarded to the connections in the old session.
-    /// Otherwise, it is forwarded to the connections in the current session.
-    ///
-    /// Public header validation checks are skipped, since the message is
-    /// assumed to have been properly formed.
-    ///
-    /// Returns [`Error::NoPeers`] if there are no connected peers that support
-    /// the blend protocol.
-    pub fn forward_validated_message(
-        &mut self,
-        message: &EncapsulatedMessageWithVerifiedPublicHeader,
-        except: (PeerId, ConnectionId),
-    ) -> Result<(), Error> {
-        if let Some(old_session) = &mut self.old_session
-            && old_session.is_negotiated(&except)
-        {
-            return old_session
-                .forward_validated_message_and_maybe_exclude(message, Some(except.0));
-        }
-        self.forward_validated_message_and_maybe_exclude(message, Some(except.0))
-    }
-
     #[must_use]
     pub fn num_healthy_peers(&self) -> usize {
         self.negotiated_peers
@@ -792,6 +754,31 @@ where
         &mut self,
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
+        self.validate_and_forward_message_except(message, None)
+    }
+
+    /// Forwards a message to all healthy connections except the [`except`]
+    /// connection.
+    ///
+    /// If the [`except`] connection is part of the old session, the message is
+    /// forwarded to the connections in the old session.
+    /// Otherwise, it is forwarded to the connections in the current session.
+    ///
+    /// Returns [`Error::NoPeers`] if there are no connected peers that support
+    /// the blend protocol.
+    pub fn validate_and_forward_message(
+        &mut self,
+        message: EncapsulatedMessage,
+        except: (PeerId, ConnectionId),
+    ) -> Result<(), Error> {
+        self.validate_and_forward_message_except(message, Some(except))
+    }
+
+    fn validate_and_forward_message_except(
+        &mut self,
+        message: EncapsulatedMessage,
+        except: Option<(PeerId, ConnectionId)>,
+    ) -> Result<(), Error> {
         if let Some(old_session) = &mut self.old_session
             && old_session
                 .validate_and_publish_message(message.clone())
@@ -802,7 +789,10 @@ where
 
         let validated_message =
             self.validate_encapsulated_message_public_header_with_current_session(message)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message, None)
+        self.forward_validated_message_and_maybe_exclude(
+            &validated_message,
+            except.map(|(peer_id, _)| peer_id),
+        )
     }
 
     // Try to validate an encapsulated public header with the current session

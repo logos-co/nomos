@@ -38,15 +38,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier>
 where
     ProofsVerifier: encap::ProofsVerifier,
 {
-    pub fn verify_encapsulated_message_public_header(
-        &self,
-        message: EncapsulatedMessage,
-    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
-        message
-            .verify_public_header(&self.poq_verifier)
-            .map_err(|_| Error::InvalidMessage)
-    }
-
     /// Validates the public header of an encapsulated message, and
     /// if valid, forwards it to all negotiated peers.
     pub fn validate_and_publish_message(
@@ -55,6 +46,15 @@ where
     ) -> Result<(), Error> {
         let validated_message = self.verify_encapsulated_message_public_header(message)?;
         self.forward_validated_message_and_maybe_exclude(&validated_message, None)
+    }
+
+    fn verify_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
+        message
+            .verify_public_header(&self.poq_verifier)
+            .map_err(|_| Error::InvalidMessage)
     }
 
     pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
@@ -110,7 +110,7 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
-    pub fn forward_validated_message_and_maybe_exclude(
+    fn forward_validated_message_and_maybe_exclude(
         &mut self,
         message: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: Option<PeerId>,
