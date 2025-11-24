@@ -52,6 +52,7 @@ use nomos_node::{
 };
 use nomos_sdp::adapters::mempool::SdpMempoolAdapter;
 use nomos_storage::{StorageService, api::da};
+use nomos_wallet::api::WalletServiceData;
 use overwatch::{DynError, overwatch::handle::OverwatchHandle, services::AsServiceId};
 use serde::{Serialize, de::DeserializeOwned};
 use services_utils::wait_until_services_are_ready;
@@ -100,6 +101,7 @@ pub struct AxumBackend<
     HttpStorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
+    Wallet,
 > {
     settings: AxumBackendSettings,
     #[expect(clippy::allow_attributes_without_reason)]
@@ -129,6 +131,7 @@ pub struct AxumBackend<
         HttpStorageAdapter,
         MempoolStorageAdapter,
         SdpMempool,
+        Wallet,
     )>,
 }
 
@@ -171,6 +174,7 @@ impl<
     StorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
+    Wallet,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -198,6 +202,7 @@ impl<
         StorageAdapter,
         MempoolStorageAdapter,
         SdpMempool,
+        Wallet,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -305,6 +310,7 @@ where
         + 'static,
     MempoolStorageAdapter::Error: Debug,
     SamplingMempoolAdapter: nomos_da_sampling::mempool::DaMempoolAdapter + Send + Sync + 'static,
+    Wallet: WalletServiceData + Send + Sync + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -370,7 +376,7 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<SdpMempool, Wallet, RuntimeServiceId>>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -583,15 +589,15 @@ where
             )
             .route(
                 paths::SDP_POST_DECLARATION,
-                routing::post(post_declaration::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_declaration::<SdpMempool, Wallet, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_ACTIVITY,
-                routing::post(post_activity::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_activity::<SdpMempool, Wallet, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_WITHDRAWAL,
-                routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_withdrawal::<SdpMempool, Wallet, RuntimeServiceId>),
             )
             .with_state(handle.clone())
             .layer(TimeoutLayer::new(self.settings.timeout))

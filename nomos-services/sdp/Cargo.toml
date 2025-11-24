@@ -17,6 +17,7 @@ async-trait   = "0.1"
 ed25519-dalek = { default-features = false, version = "2.2.0" }
 futures       = { default-features = false, version = "0.3" }
 nomos-core    = { workspace = true }
+nomos-wallet  = { workspace = true }
 overwatch     = { workspace = true }
 serde         = { workspace = true, features = ["derive"] }
 thiserror     = { workspace = true }

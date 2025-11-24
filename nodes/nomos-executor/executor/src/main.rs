@@ -11,7 +11,6 @@ use nomos_node::{
         BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
     },
 };
-use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
 use tx_service::tx::settings::TxMempoolSettings;
 
@@ -107,7 +106,7 @@ async fn main() -> Result<()> {
             time: config.time,
             storage: config.storage,
             system_sig: (),
-            sdp: SdpSettings { declaration: None },
+            sdp: config.sdp,
             wallet: config.wallet,
             key_management: config.key_management,
             #[cfg(feature = "testing")]

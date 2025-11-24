@@ -94,6 +94,7 @@ pub struct AxumBackend<
     HttpStorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
+    Wallet,
 > {
     settings: AxumBackendSettings,
     _share: core::marker::PhantomData<DaShare>,
@@ -114,6 +115,7 @@ pub struct AxumBackend<
     _verifier_mempool_adapter: core::marker::PhantomData<VerifierMempoolAdapter>,
     _sampling_mempool_adapter: core::marker::PhantomData<SamplingMempoolAdapter>,
     _sdp_mempool_adapter: core::marker::PhantomData<SdpMempool>,
+    _wallet: core::marker::PhantomData<Wallet>,
 }
 
 #[derive(OpenApi)]
@@ -150,6 +152,7 @@ impl<
     StorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
+    Wallet,
     RuntimeServiceId,
 > Backend<RuntimeServiceId>
     for AxumBackend<
@@ -172,6 +175,7 @@ impl<
         StorageAdapter,
         MempoolStorageAdapter,
         SdpMempool,
+        Wallet,
     >
 where
     DaShare: Share + Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
@@ -297,7 +301,8 @@ where
                 RuntimeServiceId,
             >,
         >
-        + AsServiceId<nomos_sdp::SdpService<SdpMempool, RuntimeServiceId>>,
+        + AsServiceId<nomos_sdp::SdpService<SdpMempool, Wallet, RuntimeServiceId>>,
+    Wallet: nomos_wallet::api::WalletServiceData + Send + Sync + 'static,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -326,6 +331,7 @@ where
             _verifier_mempool_adapter: core::marker::PhantomData,
             _sampling_mempool_adapter: core::marker::PhantomData,
             _sdp_mempool_adapter: core::marker::PhantomData,
+            _wallet: core::marker::PhantomData,
         })
     }
 
@@ -523,15 +529,15 @@ where
             )
             .route(
                 paths::SDP_POST_DECLARATION,
-                routing::post(post_declaration::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_declaration::<SdpMempool, Wallet, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_ACTIVITY,
-                routing::post(post_activity::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_activity::<SdpMempool, Wallet, RuntimeServiceId>),
             )
             .route(
                 paths::SDP_POST_WITHDRAWAL,
-                routing::post(post_withdrawal::<SdpMempool, RuntimeServiceId>),
+                routing::post(post_withdrawal::<SdpMempool, Wallet, RuntimeServiceId>),
             );
 
         #[cfg(feature = "block-explorer")]

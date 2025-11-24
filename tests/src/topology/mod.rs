@@ -184,6 +184,7 @@ impl Topology {
             .clone();
         let mut ledger_tx = base_ledger_tx.clone();
         let base_outputs = ledger_tx.outputs.len();
+
         for note_spec in &config.extra_genesis_notes {
             ledger_tx.outputs.push(note_spec.note);
         }
@@ -230,7 +231,7 @@ impl Topology {
         }
 
         // Set Blend and DA keys in KMS of each node config.
-        let kms_configs = create_kms_configs(&blend_configs, &da_configs);
+        let kms_configs = create_kms_configs(&blend_configs, &da_configs, &consensus_configs);
 
         let mut node_configs = vec![];
 
@@ -319,13 +320,13 @@ impl Topology {
     ) -> (Vec<Validator>, Vec<Executor>) {
         let mut validators = Vec::new();
         for i in 0..n_validators {
-            let config = create_validator_config(config[i].clone());
+            let config = create_validator_config(i, config[i].clone());
             validators.push(Validator::spawn(config).await.unwrap());
         }
 
         let mut executors = Vec::new();
         for i in n_validators..(n_validators + n_executors) {
-            let config = create_executor_config(config[i].clone());
+            let config = create_executor_config(i, config[i].clone());
             executors.push(Executor::spawn(config).await);
         }
 
@@ -678,12 +679,14 @@ fn find_expected_peer_counts(
 pub fn create_kms_configs(
     blend_configs: &[GeneralBlendConfig],
     da_configs: &[GeneralDaConfig],
+    consensus_configs: &[GeneralConsensusConfig],
 ) -> Vec<PreloadKMSBackendSettings> {
     da_configs
         .iter()
         .zip(blend_configs.iter())
+        .enumerate()
         .map(
-            |(da_conf, (blend_conf, zk_secret_key))| PreloadKMSBackendSettings {
+            |(i, (da_conf, (blend_conf, zk_secret_key)))| PreloadKMSBackendSettings {
                 keys: [
                     (
                         key_id_for_preload_backend(
@@ -708,6 +711,13 @@ pub fn create_kms_configs(
                             &ZkKey::new(da_conf.secret_zk_key.clone()).into(),
                         ),
                         ZkKey::new(da_conf.secret_zk_key.clone()).into(),
+                    ),
+                    // SDP funding secret key - used by wallet for signing SDP transactions
+                    (
+                        key_id_for_preload_backend(
+                            &ZkKey::new(consensus_configs[i].sdp_notes[i].sk.clone()).into(),
+                        ),
+                        ZkKey::new(consensus_configs[i].sdp_notes[i].sk.clone()).into(),
                     ),
                 ]
                 .into(),

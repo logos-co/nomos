@@ -36,7 +36,6 @@ use nomos_da_verifier::{
 };
 use nomos_libp2p::PeerId;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
-use nomos_sdp::SdpSettings;
 pub use nomos_storage::backends::{
     SerdeOp,
     rocksdb::{RocksBackend, RocksBackendSettings},
@@ -63,10 +62,7 @@ pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, Networ
 use crate::{
     api::backend::AxumBackend,
     config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
-    generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
-        SdpServiceAdapterGeneric,
-    },
+    generic_services::{DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric},
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
@@ -89,7 +85,7 @@ pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric,
     RuntimeServiceId,
 >;
 
@@ -107,7 +103,7 @@ pub(crate) type DaVerifierService = generic_services::DaVerifierService<
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
-        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        SdpServiceAdapterGeneric,
         RuntimeServiceId,
     >,
     VerifierMempoolAdapter<RuntimeServiceId>,
@@ -123,7 +119,7 @@ pub(crate) type DaNetworkService = nomos_da_network_service::NetworkService<
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric,
     RuntimeServiceId,
 >;
 
@@ -134,7 +130,7 @@ pub(crate) type DaNetworkAdapter = nomos_da_sampling::network::adapters::validat
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric,
     RuntimeServiceId,
 >;
 
@@ -144,6 +140,11 @@ pub(crate) type WalletService =
     generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<RuntimeServiceId>;
+
+pub(crate) type SdpService = generic_services::SdpService<RuntimeServiceId>;
+
+pub(crate) type SdpServiceAdapterGeneric =
+    generic_services::SdpServiceAdapterGeneric<RuntimeServiceId>;
 
 pub(crate) type ChainNetworkService =
     generic_services::ChainNetworkService<DaNetworkAdapter, RuntimeServiceId>;
@@ -172,7 +173,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
-            SdpServiceAdapterGeneric<RuntimeServiceId>,
+            SdpServiceAdapterGeneric,
             RuntimeServiceId,
         >,
         VerifierStorageAdapter<DaShare, DaStorageConverter>,
@@ -183,7 +184,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
             DaMembershipAdapter<RuntimeServiceId>,
             DaMembershipStorage,
             DaNetworkApiAdapter,
-            SdpServiceAdapterGeneric<RuntimeServiceId>,
+            SdpServiceAdapterGeneric,
             RuntimeServiceId,
         >,
         SamplingMempoolAdapter<RuntimeServiceId>,
@@ -191,10 +192,11 @@ pub(crate) type ApiService = nomos_api::ApiService<
         VerifierMempoolAdapter<RuntimeServiceId>,
         NtpTimeBackend,
         DaNetworkApiAdapter,
-        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        SdpServiceAdapterGeneric,
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
         SdpMempoolAdapterGeneric<RuntimeServiceId>,
+        WalletService,
     >,
     RuntimeServiceId,
 >;
@@ -223,7 +225,7 @@ pub struct Nomos {
     chain_network: ChainNetworkService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
-    sdp: SdpService<RuntimeServiceId>,
+    sdp: SdpService,
     time: TimeService,
     http: ApiService,
     storage: StorageService,
@@ -273,7 +275,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             storage: config.storage,
             system_sig: (),
             key_management: config.key_management,
-            sdp: SdpSettings { declaration: None },
+            sdp: config.sdp,
             wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,

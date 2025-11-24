@@ -33,8 +33,12 @@ async fn test_ibd_behind_nodes() {
     );
 
     let mut initial_validators = vec![];
-    for config in general_configs.iter().take(n_initial_validators) {
-        let config = create_validator_config(config.clone());
+    for (i, config) in general_configs
+        .iter()
+        .take(n_initial_validators)
+        .enumerate()
+    {
+        let config = create_validator_config(i, config.clone());
         initial_validators.push(Validator::spawn(config).await.unwrap());
     }
 
@@ -60,7 +64,10 @@ async fn test_ibd_behind_nodes() {
 
     println!("Starting a behind node with IBD peers...");
 
-    let mut config = create_validator_config(general_configs[n_initial_validators].clone());
+    let mut config = create_validator_config(
+        n_initial_validators,
+        general_configs[n_initial_validators].clone(),
+    );
     config.chain_network.bootstrap.ibd.peers = initial_peer_ids.clone();
     // Shorten the delay to quickly catching up with peers that grow during IBD.
     // e.g. We start a download only for peer1 because two peers have the same tip

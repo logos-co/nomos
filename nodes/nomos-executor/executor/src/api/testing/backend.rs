@@ -81,6 +81,8 @@ where
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
         + AsServiceId<SdpService<RuntimeServiceId>>
         + AsServiceId<generic_services::TxMempoolService<RuntimeServiceId>>,
+    SdpServiceAdapterGeneric<RuntimeServiceId>:
+        nomos_da_network_service::sdp::SdpAdapter<RuntimeServiceId>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;

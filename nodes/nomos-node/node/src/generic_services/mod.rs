@@ -156,11 +156,17 @@ pub type SdpMempoolAdapterGeneric<RuntimeServiceId> = SdpMempoolNetworkAdapter<
     RuntimeServiceId,
 >;
 
-pub type SdpService<RuntimeServiceId> =
-    nomos_sdp::SdpService<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
+pub type SdpService<RuntimeServiceId> = nomos_sdp::SdpService<
+    SdpMempoolAdapterGeneric<RuntimeServiceId>,
+    WalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
-pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
-    SdpServiceAdapter<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
+pub type SdpServiceAdapterGeneric<RuntimeServiceId> = SdpServiceAdapter<
+    SdpMempoolAdapterGeneric<RuntimeServiceId>,
+    WalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>,
+    RuntimeServiceId,
+>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;

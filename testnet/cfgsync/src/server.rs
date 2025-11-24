@@ -126,8 +126,8 @@ async fn validator_config(
     (reply_rx.await).map_or_else(
         |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),
         |config_response| match config_response {
-            RepoResponse::Config(config) => {
-                let config = create_validator_config(*config);
+            RepoResponse::Config { idx, config } => {
+                let config = create_validator_config(idx, *config);
                 (StatusCode::OK, Json(config)).into_response()
             }
             RepoResponse::Timeout => (StatusCode::REQUEST_TIMEOUT).into_response(),
@@ -147,8 +147,8 @@ async fn executor_config(
     (reply_rx.await).map_or_else(
         |_| (StatusCode::INTERNAL_SERVER_ERROR, "Error receiving config").into_response(),
         |config_response| match config_response {
-            RepoResponse::Config(config) => {
-                let config = create_executor_config(*config);
+            RepoResponse::Config { idx, config } => {
+                let config = create_executor_config(idx, *config);
                 (StatusCode::OK, Json(config)).into_response()
             }
             RepoResponse::Timeout => (StatusCode::REQUEST_TIMEOUT).into_response(),

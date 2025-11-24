@@ -188,6 +188,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
         SdpMempoolAdapterGeneric<RuntimeServiceId>,
+        WalletService,
     >,
     RuntimeServiceId,
 >;

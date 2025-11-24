@@ -79,7 +79,7 @@ pub fn create_node_configs(
     da_params: &DaParams,
     tracing_settings: &TracingSettings,
     hosts: Vec<Host>,
-) -> HashMap<Host, GeneralConfig> {
+) -> HashMap<Host, (usize, GeneralConfig)> {
     let mut ids = vec![[0; 32]; consensus_params.n_participants];
     let mut ports = vec![];
     for id in &mut ids {
@@ -124,7 +124,7 @@ pub fn create_node_configs(
     }
 
     // Set Blend and DA keys in KMS of each node config.
-    let kms_configs = create_kms_configs(&blend_configs, &da_configs);
+    let kms_configs = create_kms_configs(&blend_configs, &da_configs, &consensus_configs);
 
     for (i, host) in hosts.into_iter().enumerate() {
         let consensus_config = consensus_configs[i].clone();
@@ -166,17 +166,20 @@ pub fn create_node_configs(
 
         configured_hosts.insert(
             host.clone(),
-            GeneralConfig {
-                consensus_config,
-                bootstrapping_config: bootstrap_configs[i].clone(),
-                da_config,
-                network_config,
-                blend_config: blend_configs[i].clone(),
-                api_config,
-                tracing_config,
-                time_config,
-                kms_config: kms_configs[i].clone(),
-            },
+            (
+                i,
+                GeneralConfig {
+                    consensus_config,
+                    bootstrapping_config: bootstrap_configs[i].clone(),
+                    da_config,
+                    network_config,
+                    blend_config: blend_configs[i].clone(),
+                    api_config,
+                    tracing_config,
+                    time_config,
+                    kms_config: kms_configs[i].clone(),
+                },
+            ),
         );
     }
 
@@ -335,8 +338,8 @@ mod cfgsync_tests {
             hosts,
         );
 
-        for (host, config) in &configs {
-            let network_port = config.network_config.backend.inner.port;
+        for (host, (_idx, config)) in &configs {
+            let network_port = config.network_config.swarm_config.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
             let blend_port = extract_port(&config.blend_config.0.core.backend.listening_address);
 

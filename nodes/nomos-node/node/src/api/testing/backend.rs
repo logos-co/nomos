@@ -34,14 +34,13 @@ use tower_http::{
 };
 
 use crate::{
-    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
+    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership, SdpService,
+    SdpServiceAdapterGeneric,
     api::{
         backend::AxumBackendSettings,
         testing::handlers::{da_get_membership, da_historic_sampling, get_sdp_declarations},
     },
-    generic_services::{
-        self, DaMembershipAdapter, SamplingMempoolAdapter, SdpService, SdpServiceAdapterGeneric,
-    },
+    generic_services::{self, DaMembershipAdapter, SamplingMempoolAdapter},
 };
 pub struct TestAxumBackend {
     settings: AxumBackendSettings,
@@ -53,7 +52,7 @@ type TestDaNetworkService<RuntimeServiceId> = nomos_da_network_service::NetworkS
     DaMembershipAdapter<RuntimeServiceId>,
     DaMembershipStorage,
     DaNetworkApiAdapter,
-    SdpServiceAdapterGeneric<RuntimeServiceId>,
+    SdpServiceAdapterGeneric,
     RuntimeServiceId,
 >;
 
@@ -63,7 +62,7 @@ type TestDaSamplingService<RuntimeServiceId> = generic_services::DaSamplingServi
         DaMembershipAdapter<RuntimeServiceId>,
         DaMembershipStorage,
         DaNetworkApiAdapter,
-        SdpServiceAdapterGeneric<RuntimeServiceId>,
+        SdpServiceAdapterGeneric,
         RuntimeServiceId,
     >,
     RuntimeServiceId,
@@ -88,8 +87,9 @@ where
         + AsServiceId<TestDaSamplingService<RuntimeServiceId>>
         + AsServiceId<TestCryptarchiaService<RuntimeServiceId>>
         + AsServiceId<TestHttpCryptarchiaService<RuntimeServiceId>>
-        + AsServiceId<SdpService<RuntimeServiceId>>
+        + AsServiceId<SdpService>
         + AsServiceId<generic_services::TxMempoolService<RuntimeServiceId>>,
+    SdpServiceAdapterGeneric: nomos_da_network_service::sdp::SdpAdapter<RuntimeServiceId>,
 {
     type Error = std::io::Error;
     type Settings = AxumBackendSettings;
@@ -134,7 +134,7 @@ where
                         DaMembershipAdapter<RuntimeServiceId>,
                         DaMembershipStorage,
                         DaNetworkApiAdapter,
-                        SdpServiceAdapterGeneric<RuntimeServiceId>,
+                        SdpServiceAdapterGeneric,
                         RuntimeServiceId,
                     >,
                 ),
@@ -149,7 +149,7 @@ where
                             DaMembershipAdapter<RuntimeServiceId>,
                             DaMembershipStorage,
                             DaNetworkApiAdapter,
-                            SdpServiceAdapterGeneric<RuntimeServiceId>,
+                            SdpServiceAdapterGeneric,
                             RuntimeServiceId,
                         >,
                         SamplingStorageAdapter<DaShare, DaStorageConverter>,

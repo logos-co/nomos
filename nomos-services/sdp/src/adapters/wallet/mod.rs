@@ -1,36 +1,55 @@
-pub mod mock;
+pub mod sdp;
 
 use nomos_core::{
-    mantle::{NoteId, SignedMantleTx, tx_builder::MantleTxBuilder},
+    mantle::{SignedMantleTx, Value, tx_builder::MantleTxBuilder},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
+use nomos_wallet::api::WalletApiError;
 use zksign::PublicKey;
 
-#[async_trait::async_trait]
-pub trait SdpWalletAdapter {
-    type Error;
+#[derive(Debug, thiserror::Error)]
+pub enum SdpWalletError {
+    #[error(transparent)]
+    WalletApi(Box<WalletApiError>),
+    #[error("Transaction fee exceeded the configured max fee. tx_fee={tx_fee} > max_fee={max_fee}")]
+    TxFeeExceedsMaxFee { max_fee: Value, tx_fee: Value },
+}
 
-    // TODO: Pass relay when wallet service is defined.
-    fn new() -> Self;
+impl From<WalletApiError> for SdpWalletError {
+    fn from(err: WalletApiError) -> Self {
+        Self::WalletApi(Box::new(err))
+    }
+}
 
-    fn declare_tx(
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SdpWalletConfig {
+    // Hard cap on the transaction fee initiated by SDP.
+    pub max_tx_fee: Value,
+
+    // The key to use for paying SDP transaction fees.
+    // Change notes will be returned to this same funding pk.
+    pub funding_pk: PublicKey,
+}
+
+pub(crate) trait SdpWalletAdapter {
+    async fn declare_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        declaration: Box<DeclarationMessage>,
-    ) -> Result<SignedMantleTx, Self::Error>;
+        declaration: DeclarationMessage,
+        config: &SdpWalletConfig,
+    ) -> Result<SignedMantleTx, SdpWalletError>;
 
-    fn withdraw_tx(
+    async fn withdraw_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        withdrawn_message: WithdrawMessage,
-        zk_id: PublicKey,
-        locked_note_id: NoteId,
-    ) -> Result<SignedMantleTx, Self::Error>;
+        withdraw: WithdrawMessage,
+        config: &SdpWalletConfig,
+    ) -> Result<SignedMantleTx, SdpWalletError>;
 
-    fn active_tx(
+    async fn active_tx(
         &self,
         tx_builder: MantleTxBuilder,
         active_message: ActiveMessage,
-        zk_id: PublicKey,
-    ) -> Result<SignedMantleTx, Self::Error>;
+        config: &SdpWalletConfig,
+    ) -> Result<SignedMantleTx, SdpWalletError>;
 }

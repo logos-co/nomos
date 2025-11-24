@@ -15,18 +15,19 @@ use crate::{
     sdp::{SdpAdapter, SdpAdapterError},
 };
 
-pub struct SdpServiceAdapter<MempoolAdapter, RuntimeServiceId> {
+pub struct SdpServiceAdapter<MempoolAdapter, Wallet, RuntimeServiceId> {
     relay: OutboundRelay<SdpMessage>,
-    _phantom: PhantomData<(RuntimeServiceId, MempoolAdapter)>,
+    _phantom: PhantomData<(RuntimeServiceId, MempoolAdapter, Wallet)>,
 }
 
 #[async_trait]
-impl<MempoolAdapter, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
-    for SdpServiceAdapter<MempoolAdapter, RuntimeServiceId>
+impl<MempoolAdapter, Wallet, RuntimeServiceId> SdpAdapter<RuntimeServiceId>
+    for SdpServiceAdapter<MempoolAdapter, Wallet, RuntimeServiceId>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    Wallet: Send + Sync + 'static,
     RuntimeServiceId: AsServiceId<MempoolAdapter::MempoolService>
-        + AsServiceId<SdpService<MempoolAdapter, RuntimeServiceId>>
+        + AsServiceId<SdpService<MempoolAdapter, Wallet, RuntimeServiceId>>
         + Send
         + Sync
         + Debug
@@ -37,7 +38,7 @@ where
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
     ) -> Result<Self, SdpAdapterError> {
         let relay = overwatch_handle
-            .relay::<SdpService<MempoolAdapter, RuntimeServiceId>>()
+            .relay::<SdpService<MempoolAdapter, Wallet, RuntimeServiceId>>()
             .await
             .map_err(|e| SdpAdapterError::Other(Box::new(e)))?;
 
