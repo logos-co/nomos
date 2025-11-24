@@ -59,6 +59,7 @@ members = [
   "testing-framework/configs",
   "testing-framework/core",
   "testing-framework/runners/compose",
+  "testing-framework/runners/k8s",
   "testing-framework/runners/local",
   "testing-framework/workflows",
   "testnet/cfgsync",
@@ -137,6 +138,7 @@ services-utils                   = { default-features = false, path = "./nomos-s
 subnetworks-assignations         = { default-features = false, path = "./nomos-da/network/subnetworks-assignations" }
 testing-framework-core           = { default-features = false, path = "./testing-framework/core" }
 testing-framework-runner-compose = { default-features = false, path = "./testing-framework/runners/compose" }
+testing-framework-runner-k8s     = { default-features = false, path = "./testing-framework/runners/k8s" }
 testing-framework-runner-local   = { default-features = false, path = "./testing-framework/runners/local" }
 testing-framework-workflows      = { default-features = false, path = "./testing-framework/workflows" }
 tests                            = { default-features = false, path = "./tests" }

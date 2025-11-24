@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nomos-runner.fullname" . }}-cfgsync
+  labels:
+    {{- include "nomos-runner.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nomos-runner.selectorLabels" . | nindent 6 }}
+      nomos/component: cfgsync
+  template:
+    metadata:
+      labels:
+        {{- include "nomos-runner.selectorLabels" . | nindent 8 }}
+        nomos/component: cfgsync
+    spec:
+      containers:
+        - name: cfgsync
+          image: {{ .Values.image }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/etc/nomos/scripts/run_cfgsync.sh"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.cfgsync.port }}
+          env:
+            - name: RUST_LOG
+              value: debug
+          volumeMounts:
+            - name: assets
+              mountPath: /etc/nomos
+              readOnly: true
+      volumes:
+        - name: assets
+          configMap:
+            name: {{ include "nomos-runner.fullname" . }}-assets
+            defaultMode: 0755
+            items:
+              - key: cfgsync.yaml
+                path: cfgsync.yaml
+              - key: run_cfgsync.sh
+                path: scripts/run_cfgsync.sh

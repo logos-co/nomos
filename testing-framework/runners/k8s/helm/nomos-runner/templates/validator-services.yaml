@@ -1,0 +1,22 @@
+{{- $root := . -}}
+{{- $nodes := default (list) .Values.validators.nodes }}
+{{- range $i, $node := $nodes }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nomos-runner.fullname" $root }}-validator-{{ $i }}
+  labels:
+    {{- include "nomos-runner.validatorLabels" (dict "root" $root "index" $i) | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "nomos-runner.validatorLabels" (dict "root" $root "index" $i) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ default 18080 $node.apiPort }}
+      targetPort: http
+    - name: testing-http
+      port: {{ default 18081 $node.testingHttpPort }}
+      targetPort: testing-http
+{{- end }}

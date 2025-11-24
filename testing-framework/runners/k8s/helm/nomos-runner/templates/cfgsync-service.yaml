@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nomos-runner.fullname" . }}-cfgsync
+  labels:
+    {{- include "nomos-runner.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "nomos-runner.selectorLabels" . | nindent 4 }}
+    nomos/component: cfgsync
+  ports:
+    - name: http
+      port: {{ .Values.cfgsync.port }}
+      targetPort: http
