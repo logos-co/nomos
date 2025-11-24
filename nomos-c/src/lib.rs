@@ -3,12 +3,12 @@
     reason = "Well, this is gonna be a shit show of unsafe calls..."
 )]
 
-mod api;
 mod errors;
+mod node;
 
 use std::ffi::c_char;
 
-pub use api::{NomosNode, stop_node};
+pub use node::{NomosNode, stop_node};
 use nomos_node::{Config, get_services_to_start, run_node_from_config};
 use tokio::runtime::Runtime;
 
