@@ -12,7 +12,7 @@ use nomos_blend_message::{
     crypto::keys::Ed25519PrivateKey,
     encap::{
         ProofsVerifier as ProofsVerifierTrait,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
 use nomos_blend_network::core::{
@@ -50,8 +50,7 @@ where
 {
     pub swarm: InnerSwarm<ProofsVerifier>,
     pub swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    pub incoming_message_receiver:
-        broadcast::Receiver<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub incoming_message_receiver: broadcast::Receiver<EncapsulatedMessageWithVerifiedPublicHeader>,
 }
 
 /// Generates `count` nodes with randomly generated identities and empty

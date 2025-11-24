@@ -23,6 +23,9 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
+    // We cannot use `EncapsulatedMessageWithVerifiedPublicHeader` because we don't know if this
+    // message belongs to the current or the old session, so we need to let the libp2p swarm find
+    // out.
     Encapsulated(Box<EncapsulatedMessage>),
 }
 

@@ -9,18 +9,18 @@ use nomos_blend_message::{
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{
-                ProofOfQuota,
+                ProofOfQuota, VerifiedProofOfQuota,
                 inputs::prove::{
                     private::ProofOfLeadershipQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
     },
     encap::{
         ProofsVerifier, encapsulated::EncapsulatedMessage,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
     reward,
 };
@@ -185,8 +185,7 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
-    {
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>> {
         unimplemented!()
     }
 }
@@ -402,10 +401,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_quota;
         if proof == expected_proof {
-            Ok(ZkHash::ZERO)
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -415,10 +414,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
         if proof == expected_proof {
-            Ok(())
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -428,12 +427,12 @@ impl ProofsVerifier for MockProofsVerifier {
 fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes

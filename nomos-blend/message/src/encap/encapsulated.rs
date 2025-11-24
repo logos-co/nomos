@@ -7,24 +7,26 @@ use crate::{
     crypto::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
         proofs::{
-            quota::{self, ProofOfQuota},
-            selection::{self, ProofOfSelection, inputs::VerifyInputs},
+            quota::{self, VerifiedProofOfQuota},
+            selection::{self, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
-        random_sized_bytes,
         signatures::Signature,
     },
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
     input::EncapsulationInput,
-    message::{BlendingHeader, Payload, PublicHeader, payload::PaddedPayloadBody},
+    message::{
+        BlendingHeader, Payload, PublicHeader, payload::PaddedPayloadBody,
+        public_header::VerifiedPublicHeader,
+    },
 };
 
 pub type MessageIdentifier = Ed25519PublicKey;
 
-/// An encapsulated message that is sent to the blend network.
+/// An unverified encapsulated message that is received from a peer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct EncapsulatedMessage {
     /// A public header that is not encapsulated.
@@ -34,51 +36,6 @@ pub struct EncapsulatedMessage {
 }
 
 impl EncapsulatedMessage {
-    /// Creates a new [`EncapsulatedMessage`] with the provided inputs and
-    /// payload.
-    #[must_use]
-    pub fn new(
-        inputs: &[EncapsulationInput],
-        payload_type: PayloadType,
-        payload_body: PaddedPayloadBody,
-    ) -> Self {
-        // Create the encapsulated part.
-        let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
-            (
-                // Start with an initialized encapsulated part,
-                // a random signing key, and proof of quota.
-                EncapsulatedPart::initialize(inputs, payload_type, payload_body),
-                Ed25519PrivateKey::generate(),
-                ProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
-            ),
-            |(part, signing_key, proof_of_quota), (i, input)| {
-                (
-                    part.encapsulate(
-                        input.ephemeral_encryption_key(),
-                        &signing_key,
-                        &proof_of_quota,
-                        *input.proof_of_selection(),
-                        i == 0,
-                    ),
-                    input.ephemeral_signing_key().clone(),
-                    *input.proof_of_quota(),
-                )
-            },
-        );
-
-        // Construct the public header.
-        let public_header = PublicHeader::new(
-            signing_key.public_key(),
-            &proof_of_quota,
-            part.sign(&signing_key),
-        );
-
-        Self {
-            public_header,
-            encapsulated_part: part,
-        }
-    }
-
     #[must_use]
     pub const fn from_components(
         public_header: PublicHeader,
@@ -100,7 +57,7 @@ impl EncapsulatedMessage {
     pub fn verify_public_header<Verifier>(
         self,
         verifier: &Verifier,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error>
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error>
     where
         Verifier: ProofsVerifier,
     {
@@ -111,15 +68,15 @@ impl EncapsulatedMessage {
         ))?;
         let (_, signing_key, proof_of_quota, signature) = self.public_header.into_components();
         // Verify the Proof of Quota according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81b593ddce00cffd24a8>.
-        verifier
+        let verified_proof_of_quota = verifier
             .verify_proof_of_quota(proof_of_quota, &signing_key)
             .map_err(|_| Error::ProofOfQuotaVerificationFailed(quota::Error::InvalidProof))?;
+        let verified_public_header =
+            VerifiedPublicHeader::new(verified_proof_of_quota, signing_key, signature);
         Ok(
-            IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message(
-                Self::from_components(
-                    PublicHeader::new(signing_key, &proof_of_quota, signature),
-                    self.encapsulated_part,
-                ),
+            EncapsulatedMessageWithVerifiedPublicHeader::from_components(
+                verified_public_header,
+                self.encapsulated_part,
             ),
         )
     }
@@ -148,7 +105,7 @@ pub struct EncapsulatedPart {
 impl EncapsulatedPart {
     /// Initializes the encapsulated part as preparation for actual
     /// encapsulations.
-    fn initialize(
+    pub(super) fn initialize(
         inputs: &[EncapsulationInput],
         payload_type: PayloadType,
         payload_body: PaddedPayloadBody,
@@ -160,12 +117,12 @@ impl EncapsulatedPart {
     }
 
     /// Add a layer of encapsulation.
-    fn encapsulate(
+    pub(super) fn encapsulate(
         self,
         shared_key: &SharedKey,
         signing_key: &Ed25519PrivateKey,
-        proof_of_quota: &ProofOfQuota,
-        proof_of_selection: ProofOfSelection,
+        proof_of_quota: &VerifiedProofOfQuota,
+        proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
     ) -> Self {
         // Compute the signature of the current encapsulated part.
@@ -205,43 +162,47 @@ impl EncapsulatedPart {
             .decapsulate(key, posel_verification_input, verifier)?
         {
             PrivateHeaderDecapsulationOutput::Incompleted {
-                encapsulated_private_header: private_header,
+                encapsulated_private_header,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
                 verify_intermediate_reconstructed_public_header(
                     &public_header,
-                    &private_header,
+                    &encapsulated_private_header,
                     &payload,
                     verifier,
                 )?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
-                        private_header,
+                        private_header: encapsulated_private_header,
                         payload,
                     },
                     public_header: Box::new(public_header),
-                    proof_of_selection,
+                    verified_proof_of_selection,
                 })
             }
             PrivateHeaderDecapsulationOutput::Completed {
-                encapsulated_private_header: private_header,
+                encapsulated_private_header,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             } => {
                 let payload = self.payload.decapsulate(key);
-                verify_last_reconstructed_public_header(&public_header, &private_header, &payload)?;
+                verify_last_reconstructed_public_header(
+                    &public_header,
+                    &encapsulated_private_header,
+                    &payload,
+                )?;
                 Ok(PartDecapsulationOutput::Completed {
                     payload: payload.try_deserialize()?,
-                    proof_of_selection,
+                    verified_proof_of_selection,
                 })
             }
         }
     }
 
     /// Signs the encapsulated part using the provided key.
-    fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
+    pub(super) fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
         key.sign(&signing_body(&self.private_header, &self.payload))
     }
 }
@@ -336,24 +297,29 @@ impl EncapsulatedPrivateHeader {
     }
 
     /// Encapsulates the private header.
+    // TODO: Use two different types for encapsulated and unencapsulated blending
+    // headers?
     fn encapsulate(
         mut self,
         shared_key: &SharedKey,
         signing_pubkey: Ed25519PublicKey,
-        proof_of_quota: &ProofOfQuota,
+        proof_of_quota: &VerifiedProofOfQuota,
         signature: Signature,
-        proof_of_selection: ProofOfSelection,
+        proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
     ) -> Self {
         // Shift blending headers by one rightward.
         self.shift_right();
 
         // Replace the first blending header with the new one.
+        // We don't distinguish between locally-generated (valid)
+        // `BlendingHeader`s and received (unverified) ones, so we use regular `PoQ` and
+        // `PoSel` instead of their verified counterparts.
         self.replace_first(EncapsulatedBlendingHeader::initialize(&BlendingHeader {
             signing_pubkey,
-            proof_of_quota: *proof_of_quota,
+            proof_of_quota: *proof_of_quota.as_ref(),
             signature,
-            proof_of_selection,
+            proof_of_selection: *proof_of_selection.as_ref(),
             is_last,
         }));
 
@@ -391,7 +357,7 @@ impl EncapsulatedPrivateHeader {
             signing_pubkey,
         } = self.first().try_deserialize()?;
         // Verify PoSel according to the Blend spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81dd8cbedc8af4649a6a>.
-        verifier
+        let verified_proof_of_selection = verifier
             .verify_proof_of_selection(proof_of_selection, posel_verification_input)
             .map_err(|_| {
                 Error::ProofOfSelectionVerificationFailed(selection::Error::Verification)
@@ -414,13 +380,13 @@ impl EncapsulatedPrivateHeader {
             Ok(PrivateHeaderDecapsulationOutput::Completed {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             })
         } else {
             Ok(PrivateHeaderDecapsulationOutput::Incompleted {
                 encapsulated_private_header: self,
                 public_header,
-                proof_of_selection,
+                verified_proof_of_selection,
             })
         }
     }

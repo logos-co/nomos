@@ -12,9 +12,9 @@ use nomos_blend_message::{
     PayloadType,
     crypto::{
         keys::Ed25519PrivateKey,
-        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+        proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     },
-    encap::encapsulated::EncapsulatedMessage,
+    encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
     input::EncapsulationInput,
 };
 use nomos_blend_scheduling::membership::Membership;
@@ -23,24 +23,24 @@ use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
 
 #[derive(Debug)]
-pub struct TestEncapsulatedMessage(EncapsulatedMessage);
+pub struct TestEncapsulatedMessage(EncapsulatedMessageWithVerifiedPublicHeader);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(EncapsulatedMessage::new(
+        Self(EncapsulatedMessageWithVerifiedPublicHeader::new(
             &generate_valid_inputs(),
             PayloadType::Data,
             payload.try_into().unwrap(),
         ))
     }
 
-    pub fn into_inner(self) -> EncapsulatedMessage {
+    pub fn into_inner(self) -> EncapsulatedMessageWithVerifiedPublicHeader {
         self.0
     }
 }
 
 impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessage;
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -61,8 +61,8 @@ fn generate_valid_inputs() -> Vec<EncapsulationInput> {
             EncapsulationInput::new(
                 Ed25519PrivateKey::generate(),
                 &recipient_signing_pubkey,
-                ProofOfQuota::from_bytes_unchecked([0; _]),
-                ProofOfSelection::from_bytes_unchecked([0; _]),
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             )
         })
         .collect::<Vec<_>>()

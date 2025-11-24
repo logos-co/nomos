@@ -7,14 +7,15 @@ use nomos_blend_message::{
         PoQVerificationInputsMinusSigningKey,
         quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
     },
-    encap::encapsulated::EncapsulatedMessage,
     input::EncapsulationInput,
 };
 
 use crate::{
     membership::Membership,
     message_blend::{
-        crypto::SessionCryptographicProcessorSettings,
+        crypto::{
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
+        },
         provers::{ProofsGeneratorSettings, leader::LeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -74,7 +75,7 @@ where
     pub async fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         // We validate the payload early on so we don't generate proofs unnecessarily.
         let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
@@ -117,7 +118,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        Ok(EncapsulatedMessage::new(
+        Ok(EncapsulatedMessageWithVerifiedPublicHeader::new(
             &inputs,
             PayloadType::Data,
             validated_payload,

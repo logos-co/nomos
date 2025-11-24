@@ -68,9 +68,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
 
     // Check that the message is successfully decapsulated and scheduled.
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
@@ -127,9 +125,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = new_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(new_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,
@@ -154,9 +150,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = future_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(future_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,

@@ -1,11 +1,8 @@
 use std::fmt::Debug;
 
-use nomos_blend_message::crypto::proofs::{
-    quota,
-    quota::{
-        ProofOfQuota,
-        inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
-    },
+use nomos_blend_message::crypto::proofs::quota::{
+    self, VerifiedProofOfQuota,
+    inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
 };
 use poq::CorePathAndSelectors;
 use poseidon2::ZkHash;
@@ -21,7 +18,7 @@ pub struct PoQOperator {
     core_path_and_selectors: CorePathAndSelectors,
     public_inputs: PublicInputs,
     key_index: u64,
-    response_channel: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
+    response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
 }
 
 impl Debug for PoQOperator {
@@ -36,7 +33,7 @@ impl PoQOperator {
         core_path_and_selectors: CorePathAndSelectors,
         public_inputs: PublicInputs,
         key_index: u64,
-        response_channel: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
+        response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
     ) -> Self {
         Self {
             core_path_and_selectors,
@@ -63,9 +60,10 @@ impl SecureKeyOperator for PoQOperator {
         let public_inputs = self.public_inputs;
         // spawn a blocking task as this computation is heavy atm because it needs of an
         // external binary.
-        let poq_result = spawn_blocking(move || ProofOfQuota::new(&public_inputs, private_inputs))
-            .await
-            .map_err(Self::Error::FailedOperatorCall)?;
+        let poq_result =
+            spawn_blocking(move || VerifiedProofOfQuota::new(&public_inputs, private_inputs))
+                .await
+                .map_err(Self::Error::FailedOperatorCall)?;
         if let Err(e) = self.response_channel.send(poq_result) {
             error!("Error building proof of quota: {e:?}");
         }
