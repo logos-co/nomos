@@ -75,6 +75,22 @@ If you use a custom directory, you'll need to set the `NOMOS_CIRCUITS` environme
 export NOMOS_CIRCUITS=/opt/circuits
 ```
 
+### Building an arm64 Prover Locally
+
+If you're developing on Apple Silicon (or any other arm64 host) and need a native `prover` binary—for example to run the
+compose workflow under `act`—you can instruct the setup script to download the linux/aarch64 circuits bundle and rebuild
+rapidsnark in-place:
+
+```bash
+NOMOS_CIRCUITS_PLATFORM=linux-aarch64 \
+NOMOS_CIRCUITS_REBUILD_RAPIDSNARK=1 \
+./scripts/setup-nomos-circuits.sh v0.2.0 nomos-circuits-arm64
+```
+
+This creates a `nomos-circuits-arm64/` directory containing an arm64 `prover`. The compose CI workflow automatically
+uses this override when it finds that directory at the repository root, so `act --container-architecture linux/arm64`
+will exercise the same binaries you'd run locally.
+
 ### macOS Users
 
 Since we don't yet have code-signing implemented on macOS, the setup script automatically removes quarantine attributes from downloaded binaries. This allows the binaries to run without manual authorization through System Settings.

@@ -20,6 +20,7 @@ VERSION="${1:-v0.3.1}"
 DEFAULT_INSTALL_DIR="$HOME/.nomos-circuits"
 INSTALL_DIR="${2:-$DEFAULT_INSTALL_DIR}"
 REPO="logos-co/nomos-circuits"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -179,6 +180,12 @@ main() {
         handle_macos_quarantine
     fi
 
+    if [[ "${NOMOS_CIRCUITS_REBUILD_RAPIDSNARK:-0}" == "1" || "$platform" == *"aarch64" ]]; then
+        echo
+        print_info "Rebuilding rapidsnark prover for ${platform}..."
+        "${SCRIPT_DIR}/build-rapidsnark.sh" "$INSTALL_DIR"
+    fi
+
     echo
     print_success "Installation complete!"
     echo
@@ -188,7 +195,8 @@ main() {
     # Discover circuits by finding directories that contain a witness_generator
     for dir in "$INSTALL_DIR"/*/; do
         if [ -d "$dir" ]; then
-            local circuit_name=$(basename "$dir")
+            local circuit_name
+            circuit_name=$(basename "$dir")
             if [ -f "$dir/witness_generator" ]; then
                 echo "  • $circuit_name"
             fi
