@@ -56,7 +56,7 @@ impl<Caps> ScenarioBuilderExt<Caps> for CoreScenarioBuilder<Caps> {
     }
 
     fn expect_consensus_liveness(self) -> Self {
-        self.with_expectation(ConsensusLiveness)
+        self.with_expectation(ConsensusLiveness::default())
     }
 
     fn initialize_wallet(self, total_funds: u64, users: usize) -> Self {
@@ -213,7 +213,14 @@ pub trait ChaosBuilderExt: Sized {
 
 impl ChaosBuilderExt for CoreScenarioBuilder<NodeControlCapability> {
     fn chaos_random_restart(self) -> ChaosRestartBuilder {
-        ChaosRestartBuilder::new(self)
+        ChaosRestartBuilder {
+            builder: self,
+            min_delay: Duration::from_secs(10),
+            max_delay: Duration::from_secs(30),
+            target_cooldown: Duration::from_secs(60),
+            include_validators: true,
+            include_executors: true,
+        }
     }
 }
 
@@ -221,25 +228,12 @@ pub struct ChaosRestartBuilder {
     builder: CoreScenarioBuilder<NodeControlCapability>,
     min_delay: Duration,
     max_delay: Duration,
+    target_cooldown: Duration,
     include_validators: bool,
     include_executors: bool,
 }
 
 impl ChaosRestartBuilder {
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "Scenario builder contains runtime-only structures"
-    )]
-    fn new(builder: CoreScenarioBuilder<NodeControlCapability>) -> Self {
-        Self {
-            builder,
-            min_delay: Duration::from_secs(10),
-            max_delay: Duration::from_secs(30),
-            include_validators: true,
-            include_executors: true,
-        }
-    }
-
     #[must_use]
     pub fn min_delay(mut self, delay: Duration) -> Self {
         assert!(!delay.is_zero(), "chaos restart min delay must be non-zero");
@@ -255,21 +249,23 @@ impl ChaosRestartBuilder {
     }
 
     #[must_use]
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "builder mutates runtime-only configuration"
-    )]
-    pub fn include_validators(mut self, enabled: bool) -> Self {
+    pub fn target_cooldown(mut self, cooldown: Duration) -> Self {
+        assert!(
+            !cooldown.is_zero(),
+            "chaos restart target cooldown must be non-zero"
+        );
+        self.target_cooldown = cooldown;
+        self
+    }
+
+    #[must_use]
+    pub const fn include_validators(mut self, enabled: bool) -> Self {
         self.include_validators = enabled;
         self
     }
 
     #[must_use]
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "builder mutates runtime-only configuration"
-    )]
-    pub fn include_executors(mut self, enabled: bool) -> Self {
+    pub const fn include_executors(mut self, enabled: bool) -> Self {
         self.include_executors = enabled;
         self
     }
@@ -281,6 +277,10 @@ impl ChaosRestartBuilder {
             "chaos restart min delay must not exceed max delay"
         );
         assert!(
+            self.target_cooldown >= self.min_delay,
+            "chaos restart target cooldown must be >= min delay"
+        );
+        assert!(
             self.include_validators || self.include_executors,
             "chaos restart requires at least one node group"
         );
@@ -288,6 +288,7 @@ impl ChaosRestartBuilder {
         let workload = RandomRestartWorkload::new(
             self.min_delay,
             self.max_delay,
+            self.target_cooldown,
             self.include_validators,
             self.include_executors,
         );

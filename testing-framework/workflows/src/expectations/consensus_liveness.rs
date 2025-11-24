@@ -5,8 +5,18 @@ use testing_framework_core::scenario::{DynError, Expectation, RunContext};
 use thiserror::Error;
 use tokio::time::sleep;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ConsensusLiveness;
+#[derive(Clone, Copy, Debug)]
+pub struct ConsensusLiveness {
+    lag_allowance: u64,
+}
+
+impl Default for ConsensusLiveness {
+    fn default() -> Self {
+        Self {
+            lag_allowance: LAG_ALLOWANCE,
+        }
+    }
+}
 
 const LAG_ALLOWANCE: u64 = 2;
 const MIN_PROGRESS_BLOCKS: u64 = 5;
@@ -23,7 +33,7 @@ impl Expectation for ConsensusLiveness {
         Self::ensure_participants(ctx)?;
         let target_hint = Self::target_blocks(ctx);
         let check = Self::collect_results(ctx).await;
-        Self::report(target_hint, check)
+        (*self).report(target_hint, check)
     }
 }
 
@@ -124,7 +134,13 @@ impl ConsensusLiveness {
             .await
     }
 
-    fn report(target_hint: u64, mut check: LivenessCheck) -> Result<(), DynError> {
+    #[must_use]
+    pub const fn with_lag_allowance(mut self, lag_allowance: u64) -> Self {
+        self.lag_allowance = lag_allowance;
+        self
+    }
+
+    fn report(self, target_hint: u64, mut check: LivenessCheck) -> Result<(), DynError> {
         if check.samples.is_empty() {
             return Err(Box::new(ConsensusLivenessError::MissingParticipants));
         }
@@ -152,7 +168,7 @@ impl ConsensusLiveness {
         }
 
         for sample in &check.samples {
-            if sample.height + LAG_ALLOWANCE < target {
+            if sample.height + self.lag_allowance < target {
                 check
                     .issues
                     .push(ConsensusLivenessIssue::HeightBelowTarget {

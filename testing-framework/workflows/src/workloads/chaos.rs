@@ -1,14 +1,15 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use async_trait::async_trait;
 use rand::{Rng as _, seq::SliceRandom as _, thread_rng};
 use testing_framework_core::scenario::{DynError, RunContext, Workload};
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 use tracing::info;
 
 pub struct RandomRestartWorkload {
     min_delay: Duration,
     max_delay: Duration,
+    target_cooldown: Duration,
     include_validators: bool,
     include_executors: bool,
 }
@@ -18,12 +19,14 @@ impl RandomRestartWorkload {
     pub const fn new(
         min_delay: Duration,
         max_delay: Duration,
+        target_cooldown: Duration,
         include_validators: bool,
         include_executors: bool,
     ) -> Self {
         Self {
             min_delay,
             max_delay,
+            target_cooldown,
             include_validators,
             include_executors,
         }
@@ -63,6 +66,53 @@ impl RandomRestartWorkload {
             .checked_add(Duration::from_secs_f64(offset))
             .unwrap_or(self.max_delay)
     }
+
+    fn initialize_cooldowns(&self, targets: &[Target]) -> HashMap<Target, Instant> {
+        let now = Instant::now();
+        let ready = now.checked_sub(self.target_cooldown).unwrap_or(now);
+        targets
+            .iter()
+            .copied()
+            .map(|target| (target, ready))
+            .collect()
+    }
+
+    async fn pick_target(
+        &self,
+        targets: &[Target],
+        cooldowns: &HashMap<Target, Instant>,
+    ) -> Target {
+        loop {
+            let now = Instant::now();
+            if let Some(next_ready) = cooldowns
+                .values()
+                .copied()
+                .filter(|ready| *ready > now)
+                .min()
+            {
+                let wait = next_ready.saturating_duration_since(now);
+                if !wait.is_zero() {
+                    sleep(wait).await;
+                    continue;
+                }
+            }
+
+            let available: Vec<Target> = targets
+                .iter()
+                .copied()
+                .filter(|target| cooldowns.get(target).is_none_or(|ready| *ready <= now))
+                .collect();
+
+            if let Some(choice) = available.choose(&mut thread_rng()).copied() {
+                return choice;
+            }
+
+            return targets
+                .choose(&mut thread_rng())
+                .copied()
+                .expect("chaos restart workload has targets");
+        }
+    }
 }
 
 #[async_trait]
@@ -81,12 +131,11 @@ impl Workload for RandomRestartWorkload {
             return Err("chaos restart workload has no eligible targets".into());
         }
 
+        let mut cooldowns = self.initialize_cooldowns(&targets);
+
         loop {
             sleep(self.random_delay()).await;
-            let target = targets
-                .choose(&mut thread_rng())
-                .copied()
-                .expect("chaos restart workload has targets");
+            let target = self.pick_target(&targets, &cooldowns).await;
 
             match target {
                 Target::Validator(index) => handle
@@ -98,11 +147,13 @@ impl Workload for RandomRestartWorkload {
                     .await
                     .map_err(|err| format!("executor restart failed: {err}"))?,
             }
+
+            cooldowns.insert(target, Instant::now() + self.target_cooldown);
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Target {
     Validator(usize),
     Executor(usize),

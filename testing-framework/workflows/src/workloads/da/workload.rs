@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use ed25519_dalek::SigningKey;
@@ -10,20 +10,25 @@ use nomos_core::{
         channel::{ChannelId, MsgId},
     },
 };
-use rand::{Rng as _, RngCore as _, thread_rng};
+use rand::{Rng as _, RngCore as _, seq::SliceRandom as _, thread_rng};
 use testing_framework_core::{
     nodes::ApiClient,
     scenario::{BlockRecord, DynError, Expectation, RunContext, Workload as ScenarioWorkload},
 };
-use tokio::sync::broadcast;
+use tokio::{sync::broadcast, time::sleep};
 
 use super::expectation::DaWorkloadExpectation;
-use crate::{util::tx, workloads::util::find_channel_op};
+use crate::{
+    util::tx,
+    workloads::util::{find_channel_op, submit_transaction_via_cluster},
+};
 
 const TEST_KEY_BYTES: [u8; 32] = [0u8; 32];
 const DEFAULT_CHANNELS: usize = 1;
 const MIN_BLOB_CHUNKS: usize = 1;
 const MAX_BLOB_CHUNKS: usize = 8;
+const PUBLISH_RETRIES: usize = 5;
+const PUBLISH_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct Workload {
@@ -77,23 +82,11 @@ async fn run_channel_flow(
     receiver: &mut broadcast::Receiver<Arc<BlockRecord>>,
     channel_id: ChannelId,
 ) -> Result<(), DynError> {
-    let validator = ctx
-        .node_clients()
-        .random_validator()
-        .cloned()
-        .ok_or_else(|| "da workload requires at least one validator".to_owned())?;
-
-    let executor = ctx
-        .node_clients()
-        .random_executor()
-        .cloned()
-        .ok_or_else(|| "da workload requires at least one executor".to_owned())?;
-
-    let tx = tx::create_inscription_transaction_with_id(channel_id);
-    validator.submit_transaction(&tx).await?;
+    let tx = Arc::new(tx::create_inscription_transaction_with_id(channel_id));
+    submit_transaction_via_cluster(ctx, Arc::clone(&tx)).await?;
 
     let inscription_id = wait_for_inscription(receiver, channel_id).await?;
-    let blob_id = publish_blob(&executor, channel_id, inscription_id).await?;
+    let blob_id = publish_blob(ctx, channel_id, inscription_id).await?;
     wait_for_blob(receiver, channel_id, blob_id).await?;
     Ok(())
 }
@@ -155,19 +148,40 @@ where
 }
 
 async fn publish_blob(
-    executor: &ApiClient,
+    ctx: &RunContext,
     channel_id: ChannelId,
     parent_msg: MsgId,
 ) -> Result<BlobId, DynError> {
-    let executor_url = executor.base_url().clone();
+    let executors = ctx.node_clients().executor_clients();
+    if executors.is_empty() {
+        return Err("da workload requires at least one executor".into());
+    }
+
     let signer = SigningKey::from_bytes(&TEST_KEY_BYTES).verifying_key();
     let data = random_blob_payload();
     let client = ExecutorHttpClient::new(None);
 
-    client
-        .publish_blob(executor_url, channel_id, parent_msg, signer, data)
-        .await
-        .map_err(Into::into)
+    let mut candidates: Vec<&ApiClient> = executors.iter().collect();
+    let mut last_err = None;
+    for attempt in 1..=PUBLISH_RETRIES {
+        candidates.shuffle(&mut thread_rng());
+        for executor in &candidates {
+            let executor_url = executor.base_url().clone();
+            match client
+                .publish_blob(executor_url, channel_id, parent_msg, signer, data.clone())
+                .await
+            {
+                Ok(blob_id) => return Ok(blob_id),
+                Err(err) => last_err = Some(err.into()),
+            }
+        }
+
+        if attempt < PUBLISH_RETRIES {
+            sleep(PUBLISH_RETRY_DELAY).await;
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| "da workload could not publish blob".into()))
 }
 
 fn random_blob_payload() -> Vec<u8> {

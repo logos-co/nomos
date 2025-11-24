@@ -264,10 +264,10 @@ where
         };
         let telemetry = metrics_handle_from_port(prometheus_port)?;
         let node_control = Caps::REQUIRED.then(|| {
-            Arc::new(ComposeNodeControl::new(
-                environment.compose_path().to_path_buf(),
-                environment.project_name().to_owned(),
-            )) as Arc<dyn NodeControlHandle>
+            Arc::new(ComposeNodeControl {
+                compose_file: environment.compose_path().to_path_buf(),
+                project_name: environment.project_name().to_owned(),
+            }) as Arc<dyn NodeControlHandle>
         });
         let (block_feed, block_feed_guard) = match spawn_block_feed_with_retry(&node_clients).await
         {
@@ -416,19 +416,6 @@ async fn restart_compose_service(
 struct ComposeNodeControl {
     compose_file: PathBuf,
     project_name: String,
-}
-
-impl ComposeNodeControl {
-    #[expect(
-        clippy::missing_const_for_fn,
-        reason = "PathBuf and String construction is not const on stable"
-    )]
-    fn new(compose_file: PathBuf, project_name: String) -> Self {
-        Self {
-            compose_file,
-            project_name,
-        }
-    }
 }
 
 #[async_trait]

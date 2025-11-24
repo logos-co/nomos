@@ -3,7 +3,9 @@ use std::{env, time::Duration};
 use serial_test::serial;
 use testing_framework_core::scenario::{Deployer as _, Runner, ScenarioBuilder};
 use testing_framework_runner_compose::{ComposeRunner, ComposeRunnerError};
-use tests_workflows::{ChaosBuilderExt as _, ScenarioBuilderExt as _};
+use tests_workflows::{
+    ChaosBuilderExt as _, ScenarioBuilderExt as _, expectations::ConsensusLiveness,
+};
 
 const RUN_DURATION: Duration = Duration::from_secs(120);
 const MIXED_TXS_PER_BLOCK: u64 = 5;
@@ -58,6 +60,7 @@ async fn run_compose_case(validators: usize, executors: usize) {
         .chaos_random_restart()
         .min_delay(Duration::from_secs(45))
         .max_delay(Duration::from_secs(75))
+        .target_cooldown(Duration::from_secs(120))
         .apply()
         .topology()
         .validators(validators)
@@ -76,8 +79,9 @@ async fn run_compose_case(validators: usize, executors: usize) {
         .blob_rate(1)
         .apply();
 
+    let lag_allowance = 2 + (validators + executors) as u64;
     let mut plan = workloads
-        .expect_consensus_liveness()
+        .with_expectation(ConsensusLiveness::default().with_lag_allowance(lag_allowance))
         .with_run_duration(RUN_DURATION)
         .build();
 

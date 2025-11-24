@@ -18,6 +18,7 @@ use tokio::time::sleep;
 use zksign::{PublicKey, SecretKey};
 
 use super::expectation::TxInclusionExpectation;
+use crate::workloads::util::submit_transaction_via_cluster;
 
 #[derive(Clone)]
 pub struct Workload {
@@ -166,18 +167,7 @@ impl<'a> Submission<'a> {
 
 async fn submit_wallet_transaction(ctx: &RunContext, input: &WalletInput) -> Result<(), DynError> {
     let signed_tx = Arc::new(build_wallet_transaction(input)?);
-
-    ctx.cluster_client()
-        .try_all_clients(|client| {
-            let signed_tx = Arc::clone(&signed_tx);
-            Box::pin(async move {
-                client
-                    .submit_transaction(&signed_tx)
-                    .await
-                    .map_err(|err| -> DynError { err.into() })
-            })
-        })
-        .await
+    submit_transaction_via_cluster(ctx, signed_tx).await
 }
 
 fn build_wallet_transaction(input: &WalletInput) -> Result<SignedMantleTx, DynError> {
