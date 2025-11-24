@@ -21,10 +21,12 @@ services:
 {% for volume in node.volumes %}
       - {{ volume }}
 {% endfor %}
+{% if node.extra_hosts | length > 0 %}
     extra_hosts:
 {% for host in node.extra_hosts %}
       - {{ host }}
 {% endfor %}
+{% endif %}
     ports:
 {% for port in node.ports %}
       - {{ port }}
@@ -44,10 +46,12 @@ services:
 {% for volume in node.volumes %}
       - {{ volume }}
 {% endfor %}
+{% if node.extra_hosts | length > 0 %}
     extra_hosts:
 {% for host in node.extra_hosts %}
       - {{ host }}
 {% endfor %}
+{% endif %}
     ports:
 {% for port in node.ports %}
       - {{ port }}

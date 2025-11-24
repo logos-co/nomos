@@ -12,6 +12,7 @@ jobs:
     env:
       TMPDIR: ${{ github.workspace }}/.tmp
       NOMOS_TESTNET_PLATFORM: linux/amd64
+      NOMOS_CIRCUITS_PLATFORM: linux-x86_64
 
     steps: &compose-steps
       - name: Checkout repository
@@ -27,15 +28,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl docker.io clang llvm-dev libclang-dev pkg-config cmake libssl-dev
+          if ! docker compose version >/dev/null 2>&1; then
+            ARCH=$(uname -m)
+            case "$ARCH" in
+              arm64|aarch64) COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-aarch64" ;;
+              *) COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" ;;
+            esac
+            sudo install -d /usr/libexec/docker/cli-plugins
+            sudo curl -sSL "$COMPOSE_URL" -o /usr/libexec/docker/cli-plugins/docker-compose
+            sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+          fi
 
-      - name: Detect host architecture circuits override
+      - name: Detect host architecture settings
         run: |
           ARCH=$(docker info -f '{{.Architecture}}' 2>/dev/null || uname -m)
-          if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-            if [ -d nomos-circuits-arm64 ]; then
-              echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> $GITHUB_ENV
-            fi
-          fi
+          case "$ARCH" in
+            arm64|aarch64)
+              echo "NOMOS_TESTNET_PLATFORM=linux/arm64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "COMPOSE_CIRCUITS_PLATFORM=linux-aarch64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_REBUILD_RAPIDSNARK=1" >> "$GITHUB_ENV"
+              if [ -d nomos-circuits-arm64 ]; then
+                echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> "$GITHUB_ENV"
+              fi
+              ;;
+            *)
+              echo "NOMOS_TESTNET_PLATFORM=linux/amd64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "COMPOSE_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_REBUILD_RAPIDSNARK=0" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -56,11 +79,11 @@ jobs:
             ${{ runner.os }}-target-compose-
 
       - name: Install nomos circuits
-        env:
-          NOMOS_CIRCUITS_PLATFORM: linux-x86_64
         run: |
           CIRCUITS_DIR="${RUNNER_TEMP:-$TMPDIR}/nomos-circuits"
           chmod +x scripts/setup-nomos-circuits.sh
+          export NOMOS_CIRCUITS_PLATFORM="${NOMOS_CIRCUITS_PLATFORM:-linux-x86_64}"
+          export NOMOS_CIRCUITS_REBUILD_RAPIDSNARK="${NOMOS_CIRCUITS_REBUILD_RAPIDSNARK:-0}"
           scripts/setup-nomos-circuits.sh v0.2.0 "$CIRCUITS_DIR"
           echo "NOMOS_CIRCUITS=$CIRCUITS_DIR" >> $GITHUB_ENV
 
@@ -72,7 +95,7 @@ jobs:
           if [ -n "${CIRCUITS_OVERRIDE:-}" ]; then
             BUILD_ARGS="--build-arg CIRCUITS_OVERRIDE=${CIRCUITS_OVERRIDE}"
           fi
-          docker build --platform linux/amd64 \
+          docker build --platform "${NOMOS_TESTNET_PLATFORM:-linux/amd64}" \
             $BUILD_ARGS \
             -t nomos-testnet:local \
             -f testing-framework/runners/docker/runner.Dockerfile \
@@ -124,6 +147,7 @@ jobs:
     env:
       TMPDIR: ${{ github.workspace }}/.tmp
       NOMOS_TESTNET_PLATFORM: linux/amd64
+      NOMOS_CIRCUITS_PLATFORM: linux-x86_64
 
     steps:
       - name: Checkout repository
@@ -139,15 +163,37 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl docker.io clang llvm-dev libclang-dev pkg-config cmake libssl-dev
+          if ! docker compose version >/dev/null 2>&1; then
+            ARCH=$(uname -m)
+            case "$ARCH" in
+              arm64|aarch64) COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-aarch64" ;;
+              *) COMPOSE_URL="https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-x86_64" ;;
+            esac
+            sudo install -d /usr/libexec/docker/cli-plugins
+            sudo curl -sSL "$COMPOSE_URL" -o /usr/libexec/docker/cli-plugins/docker-compose
+            sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+          fi
 
-      - name: Detect host architecture circuits override
+      - name: Detect host architecture settings
         run: |
           ARCH=$(docker info -f '{{.Architecture}}' 2>/dev/null || uname -m)
-          if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-            if [ -d nomos-circuits-arm64 ]; then
-              echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> $GITHUB_ENV
-            fi
-          fi
+          case "$ARCH" in
+            arm64|aarch64)
+              echo "NOMOS_TESTNET_PLATFORM=linux/arm64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "COMPOSE_CIRCUITS_PLATFORM=linux-aarch64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_REBUILD_RAPIDSNARK=1" >> "$GITHUB_ENV"
+              if [ -d nomos-circuits-arm64 ]; then
+                echo "CIRCUITS_OVERRIDE=nomos-circuits-arm64" >> "$GITHUB_ENV"
+              fi
+              ;;
+            *)
+              echo "NOMOS_TESTNET_PLATFORM=linux/amd64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "COMPOSE_CIRCUITS_PLATFORM=linux-x86_64" >> "$GITHUB_ENV"
+              echo "NOMOS_CIRCUITS_REBUILD_RAPIDSNARK=0" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -168,11 +214,11 @@ jobs:
             ${{ runner.os }}-target-compose-
 
       - name: Install nomos circuits
-        env:
-          NOMOS_CIRCUITS_PLATFORM: linux-x86_64
         run: |
           CIRCUITS_DIR="${RUNNER_TEMP:-$TMPDIR}/nomos-circuits"
           chmod +x scripts/setup-nomos-circuits.sh
+          export NOMOS_CIRCUITS_PLATFORM="${NOMOS_CIRCUITS_PLATFORM:-linux-x86_64}"
+          export NOMOS_CIRCUITS_REBUILD_RAPIDSNARK="${NOMOS_CIRCUITS_REBUILD_RAPIDSNARK:-0}"
           scripts/setup-nomos-circuits.sh v0.2.0 "$CIRCUITS_DIR"
           echo "NOMOS_CIRCUITS=$CIRCUITS_DIR" >> $GITHUB_ENV
 
@@ -184,7 +230,7 @@ jobs:
           if [ -n "${CIRCUITS_OVERRIDE:-}" ]; then
             BUILD_ARGS="--build-arg CIRCUITS_OVERRIDE=${CIRCUITS_OVERRIDE}"
           fi
-          docker build --platform linux/amd64 \
+          docker build --platform "${NOMOS_TESTNET_PLATFORM:-linux/amd64}" \
             $BUILD_ARGS \
             -t nomos-testnet:local \
             -f testing-framework/runners/docker/runner.Dockerfile \
