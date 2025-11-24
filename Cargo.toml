@@ -158,6 +158,7 @@ tokio             = { default-features = false, version = "1" }
 tracing           = { default-features = false, version = "0.1" }
 utoipa            = { default-features = false, version = "4.0" }
 utoipa-swagger-ui = { default-features = false, version = "7.0" }
+zerocopy          = { default-features = false, version = "0.8.28" }
 
 [workspace.lints.clippy]
 

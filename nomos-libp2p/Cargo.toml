@@ -44,7 +44,7 @@ serde_with = { workspace = true }
 thiserror = "1.0.40"
 tokio = { features = ["macros", "test-util", "time"], version = "1" }
 tracing = { workspace = true }
-zerocopy = { features = ["derive"], version = "0.8.26" }
+zerocopy = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 libp2p-swarm-test  = { features = ["tokio"], version = "0.5.0" }
