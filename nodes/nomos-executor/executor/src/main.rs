@@ -7,7 +7,9 @@ use nomos_executor::{
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
-    config::{BlendArgs, blend::ServiceConfig as BlendConfig},
+    config::{
+        BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
+    },
 };
 use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
@@ -69,13 +71,17 @@ async fn main() -> Result<()> {
 
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.into(),
+        deployment: config.deployment.clone().into(),
     }
     .into();
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
-            network: config.network,
+            network: NetworkConfig {
+                user: config.network,
+                deployment: config.deployment.into(),
+            }
+            .into(),
             blend: blend_config,
             blend_core: blend_core_config,
             blend_edge: blend_edge_config,

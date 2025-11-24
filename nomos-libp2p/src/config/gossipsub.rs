@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
     clippy::struct_excessive_bools,
     reason = "Type matching `gossipsub::Config` for remote serde impl."
 )]
-pub(super) struct ConfigDef {
+pub struct ConfigDef {
     #[serde(getter = "gossipsub::Config::history_length")]
     history_length: usize,
     #[serde(getter = "gossipsub::Config::history_gossip")]
