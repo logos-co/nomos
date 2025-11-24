@@ -57,7 +57,7 @@ impl NomosNode {
         (overwatch, runtime)
     }
 
-    fn stop(self) -> NomosNodeErrorCode {
+    pub(crate) fn stop(self) -> NomosNodeErrorCode {
         let runtime_handle = self.get_runtime_handle();
         let overwatch_handle = self.get_overwatch_handle();
         if let Err(e) = runtime_handle.block_on(overwatch_handle.stop_all_services()) {
@@ -80,21 +80,4 @@ impl Drop for NomosNode {
         drop(unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) });
         drop(unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) });
     }
-}
-
-#[unsafe(no_mangle)]
-/// # Safety
-///
-/// The caller must ensure that:
-/// - `node` is a valid pointer to a `NomosNode` instance
-/// - The `NomosNode` instance was created by this library
-/// - The pointer will not be used after this function returns
-pub unsafe extern "C" fn stop_node(node: *mut NomosNode) -> NomosNodeErrorCode {
-    if node.is_null() {
-        eprintln!("Attempted to stop a null node pointer. This is a bug. Aborting.");
-        return NomosNodeErrorCode::NullPtr;
-    }
-
-    let node = unsafe { Box::from_raw(node) };
-    node.stop()
 }
