@@ -4,6 +4,7 @@
 )]
 
 mod api;
+mod errors;
 
 use std::ffi::c_char;
 
@@ -11,13 +12,7 @@ pub use api::{NomosNode, stop_node};
 use nomos_node::{Config, get_services_to_start, run_node_from_config};
 use tokio::runtime::Runtime;
 
-#[repr(u8)]
-pub enum NomosNodeErrorCode {
-    None = 0x0,
-    CouldNotInitialize = 0x1,
-    StopError = 0x2,
-    NullPtr = 0x3,
-}
+use crate::errors::NomosNodeErrorCode;
 
 #[repr(C)]
 pub struct InitializedNomosNodeResult {
