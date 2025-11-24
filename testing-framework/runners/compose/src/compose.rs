@@ -272,6 +272,28 @@ pub struct NodeDescriptor {
     platform: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub struct NodeHostPorts {
+    pub api: u16,
+    pub testing: u16,
+}
+
+#[derive(Clone, Debug)]
+pub struct HostPortMapping {
+    pub validators: Vec<NodeHostPorts>,
+    pub executors: Vec<NodeHostPorts>,
+}
+
+impl HostPortMapping {
+    pub fn validator_api_ports(&self) -> Vec<u16> {
+        self.validators.iter().map(|ports| ports.api).collect()
+    }
+
+    pub fn executor_api_ports(&self) -> Vec<u16> {
+        self.executors.iter().map(|ports| ports.api).collect()
+    }
+}
+
 impl NodeDescriptor {
     fn from_node(
         kind: ComposeNodeKind,
@@ -307,16 +329,12 @@ impl NodeDescriptor {
         ]);
 
         let ports = vec![
-            format!(
-                "{}:{}",
-                node.api_port(),
-                node.general.api_config.address.port()
-            ),
-            format!(
-                "{}:{}",
-                node.testing_http_port(),
-                node.general.api_config.testing_http_address.port()
-            ),
+            node.general.api_config.address.port().to_string(),
+            node.general
+                .api_config
+                .testing_http_address
+                .port()
+                .to_string(),
         ];
 
         Self {
@@ -588,12 +606,7 @@ mod tests {
                     && entry.value() == format!("http://host.docker.internal:{cfgsync_port}"))
         );
 
-        let api_host = topology.validators()[0].api_port();
         let api_container = topology.validators()[0].general.api_config.address.port();
-        assert!(
-            validator
-                .ports()
-                .contains(&format!("{api_host}:{api_container}"))
-        );
+        assert!(validator.ports().contains(&api_container.to_string()));
     }
 }

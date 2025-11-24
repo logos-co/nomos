@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Context as _;
+use anyhow::{Context as _, anyhow};
 use async_trait::async_trait;
 use reqwest::Url;
 use testing_framework_core::{
@@ -16,11 +16,11 @@ use testing_framework_core::{
     scenario::{
         BlockFeed, BlockFeedTask, CleanupGuard, Deployer, DynError, Metrics, MetricsError,
         NodeClients, NodeControlHandle, RequiresNodeControl, RunContext, Runner, Scenario,
-        http_probe::{HttpReadinessError, NodeRole},
+        http_probe::{HttpReadinessError, NodeRole as HttpNodeRole},
         spawn_block_feed,
     },
     topology::{
-        GeneratedNodeConfig, GeneratedTopology, ReadinessError,
+        GeneratedTopology, NodeRole as TopologyNodeRole, ReadinessError,
         configs::GeneralConfig as IntegrationGeneralConfig,
     },
 };
@@ -36,8 +36,9 @@ use crate::{
     cfgsync::{CfgsyncServerHandle, start_cfgsync_server, update_cfgsync_config},
     cleanup::RunnerCleanup,
     compose::{
-        ComposeCommandError, ComposeDescriptor, DescriptorBuildError, TemplateError, compose_up,
-        dump_compose_logs, repository_root, resolve_image, write_compose_file,
+        ComposeCommandError, ComposeDescriptor, DescriptorBuildError, HostPortMapping,
+        NodeHostPorts, TemplateError, compose_up, dump_compose_logs, repository_root,
+        resolve_image, write_compose_file,
     },
     wait::{wait_for_executors, wait_for_validators},
     workspace::ComposeWorkspace,
@@ -82,6 +83,13 @@ pub enum ComposeRunnerError {
     MissingValidator { validators: usize, executors: usize },
     #[error("docker does not appear to be available on this host")]
     DockerUnavailable,
+    #[error("failed to resolve host port for {service} container port {container_port}: {source}")]
+    PortDiscovery {
+        service: String,
+        container_port: u16,
+        #[source]
+        source: anyhow::Error,
+    },
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
     #[error(transparent)]
@@ -162,7 +170,7 @@ pub enum StackReadinessError {
     Http(#[from] HttpReadinessError),
     #[error("failed to build readiness URL for {role} port {port}: {source}")]
     Endpoint {
-        role: NodeRole,
+        role: HttpNodeRole,
         port: u16,
         #[source]
         source: ParseError,
@@ -178,7 +186,7 @@ pub enum StackReadinessError {
 pub enum NodeClientError {
     #[error("failed to build {endpoint} client URL for {role} port {port}: {source}")]
     Endpoint {
-        role: NodeRole,
+        role: HttpNodeRole,
         endpoint: &'static str,
         port: u16,
         #[source]
@@ -207,21 +215,35 @@ where
         let prometheus_port = desired_prometheus_port();
         let mut environment = prepare_environment(&descriptors, prometheus_port).await?;
 
+        let host_ports = match discover_host_ports(&environment, &descriptors).await {
+            Ok(mapping) => mapping,
+            Err(err) => {
+                environment
+                    .fail("failed to determine container host ports")
+                    .await;
+                return Err(err);
+            }
+        };
+
         if self.readiness_checks {
             info!("waiting for validator HTTP endpoints");
-            if let Err(err) = ensure_validators_ready(&descriptors).await {
+            if let Err(err) =
+                ensure_validators_ready_with_ports(&host_ports.validator_api_ports()).await
+            {
                 environment.fail("validator readiness failed").await;
                 return Err(err.into());
             }
 
             info!("waiting for executor HTTP endpoints");
-            if let Err(err) = ensure_executors_ready(&descriptors).await {
+            if let Err(err) =
+                ensure_executors_ready_with_ports(&host_ports.executor_api_ports()).await
+            {
                 environment.fail("executor readiness failed").await;
                 return Err(err.into());
             }
 
             info!("waiting for remote service readiness");
-            if let Err(err) = ensure_remote_readiness(&descriptors).await {
+            if let Err(err) = ensure_remote_readiness_with_ports(&descriptors, &host_ports).await {
                 environment.fail("remote readiness probe failed").await;
                 return Err(err.into());
             }
@@ -231,7 +253,7 @@ where
         }
 
         info!("compose stack ready; building node clients");
-        let node_clients = match build_node_clients(&descriptors) {
+        let node_clients = match build_node_clients_with_ports(&descriptors, &host_ports) {
             Ok(clients) => clients,
             Err(err) => {
                 environment
@@ -288,45 +310,55 @@ fn allocate_prometheus_port() -> Option<u16> {
     listener.local_addr().ok().map(|addr| addr.port())
 }
 
-fn build_node_clients(descriptors: &GeneratedTopology) -> Result<NodeClients, NodeClientError> {
+fn build_node_clients_with_ports(
+    descriptors: &GeneratedTopology,
+    mapping: &HostPortMapping,
+) -> Result<NodeClients, NodeClientError> {
     let validators = descriptors
         .validators()
         .iter()
-        .map(|node| api_client_from_descriptor(node, NodeRole::Validator))
+        .zip(mapping.validators.iter())
+        .map(|(node, ports)| api_client_from_host_ports(to_http_role(node.role()), ports))
         .collect::<Result<Vec<_>, _>>()?;
     let executors = descriptors
         .executors()
         .iter()
-        .map(|node| api_client_from_descriptor(node, NodeRole::Executor))
+        .zip(mapping.executors.iter())
+        .map(|(node, ports)| api_client_from_host_ports(to_http_role(node.role()), ports))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(NodeClients::new(validators, executors))
 }
 
-fn api_client_from_descriptor(
-    node: &GeneratedNodeConfig,
-    role: NodeRole,
+fn api_client_from_host_ports(
+    role: HttpNodeRole,
+    ports: &NodeHostPorts,
 ) -> Result<ApiClient, NodeClientError> {
-    let api_port = node.api_port();
-    let base_url = localhost_url(api_port).map_err(|source| NodeClientError::Endpoint {
+    let base_url = localhost_url(ports.api).map_err(|source| NodeClientError::Endpoint {
         role,
         endpoint: "api",
-        port: api_port,
+        port: ports.api,
         source,
     })?;
 
-    let testing_port = node.testing_http_port();
     let testing_url =
         Some(
-            localhost_url(testing_port).map_err(|source| NodeClientError::Endpoint {
+            localhost_url(ports.testing).map_err(|source| NodeClientError::Endpoint {
                 role,
                 endpoint: "testing",
-                port: testing_port,
+                port: ports.testing,
                 source,
             })?,
         );
 
     Ok(ApiClient::from_urls(base_url, testing_url))
+}
+
+const fn to_http_role(role: TopologyNodeRole) -> HttpNodeRole {
+    match role {
+        TopologyNodeRole::Validator => HttpNodeRole::Validator,
+        TopologyNodeRole::Executor => HttpNodeRole::Executor,
+    }
 }
 
 async fn spawn_block_feed_with(
@@ -426,6 +458,86 @@ fn localhost_url(port: u16) -> Result<Url, ParseError> {
     Url::parse(&format!("http://127.0.0.1:{port}/"))
 }
 
+async fn discover_host_ports(
+    environment: &StackEnvironment,
+    descriptors: &GeneratedTopology,
+) -> Result<HostPortMapping, ComposeRunnerError> {
+    let mut validators = Vec::new();
+    for node in descriptors.validators() {
+        let service = node_identifier(TopologyNodeRole::Validator, node.index());
+        let api = resolve_service_port(environment, &service, node.api_port()).await?;
+        let testing = resolve_service_port(environment, &service, node.testing_http_port()).await?;
+        validators.push(NodeHostPorts { api, testing });
+    }
+
+    let mut executors = Vec::new();
+    for node in descriptors.executors() {
+        let service = node_identifier(TopologyNodeRole::Executor, node.index());
+        let api = resolve_service_port(environment, &service, node.api_port()).await?;
+        let testing = resolve_service_port(environment, &service, node.testing_http_port()).await?;
+        executors.push(NodeHostPorts { api, testing });
+    }
+
+    Ok(HostPortMapping {
+        validators,
+        executors,
+    })
+}
+
+async fn resolve_service_port(
+    environment: &StackEnvironment,
+    service: &str,
+    container_port: u16,
+) -> Result<u16, ComposeRunnerError> {
+    let mut cmd = Command::new("docker");
+    cmd.arg("compose")
+        .arg("-f")
+        .arg(environment.compose_path())
+        .arg("-p")
+        .arg(environment.project_name())
+        .arg("port")
+        .arg(service)
+        .arg(container_port.to_string())
+        .current_dir(environment.root());
+
+    let output = cmd
+        .output()
+        .await
+        .with_context(|| format!("running docker compose port {service} {container_port}"))
+        .map_err(|source| ComposeRunnerError::PortDiscovery {
+            service: service.to_owned(),
+            container_port,
+            source,
+        })?;
+
+    if !output.status.success() {
+        return Err(ComposeRunnerError::PortDiscovery {
+            service: service.to_owned(),
+            container_port,
+            source: anyhow!("docker compose port exited with {}", output.status),
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(port_str) = line.rsplit(':').next()
+            && let Ok(port) = port_str.trim().parse::<u16>()
+        {
+            return Ok(port);
+        }
+    }
+
+    Err(ComposeRunnerError::PortDiscovery {
+        service: service.to_owned(),
+        container_port,
+        source: anyhow!("unable to parse docker compose port output: {stdout}"),
+    })
+}
+
 fn ensure_docker_available() -> Result<(), ComposeRunnerError> {
     let available = StdCommand::new("docker")
         .arg("info")
@@ -447,73 +559,45 @@ fn metrics_handle_from_port(port: u16) -> Result<Metrics, MetricsError> {
     Metrics::from_prometheus(url)
 }
 
-async fn ensure_validators_ready(
-    descriptors: &GeneratedTopology,
-) -> Result<(), StackReadinessError> {
-    let validator_ports = collect_validator_ports(descriptors);
-    wait_for_validators(&validator_ports)
-        .await
-        .map_err(Into::into)
+async fn ensure_validators_ready_with_ports(ports: &[u16]) -> Result<(), StackReadinessError> {
+    if ports.is_empty() {
+        return Ok(());
+    }
+
+    wait_for_validators(ports).await.map_err(Into::into)
 }
 
-async fn ensure_remote_readiness(
+async fn ensure_executors_ready_with_ports(ports: &[u16]) -> Result<(), StackReadinessError> {
+    if ports.is_empty() {
+        return Ok(());
+    }
+
+    wait_for_executors(ports).await.map_err(Into::into)
+}
+
+async fn ensure_remote_readiness_with_ports(
     descriptors: &GeneratedTopology,
+    mapping: &HostPortMapping,
 ) -> Result<(), StackReadinessError> {
-    let (validator_urls, executor_urls) = readiness_urls(descriptors)?;
+    let validator_urls = mapping
+        .validators
+        .iter()
+        .map(|ports| readiness_url(HttpNodeRole::Validator, ports.api))
+        .collect::<Result<Vec<_>, _>>()?;
+    let executor_urls = mapping
+        .executors
+        .iter()
+        .map(|ports| readiness_url(HttpNodeRole::Executor, ports.api))
+        .collect::<Result<Vec<_>, _>>()?;
+
     descriptors
         .wait_remote_readiness(&validator_urls, &executor_urls, None, None)
         .await
         .map_err(|source| StackReadinessError::Remote { source })
 }
 
-async fn ensure_executors_ready(
-    descriptors: &GeneratedTopology,
-) -> Result<(), StackReadinessError> {
-    let executor_ports = collect_executor_ports(descriptors);
-    if executor_ports.is_empty() {
-        return Ok(());
-    }
-
-    wait_for_executors(&executor_ports)
-        .await
-        .map_err(Into::into)
-}
-
-fn readiness_urls(
-    descriptors: &GeneratedTopology,
-) -> Result<(Vec<Url>, Vec<Url>), StackReadinessError> {
-    let validator_urls = descriptors
-        .validators()
-        .iter()
-        .map(|node| readiness_url(NodeRole::Validator, node.api_port()))
-        .collect::<Result<Vec<_>, _>>()?;
-    let executor_urls = descriptors
-        .executors()
-        .iter()
-        .map(|node| readiness_url(NodeRole::Executor, node.api_port()))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok((validator_urls, executor_urls))
-}
-
-fn readiness_url(role: NodeRole, port: u16) -> Result<Url, StackReadinessError> {
+fn readiness_url(role: HttpNodeRole, port: u16) -> Result<Url, StackReadinessError> {
     localhost_url(port).map_err(|source| StackReadinessError::Endpoint { role, port, source })
-}
-
-fn collect_validator_ports(descriptors: &GeneratedTopology) -> Vec<u16> {
-    descriptors
-        .validators()
-        .iter()
-        .map(GeneratedNodeConfig::api_port)
-        .collect()
-}
-
-fn collect_executor_ports(descriptors: &GeneratedTopology) -> Vec<u16> {
-    descriptors
-        .executors()
-        .iter()
-        .map(GeneratedNodeConfig::api_port)
-        .collect()
 }
 
 fn collect_prebuilt_configs(
@@ -522,23 +606,23 @@ fn collect_prebuilt_configs(
     let mut configs = HashMap::new();
     for node in descriptors.validators() {
         configs.insert(
-            node_identifier(NodeRole::Validator, node.index()),
+            node_identifier(TopologyNodeRole::Validator, node.index()),
             node.general.clone(),
         );
     }
     for node in descriptors.executors() {
         configs.insert(
-            node_identifier(NodeRole::Executor, node.index()),
+            node_identifier(TopologyNodeRole::Executor, node.index()),
             node.general.clone(),
         );
     }
     configs
 }
 
-fn node_identifier(role: NodeRole, index: usize) -> String {
+fn node_identifier(role: TopologyNodeRole, index: usize) -> String {
     match role {
-        NodeRole::Validator => format!("validator-{index}"),
-        NodeRole::Executor => format!("executor-{index}"),
+        TopologyNodeRole::Validator => format!("validator-{index}"),
+        TopologyNodeRole::Executor => format!("executor-{index}"),
     }
 }
 
@@ -966,7 +1050,7 @@ mod tests {
     use nomos_tracing_service::TracingSettings;
     use testing_framework_core::{
         scenario::ScenarioBuilder,
-        topology::{GeneratedNodeConfig, GeneratedTopology, NodeRole},
+        topology::{GeneratedNodeConfig, GeneratedTopology, NodeRole as TopologyNodeRole},
     };
     use zksign::PublicKey;
 
@@ -1107,8 +1191,8 @@ mod tests {
         let identifier = identifier_for(node.role(), node.index());
         let ip = Ipv4Addr::LOCALHOST;
         match node.role() {
-            NodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
-            NodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
+            TopologyNodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
+            TopologyNodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
         }
     }
 
@@ -1123,8 +1207,8 @@ mod tests {
         let identifier = identifier_for(node.role(), node.index());
         let ip = Ipv4Addr::new(172, 23, 0, octet);
         match node.role() {
-            NodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
-            NodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
+            TopologyNodeRole::Validator => Host::validator_from_ip(ip, identifier, Some(ports)),
+            TopologyNodeRole::Executor => Host::executor_from_ip(ip, identifier, Some(ports)),
         }
     }
 
@@ -1140,10 +1224,10 @@ mod tests {
             .clone()
     }
 
-    fn identifier_for(role: NodeRole, index: usize) -> String {
+    fn identifier_for(role: TopologyNodeRole, index: usize) -> String {
         match role {
-            NodeRole::Validator => format!("validator-{index}"),
-            NodeRole::Executor => format!("executor-{index}"),
+            TopologyNodeRole::Validator => format!("validator-{index}"),
+            TopologyNodeRole::Executor => format!("executor-{index}"),
         }
     }
 
