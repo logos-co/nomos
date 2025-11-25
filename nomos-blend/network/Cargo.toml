@@ -13,15 +13,18 @@ version     = { workspace = true }
 workspace = true
 
 [dependencies]
-either                 = { default-features = false, version = "1.15.0" }
-futures                = { default-features = false, version = "0.3.30" }
-futures-timer          = { version = "3.0.3" }
-libp2p                 = { workspace = true }
-nomos-blend-message    = { workspace = true }
-nomos-blend-scheduling = { workspace = true }
-nomos-core             = { workspace = true }
-nomos-libp2p           = { workspace = true }
-tracing                = { workspace = true }
+either                     = { default-features = false, version = "1.15.0" }
+futures                    = { default-features = false, version = "0.3.30" }
+futures-timer              = { version = "3.0.3" }
+key-management-system-keys = { workspace = true }
+libp2p                     = { workspace = true }
+nomos-blend-crypto         = { workspace = true }
+nomos-blend-message        = { workspace = true }
+nomos-blend-proofs         = { workspace = true }
+nomos-blend-scheduling     = { workspace = true }
+nomos-core                 = { workspace = true }
+nomos-libp2p               = { workspace = true }
+tracing                    = { workspace = true }
 
 [dev-dependencies]
 async-trait            = { version = "0.1" }
@@ -32,6 +35,7 @@ libp2p-swarm-test      = { default-features = false, features = ["tokio"], versi
 nomos-blend-message    = { features = ["unsafe-test-functions"], workspace = true }
 nomos-blend-scheduling = { features = ["unsafe-test-functions"], workspace = true }
 nomos-core             = { default-features = false, workspace = true }
+nomos-utils            = { workspace = true, features = ["rng"] }
 test-log               = { default-features = false, version = "0.2.18" }
 tokio                  = { default-features = false, version = "1" }
 tokio-stream           = { default-features = false, version = "0.1" }
