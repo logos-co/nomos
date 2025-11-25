@@ -18,6 +18,7 @@ async-trait              = "0.1"
 blst                     = { version = "0.3.11" }
 broadcast-service        = { workspace = true }
 chain-leader             = { workspace = true }
+chain-network            = { workspace = true }
 chain-service            = { workspace = true }
 common-http-client       = { workspace = true }
 cryptarchia-engine       = { features = ["serde"], workspace = true }
@@ -32,7 +33,6 @@ key-management-system    = { workspace = true }
 kzgrs-backend            = { workspace = true }
 nomos-api                = { workspace = true }
 nomos-blend-message      = { workspace = true }
-nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
 nomos-da-dispersal       = { workspace = true }

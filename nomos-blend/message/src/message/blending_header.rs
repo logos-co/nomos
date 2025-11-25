@@ -3,8 +3,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey, KEY_SIZE},
-    proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
-    pseudo_random_sized_bytes, random_sized_bytes,
+    proofs::{
+        quota::{ProofOfQuota, VerifiedProofOfQuota},
+        selection::{ProofOfSelection, VerifiedProofOfSelection},
+    },
+    pseudo_random_sized_bytes,
     signatures::{SIGNATURE_SIZE, Signature},
 };
 
@@ -35,17 +38,11 @@ impl BlendingHeader {
             // because a public key cannot always be successfully derived from random bytes.
             // TODO: This will be changed once we have zerocopy serde.
             signing_pubkey: Ed25519PrivateKey::from(r1).public_key(),
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked(r2),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(r2).into_inner(),
             signature: Signature::from(r3),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked(r4),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(r4).into_inner(),
             is_last: false,
         }
-    }
-
-    /// Build a blending header with random data that is not reconstructable.
-    pub fn random() -> Self {
-        // A random key is used since no reconstruction is needed.
-        Self::pseudo_random(&random_sized_bytes::<KEY_SIZE>())
     }
 }
 

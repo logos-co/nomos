@@ -6,7 +6,6 @@ use core::{
 };
 use std::time::Duration;
 
-use groth16::Field as _;
 use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::PublicKey, plaintext, swarm, tcp, yamux,
@@ -18,19 +17,16 @@ use nomos_blend_message::{
         keys::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
             PoQVerificationInputsMinusSigningKey,
-            quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
-            selection::{ProofOfSelection, inputs::VerifyInputs},
+            quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
         signatures::{SIGNATURE_SIZE, Signature},
     },
-    encap::ProofsVerifier,
+    encap::{ProofsVerifier, validated::EncapsulatedMessageWithVerifiedPublicHeader},
     input::EncapsulationInput,
 };
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    message_blend::{crypto::EncapsulationInputs, provers::BlendLayerProof},
-};
-use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
+use nomos_blend_scheduling::message_blend::provers::BlendLayerProof;
+use nomos_core::sdp::SessionNumber;
 use nomos_libp2p::{NetworkBehaviour, ed25519, upgrade::Version};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
@@ -105,14 +101,15 @@ where
     }
 }
 
-pub struct TestEncapsulatedMessage(EncapsulatedMessage);
+pub struct TestEncapsulatedMessage(EncapsulatedMessageWithVerifiedPublicHeader);
 
 impl TestEncapsulatedMessage {
     pub fn new(payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(0), PayloadType::Data, payload)
-                .unwrap(),
-        )
+        Self(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &generate_valid_inputs(0),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
     }
 
     pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
@@ -122,47 +119,13 @@ impl TestEncapsulatedMessage {
         self_instance
     }
 
-    pub fn into_inner(self) -> EncapsulatedMessage {
+    pub fn into_inner(self) -> EncapsulatedMessageWithVerifiedPublicHeader {
         self.0
     }
-}
-
-pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessage);
-
-impl TestEncapsulatedMessageWithSession {
-    pub fn new(session: SessionNumber, payload: &[u8]) -> Self {
-        Self(
-            EncapsulatedMessage::new(&generate_valid_inputs(session), PayloadType::Data, payload)
-                .unwrap(),
-        )
-    }
-
-    pub fn into_inner(self) -> EncapsulatedMessage {
-        self.0
-    }
-}
-
-fn generate_valid_inputs(session: SessionNumber) -> EncapsulationInputs {
-    EncapsulationInputs::new(
-        repeat_with(Ed25519PrivateKey::generate)
-            .take(3)
-            .map(|recipient_signing_key| {
-                let proofs = session_based_mock_blend_proof(session);
-                EncapsulationInput::new(
-                    Ed25519PrivateKey::generate(),
-                    &recipient_signing_key.public_key(),
-                    proofs.proof_of_quota,
-                    proofs.proof_of_selection,
-                )
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-    )
-    .unwrap()
 }
 
 impl Deref for TestEncapsulatedMessage {
-    type Target = EncapsulatedMessage;
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -173,6 +136,41 @@ impl DerefMut for TestEncapsulatedMessage {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+pub struct TestEncapsulatedMessageWithSession(EncapsulatedMessageWithVerifiedPublicHeader);
+
+impl TestEncapsulatedMessageWithSession {
+    pub fn new(session: SessionNumber, payload: &[u8]) -> Self {
+        Self(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &generate_valid_inputs(session),
+            PayloadType::Data,
+            payload.try_into().unwrap(),
+        ))
+    }
+}
+
+impl Deref for TestEncapsulatedMessageWithSession {
+    type Target = EncapsulatedMessageWithVerifiedPublicHeader;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+fn generate_valid_inputs(session: SessionNumber) -> Vec<EncapsulationInput> {
+    repeat_with(Ed25519PrivateKey::generate)
+        .take(3)
+        .map(|recipient_signing_key| {
+            let proofs = session_based_mock_blend_proof(session);
+            EncapsulationInput::new(
+                Ed25519PrivateKey::generate(),
+                &recipient_signing_key.public_key(),
+                proofs.proof_of_quota,
+                proofs.proof_of_selection,
+            )
+        })
+        .collect::<Vec<_>>()
 }
 
 pub struct SessionBasedMockProofsVerifier(pub SessionNumber);
@@ -192,10 +190,10 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
         &self,
         proof: ProofOfQuota,
         _: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let expected_proofs = session_based_mock_blend_proof(self.0);
         if proof == expected_proofs.proof_of_quota {
-            Ok(ZkHash::ZERO)
+            Ok(expected_proofs.proof_of_quota)
         } else {
             Err(())
         }
@@ -205,10 +203,10 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
         &self,
         proof: ProofOfSelection,
         _: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proofs = session_based_mock_blend_proof(self.0);
         if proof == expected_proofs.proof_of_selection {
-            Ok(())
+            Ok(expected_proofs.proof_of_selection)
         } else {
             Err(())
         }
@@ -218,12 +216,12 @@ impl ProofsVerifier for SessionBasedMockProofsVerifier {
 fn session_based_mock_blend_proof(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
@@ -248,19 +246,19 @@ impl ProofsVerifier for AlwaysTrueVerifier {
 
     fn verify_proof_of_quota(
         &self,
-        _proof: ProofOfQuota,
+        proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
-        use groth16::Field as _;
-
-        Ok(ZkHash::ZERO)
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
+        Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
     }
 
     fn verify_proof_of_selection(
         &self,
-        _: ProofOfSelection,
+        proof: ProofOfSelection,
         _: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
-        Ok(())
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
+        Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+            proof,
+        ))
     }
 }

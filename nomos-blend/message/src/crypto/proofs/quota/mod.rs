@@ -26,17 +26,6 @@ mod tests;
 #[cfg(any(test, feature = "unsafe-test-functions"))]
 pub mod fixtures;
 
-/// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
-// TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives, so once a proof is
-// verified it cannot be (mis)used anymore.
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ProofOfQuota {
-    #[serde(with = "groth16::serde::serde_fr")]
-    key_nullifier: ZkHash,
-    #[serde(with = "self::serde::proof::SerializablePoQProof")]
-    proof: PoQProof,
-}
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Invalid input: {0}.")]
@@ -47,7 +36,48 @@ pub enum Error {
     InvalidProof,
 }
 
+/// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProofOfQuota {
+    #[serde(with = "groth16::serde::serde_fr")]
+    key_nullifier: ZkHash,
+    #[serde(with = "self::serde::proof::SerializablePoQProof")]
+    proof: PoQProof,
+}
+
 impl ProofOfQuota {
+    /// Verify a Proof of Quota with the provided inputs.
+    ///
+    /// The key nullifier required to verify the proof is taken from the proof
+    /// itself and is not contained in the passed inputs.
+    pub fn verify(self, public_inputs: &PublicInputs) -> Result<VerifiedProofOfQuota, Error> {
+        let verifier_input =
+            VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
+        let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));
+        if is_proof_valid {
+            Ok(VerifiedProofOfQuota(self))
+        } else {
+            Err(Error::InvalidProof)
+        }
+    }
+
+    #[must_use]
+    pub const fn key_nullifier(&self) -> ZkHash {
+        self.key_nullifier
+    }
+}
+
+impl PartialEq<VerifiedProofOfQuota> for ProofOfQuota {
+    fn eq(&self, other: &VerifiedProofOfQuota) -> bool {
+        *self == other.0
+    }
+}
+
+/// A verified Proof of Quota.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VerifiedProofOfQuota(ProofOfQuota);
+
+impl VerifiedProofOfQuota {
     /// Generate a new Proof of Quota with the provided public and private
     /// inputs, along with the secret selection randomness for the Proof of
     /// Selection associated to this Proof of Quota.
@@ -71,12 +101,17 @@ impl ProofOfQuota {
             public_inputs.session,
         );
         Ok((
-            Self {
+            Self(ProofOfQuota {
                 key_nullifier: key_nullifier.into_inner(),
                 proof,
-            },
+            }),
             secret_selection_randomness,
         ))
+    }
+
+    #[must_use]
+    pub const fn into_inner(self) -> ProofOfQuota {
+        self.0
     }
 
     #[must_use]
@@ -88,30 +123,15 @@ impl ProofOfQuota {
             <Bn254 as CompressSize>::G2CompressedSize,
         >(proof_circuit_bytes.try_into().unwrap());
 
-        Self {
+        Self(ProofOfQuota {
             key_nullifier,
             proof: PoQProof::new(pi_a, pi_b, pi_c),
-        }
-    }
-
-    /// Verify a Proof of Quota with the provided inputs.
-    ///
-    /// The key nullifier required to verify the proof is taken from the proof
-    /// itself and is not contained in the passed inputs.
-    pub fn verify(self, public_inputs: &PublicInputs) -> Result<ZkHash, Error> {
-        let verifier_input =
-            VerifyInputs::from_prove_inputs_and_nullifier(*public_inputs, self.key_nullifier);
-        let is_proof_valid = matches!(verify(&self.proof, verifier_input.into()), Ok(true));
-        if is_proof_valid {
-            Ok(self.key_nullifier)
-        } else {
-            Err(Error::InvalidProof)
-        }
+        })
     }
 
     #[must_use]
     pub const fn key_nullifier(&self) -> ZkHash {
-        self.key_nullifier
+        self.0.key_nullifier
     }
 
     #[cfg(test)]
@@ -119,9 +139,47 @@ impl ProofOfQuota {
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
     }
+
+    /// Returns an unverified Proof of Quota from a verified one without
+    /// performing any checks.
+    ///
+    /// This is useful to use a locally-generated proof in contexts where an
+    /// unverified one is expected.
+    #[must_use]
+    pub const fn from_proof_of_quota_unchecked(proof: ProofOfQuota) -> Self {
+        Self(proof)
+    }
 }
 
-impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
+impl From<VerifiedProofOfQuota> for ProofOfQuota {
+    fn from(value: VerifiedProofOfQuota) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<ProofOfQuota> for VerifiedProofOfQuota {
+    fn as_ref(&self) -> &ProofOfQuota {
+        &self.0
+    }
+}
+
+impl PartialEq<ProofOfQuota> for VerifiedProofOfQuota {
+    fn eq(&self, other: &ProofOfQuota) -> bool {
+        self.0 == *other
+    }
+}
+
+impl From<&VerifiedProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
+    fn from(proof: &VerifiedProofOfQuota) -> Self {
+        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
+        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.0.key_nullifier));
+        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.0.proof.to_bytes());
+        bytes
+    }
+}
+
+// TODO: Remove this. VerifiedProofOfQuota should be created via ProofOfQuota::verify
+impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for VerifiedProofOfQuota {
     type Error = Box<dyn std::error::Error>;
 
     fn try_from(bytes: &[u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
@@ -132,19 +190,10 @@ impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
             <Bn254 as CompressSize>::G2CompressedSize,
         >(proof_circuit_bytes.try_into().map_err(Box::new)?);
 
-        Ok(Self {
+        Ok(Self(ProofOfQuota {
             key_nullifier,
             proof: PoQProof::new(pi_a, pi_b, pi_c),
-        })
-    }
-}
-
-impl From<&ProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
-    fn from(proof: &ProofOfQuota) -> Self {
-        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
-        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.key_nullifier));
-        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.proof.to_bytes());
-        bytes
+        }))
     }
 }
 

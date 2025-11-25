@@ -4,8 +4,8 @@ use nomos_blend_message::crypto::{
     keys::{Ed25519PrivateKey, Ed25519PublicKey},
     proofs::{
         Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey,
-        quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
-        selection::{ProofOfSelection, inputs::VerifyInputs},
+        quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
     random_sized_bytes,
 };
@@ -100,10 +100,10 @@ fn random_proof() -> BlendLayerProof {
             .into_iter()
             .chain(proof_random_bytes)
             .collect();
-        let Ok(proof_of_quota) = ProofOfQuota::from_bytes(&poq_bytes[..]) else {
+        let Ok(proof_of_quota) = VerifiedProofOfQuota::from_bytes(&poq_bytes[..]) else {
             continue;
         };
-        let Ok(proof_of_selection) = ProofOfSelection::from_bytes(
+        let Ok(proof_of_selection) = VerifiedProofOfSelection::from_bytes(
             &random_sized_bytes::<{ size_of::<ProofOfSelection>() }>()[..],
         ) else {
             continue;
@@ -143,12 +143,12 @@ impl ProofsVerifier for BlendProofsVerifier {
         &self,
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let key_nullifier = proof.key_nullifier();
         tracing::debug!(target: LOG_TARGET, "Verifying PoQ with key nullifier: {key_nullifier:?}");
         if proof.key_nullifier() == DUMMY_POQ_ZK_NULLIFIER {
             tracing::debug!(target: LOG_TARGET, "Mocked PoL PoQ proof received (automatically verified successfully).");
-            Ok(DUMMY_POQ_ZK_NULLIFIER)
+            Ok(VerifiedProofOfQuota::from_proof_of_quota_unchecked(proof))
         } else {
             tracing::debug!(target: LOG_TARGET, "Core PoQ proof received.");
             let verification_result = self.0.verify_proof_of_quota(proof, signing_key).inspect_err(|e| {
@@ -164,19 +164,22 @@ impl ProofsVerifier for BlendProofsVerifier {
         &self,
         proof: ProofOfSelection,
         inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let key_nullifier = inputs.key_nullifier;
         tracing::debug!(target: LOG_TARGET, "Verifying PoSel for key nullifier: {key_nullifier:?}");
         if inputs.key_nullifier == DUMMY_POQ_ZK_NULLIFIER {
             tracing::debug!(target: LOG_TARGET, "Mocked PoL PoSel proof received (automatically verified successfully).");
+            Ok(VerifiedProofOfSelection::from_proof_of_selection_unchecked(
+                proof,
+            ))
         } else {
             tracing::debug!(target: LOG_TARGET, "Core PoSel proof received.");
-            self.0.verify_proof_of_selection(proof, inputs).inspect_err(|e| {
+            let verified_proof_of_selection = self.0.verify_proof_of_selection(proof, inputs).inspect_err(|e| {
                 tracing::debug!(target: LOG_TARGET, "Core PoSel proof for key nullifier {key_nullifier:?} verification failed with error {e:?}");
             })?;
             tracing::debug!(target: LOG_TARGET, "Core PoSel proof for key nullifier {key_nullifier:?} verified successfully.");
+            Ok(verified_proof_of_selection)
         }
-        Ok(())
     }
 }
 
@@ -189,7 +192,7 @@ mod core_to_core_tests {
         proofs::{
             Error as VerifierError, PoQVerificationInputsMinusSigningKey,
             quota::{
-                self, ProofOfQuota,
+                self, VerifiedProofOfQuota,
                 inputs::prove::{
                     PrivateInputs, PublicInputs,
                     private::ProofOfCoreQuotaInputs,
@@ -274,9 +277,9 @@ mod core_to_core_tests {
             &self,
             public_inputs: &PublicInputs,
             key_index: u64,
-        ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+        ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
         {
-            ready(ProofOfQuota::new(
+            ready(VerifiedProofOfQuota::new(
                 public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(key_index, self.0.clone()),
             ))
@@ -317,17 +320,20 @@ mod core_to_core_tests {
         } = first_generator.get_next_core_proof().await.unwrap();
 
         // `PoQ` must be valid.
-        let key_nullifier = verifier
-            .verify_proof_of_quota(proof_of_quota, &ephemeral_signing_key.public_key())
+        let verified_proof_of_quota = verifier
+            .verify_proof_of_quota(
+                proof_of_quota.into_inner(),
+                &ephemeral_signing_key.public_key(),
+            )
             .unwrap();
 
         // With the test inputs, `PoSel` will be addressed to node `0`.
         assert!(matches!(
             verifier.verify_proof_of_selection(
-                proof_of_selection,
+                proof_of_selection.into_inner(),
                 &VerifyInputs {
                     expected_node_index: 1,
-                    key_nullifier,
+                    key_nullifier: verified_proof_of_quota.key_nullifier(),
                     total_membership_size: MEMBERSHIP_SIZE as u64,
                 }
             ),
@@ -341,15 +347,15 @@ mod core_to_core_tests {
         assert_eq!(
             verifier
                 .verify_proof_of_selection(
-                    proof_of_selection,
+                    proof_of_selection.into_inner(),
                     &VerifyInputs {
                         expected_node_index: 0,
-                        key_nullifier,
+                        key_nullifier: verified_proof_of_quota.key_nullifier(),
                         total_membership_size: MEMBERSHIP_SIZE as u64,
                     }
                 )
                 .unwrap(),
-            ()
+            proof_of_selection
         );
 
         // Node `1` generates a core proof.
@@ -360,17 +366,20 @@ mod core_to_core_tests {
         } = second_generator.get_next_core_proof().await.unwrap();
 
         // `PoQ` must be valid.
-        let key_nullifier = verifier
-            .verify_proof_of_quota(proof_of_quota, &ephemeral_signing_key.public_key())
+        let verified_proof_of_quota = verifier
+            .verify_proof_of_quota(
+                proof_of_quota.into_inner(),
+                &ephemeral_signing_key.public_key(),
+            )
             .unwrap();
 
         // With the test inputs, `PoSel` will be directed to node `1`.
         assert!(matches!(
             verifier.verify_proof_of_selection(
-                proof_of_selection,
+                proof_of_selection.into_inner(),
                 &VerifyInputs {
                     expected_node_index: 0,
-                    key_nullifier,
+                    key_nullifier: verified_proof_of_quota.key_nullifier(),
                     total_membership_size: MEMBERSHIP_SIZE as u64,
                 }
             ),
@@ -384,15 +393,15 @@ mod core_to_core_tests {
         assert_eq!(
             verifier
                 .verify_proof_of_selection(
-                    proof_of_selection,
+                    proof_of_selection.into_inner(),
                     &VerifyInputs {
                         expected_node_index: 1,
-                        key_nullifier,
+                        key_nullifier: verified_proof_of_quota.key_nullifier(),
                         total_membership_size: MEMBERSHIP_SIZE as u64,
                     }
                 )
                 .unwrap(),
-            ()
+            proof_of_selection
         );
     }
 
@@ -427,7 +436,10 @@ mod core_to_core_tests {
 
         // `PoQ` must be invalid.
         assert!(matches!(
-            verifier.verify_proof_of_quota(proof_of_quota, &ephemeral_signing_key.public_key()),
+            verifier.verify_proof_of_quota(
+                proof_of_quota.into_inner(),
+                &ephemeral_signing_key.public_key()
+            ),
             Err(VerifierError::ProofOfQuota(quota::Error::InvalidProof))
         ));
     }
@@ -459,13 +471,16 @@ mod core_to_core_tests {
 
         // `PoQ` must be valid.
         verifier
-            .verify_proof_of_quota(proof_of_quota, &ephemeral_signing_key.public_key())
+            .verify_proof_of_quota(
+                proof_of_quota.into_inner(),
+                &ephemeral_signing_key.public_key(),
+            )
             .unwrap();
         // `PoSel` must be invalid since we change membership size, which results in a
         // different index than expected.
         assert!(matches!(
             verifier.verify_proof_of_selection(
-                proof_of_selection,
+                proof_of_selection.into_inner(),
                 &VerifyInputs {
                     expected_node_index: 0,
                     total_membership_size: (MEMBERSHIP_SIZE + 1) as u64,
@@ -506,19 +521,22 @@ mod core_to_core_tests {
         } = generator.get_next_leader_proof().await.unwrap();
 
         // Using a random key still verifies the mock leader `PoQ` proof correctly.
-        let key_nullifier = verifier
-            .verify_proof_of_quota(proof_of_quota, &Ed25519PrivateKey::generate().public_key())
+        let verified_proof = verifier
+            .verify_proof_of_quota(
+                proof_of_quota.into_inner(),
+                &Ed25519PrivateKey::generate().public_key(),
+            )
             .unwrap();
-        assert_eq!(key_nullifier, ZkHash::ZERO);
+        assert_eq!(verified_proof.key_nullifier(), ZkHash::ZERO);
         // Using a random expected index, the mock leader `PoSel` proof still verifies
         // correctly.
         verifier
             .verify_proof_of_selection(
-                proof_of_selection,
+                proof_of_selection.into_inner(),
                 &VerifyInputs {
                     expected_node_index: u64::MAX,
                     total_membership_size: 0,
-                    key_nullifier,
+                    key_nullifier: verified_proof.key_nullifier(),
                 },
             )
             .unwrap();

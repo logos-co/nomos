@@ -6,18 +6,16 @@ use nomos_blend_message::{
         PoQVerificationInputsMinusSigningKey, quota::inputs::prove::public::LeaderInputs,
     },
     encap::{
-        ProofsVerifier as ProofsVerifierTrait,
+        ProofsVerifier as ProofsVerifierTrait, decapsulated::DecapsulationOutput,
         validated::RequiredProofOfSelectionVerificationInputs,
     },
 };
 
 use crate::{
-    DecapsulationOutput,
     membership::Membership,
     message_blend::{
         crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            SessionCryptographicProcessorSettings,
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
             core_and_leader::send::SessionCryptographicProcessor as SenderSessionCryptographicProcessor,
         },
         provers::core_and_leader::CoreAndLeaderProofsGenerator,
@@ -100,7 +98,7 @@ where
 {
     pub fn decapsulate_message(
         &self,
-        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        message: EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<DecapsulationOutput, Error> {
         let Some(local_node_index) = self.sender_processor.membership().local_index() else {
             return Err(Error::NotCoreNodeReceiver);

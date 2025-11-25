@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error,
+    Error, MessageIdentifier,
     crypto::{
         keys::Ed25519PublicKey,
-        proofs::quota::{self, ProofOfQuota},
+        proofs::quota::{self, ProofOfQuota, VerifiedProofOfQuota},
         signatures::Signature,
     },
     encap::ProofsVerifier,
@@ -82,5 +82,107 @@ impl PublicHeader {
     #[cfg(test)]
     pub const fn proof_of_quota_mut(&mut self) -> &mut ProofOfQuota {
         &mut self.proof_of_quota
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VerifiedPublicHeader {
+    version: u8,
+    signing_pubkey: Ed25519PublicKey,
+    proof_of_quota: VerifiedProofOfQuota,
+    signature: Signature,
+}
+
+impl From<VerifiedPublicHeader> for PublicHeader {
+    fn from(
+        VerifiedPublicHeader {
+            proof_of_quota,
+            signature,
+            signing_pubkey,
+            ..
+        }: VerifiedPublicHeader,
+    ) -> Self {
+        Self::new(signing_pubkey, &proof_of_quota.into(), signature)
+    }
+}
+
+impl VerifiedPublicHeader {
+    pub fn new(
+        proof_of_quota: VerifiedProofOfQuota,
+        signing_pubkey: Ed25519PublicKey,
+        signature: Signature,
+    ) -> Self {
+        let (version, signing_pubkey, _, signature) =
+            PublicHeader::new(signing_pubkey, proof_of_quota.as_ref(), signature).into_components();
+        Self {
+            version,
+            signing_pubkey,
+            proof_of_quota,
+            signature,
+        }
+    }
+
+    pub const fn from_header_unchecked(
+        PublicHeader {
+            proof_of_quota,
+            signature,
+            signing_pubkey,
+            version,
+        }: &PublicHeader,
+    ) -> Self {
+        Self {
+            version: *version,
+            signing_pubkey: *signing_pubkey,
+            proof_of_quota: VerifiedProofOfQuota::from_proof_of_quota_unchecked(*proof_of_quota),
+            signature: *signature,
+        }
+    }
+
+    #[must_use]
+    pub const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
+        &self.proof_of_quota
+    }
+
+    pub const fn id(&self) -> MessageIdentifier {
+        self.signing_pubkey
+    }
+
+    #[cfg(any(feature = "unsafe-test-functions", test))]
+    pub const fn signature_mut(&mut self) -> &mut Signature {
+        &mut self.signature
+    }
+
+    #[must_use]
+    pub const fn into_components(self) -> (u8, Ed25519PublicKey, VerifiedProofOfQuota, Signature) {
+        (
+            self.version,
+            self.signing_pubkey,
+            self.proof_of_quota,
+            self.signature,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+
+    use crate::{
+        crypto::proofs::quota::VerifiedProofOfQuota,
+        message::{PublicHeader, public_header::VerifiedPublicHeader},
+    };
+
+    #[test]
+    fn serde_verified_and_unverified() {
+        let verified_header = VerifiedPublicHeader {
+            version: 1,
+            signing_pubkey: [200; 32].try_into().unwrap(),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([201; _]),
+            signature: [202; 64].into(),
+        };
+        let serialized_header = verified_header.to_bytes().unwrap();
+
+        let deserialized_as_unverified = PublicHeader::from_bytes(&serialized_header).unwrap();
+        assert_eq!(deserialized_as_unverified, verified_header.into());
     }
 }

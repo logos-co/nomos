@@ -3,6 +3,7 @@ use std::collections::HashSet;
 
 use futures::StreamExt as _;
 use libp2p_swarm_test::SwarmExt as _;
+use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::{select, time::sleep};
@@ -42,7 +43,7 @@ async fn message_sending_and_reception() {
     let test_message_id = test_message.id();
     dialing_swarm
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone())
+        .publish_validated_message(&test_message)
         .unwrap();
 
     loop {
@@ -51,7 +52,7 @@ async fn message_sending_and_reception() {
             listening_event = listening_swarm.select_next_some() => {
                 if let SwarmEvent::Behaviour(Event::Message(encapsulated_message, (peer_id, _))) = listening_event {
                     assert_eq!(peer_id, *dialing_swarm.local_peer_id());
-                    assert_eq!(*encapsulated_message, test_message.clone().verify_public_header(&AlwaysTrueVerifier).unwrap());
+                    assert_eq!(*encapsulated_message, EncapsulatedMessage::from(test_message.clone()).verify_public_header(&AlwaysTrueVerifier).unwrap());
                     break;
                 }
             }
@@ -77,7 +78,7 @@ async fn invalid_public_header_message_publish() {
     assert_eq!(
         dialing_swarm
             .behaviour_mut()
-            .validate_and_publish_message(invalid_signature_message.into_inner()),
+            .validate_and_publish_message(invalid_signature_message.into_inner().into()),
         Err(Error::InvalidMessage)
     );
 }
@@ -154,7 +155,7 @@ async fn duplicate_message_received() {
     let test_message = TestEncapsulatedMessage::new(b"msg");
     dialing_swarm
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone())
+        .publish_validated_message(&test_message)
         .unwrap();
 
     // Wait enough time to not considered spammy by the listener.

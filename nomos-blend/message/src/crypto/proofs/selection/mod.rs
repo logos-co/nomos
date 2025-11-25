@@ -19,15 +19,6 @@ mod tests;
 
 const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
-/// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
-// TODO: To avoid proofs being misused, remove the `Clone` and `Copy` derives,
-// so once a proof is verified it cannot be (mis)used anymore.
-#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct ProofOfSelection {
-    #[serde(with = "groth16::serde::serde_fr")]
-    selection_randomness: ZkHash,
-}
-
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Index mismatch. Expected {expected}, provided {provided}.")]
@@ -42,21 +33,14 @@ pub enum Error {
     Verification,
 }
 
+/// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ProofOfSelection {
+    #[serde(with = "groth16::serde::serde_fr")]
+    selection_randomness: ZkHash,
+}
+
 impl ProofOfSelection {
-    #[must_use]
-    pub const fn new(selection_randomness: ZkHash) -> Self {
-        Self {
-            selection_randomness,
-        }
-    }
-
-    #[must_use]
-    pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
-        Self {
-            selection_randomness: fr_from_bytes_unchecked(&bytes),
-        }
-    }
-
     /// Returns the index the Proof of Selection refers to, for the provided
     /// membership size.
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
@@ -84,7 +68,7 @@ impl ProofOfSelection {
             key_nullifier,
             total_membership_size,
         }: &VerifyInputs,
-    ) -> Result<(), Error> {
+    ) -> Result<VerifiedProofOfSelection, Error> {
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
@@ -103,13 +87,73 @@ impl ProofOfSelection {
             });
         }
 
-        Ok(())
+        Ok(VerifiedProofOfSelection(self))
+    }
+}
+
+impl PartialEq<VerifiedProofOfSelection> for ProofOfSelection {
+    fn eq(&self, other: &VerifiedProofOfSelection) -> bool {
+        *self == other.0
+    }
+}
+
+/// A verified Proof of Selection.
+#[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct VerifiedProofOfSelection(ProofOfSelection);
+
+impl VerifiedProofOfSelection {
+    #[must_use]
+    pub const fn new(selection_randomness: ZkHash) -> Self {
+        Self(ProofOfSelection {
+            selection_randomness,
+        })
+    }
+
+    /// Returns the index the Proof of Selection refers to, for the provided
+    /// membership size.
+    pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
+        self.0.expected_index(membership_size)
+    }
+
+    #[must_use]
+    pub fn from_bytes_unchecked(bytes: [u8; PROOF_OF_SELECTION_SIZE]) -> Self {
+        Self(ProofOfSelection {
+            selection_randomness: fr_from_bytes_unchecked(&bytes),
+        })
+    }
+
+    #[must_use]
+    pub const fn into_inner(self) -> ProofOfSelection {
+        self.0
     }
 
     #[cfg(test)]
     #[must_use]
     pub fn dummy() -> Self {
         Self::from_bytes_unchecked([0u8; _])
+    }
+
+    #[must_use]
+    pub const fn from_proof_of_selection_unchecked(proof: ProofOfSelection) -> Self {
+        Self(proof)
+    }
+}
+
+impl From<VerifiedProofOfSelection> for ProofOfSelection {
+    fn from(value: VerifiedProofOfSelection) -> Self {
+        value.0
+    }
+}
+
+impl AsRef<ProofOfSelection> for VerifiedProofOfSelection {
+    fn as_ref(&self) -> &ProofOfSelection {
+        &self.0
+    }
+}
+
+impl PartialEq<ProofOfSelection> for VerifiedProofOfSelection {
+    fn eq(&self, other: &ProofOfSelection) -> bool {
+        self.0 == *other
     }
 }
 
@@ -131,18 +175,19 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
     .compress()
 }
 
-impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(value: &[u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
-        Ok(Self {
-            selection_randomness: fr_from_bytes(value).map_err(Box::new)?,
-        })
+impl From<&VerifiedProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
+    fn from(proof: &VerifiedProofOfSelection) -> Self {
+        fr_to_bytes(&proof.0.selection_randomness)
     }
 }
 
-impl From<&ProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
-    fn from(proof: &ProofOfSelection) -> Self {
-        fr_to_bytes(&proof.selection_randomness)
+// TODO: Remove this. VerifiedProofOfSelection should only be created via the ProofOfSelection::verify
+impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for VerifiedProofOfSelection {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: &[u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self(ProofOfSelection {
+            selection_randomness: fr_from_bytes(value).map_err(Box::new)?,
+        }))
     }
 }

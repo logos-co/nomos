@@ -2,7 +2,7 @@ use core::hash::Hash;
 use std::num::NonZeroU64;
 
 use nomos_blend_message::{
-    Error, PayloadType,
+    Error, PaddedPayloadBody, PayloadType,
     crypto::proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
@@ -11,10 +11,11 @@ use nomos_blend_message::{
 };
 
 use crate::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
+        crypto::{
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
+        },
         provers::{ProofsGeneratorSettings, leader::LeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -74,7 +75,9 @@ where
     pub async fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
+        // We validate the payload early on so we don't generate proofs unnecessarily.
+        let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         for _ in 0..self.num_blend_layers.into() {
@@ -103,22 +106,23 @@ where
                 )
             });
 
-        let inputs = EncapsulationInputs::new(
-            proofs_and_signing_keys
-                .into_iter()
-                .map(|(proof, receiver_non_ephemeral_signing_key)| {
-                    EncapsulationInput::new(
-                        proof.ephemeral_signing_key,
-                        &receiver_non_ephemeral_signing_key,
-                        proof.proof_of_quota,
-                        proof.proof_of_selection,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )?;
+        let inputs = proofs_and_signing_keys
+            .into_iter()
+            .map(|(proof, receiver_non_ephemeral_signing_key)| {
+                EncapsulationInput::new(
+                    proof.ephemeral_signing_key,
+                    &receiver_non_ephemeral_signing_key,
+                    proof.proof_of_quota,
+                    proof.proof_of_selection,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        EncapsulatedMessage::new(&inputs, PayloadType::Data, payload)
+        Ok(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &inputs,
+            PayloadType::Data,
+            validated_payload,
+        ))
     }
 
     pub async fn encapsulate_and_serialize_data_payload(

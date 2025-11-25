@@ -6,13 +6,12 @@
 use std::error::Error;
 
 use cryptarchia_sync::ChainSyncError;
-use libp2p::{PeerId, autonat, identify, identity, kad, swarm::NetworkBehaviour};
+use libp2p::{PeerId, StreamProtocol, autonat, identify, identity, kad, swarm::NetworkBehaviour};
 use rand::RngCore;
 use thiserror::Error;
 
 use crate::{
     IdentifySettings, KademliaSettings, NatSettings, behaviour::gossipsub::compute_message_id,
-    protocol_name::ProtocolName,
 };
 
 pub mod chainsync;
@@ -27,7 +26,8 @@ pub(crate) struct BehaviourConfig {
     pub kademlia_config: KademliaSettings,
     pub identify_config: IdentifySettings,
     pub nat_config: NatSettings,
-    pub protocol_name: ProtocolName,
+    pub kad_protocol_name: StreamProtocol,
+    pub identify_protocol_name: StreamProtocol,
     pub public_key: identity::PublicKey,
     pub chain_sync_config: cryptarchia_sync::Config,
 }
@@ -60,7 +60,8 @@ impl<Rng: Clone + Send + RngCore + 'static> Behaviour<Rng> {
             identify_config,
             chain_sync_config,
             nat_config,
-            protocol_name,
+            kad_protocol_name,
+            identify_protocol_name,
             public_key,
         } = config;
 
@@ -75,13 +76,14 @@ impl<Rng: Clone + Send + RngCore + 'static> Behaviour<Rng> {
                 .build()?,
         )?;
 
-        let identify =
-            identify::Behaviour::new(identify_config.to_libp2p_config(public_key, protocol_name));
+        let identify = identify::Behaviour::new(
+            identify_config.to_libp2p_config(public_key, &identify_protocol_name),
+        );
 
         let kademlia = kad::Behaviour::with_config(
             peer_id,
             kad::store::MemoryStore::new(peer_id),
-            kademlia_config.to_libp2p_config(protocol_name),
+            kademlia_config.to_libp2p_config(kad_protocol_name),
         );
 
         let autonat_server = autonat::v2::server::Behaviour::new(rng.clone());

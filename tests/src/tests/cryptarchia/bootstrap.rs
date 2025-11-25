@@ -43,7 +43,7 @@ async fn test_ibd_behind_nodes() {
     let initial_peer_ids: HashSet<PeerId> = general_configs
         .iter()
         .take(n_initial_validators)
-        .map(|config| secret_key_to_peer_id(config.network_config.swarm_config.node_key.clone()))
+        .map(|config| secret_key_to_peer_id(config.network_config.backend.inner.node_key.clone()))
         .collect();
 
     let minimum_height = 10;
@@ -61,13 +61,13 @@ async fn test_ibd_behind_nodes() {
     println!("Starting a behind node with IBD peers...");
 
     let mut config = create_validator_config(general_configs[n_initial_validators].clone());
-    config.cryptarchia.bootstrap.ibd.peers = initial_peer_ids.clone();
+    config.chain_network.bootstrap.ibd.peers = initial_peer_ids.clone();
     // Shorten the delay to quickly catching up with peers that grow during IBD.
     // e.g. We start a download only for peer1 because two peers have the same tip
     //      at the moment. But, the peer2 may grow faster than peer1 before IBD is
     // done.      So, we want to check peer1's progress frequently with a very
     // short delay.
-    config.cryptarchia.bootstrap.ibd.delay_before_new_download = Duration::from_millis(10);
+    config.chain_network.bootstrap.ibd.delay_before_new_download = Duration::from_millis(10);
     // Disable the prolonged bootstrap period for the behind node
     // because we want to check the height of the behind node
     // as soon as it finishes IBD.

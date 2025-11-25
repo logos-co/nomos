@@ -62,6 +62,7 @@ pub use tx_service::{
 pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
+    config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
         SdpServiceAdapterGeneric,
@@ -142,8 +143,10 @@ pub(crate) type KeyManagementService = generic_services::KeyManagementService<Ru
 pub(crate) type WalletService =
     generic_services::WalletService<CryptarchiaService, RuntimeServiceId>;
 
-pub(crate) type CryptarchiaService =
-    generic_services::CryptarchiaService<DaNetworkAdapter, RuntimeServiceId>;
+pub(crate) type CryptarchiaService = generic_services::CryptarchiaService<RuntimeServiceId>;
+
+pub(crate) type ChainNetworkService =
+    generic_services::ChainNetworkService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type CryptarchiaLeaderService = generic_services::CryptarchiaLeaderService<
     CryptarchiaService,
@@ -217,6 +220,7 @@ pub struct Nomos {
     da_network: DaNetworkService,
     mempool: MempoolService,
     cryptarchia: CryptarchiaService,
+    chain_network: ChainNetworkService,
     cryptarchia_leader: CryptarchiaLeaderService,
     block_broadcast: BlockBroadcastService,
     sdp: SdpService<RuntimeServiceId>,
@@ -231,11 +235,19 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
-    let (blend_config, blend_core_config, blend_edge_config) = config.blend.into();
+    let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
+        user: config.blend,
+        deployment: config.deployment.clone().into(),
+    }
+    .into();
 
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
-            network: config.network,
+            network: NetworkConfig {
+                user: config.network,
+                deployment: config.deployment.into(),
+            }
+            .into(),
             blend: blend_config,
             blend_core: blend_core_config,
             blend_edge: blend_edge_config,
@@ -255,6 +267,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: config.cryptarchia,
+            chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
             storage: config.storage,

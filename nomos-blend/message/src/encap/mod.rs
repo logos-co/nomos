@@ -1,11 +1,9 @@
-use nomos_core::crypto::ZkHash;
-
 use crate::crypto::{
     keys::Ed25519PublicKey,
     proofs::{
         PoQVerificationInputsMinusSigningKey,
-        quota::{ProofOfQuota, inputs::prove::public::LeaderInputs},
-        selection::{ProofOfSelection, inputs::VerifyInputs},
+        quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
 };
 
@@ -36,12 +34,12 @@ pub trait ProofsVerifier {
         &self,
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error>;
+    ) -> Result<VerifiedProofOfQuota, Self::Error>;
 
     /// Proof of Selection verification logic.
     fn verify_proof_of_selection(
         &self,
         proof: ProofOfSelection,
         inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error>;
+    ) -> Result<VerifiedProofOfSelection, Self::Error>;
 }

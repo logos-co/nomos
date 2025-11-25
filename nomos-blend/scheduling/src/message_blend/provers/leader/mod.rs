@@ -7,13 +7,13 @@ use nomos_blend_message::crypto::{
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::{
-            ProofOfQuota,
+            VerifiedProofOfQuota,
             inputs::prove::{
                 PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
                 public::LeaderInputs,
             },
         },
-        selection::ProofOfSelection,
+        selection::VerifiedProofOfSelection,
     },
 };
 use tokio::task::spawn_blocking;
@@ -113,7 +113,7 @@ fn create_leadership_proof_stream(
 
             spawn_blocking(move || {
                 let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
+                let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
                     &PublicInputs {
                         signing_key: ephemeral_signing_key.public_key(),
                         core: public_inputs.core,
@@ -126,7 +126,7 @@ fn create_leadership_proof_stream(
                     ),
                 )
                 .ok()?;
-                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                let proof_of_selection = VerifiedProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,

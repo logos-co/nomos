@@ -14,6 +14,7 @@ use tracing::debug;
 use crate::{LOG_TARGET, SamplingRelay, relays::TimeRelay};
 
 /// An instance for validating blobs in blocks.
+#[derive(Clone)]
 pub struct Validation<S: Strategy> {
     consensus_base_period_length: NonZero<u64>,
     sampling_relay: SamplingRelay<da::BlobId>,
@@ -128,20 +129,46 @@ impl Strategy for RecentBlobStrategy {
 /// Validation strategy for blobs in blocks retrieved manually (e.g. chain
 /// bootstrapping or orphan handling), under the assumption that the DA sampling
 /// service has not yet sampled and validated the blobs.
+#[derive(Clone)]
 pub struct HistoricBlobStrategy;
 
 #[async_trait::async_trait]
 impl Strategy for HistoricBlobStrategy {
     async fn validate<Tx>(
-        _block: &Block<Tx>,
-        _sampling_relay: &SamplingRelay<da::BlobId>,
+        block: &Block<Tx>,
+        sampling_relay: &SamplingRelay<da::BlobId>,
     ) -> Result<(), Error>
     where
         Tx: AuthenticatedMantleTx + Sync,
     {
         debug!(target = LOG_TARGET, "Validating historic blobs");
-        // TODO: trigger historic sampling and wait for completion: https://github.com/logos-co/nomos/issues/1838
-        Ok(())
+
+        let (sender, receiver) = oneshot::channel();
+        sampling_relay
+            .send(DaSamplingServiceMsg::RequestHistoricSampling {
+                block_id: block.header().id(),
+                blob_ids: block
+                    .transactions()
+                    .flat_map(|tx| tx.mantle_tx().ops.iter())
+                    .filter_map(|op| {
+                        if let Op::ChannelBlob(op) = op {
+                            Some((op.blob, op.session))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
+                reply_channel: sender,
+            })
+            .await
+            .map_err(|(e, _)| e)?;
+
+        let sampling_succeeded = receiver.await?;
+        if sampling_succeeded {
+            Ok(())
+        } else {
+            Err(Error::InvalidBlobs)
+        }
     }
 }
 

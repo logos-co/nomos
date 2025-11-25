@@ -153,5 +153,5 @@ async fn edge_redial_different_peer_after_redial_limit() {
     // Verify the message is anyway received by the core swarm after the maximum
     // number of dial attempts have been performed with the unreachable address.
     let received_message = core_swarm_incoming_message_receiver.recv().await.unwrap();
-    assert_eq!(received_message.into_inner(), message.into_inner());
+    assert_eq!(received_message, message.into_inner());
 }

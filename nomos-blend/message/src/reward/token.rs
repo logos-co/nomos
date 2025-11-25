@@ -6,20 +6,23 @@ use nomos_core::codec::SerializeOp as _;
 use serde::Serialize;
 
 use crate::{
-    crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    crypto::proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     reward::session::SessionRandomness,
 };
 
 /// A blending token consisting of a proof of quota and a proof of selection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BlendingToken {
-    proof_of_quota: ProofOfQuota,
-    proof_of_selection: ProofOfSelection,
+    proof_of_quota: VerifiedProofOfQuota,
+    proof_of_selection: VerifiedProofOfSelection,
 }
 
 impl BlendingToken {
     #[must_use]
-    pub const fn new(proof_of_quota: ProofOfQuota, proof_of_selection: ProofOfSelection) -> Self {
+    pub const fn new(
+        proof_of_quota: VerifiedProofOfQuota,
+        proof_of_selection: VerifiedProofOfSelection,
+    ) -> Self {
         Self {
             proof_of_quota,
             proof_of_selection,
@@ -43,11 +46,11 @@ impl BlendingToken {
         hamming_distance(&token_hash, &session_randomness_hash)
     }
 
-    pub(crate) const fn proof_of_quota(&self) -> &ProofOfQuota {
+    pub(crate) const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
         &self.proof_of_quota
     }
 
-    pub(crate) const fn proof_of_selection(&self) -> &ProofOfSelection {
+    pub(crate) const fn proof_of_selection(&self) -> &VerifiedProofOfSelection {
         &self.proof_of_selection
     }
 }
@@ -128,10 +131,10 @@ mod tests {
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
         BlendingToken {
-            proof_of_quota: ProofOfQuota::from_bytes_unchecked(
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(
                 [proof_of_quota; PROOF_OF_QUOTA_SIZE],
             ),
-            proof_of_selection: ProofOfSelection::from_bytes_unchecked(
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(
                 [proof_of_selection; PROOF_OF_SELECTION_SIZE],
             ),
         }

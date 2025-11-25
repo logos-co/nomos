@@ -1,7 +1,7 @@
 mod serde {
     use std::collections::HashSet;
 
-    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
+    use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -20,7 +20,7 @@ mod serde {
             deserialize = "BroadcastSettings: Deserialize<'de> + Eq + core::hash::Hash"
         ))]
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
-        unsent_data_messages: HashSet<EncapsulatedMessage>,
+        unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
     }
 
     impl<BroadcastSettings> SerializableServiceState<BroadcastSettings> {
@@ -72,7 +72,7 @@ mod service {
     };
     use std::collections::HashSet;
 
-    use nomos_blend_scheduling::message_blend::crypto::EncapsulatedMessage;
+    use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
 
     use crate::{
         core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
@@ -88,7 +88,7 @@ mod service {
         /// tracked.
         spent_core_quota: u64,
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
-        unsent_data_messages: HashSet<EncapsulatedMessage>,
+        unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
         state_updater: overwatch::services::state::StateUpdater<
             Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
         >,
@@ -113,7 +113,7 @@ mod service {
             last_seen_session: u64,
             spent_core_quota: u64,
             unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
-            unsent_data_messages: HashSet<EncapsulatedMessage>,
+            unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -173,7 +173,7 @@ mod service {
             u64,
             u64,
             HashSet<ProcessedMessage<BroadcastSettings>>,
-            HashSet<EncapsulatedMessage>,
+            HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
             overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -231,7 +231,7 @@ mod service {
 
         pub(super) fn add_unsent_data_message(
             &mut self,
-            message: EncapsulatedMessage,
+            message: EncapsulatedMessageWithVerifiedPublicHeader,
         ) -> Result<(), ()> {
             if self.unsent_data_messages.insert(message) {
                 Ok(())
@@ -242,7 +242,7 @@ mod service {
 
         pub(super) fn remove_sent_data_message(
             &mut self,
-            message: &EncapsulatedMessage,
+            message: &EncapsulatedMessageWithVerifiedPublicHeader,
         ) -> Result<(), ()> {
             if self.unsent_data_messages.remove(message) {
                 Ok(())
@@ -251,7 +251,9 @@ mod service {
             }
         }
 
-        pub const fn unsent_data_messages(&self) -> &HashSet<EncapsulatedMessage> {
+        pub const fn unsent_data_messages(
+            &self,
+        ) -> &HashSet<EncapsulatedMessageWithVerifiedPublicHeader> {
             &self.unsent_data_messages
         }
     }
@@ -261,7 +263,7 @@ pub use self::state_updater::StateUpdater;
 mod state_updater {
     use core::hash::Hash;
 
-    use nomos_blend_scheduling::EncapsulatedMessage;
+    use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 
@@ -356,24 +358,29 @@ mod state_updater {
             self.inner.remove_sent_processed_message(message)
         }
 
-        /// Mark a new [`EncapsulatedMessage`] as unsent, meaning that it has
-        /// been scheduled for release but not yet released.
+        /// Mark a new [`EncapsulatedMessageWithVerifiedPublicHeader`] as
+        /// unsent, meaning that it has been scheduled for release but
+        /// not yet released.
         ///
         /// It returns `Ok` if the message was not already present, `Err`
         /// otherwise.
-        pub fn add_unsent_data_message(&mut self, message: EncapsulatedMessage) -> Result<(), ()> {
+        pub fn add_unsent_data_message(
+            &mut self,
+            message: EncapsulatedMessageWithVerifiedPublicHeader,
+        ) -> Result<(), ()> {
             self.changed = true;
             self.inner.add_unsent_data_message(message)
         }
 
-        /// Mark a new [`EncapsulatedMessage`] as sent, meaning that it has been
-        /// released by the Blend release module.
+        /// Mark a new [`EncapsulatedMessageWithVerifiedPublicHeader`] as sent,
+        /// meaning that it has been released by the Blend release
+        /// module.
         ///
         /// It returns `Ok` if the message was correctly removed (i.e. it was
         /// found), `Err` otherwise.
         pub fn remove_sent_data_message(
             &mut self,
-            message: &EncapsulatedMessage,
+            message: &EncapsulatedMessageWithVerifiedPublicHeader,
         ) -> Result<(), ()> {
             self.changed = true;
             self.inner.remove_sent_data_message(message)
