@@ -149,6 +149,7 @@ overwatch         = { default-features = false, git = "https://github.com/logos-
 overwatch-derive  = { default-features = false, git = "https://github.com/logos-co/Overwatch", rev = "f5a9902" }
 rand              = { default-features = false, version = "0.8" }
 reqwest           = { default-features = false, version = "0.12" }
+serde             = { default-features = false, version = "1.0" }
 serde_json        = { default-features = false, version = "1.0" }
 serde_with        = { default-features = false, version = "3.14.0" }
 serde_yaml        = { default-features = false, version = "0.9.33" }
