@@ -220,15 +220,13 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_blend_message::crypto::{
-        key_ext::Ed25519PublicKey,
-        proofs::quota::{
-            VerifiedProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs,
-                private::ProofOfCoreQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
-            },
+    use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
+    use nomos_blend_proofs::quota::{
+        VerifiedProofOfQuota,
+        inputs::prove::{
+            PrivateInputs, PublicInputs,
+            private::ProofOfCoreQuotaInputs,
+            public::{CoreInputs, LeaderInputs},
         },
     };
     use nomos_core::crypto::ZkHash;
@@ -405,7 +403,7 @@ mod tests {
                 total_stake: 1,
             };
             let session = 1;
-            let signing_key: Ed25519PublicKey = [10; 32].try_into().unwrap();
+            let signing_key = Ed25519PublicKey::from_bytes(&[10; ED25519_PUBLIC_KEY_SIZE]).unwrap();
             PublicInputs {
                 core: core_inputs,
                 leader: leader_inputs,

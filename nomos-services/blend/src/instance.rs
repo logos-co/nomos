@@ -302,8 +302,9 @@ impl Mode {
 mod tests {
     use std::time::Duration;
 
+    use key_management_system_service::keys::Ed25519Key;
     use libp2p::Multiaddr;
-    use nomos_blend_message::crypto::key_ext::{Ed25519PrivateKey, Ed25519PublicKey};
+    use nomos_blend_crypto::keys::Ed25519PublicKey;
     use nomos_blend_scheduling::membership::Node;
     use nomos_network::config::NetworkConfig;
     use overwatch::{
@@ -701,9 +702,9 @@ mod tests {
         Membership::new(&nodes, &local_public_key)
     }
 
-    fn key(id: u8) -> (Ed25519PrivateKey, Ed25519PublicKey) {
-        let private_key = Ed25519PrivateKey::from([id; 32]);
-        let public_key = private_key.public_key();
+    fn key(id: u8) -> (Ed25519Key, Ed25519PublicKey) {
+        let private_key = Ed25519Key::try_from(&[id; 32]).unwrap();
+        let public_key = private_key.as_public_key();
         (private_key, public_key)
     }
 }

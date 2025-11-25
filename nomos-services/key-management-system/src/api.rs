@@ -1,14 +1,13 @@
 use std::fmt::{Debug, Display};
 
+use key_management_system_keys::keys::secured_key::SecuredKey;
 use overwatch::{
     DynError,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
 };
 use tokio::sync::oneshot;
 
-use crate::{
-    KMSMessage, KMSService, KMSSigningStrategy, backend::KMSBackend, keys::secured_key::SecuredKey,
-};
+use crate::{KMSMessage, KMSService, KMSSigningStrategy, backend::KMSBackend};
 
 type KeyDescriptor<Backend> = (
     <Backend as KMSBackend>::KeyId,

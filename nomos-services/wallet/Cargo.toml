@@ -21,6 +21,7 @@ tracing     = { workspace = true }
 
 chain-service                 = { workspace = true }
 groth16                       = { workspace = true }
+key-management-system-keys    = { workspace = true }
 key-management-system-service = { workspace = true }
 nomos-core                    = { workspace = true }
 nomos-ledger                  = { workspace = true }

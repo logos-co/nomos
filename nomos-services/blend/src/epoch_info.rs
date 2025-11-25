@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use futures::Stream;
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
+use nomos_blend_proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use nomos_time::SlotTick;

@@ -20,11 +20,14 @@ cryptarchia-engine            = { workspace = true }
 fork_stream                   = { workspace = true }
 futures                       = { default-features = false, version = "0.3" }
 groth16                       = { default-features = false, workspace = true }
+key-management-system-keys    = { workspace = true }
 key-management-system-service = { workspace = true }
 libp2p                        = { optional = true, workspace = true }
 libp2p-stream                 = { optional = true, workspace = true }
+nomos-blend-crypto            = { workspace = true }
 nomos-blend-message           = { workspace = true }
 nomos-blend-network           = { workspace = true }
+nomos-blend-proofs            = { workspace = true }
 nomos-blend-scheduling        = { workspace = true }
 nomos-core                    = { workspace = true }
 nomos-ledger                  = { workspace = true }

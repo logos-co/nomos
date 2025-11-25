@@ -1,4 +1,4 @@
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::CoreInputs;
+use nomos_blend_proofs::quota::inputs::prove::public::CoreInputs;
 use nomos_blend_scheduling::membership::Membership;
 
 #[derive(Clone)]
