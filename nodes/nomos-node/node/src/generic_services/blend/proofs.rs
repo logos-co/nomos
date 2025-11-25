@@ -23,7 +23,7 @@ use nomos_blend_scheduling::message_blend::{
 };
 use nomos_blend_service::{ProofsVerifier, RealProofsVerifier};
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use poq::PoQProof;
 
 const LOG_TARGET: &str = "node::blend::proofs";
@@ -215,7 +215,7 @@ mod core_to_core_tests {
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
     use nomos_core::crypto::ZkHash;
-    use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+    use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
     use zksign::SecretKey;
 
     use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};

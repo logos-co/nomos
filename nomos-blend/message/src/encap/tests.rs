@@ -10,7 +10,7 @@ use nomos_blend_proofs::{
     selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 
 use crate::{
     Error, PayloadType,

@@ -17,7 +17,7 @@ use nomos_blend_scheduling::message_blend::provers::{
     BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
 };
 use nomos_utils::blake_rng::BlakeRng;
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 
 pub struct MockCoreAndLeaderProofsGenerator;
 

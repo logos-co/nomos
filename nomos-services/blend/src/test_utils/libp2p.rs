@@ -17,7 +17,7 @@ use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOf
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 use nomos_utils::blake_rng::BlakeRng;
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
 

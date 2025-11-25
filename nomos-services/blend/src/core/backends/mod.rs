@@ -60,7 +60,6 @@ where
 impl<NodeId> From<Membership<NodeId>> for PublicInfo<NodeId> {
     fn from(value: Membership<NodeId>) -> Self {
         use groth16::Field as _;
-        use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
         use nomos_core::crypto::ZkHash;
 
         Self {

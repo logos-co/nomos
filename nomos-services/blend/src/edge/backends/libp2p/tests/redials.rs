@@ -5,7 +5,7 @@ use libp2p::{Multiaddr, PeerId};
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 use test_log::test;
 use tokio::spawn;
 

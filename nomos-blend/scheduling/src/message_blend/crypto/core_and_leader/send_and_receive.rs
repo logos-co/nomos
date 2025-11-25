@@ -145,7 +145,7 @@ mod test {
     use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
     use nomos_core::crypto::ZkHash;
     use nomos_utils::blake_rng::BlakeRng;
-    use rand::SeedableRng;
+    use rand::SeedableRng as _;
 
     use super::SessionCryptographicProcessor;
     use crate::{

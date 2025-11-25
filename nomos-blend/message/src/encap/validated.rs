@@ -1,10 +1,10 @@
 use key_management_system_keys::keys::Ed25519Key;
 use nomos_blend_crypto::{
-    keys::{Ed25519PublicKeyExt, X25519PrivateKey},
+    keys::{Ed25519PublicKeyExt as _, X25519PrivateKey},
     random_sized_bytes,
 };
 use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::inputs::VerifyInputs};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{

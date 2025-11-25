@@ -26,7 +26,7 @@ use nomos_blend_proofs::{
 use nomos_blend_scheduling::message_blend::provers::BlendLayerProof;
 use nomos_core::sdp::SessionNumber;
 use nomos_libp2p::{NetworkBehaviour, ed25519, upgrade::Version};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
 

@@ -41,7 +41,7 @@ use overwatch::{
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
 use poq::CorePathAndSelectors;
-use rand::SeedableRng;
+use rand::SeedableRng as _;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     broadcast::{self},

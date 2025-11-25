@@ -19,7 +19,7 @@ use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs}
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 

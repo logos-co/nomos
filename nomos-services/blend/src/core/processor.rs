@@ -236,7 +236,7 @@ mod tests {
     use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
     use nomos_utils::blake_rng::BlakeRng;
-    use rand::SeedableRng;
+    use rand::SeedableRng as _;
 
     use crate::{
         core::processor::{CoreCryptographicProcessor, DecapsulatedMessageType, Error},
