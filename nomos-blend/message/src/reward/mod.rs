@@ -118,7 +118,10 @@ mod tests {
     };
 
     use super::*;
-    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
+    use crate::crypto::{
+        keys::{Ed25519PrivateKey, KEY_SIZE},
+        proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    };
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {
@@ -134,7 +137,8 @@ mod tests {
         let mut i = 0;
         for _ in 0..(total_core_quota.checked_sub(1).unwrap()) {
             let proof: u8 = i.try_into().unwrap();
-            let token = blending_token(proof, proof);
+            let signing_key: u8 = i.try_into().unwrap();
+            let token = blending_token(proof, signing_key, proof);
             tokens.collect(token.clone());
             assert!(tokens.tokens().contains(&token));
             i += 1;
@@ -149,7 +153,8 @@ mod tests {
         // Now,`total_core_quota` tokens have been collected.
         // So, we can expect that always one of them can be picked as an activity proof.
         let proof: u8 = i.try_into().unwrap();
-        let token = blending_token(proof, proof);
+        let signing_key: u8 = i.try_into().unwrap();
+        let token = blending_token(proof, signing_key, proof);
         tokens.collect(token.clone());
         assert!(tokens.tokens().contains(&token));
 
@@ -159,10 +164,19 @@ mod tests {
         assert!(candidates.contains(proof.token()));
     }
 
-    fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
-        BlendingToken::new(
-            ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
-            ProofOfSelection::from_bytes_unchecked([proof_of_selection; PROOF_OF_SELECTION_SIZE]),
-        )
+    fn blending_token(
+        proof_of_quota: u8,
+        signing_key: u8,
+        proof_of_selection: u8,
+    ) -> BlendingToken {
+        BlendingToken {
+            proof_of_quota: ProofOfQuota::from_bytes_unchecked(
+                [proof_of_quota; PROOF_OF_QUOTA_SIZE],
+            ),
+            signing_key: Ed25519PrivateKey::from([signing_key; KEY_SIZE]).public_key(),
+            proof_of_selection: ProofOfSelection::from_bytes_unchecked(
+                [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+            ),
+        }
     }
 }

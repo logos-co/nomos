@@ -35,7 +35,6 @@ nomos-utils            = { features = ["serde"], workspace = true }
 overwatch              = { workspace = true }
 poq                    = { workspace = true }
 rand                   = { workspace = true }
-rs-merkle-tree         = { default-features = false, version = "0.1.0", features = ["memory_store"] }
 serde                  = { default-features = false, version = "1.0" }
 serde_with             = { workspace = true }
 services-utils         = { workspace = true }

@@ -6,22 +6,35 @@ use nomos_core::codec::SerializeOp as _;
 use serde::Serialize;
 
 use crate::{
-    crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection},
+    crypto::{
+        keys::Ed25519PublicKey,
+        proofs::{
+            quota::ProofOfQuota,
+            selection::{ProofOfSelection, inputs::VerifyInputs},
+        },
+    },
+    encap::ProofsVerifier as ProofsVerifierTrait,
     reward::session::SessionRandomness,
 };
 
 /// A blending token consisting of a proof of quota and a proof of selection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BlendingToken {
-    proof_of_quota: ProofOfQuota,
-    proof_of_selection: ProofOfSelection,
+    pub(crate) proof_of_quota: ProofOfQuota,
+    pub(crate) signing_key: Ed25519PublicKey,
+    pub(crate) proof_of_selection: ProofOfSelection,
 }
 
 impl BlendingToken {
     #[must_use]
-    pub const fn new(proof_of_quota: ProofOfQuota, proof_of_selection: ProofOfSelection) -> Self {
+    pub const fn new(
+        proof_of_quota: ProofOfQuota,
+        signing_key: Ed25519PublicKey,
+        proof_of_selection: ProofOfSelection,
+    ) -> Self {
         Self {
             proof_of_quota,
+            signing_key,
             proof_of_selection,
         }
     }
@@ -43,12 +56,22 @@ impl BlendingToken {
         hamming_distance(&token_hash, &session_randomness_hash)
     }
 
-    pub(crate) const fn proof_of_quota(&self) -> &ProofOfQuota {
-        &self.proof_of_quota
-    }
-
-    pub(crate) const fn proof_of_selection(&self) -> &ProofOfSelection {
-        &self.proof_of_selection
+    pub fn verify<ProofsVerifier: ProofsVerifierTrait>(
+        &self,
+        verifier: &ProofsVerifier,
+        node_index: u64,
+        membership_size: u64,
+    ) -> Result<(), ProofsVerifier::Error> {
+        verifier.verify_proof_of_quota(self.proof_of_quota, &self.signing_key)?;
+        verifier.verify_proof_of_selection(
+            self.proof_of_selection,
+            &VerifyInputs {
+                expected_node_index: node_index,
+                total_membership_size: membership_size,
+                key_nullifier: self.proof_of_quota.key_nullifier(),
+            },
+        )?;
+        Ok(())
     }
 }
 
@@ -83,6 +106,7 @@ mod tests {
     use nomos_core::blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE};
 
     use super::*;
+    use crate::crypto::keys::{Ed25519PrivateKey, KEY_SIZE};
 
     #[test]
     fn test_hamming_distance() {
@@ -122,15 +146,20 @@ mod tests {
 
     #[test]
     fn test_blending_token_hamming_distance() {
-        let token = blending_token(1, 2);
+        let token = blending_token(1, 1, 2);
         assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 4);
     }
 
-    fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
+    fn blending_token(
+        proof_of_quota: u8,
+        signing_key: u8,
+        proof_of_selection: u8,
+    ) -> BlendingToken {
         BlendingToken {
             proof_of_quota: ProofOfQuota::from_bytes_unchecked(
                 [proof_of_quota; PROOF_OF_QUOTA_SIZE],
             ),
+            signing_key: Ed25519PrivateKey::from([signing_key; KEY_SIZE]).public_key(),
             proof_of_selection: ProofOfSelection::from_bytes_unchecked(
                 [proof_of_selection; PROOF_OF_SELECTION_SIZE],
             ),

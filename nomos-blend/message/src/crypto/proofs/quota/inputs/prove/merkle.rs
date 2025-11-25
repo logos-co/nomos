@@ -220,22 +220,22 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_blend_message::crypto::{
+    use nomos_core::crypto::ZkHash;
+    use num_bigint::BigUint;
+    use zksign::{PublicKey, SecretKey};
+
+    use crate::crypto::{
         keys::Ed25519PublicKey,
         proofs::quota::{
             ProofOfQuota,
             inputs::prove::{
                 PrivateInputs, PublicInputs,
+                merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES},
                 private::ProofOfCoreQuotaInputs,
                 public::{CoreInputs, LeaderInputs},
             },
         },
     };
-    use nomos_core::crypto::ZkHash;
-    use num_bigint::BigUint;
-    use zksign::{PublicKey, SecretKey};
-
-    use crate::merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES};
 
     #[test]
     fn single_key() {

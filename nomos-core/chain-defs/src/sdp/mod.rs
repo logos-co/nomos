@@ -12,7 +12,7 @@ use strum::EnumIter;
 use zksign::PublicKey;
 
 use crate::{
-    blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
+    blend::{KEY_SIZE, PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
     block::BlockNumber,
     mantle::NoteId,
 };
@@ -359,6 +359,7 @@ pub struct BlendActivityProof {
     pub session: SessionNumber,
     #[serde(with = "serde_big_array::BigArray")]
     pub proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE],
+    pub signing_key: [u8; KEY_SIZE],
     pub proof_of_selection: [u8; PROOF_OF_SELECTION_SIZE],
 }
 
@@ -370,12 +371,14 @@ impl BlendActivityProof {
         let total_size = 1 // version byte
             + size_of::<SessionNumber>()
             + self.proof_of_quota.len()
+            + self.signing_key.len()
             + self.proof_of_selection.len();
 
         let mut bytes = Vec::with_capacity(total_size);
         bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
         bytes.extend(&self.session.to_le_bytes());
         bytes.extend(&self.proof_of_quota);
+        bytes.extend(&self.signing_key);
         bytes.extend(&self.proof_of_selection);
         bytes
     }
@@ -398,6 +401,7 @@ fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof
     }
     let (input, session) = parse_session_number(input)?;
     let (input, proof_of_quota) = parse_const_size_bytes::<PROOF_OF_QUOTA_SIZE>(input)?;
+    let (input, signing_key) = parse_const_size_bytes::<KEY_SIZE>(input)?;
     let (input, proof_of_selection) = parse_const_size_bytes::<PROOF_OF_SELECTION_SIZE>(input)?;
 
     if !input.is_empty() {
@@ -412,6 +416,7 @@ fn parse_blend_activity_proof(input: &[u8]) -> IResult<&[u8], BlendActivityProof
         BlendActivityProof {
             session,
             proof_of_quota,
+            signing_key,
             proof_of_selection,
         },
     ))
@@ -619,6 +624,7 @@ mod tests {
         let proof = BlendActivityProof {
             session: 10,
             proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
+            signing_key: [0u8; KEY_SIZE],
             proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
         };
 
@@ -633,6 +639,7 @@ mod tests {
         let proof = BlendActivityProof {
             session: 10,
             proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
+            signing_key: [0u8; KEY_SIZE],
             proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
         };
         let mut bytes = proof.to_metadata_bytes();
@@ -657,6 +664,7 @@ mod tests {
         let proof = BlendActivityProof {
             session: 10,
             proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
+            signing_key: [0u8; KEY_SIZE],
             proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
         };
         let mut bytes = proof.to_metadata_bytes();

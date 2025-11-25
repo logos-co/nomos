@@ -43,7 +43,6 @@ pub mod core;
 pub mod edge;
 pub mod epoch_info;
 pub mod membership;
-pub mod merkle;
 pub mod message;
 pub mod session;
 pub mod settings;

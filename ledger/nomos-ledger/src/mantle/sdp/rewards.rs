@@ -1,10 +1,21 @@
-use std::{cmp::Ordering, collections::HashMap, iter::once, num::NonZeroU64};
+use std::{cmp::Ordering, collections::HashMap, fmt::Debug, iter::once, num::NonZeroU64};
 
-use groth16::Fr;
-use nomos_blend_message::reward::{BlendingTokenEvaluation, SessionRandomness};
+use cryptarchia_engine::Epoch;
+use nomos_blend_message::{
+    crypto::proofs::{
+        PoQVerificationInputsMinusSigningKey,
+        quota::inputs::prove::{
+            merkle::MerkleTree,
+            public::{CoreInputs, LeaderInputs},
+        },
+    },
+    encap::ProofsVerifier as ProofsVerifierTrait,
+    reward::{BlendingTokenEvaluation, SessionRandomness},
+};
 use nomos_core::{
     blend::core_quota,
     block::BlockNumber,
+    crypto::ZkHash,
     sdp::{ActivityMetadata, ProviderId, ServiceParameters, SessionNumber},
 };
 use nomos_utils::math::NonNegativeF64;
@@ -12,6 +23,7 @@ use rpds::{HashTrieMapSync, HashTrieSetSync};
 use thiserror::Error;
 
 use super::SessionState;
+use crate::EpochState;
 
 pub type RewardAmount = u64;
 const ACTIVITY_THRESHOLD: u64 = 2;
@@ -22,7 +34,7 @@ const ACTIVITY_THRESHOLD: u64 = 2;
 /// The rewards object is updated with active messages and session transitions,
 /// and can calculate expected rewards for each provider based on the service's
 /// internal logic.
-pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
+pub trait Rewards: Clone + PartialEq + Send + Sync + Debug {
     /// Update rewards state when an active message is received.
     ///
     /// Called when a provider submits an active message with metadata
@@ -47,14 +59,22 @@ pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
     ///
     /// # Arguments
     /// * `last_active` - The state of the session that just ended.
-    /// * `next_active_session_epoch_nonce` - The nonce of the epoch state
-    ///   corresponding to the 1st block of the session `last_active + 1`.
+    /// * `next_session_first_epoch_state` - The epoch state corresponding to
+    ///   the 1st block of the session `last_active + 1`.
     fn update_session(
         &self,
         last_active: &SessionState,
-        next_active_session_epoch_nonce: &Fr,
+        next_session_first_epoch_state: &EpochState,
         config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>);
+
+    /// Update rewards state when a new epoch begins while the session remains
+    /// unchanged.
+    ///
+    /// If the epoch has already been processed previously, this method performs
+    /// no update and returns the current state unchanged.
+    #[must_use]
+    fn update_epoch(&self, epoch_state: &EpochState) -> Self;
 }
 
 /// Data Availability rewards implementation based on opinion-based peer
@@ -204,7 +224,7 @@ impl Rewards for DaRewards {
     fn update_session(
         &self,
         last_active: &SessionState,
-        _next_active_session_epoch_nonce: &Fr,
+        _next_session_first_epoch_state: &EpochState,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         // Calculate activity threshold: θ = Ns / ACTIVITY_THRESHOLD
@@ -256,45 +276,360 @@ impl Rewards for DaRewards {
 
         (new_state, rewards)
     }
+
+    fn update_epoch(&self, _epoch_state: &EpochState) -> Self {
+        self.clone()
+    }
 }
 
+/// Tracks Blend rewards based on activity proofs submitted by providers.
+/// Activity proofs for the session `s-1` must be submitted during session `s`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
-pub enum BlendRewards {
-    /// State before the first session update (0 -> 1).
+#[expect(
+    clippy::large_enum_variant,
+    reason = "TargetSessionInitialized is much larger but used in most cases"
+)]
+pub enum BlendRewards<ProofsVerifier> {
+    /// State before the first target session is finalized.
     /// No activity messages are accepted in this state, because activity cannot
-    /// exist before session 0.
-    Uninitialized(BlendRewardsParameters),
-    /// State after the first session update (0 -> 1).
-    /// This is updated every new session.
-    Initialized {
-        /// State of the session that is referenced by the submitted proofs.
-        /// This is `s-1` if `s` is the session at which this message was sent.
-        session_state: SessionState,
-        /// Parameters for evaluating activity proofs in the session
-        token_evaluation: BlendingTokenEvaluation,
-        /// Session randomness for the session `s`.
-        next_session_randomness: SessionRandomness,
-        /// Proofs submitted by providers in the session corresponding to
-        /// `session_state`.
-        submitted_proofs: HashTrieMapSync<ProviderId, u64>,
-        /// Tracking the minimum Hamming distance among submitted proofs.
-        min_hamming_distance: MinHammingDistance,
-        /// Settings that don't change per session.
+    /// exist before the first target session.
+    TargetSessionUninitialized {
+        settings: BlendRewardsParameters,
+        current_session_tracker: CurrentSessionTracker,
+    },
+    /// State after a new target session `s-1` is finalized.
+    /// This tracks activity proofs for the target session `s-1` submitted
+    /// during the current session `s`.
+    TargetSessionInitialized {
+        target_session_state: TargetSessionState<ProofsVerifier>,
+        target_session_tracker: TargetSessionTracker,
+        current_session_state: CurrentSessionState,
+        current_session_tracker: CurrentSessionTracker,
         settings: BlendRewardsParameters,
     },
 }
 
-impl BlendRewards {
-    /// Create a new uninitialized [`BlendRewards`] that doesn't accept activity
-    /// messages until the first session update.
-    #[must_use]
-    pub const fn new(settings: BlendRewardsParameters) -> Self {
-        Self::Uninitialized(settings)
+/// The immutable state of the target session for which rewards are being
+/// calculated. The target session is `s-1` if `s` is the current session.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetSessionState<ProofsVerifier> {
+    /// State of the target session
+    session_state: SessionState,
+    /// Providers' indices in the membership of the target session
+    provider_indices: HashTrieMapSync<ProviderId, u64>,
+    /// Parameters for evaluating activity proofs in the target session
+    token_evaluation: BlendingTokenEvaluation,
+    /// Verifiers for `PoQ` and `PoSel`.
+    /// These are created from epoch states collected in the target session.
+    proof_verifiers: Vec<ProofsVerifier>,
+}
+
+impl<ProofsVerifier> TargetSessionState<ProofsVerifier> {
+    const fn new(
+        session_state: SessionState,
+        provider_indices: HashTrieMapSync<ProviderId, u64>,
+        token_evaluation: BlendingTokenEvaluation,
+        proof_verifiers: Vec<ProofsVerifier>,
+    ) -> Self {
+        Self {
+            session_state,
+            provider_indices,
+            token_evaluation,
+            proof_verifiers,
+        }
+    }
+
+    const fn session_number(&self) -> SessionNumber {
+        self.session_state.session_n
+    }
+
+    fn num_declarations(&self) -> u64 {
+        self.session_state
+            .declarations
+            .size()
+            .try_into()
+            .expect("number of declarations must fit in u64")
     }
 }
 
-impl Rewards for BlendRewards {
+impl<ProofsVerifier> TargetSessionState<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait,
+{
+    fn verify_proof(
+        &self,
+        provider_id: &ProviderId,
+        proof: &nomos_blend_message::reward::ActivityProof,
+        current_session_state: &CurrentSessionState,
+        settings: &BlendRewardsParameters,
+    ) -> Result<u64, Error> {
+        if proof.session_number() != self.session_state.session_n {
+            return Err(Error::InvalidSession {
+                expected: self.session_state.session_n,
+                got: proof.session_number(),
+            });
+        }
+
+        let num_declarations = self.num_declarations();
+        if num_declarations < settings.minimum_network_size.get() {
+            return Err(Error::MinimumNetworkSizeNotSatisfied {
+                num_declarations,
+                minimum_network_size: settings.minimum_network_size,
+            });
+        }
+
+        let Some(hamming_distance) = self
+            .token_evaluation
+            .evaluate(proof.token(), current_session_state.session_randomness)
+        else {
+            return Err(Error::InvalidProof);
+        };
+
+        let provider_index = *self
+            .provider_indices
+            .get(provider_id)
+            .ok_or_else(|| Error::UnknownProvider(Box::new(*provider_id)))?;
+        self.proof_verifiers
+            .iter()
+            .find_map(|verifier| {
+                proof
+                    .verify(verifier, provider_index, num_declarations)
+                    .ok()
+            })
+            .ok_or(Error::InvalidProof)?;
+
+        Ok(hamming_distance)
+    }
+}
+
+/// Tracks activity proofs submitted for the target session whose rewards are
+/// being calculated. The target session is `s-1` if `s` is the current session.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TargetSessionTracker {
+    /// Collecting proofs submitted by providers in the target session.
+    submitted_proofs: HashTrieMapSync<ProviderId, u64>,
+    /// Tracking the minimum Hamming distance among submitted proofs.
+    min_hamming_distance: MinHammingDistance,
+}
+
+impl TargetSessionTracker {
+    fn new() -> Self {
+        Self {
+            submitted_proofs: HashTrieMapSync::new_sync(),
+            min_hamming_distance: MinHammingDistance::new(),
+        }
+    }
+
+    fn insert(
+        &self,
+        provider_id: ProviderId,
+        session: SessionNumber,
+        hamming_distance: u64,
+    ) -> Result<Self, Error> {
+        if self.submitted_proofs.contains_key(&provider_id) {
+            return Err(Error::DuplicateActiveMessage {
+                session,
+                provider_id: Box::new(provider_id),
+            });
+        }
+        Ok(Self {
+            submitted_proofs: self.submitted_proofs.insert(provider_id, hamming_distance),
+            min_hamming_distance: self
+                .min_hamming_distance
+                .with_update(hamming_distance, provider_id),
+        })
+    }
+
+    fn finalize(&self, session_income: u64) -> (Self, HashMap<ProviderId, RewardAmount>) {
+        // Identify premium providers with the minimum Hamming distance
+        let premium_providers = &self.min_hamming_distance.providers;
+
+        // Calculate base reward
+        let base_reward = if self.submitted_proofs.is_empty() {
+            0
+        } else {
+            session_income / (self.submitted_proofs.size() as u64 + premium_providers.size() as u64)
+        };
+
+        // Calculate reward for each provider
+        let mut rewards = HashMap::new();
+        for provider_id in self.submitted_proofs.keys() {
+            let reward = if premium_providers.contains(provider_id) {
+                base_reward * 2
+            } else {
+                base_reward
+            };
+            rewards.insert(*provider_id, reward);
+        }
+
+        (Self::new(), rewards)
+    }
+}
+
+/// Immutable state of the current session.
+/// The current session is `s` if `s-1` is the target session for which rewards
+/// are being calculated.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurrentSessionState {
+    /// Current session randomness
+    session_randomness: SessionRandomness,
+}
+
+impl CurrentSessionState {
+    const fn new(session_randomness: SessionRandomness) -> Self {
+        Self { session_randomness }
+    }
+}
+
+/// Collects epoch states seen in the current session.
+/// The current session is `s` if `s-1` is the target session for which rewards
+/// are being calculated.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CurrentSessionTracker {
+    /// The latest epoch seen in the current session.
+    latest_epoch: Epoch,
+    /// Collecting leader inputs derived from epoch states seen in the current
+    /// session. These will be used to create proof verifiers after the next
+    /// session update.
+    leader_inputs: Vec<LeaderInputs>,
+}
+
+impl CurrentSessionTracker {
+    fn new(first_epoch_state: &EpochState, settings: &BlendRewardsParameters) -> Self {
+        Self {
+            latest_epoch: first_epoch_state.epoch,
+            leader_inputs: vec![settings.leader_inputs(first_epoch_state)],
+        }
+    }
+
+    fn collect_epoch(&self, epoch_state: &EpochState, settings: &BlendRewardsParameters) -> Self {
+        if epoch_state.epoch > self.latest_epoch {
+            let mut leader_inputs = self.leader_inputs.clone();
+            leader_inputs.push(settings.leader_inputs(epoch_state));
+            Self {
+                latest_epoch: epoch_state.epoch,
+                leader_inputs,
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    fn finalize<ProofsVerifier>(
+        &self,
+        last_active_session_state: &SessionState,
+        next_session_first_epoch_state: &EpochState,
+        settings: &BlendRewardsParameters,
+    ) -> (
+        TargetSessionState<ProofsVerifier>,
+        CurrentSessionState,
+        Self,
+    )
+    where
+        ProofsVerifier: ProofsVerifierTrait,
+    {
+        let (provider_indices, zk_root) =
+            Self::provider_indices_and_zk_root(last_active_session_state);
+
+        let (core_quota, token_evaluation) = settings.core_quota_and_token_evaluation(
+                    last_active_session_state.declarations.size() as u64,
+                ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
+
+        let proof_verifiers = Self::create_proof_verifiers(
+            &self.leader_inputs,
+            last_active_session_state.session_n,
+            zk_root,
+            core_quota,
+        );
+
+        (
+            TargetSessionState::new(
+                last_active_session_state.clone(),
+                provider_indices,
+                token_evaluation,
+                proof_verifiers,
+            ),
+            CurrentSessionState::new(SessionRandomness::new(
+                last_active_session_state.session_n + 1,
+                &next_session_first_epoch_state.nonce,
+            )),
+            Self::new(next_session_first_epoch_state, settings),
+        )
+    }
+
+    fn provider_indices_and_zk_root(
+        session_state: &SessionState,
+    ) -> (HashTrieMapSync<ProviderId, u64>, ZkHash) {
+        let mut providers = session_state
+            .declarations
+            .values()
+            .map(|declaration| (declaration.provider_id, declaration.zk_id))
+            .collect::<Vec<_>>();
+        providers.sort_by_key(|(_, zk_id)| *zk_id);
+
+        let (provider_indices, zk_ids) = providers.into_iter().enumerate().fold(
+            (HashTrieMapSync::new_sync(), Vec::new()),
+            |(mut provider_indices, mut zk_ids), (i, (provider_id, zk_id))| {
+                provider_indices.insert_mut(
+                    provider_id,
+                    u64::try_from(i).expect("provider index must fit in u64"),
+                );
+                zk_ids.push(zk_id);
+                (provider_indices, zk_ids)
+            },
+        );
+
+        let zk_root = MerkleTree::new_from_ordered(zk_ids)
+            .expect("Should not fail to build merkle tree of core nodes' zk public keys")
+            .root();
+
+        (provider_indices, zk_root)
+    }
+
+    fn create_proof_verifiers<ProofsVerifier: ProofsVerifierTrait>(
+        leader_inputs: &[LeaderInputs],
+        session: SessionNumber,
+        zk_root: ZkHash,
+        core_quota: u64,
+    ) -> Vec<ProofsVerifier> {
+        leader_inputs
+            .iter()
+            .map(|&leader| {
+                ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
+                    session,
+                    core: CoreInputs {
+                        zk_root,
+                        quota: core_quota,
+                    },
+                    leader,
+                })
+            })
+            .collect()
+    }
+}
+
+impl<ProofsVerifier> BlendRewards<ProofsVerifier> {
+    /// Create a new uninitialized [`BlendRewards`] that doesn't accept activity
+    /// messages until the first session update.
+    #[must_use]
+    pub fn new(settings: BlendRewardsParameters, epoch_state: &EpochState) -> Self {
+        let current_session_tracker = CurrentSessionTracker::new(epoch_state, &settings);
+        Self::TargetSessionUninitialized {
+            settings,
+            current_session_tracker,
+        }
+    }
+}
+
+impl<ProofsVerifier> Rewards for BlendRewards<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait + Clone + Debug + PartialEq + Send + Sync,
+{
     fn update_active(
         &self,
         provider_id: ProviderId,
@@ -302,63 +637,41 @@ impl Rewards for BlendRewards {
         _block_number: BlockNumber,
     ) -> Result<Self, Error> {
         match self {
-            Self::Uninitialized(_) => {
+            Self::TargetSessionUninitialized { .. } => {
                 // Reject all activity messages.
                 Err(Error::Uninitialized)
             }
-            Self::Initialized {
-                session_state,
-                token_evaluation,
-                next_session_randomness,
-                submitted_proofs,
-                min_hamming_distance,
+            Self::TargetSessionInitialized {
+                target_session_state,
+                target_session_tracker,
+                current_session_state,
+                current_session_tracker,
                 settings,
             } => {
                 let ActivityMetadata::Blend(proof) = metadata else {
                     return Err(Error::InvalidProofType);
                 };
-
-                if submitted_proofs.contains_key(&provider_id) {
-                    return Err(Error::DuplicateActiveMessage {
-                        session: proof.session,
-                        provider_id: Box::new(provider_id),
-                    });
-                }
-
-                if proof.session != session_state.session_n {
-                    return Err(Error::InvalidSession {
-                        expected: session_state.session_n,
-                        got: proof.session,
-                    });
-                }
-
-                let num_declarations = session_state.declarations.size() as u64;
-                if num_declarations < settings.minimum_network_size.get() {
-                    return Err(Error::MinimumNetworkSizeNotSatisfied {
-                        num_declarations,
-                        minimum_network_size: settings.minimum_network_size,
-                    });
-                }
-
                 let proof = nomos_blend_message::reward::ActivityProof::try_from(proof)
                     .map_err(|_| Error::InvalidProofType)?;
 
-                // TODO: Validate PoQ and PoSel by holding all epoch infos that
-                // spanned across the `session_state.session_n` session.
+                let hamming_distance = target_session_state.verify_proof(
+                    &provider_id,
+                    &proof,
+                    current_session_state,
+                    settings,
+                )?;
 
-                let Some(hamming_distance) =
-                    token_evaluation.evaluate(proof.token(), *next_session_randomness)
-                else {
-                    return Err(Error::InvalidProof);
-                };
+                let target_session_tracker = target_session_tracker.insert(
+                    provider_id,
+                    target_session_state.session_number(),
+                    hamming_distance,
+                )?;
 
-                Ok(Self::Initialized {
-                    session_state: session_state.clone(),
-                    token_evaluation: *token_evaluation,
-                    next_session_randomness: *next_session_randomness,
-                    submitted_proofs: submitted_proofs.insert(provider_id, hamming_distance),
-                    min_hamming_distance: min_hamming_distance
-                        .with_update(hamming_distance, provider_id),
+                Ok(Self::TargetSessionInitialized {
+                    target_session_state: target_session_state.clone(),
+                    target_session_tracker,
+                    current_session_state: current_session_state.clone(),
+                    current_session_tracker: current_session_tracker.clone(),
                     settings: settings.clone(),
                 })
             }
@@ -368,83 +681,87 @@ impl Rewards for BlendRewards {
     fn update_session(
         &self,
         last_active: &SessionState,
-        next_active_session_epoch_nonce: &Fr,
+        next_session_first_epoch_state: &EpochState,
         _config: &ServiceParameters,
     ) -> (Self, HashMap<ProviderId, RewardAmount>) {
         match self {
-            Self::Uninitialized(settings) => {
-                // Prepare the proof evaluation parameters for the new session
-                let token_evaluation = settings.token_evaluation(
-                    last_active.declarations.size() as u64,
-                ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
-
+            Self::TargetSessionUninitialized {
+                settings,
+                current_session_tracker,
+            } => {
+                let (target_session_state, current_session_state, current_session_tracker) =
+                    current_session_tracker.finalize(
+                        last_active,
+                        next_session_first_epoch_state,
+                        settings,
+                    );
                 (
-                    Self::Initialized {
-                        session_state: last_active.clone(),
-                        token_evaluation,
-                        next_session_randomness: SessionRandomness::new(
-                            last_active.session_n + 1,
-                            next_active_session_epoch_nonce,
-                        ),
-                        submitted_proofs: HashTrieMapSync::new_sync(),
-                        min_hamming_distance: MinHammingDistance::new(),
+                    Self::TargetSessionInitialized {
+                        target_session_state,
+                        target_session_tracker: TargetSessionTracker::new(),
+                        current_session_state,
+                        current_session_tracker,
                         settings: settings.clone(),
                     },
                     HashMap::new(),
                 )
             }
-            Self::Initialized {
-                submitted_proofs,
-                min_hamming_distance,
+            Self::TargetSessionInitialized {
+                target_session_tracker,
+                current_session_tracker,
                 settings,
                 ..
             } => {
                 // TODO: Calculate base rewards when session_income is added to config
                 // For now using placeholder value of 0
                 let session_income = 0;
+                let (target_session_tracker, rewards) =
+                    target_session_tracker.finalize(session_income);
 
-                // Identify premium providers with the minimum Hamming distance
-                let premium_providers = &min_hamming_distance.providers;
+                let (target_session_state, current_session_state, current_session_tracker) =
+                    current_session_tracker.finalize(
+                        last_active,
+                        next_session_first_epoch_state,
+                        settings,
+                    );
 
-                // Calculate base reward
-                let base_reward = if submitted_proofs.is_empty() {
-                    0
-                } else {
-                    session_income
-                        / (submitted_proofs.size() as u64 + premium_providers.size() as u64)
-                };
-
-                // Calculate reward for each provider
-                let mut rewards = HashMap::new();
-                for provider_id in submitted_proofs.keys() {
-                    let reward = if premium_providers.contains(provider_id) {
-                        base_reward * 2
-                    } else {
-                        base_reward
-                    };
-                    rewards.insert(*provider_id, reward);
-                }
-
-                // Prepare the proof evaluation parameters for the new session
-                let token_evaluation = settings.token_evaluation(
-                    last_active.declarations.size() as u64,
-                ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
-
-                // Create new rewards state with updated sessions
-                let new_state = Self::Initialized {
-                    session_state: last_active.clone(),
-                    token_evaluation,
-                    next_session_randomness: SessionRandomness::new(
-                        last_active.session_n + 1,
-                        next_active_session_epoch_nonce,
-                    ),
-                    submitted_proofs: HashTrieMapSync::new_sync(),
-                    min_hamming_distance: MinHammingDistance::new(),
+                let new_state = Self::TargetSessionInitialized {
+                    target_session_state,
+                    target_session_tracker,
+                    current_session_state,
+                    current_session_tracker,
                     settings: settings.clone(),
                 };
 
                 (new_state, rewards)
             }
+        }
+    }
+
+    fn update_epoch(&self, epoch_state: &EpochState) -> Self {
+        match self {
+            Self::TargetSessionUninitialized {
+                settings,
+                current_session_tracker,
+            } => Self::TargetSessionUninitialized {
+                settings: settings.clone(),
+                current_session_tracker: current_session_tracker
+                    .collect_epoch(epoch_state, settings),
+            },
+            Self::TargetSessionInitialized {
+                target_session_state,
+                target_session_tracker,
+                current_session_state,
+                current_session_tracker,
+                settings,
+            } => Self::TargetSessionInitialized {
+                target_session_state: target_session_state.clone(),
+                target_session_tracker: target_session_tracker.clone(),
+                current_session_state: current_session_state.clone(),
+                current_session_tracker: current_session_tracker
+                    .collect_epoch(epoch_state, settings),
+                settings: settings.clone(),
+            },
         }
     }
 }
@@ -459,17 +776,29 @@ pub struct BlendRewardsParameters {
 }
 
 impl BlendRewardsParameters {
-    fn token_evaluation(
+    fn core_quota_and_token_evaluation(
         &self,
         num_core_nodes: u64,
-    ) -> Result<BlendingTokenEvaluation, nomos_blend_message::reward::Error> {
+    ) -> Result<(u64, BlendingTokenEvaluation), nomos_blend_message::reward::Error> {
         let core_quota = core_quota(
             self.rounds_per_session,
             self.message_frequency_per_round,
             self.num_blend_layers,
             num_core_nodes as usize,
         );
-        BlendingTokenEvaluation::new(core_quota, num_core_nodes)
+        Ok((
+            core_quota,
+            BlendingTokenEvaluation::new(core_quota, num_core_nodes)?,
+        ))
+    }
+
+    fn leader_inputs(&self, epoch_state: &EpochState) -> LeaderInputs {
+        LeaderInputs {
+            pol_ledger_aged: epoch_state.utxos.root(),
+            pol_epoch_nonce: epoch_state.nonce,
+            message_quota: self.num_blend_layers.get(),
+            total_stake: epoch_state.total_stake,
+        }
     }
 }
 
@@ -532,19 +861,31 @@ pub enum Error {
         num_declarations: u64,
         minimum_network_size: NonZeroU64,
     },
+    #[error("Unknown provider: {0:?}")]
+    UnknownProvider(Box<ProviderId>),
 }
 
 #[cfg(test)]
 mod tests {
-    use groth16::Field as _;
+    use std::convert::Infallible;
+
+    use groth16::{Field as _, Fr};
+    use nomos_blend_message::crypto::{
+        keys::{Ed25519PrivateKey, Ed25519PublicKey},
+        proofs::{
+            quota::ProofOfQuota,
+            selection::{ProofOfSelection, inputs::VerifyInputs},
+        },
+    };
     use nomos_core::{
-        crypto::ZkHash,
+        blend::KEY_SIZE,
         sdp::{BlendActivityProof, DaActivityProof, Declaration, DeclarationId, ServiceType},
     };
     use num_bigint::BigUint;
     use zksign::PublicKey;
 
     use super::*;
+    use crate::UtxoTree;
 
     fn create_test_session_state(
         provider_ids: &[ProviderId],
@@ -590,13 +931,33 @@ mod tests {
         }
     }
 
-    fn create_blend_rewards_params(minimum_network_size: u64) -> BlendRewardsParameters {
+    fn create_blend_rewards_params(
+        rounds_per_session: u64,
+        minimum_network_size: u64,
+    ) -> BlendRewardsParameters {
         BlendRewardsParameters {
-            rounds_per_session: NonZeroU64::new(100).unwrap(),
+            rounds_per_session: rounds_per_session.try_into().unwrap(),
             message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
             num_blend_layers: NonZeroU64::new(3).unwrap(),
             minimum_network_size: minimum_network_size.try_into().unwrap(),
         }
+    }
+
+    fn dummy_epoch_state() -> EpochState {
+        dummy_epoch_state_with(0)
+    }
+
+    fn dummy_epoch_state_with(nonce: u64) -> EpochState {
+        EpochState {
+            epoch: 0.into(),
+            nonce: ZkHash::from(BigUint::from(nonce)),
+            utxos: UtxoTree::default(),
+            total_stake: 0,
+        }
+    }
+
+    fn signing_pubkey(priv_key: [u8; KEY_SIZE]) -> [u8; KEY_SIZE] {
+        Ed25519PrivateKey::from(priv_key).public_key().into()
     }
 
     #[test]
@@ -715,7 +1076,7 @@ mod tests {
         };
 
         let (_new_state, rewards) =
-            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&active_session, &dummy_epoch_state(), &config);
 
         // No activity proofs submitted, so no rewards
         assert_eq!(rewards.len(), 0);
@@ -787,7 +1148,7 @@ mod tests {
         };
 
         let (_new_state, rewards) =
-            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&active_session, &dummy_epoch_state(), &config);
 
         // Activity threshold = 4 / 2 = 2
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
@@ -851,7 +1212,7 @@ mod tests {
         };
 
         let (_new_state, rewards) =
-            rewards_tracker.update_session(&current_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&current_session, &dummy_epoch_state(), &config);
 
         // NOTE: session_income is currently hardcoded to 0, so all rewards will be 0
         // When session_income is added to config, this test should verify:
@@ -870,7 +1231,10 @@ mod tests {
     #[test]
     fn test_blend_no_reward_calculated_after_session_0() {
         // Create a reward tracker
-        let rewards_tracker = BlendRewards::new(create_blend_rewards_params(1));
+        let rewards_tracker = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &dummy_epoch_state(),
+        );
 
         // Create session_1 with providers
         let session_1 = create_test_session_state(
@@ -880,8 +1244,11 @@ mod tests {
         );
 
         // Update session from 0 to 1
-        let (_, rewards) =
-            rewards_tracker.update_session(&session_1, &ZkHash::ZERO, &create_service_parameters());
+        let (_, rewards) = rewards_tracker.update_session(
+            &session_1,
+            &dummy_epoch_state(),
+            &create_service_parameters(),
+        );
 
         // No rewards should be calculated after session 0
         assert_eq!(rewards.len(), 0);
@@ -891,19 +1258,22 @@ mod tests {
     fn test_blend_rewards_with_no_activity_proofs() {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(BlendRewardsParameters {
-            rounds_per_session: NonZeroU64::new(10).unwrap(),
-            message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
-            num_blend_layers: NonZeroU64::new(3).unwrap(),
-            minimum_network_size: NonZeroU64::new(1).unwrap(),
-        })
+        let (rewards_tracker, _) = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            BlendRewardsParameters {
+                rounds_per_session: NonZeroU64::new(10).unwrap(),
+                message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                num_blend_layers: NonZeroU64::new(3).unwrap(),
+                minimum_network_size: NonZeroU64::new(1).unwrap(),
+            },
+            &dummy_epoch_state(),
+        )
         .update_session(
             &create_test_session_state(
                 &[create_provider_id(1), create_provider_id(2)],
                 ServiceType::BlendNetwork,
                 1,
             ),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
 
@@ -914,7 +1284,7 @@ mod tests {
                 ServiceType::BlendNetwork,
                 2,
             ),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
         assert_eq!(rewards.len(), 0);
@@ -929,16 +1299,19 @@ mod tests {
 
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
-            .update_session(
-                &create_test_session_state(
-                    &[provider1, provider2, provider3, provider4],
-                    ServiceType::BlendNetwork,
-                    1,
-                ),
-                &ZkHash::ZERO,
-                &config,
-            );
+        let (rewards_tracker, _) = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &dummy_epoch_state(),
+        )
+        .update_session(
+            &create_test_session_state(
+                &[provider1, provider2, provider3, provider4],
+                ServiceType::BlendNetwork,
+                1,
+            ),
+            &dummy_epoch_state(),
+            &config,
+        );
 
         // provider1 submits an activity proof, which has the minimum
         // Hamming distance among all proofs.
@@ -948,6 +1321,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [1; _],
                 }),
                 config.session_duration,
@@ -961,6 +1335,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [2; _],
+                    signing_key: signing_pubkey([2; _]),
                     proof_of_selection: [2; _],
                 }),
                 config.session_duration,
@@ -976,6 +1351,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [1; _],
                 }),
                 config.session_duration,
@@ -991,7 +1367,7 @@ mod tests {
                 ServiceType::BlendNetwork,
                 2,
             ),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
         // TODO: session_income is currently hardcoded to 0, so all rewards will be 0
@@ -1010,12 +1386,15 @@ mod tests {
 
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
-            .update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
-                &ZkHash::ZERO,
-                &config,
-            );
+        let (rewards_tracker, _) = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &dummy_epoch_state(),
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &dummy_epoch_state(),
+            &config,
+        );
 
         // provider1 submits an activity proof.
         let rewards_tracker = rewards_tracker
@@ -1024,6 +1403,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [1; _],
                 }),
                 config.session_duration,
@@ -1038,6 +1418,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [2; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [2; _],
                 }),
                 config.session_duration,
@@ -1058,12 +1439,15 @@ mod tests {
 
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
-            .update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
-                &ZkHash::ZERO,
-                &config,
-            );
+        let (rewards_tracker, _) = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &dummy_epoch_state(),
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &dummy_epoch_state(),
+            &config,
+        );
 
         // provider1 submits an activity proof with invalid session.
         let err = rewards_tracker
@@ -1072,6 +1456,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 99,
                     proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [1; _],
                 }),
                 config.session_duration,
@@ -1088,7 +1473,7 @@ mod tests {
         // No reward should be calculated after session 1.
         let (_, rewards) = rewards_tracker.update_session(
             &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
         assert_eq!(rewards.len(), 0);
@@ -1100,13 +1485,14 @@ mod tests {
 
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(
+        let (rewards_tracker, _) = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
             // Set minimum network size to 2
-            create_blend_rewards_params(2),
+            create_blend_rewards_params(1000, 2),
+            &dummy_epoch_state(),
         )
         .update_session(
             &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
 
@@ -1118,6 +1504,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
                     proof_of_selection: [1; _],
                 }),
                 config.session_duration,
@@ -1134,7 +1521,7 @@ mod tests {
         // No reward should be calculated after session 1.
         let (_, rewards) = rewards_tracker.update_session(
             &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
         assert_eq!(rewards.len(), 0);
@@ -1146,12 +1533,16 @@ mod tests {
 
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
-        let (rewards_tracker, _) = BlendRewards::new(create_blend_rewards_params(1))
-            .update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
-                &ZkHash::from(BigUint::from(9999u64)),
-                &config,
-            );
+        let rewards_tracker = BlendRewards::<AlwaysSuccessProofsVerifier>::new(
+            // Set rounds_per_session very low (1) to make activity threshold very low.
+            create_blend_rewards_params(1, 1),
+            &dummy_epoch_state(),
+        );
+        let (rewards_tracker, _) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &dummy_epoch_state_with(9999),
+            &config,
+        );
 
         // provider1 submits an activity proof that is larger than activity threshold.
         let err = rewards_tracker
@@ -1160,6 +1551,7 @@ mod tests {
                 &ActivityMetadata::Blend(BlendActivityProof {
                     session: 1,
                     proof_of_quota: [2; _],
+                    signing_key: signing_pubkey([2; _]),
                     proof_of_selection: [2; _],
                 }),
                 config.session_duration,
@@ -1170,9 +1562,207 @@ mod tests {
         // No reward should be calculated after session 1.
         let (_, rewards) = rewards_tracker.update_session(
             &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
-            &ZkHash::ZERO,
+            &dummy_epoch_state(),
             &config,
         );
         assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_invalid_proofs() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = BlendRewards::<AlwaysFailureProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &dummy_epoch_state(),
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &dummy_epoch_state(),
+            &config,
+        );
+
+        // provider1 submits an activity proof, but PoQ/PoSel verification fails.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 1,
+                    proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::InvalidProof);
+
+        // No reward should be calculated after session 1.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
+            &dummy_epoch_state(),
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
+    fn test_blend_epoch_updates() {
+        // Create a reward tracker, and update session from 0 to 1.
+        let rewards_tracker = BlendRewards::<ConditionalFailureProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            // Set 0 to epoch nonce, to make a proof verifier that always fails.
+            &dummy_epoch_state_with(0),
+        );
+        if let BlendRewards::TargetSessionUninitialized {
+            current_session_tracker,
+            ..
+        } = &rewards_tracker
+        {
+            assert_eq!(current_session_tracker.leader_inputs.len(), 1);
+        } else {
+            panic!("Should not be initialized yet")
+        }
+
+        // A new epoch received before a new session starts.
+        // Set non-zero to epoch nonce, to make a proof verifier that always succeed.
+        let new_epoch = dummy_epoch_state_with(1);
+        let rewards_tracker = rewards_tracker.update_epoch(&new_epoch);
+        if let BlendRewards::TargetSessionUninitialized {
+            current_session_tracker,
+            ..
+        } = &rewards_tracker
+        {
+            assert_eq!(current_session_tracker.leader_inputs.len(), 2);
+        } else {
+            panic!("Should not be initialized yet")
+        }
+
+        // Update session from 0 to 1, with the same epoch state as the last one.
+        let provider1 = create_provider_id(1);
+        let config = create_service_parameters();
+        let (rewards_tracker, _) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
+            &new_epoch,
+            &config,
+        );
+        if let BlendRewards::TargetSessionInitialized {
+            current_session_tracker,
+            ..
+        } = &rewards_tracker
+        {
+            assert_eq!(current_session_tracker.leader_inputs.len(), 1);
+        } else {
+            panic!("Should not be uninitialized");
+        }
+
+        rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(BlendActivityProof {
+                    session: 0,
+                    proof_of_quota: [1; _],
+                    signing_key: signing_pubkey([1; _]),
+                    proof_of_selection: [1; _],
+                }),
+                config.session_duration,
+            )
+            .expect("Proofs must be successfully verified");
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct AlwaysSuccessProofsVerifier;
+
+    impl ProofsVerifierTrait for AlwaysSuccessProofsVerifier {
+        type Error = Infallible;
+
+        fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            Self
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            _proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<ZkHash, Self::Error> {
+            Ok(ZkHash::ZERO)
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            _proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<(), Self::Error> {
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct AlwaysFailureProofsVerifier;
+
+    impl ProofsVerifierTrait for AlwaysFailureProofsVerifier {
+        type Error = ();
+
+        fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            Self
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            _proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<ZkHash, Self::Error> {
+            Err(())
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            _proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<(), Self::Error> {
+            Err(())
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct ConditionalFailureProofsVerifier(bool);
+
+    impl ProofsVerifierTrait for ConditionalFailureProofsVerifier {
+        type Error = ();
+
+        fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            // Fail only if pol_epoch_nonce is ZERO
+            Self(public_inputs.leader.pol_epoch_nonce == ZkHash::ZERO)
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            _proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<ZkHash, Self::Error> {
+            if self.0 { Ok(ZkHash::ZERO) } else { Err(()) }
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            _proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<(), Self::Error> {
+            if self.0 { Ok(()) } else { Err(()) }
+        }
     }
 }

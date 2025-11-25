@@ -192,6 +192,7 @@ mod core_to_core_tests {
                 self, ProofOfQuota,
                 inputs::prove::{
                     PrivateInputs, PublicInputs,
+                    merkle::MerkleTree,
                     private::ProofOfCoreQuotaInputs,
                     public::{CoreInputs, LeaderInputs},
                 },
@@ -206,7 +207,7 @@ mod core_to_core_tests {
             core_and_leader::CoreAndLeaderProofsGenerator as _,
         },
     };
-    use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
+    use nomos_blend_service::ProofsVerifier as _;
     use nomos_core::crypto::ZkHash;
     use zksign::SecretKey;
 

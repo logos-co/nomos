@@ -98,7 +98,7 @@ impl<const ENCAPSULATION_COUNT: usize>
                 proof_of_selection,
             } => {
                 let blending_token =
-                    BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
+                    BlendingToken::new(verified_proof_of_quota, signing_key, proof_of_selection);
                 Ok(DecapsulationOutput::Incompleted {
                     remaining_encapsulated_message: EncapsulatedMessage::from_components(
                         public_header,
@@ -113,7 +113,7 @@ impl<const ENCAPSULATION_COUNT: usize>
             } => {
                 let (payload_type, payload_body) = payload.try_into_components()?;
                 let blending_token =
-                    BlendingToken::new(*public_header.proof_of_quota(), proof_of_selection);
+                    BlendingToken::new(verified_proof_of_quota, signing_key, proof_of_selection);
                 Ok(DecapsulationOutput::Completed {
                     fully_decapsulated_message: (DecapsulatedMessage::new(
                         payload_type,

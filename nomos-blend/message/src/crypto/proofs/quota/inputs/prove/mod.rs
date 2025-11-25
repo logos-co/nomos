@@ -9,6 +9,7 @@ use crate::crypto::proofs::quota::inputs::{
     split_ephemeral_signing_key,
 };
 
+pub mod merkle;
 pub mod private;
 pub mod public;
 pub use self::{private::Inputs as PrivateInputs, public::Inputs as PublicInputs};

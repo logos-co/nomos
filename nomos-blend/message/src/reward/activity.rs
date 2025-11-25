@@ -3,7 +3,10 @@ use nomos_core::sdp::SessionNumber;
 use serde::Serialize;
 use tracing::debug;
 
-use crate::reward::{LOG_TARGET, token::BlendingToken};
+use crate::{
+    encap::ProofsVerifier as ProofsVerifierTrait,
+    reward::{LOG_TARGET, token::BlendingToken},
+};
 
 /// An activity proof for a session, made of the blending token
 /// that has the smallest Hamming distance satisfying the activity threshold.
@@ -25,8 +28,22 @@ impl ActivityProof {
     }
 
     #[must_use]
+    pub const fn session_number(&self) -> SessionNumber {
+        self.session_number
+    }
+
+    #[must_use]
     pub const fn token(&self) -> &BlendingToken {
         &self.token
+    }
+
+    pub fn verify<ProofsVerifier: ProofsVerifierTrait>(
+        &self,
+        verifier: &ProofsVerifier,
+        node_index: u64,
+        membership_size: u64,
+    ) -> Result<(), ProofsVerifier::Error> {
+        self.token.verify(verifier, node_index, membership_size)
     }
 }
 
@@ -51,8 +68,9 @@ impl From<&ActivityProof> for nomos_core::sdp::BlendActivityProof {
     fn from(proof: &ActivityProof) -> Self {
         Self {
             session: proof.session_number,
-            proof_of_quota: proof.token.proof_of_quota().into(),
-            proof_of_selection: proof.token.proof_of_selection().into(),
+            proof_of_quota: (&proof.token.proof_of_quota).into(),
+            signing_key: proof.token.signing_key.into(),
+            proof_of_selection: (&proof.token.proof_of_selection).into(),
         }
     }
 }
@@ -65,6 +83,7 @@ impl TryFrom<&nomos_core::sdp::BlendActivityProof> for ActivityProof {
             proof.session,
             BlendingToken::new(
                 (&proof.proof_of_quota).try_into()?,
+                proof.signing_key.try_into()?,
                 (&proof.proof_of_selection).try_into()?,
             ),
         ))

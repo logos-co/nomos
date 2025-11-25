@@ -4,8 +4,8 @@ pub mod rewards;
 use std::collections::HashMap;
 
 use ed25519::{Signature as Ed25519Sig, signature::Verifier as _};
-use groth16::Fr;
 use locked_notes::LockedNotes;
+use nomos_blend_message::crypto::proofs::RealProofsVerifier;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -19,7 +19,7 @@ use nomos_core::{
 };
 use rewards::{BlendRewards, DaRewards, Error as RewardsError, Rewards};
 
-use crate::{UtxoTree, mantle::sdp::rewards::BlendRewardsParameters};
+use crate::{EpochState, UtxoTree, mantle::sdp::rewards::BlendRewardsParameters};
 
 type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 
@@ -27,22 +27,22 @@ type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 #[derive(Clone, Debug, PartialEq)]
 enum Service {
     DataAvailability(ServiceState<DaRewards>),
-    BlendNetwork(ServiceState<BlendRewards>),
+    BlendNetwork(ServiceState<BlendRewards<RealProofsVerifier>>),
 }
 
 impl Service {
     fn try_apply_header(
         self,
         block_number: u64,
-        epoch_nonce: &Fr,
+        epoch_state: &EpochState,
         config: &ServiceParameters,
     ) -> Self {
         match self {
             Self::DataAvailability(state) => {
-                Self::DataAvailability(state.try_apply_header(block_number, epoch_nonce, config))
+                Self::DataAvailability(state.try_apply_header(block_number, epoch_state, config))
             }
             Self::BlendNetwork(state) => {
-                Self::BlendNetwork(state.try_apply_header(block_number, epoch_nonce, config))
+                Self::BlendNetwork(state.try_apply_header(block_number, epoch_state, config))
             }
         }
     }
@@ -234,7 +234,7 @@ impl<R: Rewards> ServiceState<R> {
     fn try_apply_header(
         mut self,
         block_number: u64,
-        epoch_nonce: &Fr,
+        epoch_state: &EpochState,
         config: &ServiceParameters,
     ) -> Self {
         // TODO: remove expired declarations based on retention_period
@@ -244,7 +244,7 @@ impl<R: Rewards> ServiceState<R> {
             // Update rewards with current session state and distribute rewards
             let (new_rewards, _reward_amounts) =
                 self.rewards
-                    .update_session(&self.active, epoch_nonce, config);
+                    .update_session(&self.active, epoch_state, config);
             self.rewards = new_rewards;
             // TODO: Process rewards distribution (e.g., mint reward notes)
             self.active = self.forming.clone();
@@ -257,6 +257,7 @@ impl<R: Rewards> ServiceState<R> {
                 current_session < self.active.session_n + 1,
                 "Nomos isn't ready for time travel yet"
             );
+            self.rewards = self.rewards.update_epoch(epoch_state);
             self.forming = self.forming.update(&self, block_number, config);
         }
 
@@ -362,11 +363,12 @@ impl SdpLedger {
     pub fn from_genesis<'a>(
         config: &Config,
         utxo_tree: &UtxoTree,
+        epoch_state: &EpochState,
         tx_hash: TxHash,
         ops: impl Iterator<Item = (&'a SDPDeclareOp, &'a OpProof)> + 'a,
     ) -> Result<Self, Error> {
         let mut sdp = Self::new()
-            .with_blend_service(config.service_rewards_params.blend.clone())
+            .with_blend_service(config.service_rewards_params.blend.clone(), epoch_state)
             .with_da_service();
 
         for (op, proof) in ops {
@@ -414,9 +416,15 @@ impl SdpLedger {
     }
 
     #[must_use]
-    pub fn with_blend_service(mut self, rewards_settings: BlendRewardsParameters) -> Self {
-        let service =
-            Service::BlendNetwork(Self::new_service_state(BlendRewards::new(rewards_settings)));
+    pub fn with_blend_service(
+        mut self,
+        rewards_settings: BlendRewardsParameters,
+        epoch_state: &EpochState,
+    ) -> Self {
+        let service = Service::BlendNetwork(Self::new_service_state(BlendRewards::new(
+            rewards_settings,
+            epoch_state,
+        )));
         self.services = self.services.insert(ServiceType::BlendNetwork, service);
         self
     }
@@ -438,7 +446,11 @@ impl SdpLedger {
         }
     }
 
-    pub fn try_apply_header(&self, config: &Config, epoch_nonce: &Fr) -> Result<Self, Error> {
+    pub fn try_apply_header(
+        &self,
+        config: &Config,
+        epoch_state: &EpochState,
+    ) -> Result<Self, Error> {
         let block_number = self.block_number + 1; // overflow?
         Ok(Self {
             block_number,
@@ -454,7 +466,7 @@ impl SdpLedger {
                         *service,
                         service_state
                             .clone()
-                            .try_apply_header(block_number, epoch_nonce, config),
+                            .try_apply_header(block_number, epoch_state, config),
                     ))
                 })
                 .collect::<Result<_, _>>()?,
@@ -651,7 +663,7 @@ mod tests {
     use std::{num::NonZeroU64, sync::Arc};
 
     use ed25519_dalek::{Signer as _, SigningKey};
-    use groth16::Field as _;
+    use groth16::{Field as _, Fr};
     use nomos_core::crypto::ZkHash;
     use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
@@ -737,6 +749,15 @@ mod tests {
         sdp_ledger.apply_withdrawn_msg(op, &zk_sig, tx_hash, config)
     }
 
+    fn dummy_epoch_state() -> EpochState {
+        EpochState {
+            epoch: 0.into(),
+            nonce: ZkHash::ZERO,
+            utxos: UtxoTree::default(),
+            total_stake: 0,
+        }
+    }
+
     #[test]
     fn test_update_active_provider() {
         let config = setup();
@@ -756,8 +777,10 @@ mod tests {
         let declaration_id = op.id();
 
         // Initialize ledger with service config
-        let sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Apply declare at block 0
         let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &zk_key, &config).unwrap();
@@ -769,7 +792,9 @@ mod tests {
         // Apply headers to reach block 10 (session boundary)
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // At block 10, declaration enters forming session 2
@@ -798,8 +823,10 @@ mod tests {
         let declaration_id = declare_op.id();
 
         // Initialize ledger with service config and declare
-        let sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         let sdp_ledger =
             apply_declare_with_dummies(sdp_ledger, declare_op, &zk_key, &config).unwrap();
@@ -811,7 +838,9 @@ mod tests {
         // Move forward enough blocks to satisfy lock_period
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..11 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // Withdraw the declaration
@@ -848,8 +877,10 @@ mod tests {
         let declaration_id = op.id();
 
         // Initialize ledger with service config
-        let sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Declare at block 0
         let sdp_ledger = apply_declare_with_dummies(sdp_ledger, op, &zk_key, &config).unwrap();
@@ -857,7 +888,9 @@ mod tests {
         // Apply headers to reach block 10 (session boundary for session_duration=10)
         let mut sdp_ledger = sdp_ledger;
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // At block 10: active becomes session 1 (was empty forming), forming becomes
@@ -873,7 +906,9 @@ mod tests {
 
         // Continue to block 20 to see declaration become active
         for _ in 0..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // At block 20: active becomes session 2 (with declaration)
@@ -888,13 +923,17 @@ mod tests {
         let service_a = ServiceType::BlendNetwork;
 
         // Initialize ledger with service config
-        let mut sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let mut sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Apply headers to reach block 9 (still in session 0, promotion happens at
         // block 10)
         for _ in 0..9 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // Check active session is still session 0 with no declarations
@@ -915,7 +954,10 @@ mod tests {
 
         // Initialize ledger with both services
         let mut sdp_ledger = SdpLedger::new()
-            .with_blend_service(config.service_rewards_params.blend.clone())
+            .with_blend_service(
+                config.service_rewards_params.blend.clone(),
+                &dummy_epoch_state(),
+            )
             .with_da_service();
 
         // Apply headers to reach block 6
@@ -923,7 +965,9 @@ mod tests {
         // At block 6, BlendNetwork hasn't promoted yet (6/10=0, active.session_n=0, so
         // 0!=0+1)
         for _ in 0..6 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // Check DataAvailability is promoted to session 1
@@ -947,12 +991,16 @@ mod tests {
         let zk_key = create_zk_key(0);
 
         // Initialize ledger
-        let mut sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let mut sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // SESSION 0: Add a declaration at block 5
         for _ in 0..5 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         let declare_op = &SDPDeclareOp {
@@ -968,7 +1016,9 @@ mod tests {
 
         // Move to block 9 (last block of session 0)
         for _ in 6..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
         assert_eq!(sdp_ledger.block_number, 9);
 
@@ -982,7 +1032,9 @@ mod tests {
         assert!(forming_session.declarations.is_empty());
 
         // SESSION 1: Cross session boundary to block 10
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         // Active session 1 is empty (was the empty forming session 1)
@@ -997,9 +1049,13 @@ mod tests {
 
         // SESSION 2: Cross to block 20
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 20);
 
         // Now the declaration is active in session 2
@@ -1015,8 +1071,10 @@ mod tests {
         let signing_key = create_signing_key();
         let zk_key_1 = create_zk_key(1);
 
-        let mut sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let mut sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Add declaration at block 0
         let declare_op_1 = &SDPDeclareOp {
@@ -1033,14 +1091,18 @@ mod tests {
 
         // Move to block 9 (last block before session boundary)
         for _ in 1..10 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         // Save state at block 9
         let sdp_ledger_block_9 = sdp_ledger.clone();
 
         // Add another declaration at block 10 (after session boundary)
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         let zk_key_2 = create_zk_key(2);
@@ -1058,9 +1120,13 @@ mod tests {
 
         // Jump to session 2 (block 20)
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
 
         // Active session (session 2) should contain both declarations
         let active_session = sdp_ledger.get_active_session(service_a).unwrap();
@@ -1071,11 +1137,11 @@ mod tests {
         let mut sdp_ledger_from_9 = sdp_ledger_block_9;
         for _ in 10..20 {
             sdp_ledger_from_9 = sdp_ledger_from_9
-                .try_apply_header(&config, &ZkHash::ZERO)
+                .try_apply_header(&config, &dummy_epoch_state())
                 .unwrap();
         }
         sdp_ledger_from_9 = sdp_ledger_from_9
-            .try_apply_header(&config, &ZkHash::ZERO)
+            .try_apply_header(&config, &dummy_epoch_state())
             .unwrap();
 
         // Active session should only contain declaration_id_1
@@ -1100,12 +1166,16 @@ mod tests {
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(0);
 
-        let mut sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let mut sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Add declaration at block 3
         for _ in 0..3 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
 
         let declare_op = &SDPDeclareOp {
@@ -1121,9 +1191,13 @@ mod tests {
 
         // Jump directly from block 3 to block 25 (skipping session 1 entirely)
         for _ in 4..25 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 25);
 
         // Declaration snapshots should be taken from the last known state
@@ -1149,12 +1223,16 @@ mod tests {
         let signing_key = create_signing_key();
         let zk_key_1 = create_zk_key(1);
 
-        let mut sdp_ledger =
-            SdpLedger::new().with_blend_service(config.service_rewards_params.blend.clone());
+        let mut sdp_ledger = SdpLedger::new().with_blend_service(
+            config.service_rewards_params.blend.clone(),
+            &dummy_epoch_state(),
+        );
 
         // Move to block 9 (last block of session 0)
         for _ in 0..9 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
         assert_eq!(sdp_ledger.block_number, 9);
 
@@ -1181,7 +1259,9 @@ mod tests {
 
         // Cross to block 10 (session boundary - start of session 1)
         // At this point, the snapshot for forming session 2 is taken
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 10);
 
         let active_session = sdp_ledger.get_active_session(service_a).unwrap();
@@ -1216,9 +1296,13 @@ mod tests {
 
         // Jump to block 20 (start of session 2)
         for _ in 11..20 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 20);
 
         // Active session 2 has declaration_1 (from block 9)
@@ -1235,9 +1319,13 @@ mod tests {
 
         // Jump to block 30 (start of session 3)
         for _ in 21..30 {
-            sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+            sdp_ledger = sdp_ledger
+                .try_apply_header(&config, &dummy_epoch_state())
+                .unwrap();
         }
-        sdp_ledger = sdp_ledger.try_apply_header(&config, &ZkHash::ZERO).unwrap();
+        sdp_ledger = sdp_ledger
+            .try_apply_header(&config, &dummy_epoch_state())
+            .unwrap();
         assert_eq!(sdp_ledger.block_number, 30);
 
         // Active session 3 now has both declarations

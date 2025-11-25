@@ -48,7 +48,7 @@ where
     }
 
     async fn post_activity(&self, opinions: Opinions) -> Result<(), SdpAdapterError> {
-        let metadata = opinions.into();
+        let metadata = Box::new(opinions.into());
         self.relay
             .send(SdpMessage::PostActivity { metadata })
             .await
