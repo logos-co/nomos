@@ -114,6 +114,8 @@ fn build_operations_impl_for_enum(
         .collect();
 
     quote! {
+        impl crate::keys::secured_key::SecureKeyOperatorSeal for #enum_ident {}
+
         #[async_trait::async_trait]
         impl crate::keys::secured_key::SecureKeyOperator for #enum_ident {
             type Key = #keys_idents;
