@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use nomos_blend_message::crypto::proofs::quota::{
+use nomos_blend_proofs::quota::{
     self, VerifiedProofOfQuota,
     inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
 };

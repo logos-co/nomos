@@ -19,7 +19,7 @@ ed25519-dalek                = { default-features = false, features = ["serde", 
 groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 log                          = "0.4.22"
-nomos-blend-message          = { workspace = true }
+nomos-blend-proofs           = { workspace = true }
 nomos-utils                  = { features = ["serde", "types"], workspace = true }
 overwatch                    = { workspace = true }
 poq                          = { workspace = true }
