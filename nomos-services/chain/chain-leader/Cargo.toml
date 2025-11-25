@@ -19,6 +19,8 @@ chain-service       = { workspace = true }
 cryptarchia-engine  = { workspace = true }
 ed25519-dalek       = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures             = { default-features = false, version = "0.3" }
+groth16             = { workspace = true }
+mmr                 = { workspace = true }
 nomos-blend-service = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-da-sampling   = { workspace = true }
@@ -33,9 +35,17 @@ tokio               = { default-features = false, version = "1" }
 tracing             = { workspace = true }
 tracing-futures     = { default-features = false, version = "0.2" }
 tx-service          = { workspace = true }
+zeroize             = { workspace = true }
 zksign              = { workspace = true }
+
+[dev-dependencies]
+divan = { default-features = false, version = "0.1" }
 
 [features]
 default      = []
 libp2p       = ["nomos-blend-service/libp2p"]
 pol-dev-mode = ["nomos-core/pol-dev-mode"]
+
+[[bench]]
+harness = false
+name    = "pol_sk"

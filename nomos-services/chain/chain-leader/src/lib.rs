@@ -2,6 +2,10 @@ use crate::mempool::MempoolAdapter as _;
 mod blend;
 mod leadership;
 mod mempool;
+
+// this is public so we can use it in overall benches, not nice but necessary
+pub mod pol;
+
 mod relays;
 
 use core::fmt::Debug;
