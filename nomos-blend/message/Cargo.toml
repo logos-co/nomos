@@ -18,6 +18,7 @@ derivative                 = { default-features = false, version = "2" }
 ed25519-dalek              = { default-features = false, features = ["rand_core"], version = "2" }
 generic-array              = { default-features = false, version = "1.2" }
 groth16                    = { workspace = true }
+hex                        = { default-features = false, version = "0.4" }
 itertools                  = { default-features = false, version = "0.14" }
 key-management-system-keys = { workspace = true }
 nomos-blend-crypto         = { workspace = true }

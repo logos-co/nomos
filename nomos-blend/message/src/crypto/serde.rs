@@ -5,7 +5,7 @@ pub mod ed25519_privkey_hex {
     use key_management_system_keys::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key};
     use serde::{Deserializer, Serialize as _, Serializer};
 
-    use crate::serde::deserialize_hex_to_key;
+    use crate::crypto::serde::deserialize_hex_to_key;
 
     pub fn serialize<S>(key: &Ed25519Key, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -27,7 +27,7 @@ pub mod ed25519_pubkey_hex {
     use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
     use serde::{Deserializer, Serialize as _, Serializer, de::Error as _};
 
-    use crate::serde::deserialize_hex_to_key;
+    use crate::crypto::serde::deserialize_hex_to_key;
 
     pub fn serialize<S>(key: &Ed25519PublicKey, serializer: S) -> Result<S::Ok, S::Error>
     where

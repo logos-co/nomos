@@ -8,8 +8,6 @@ use nomos_blend_crypto::keys::Ed25519PublicKey;
 use rand::{Rng, seq::IteratorRandom as _};
 use serde::{Deserialize, Serialize};
 
-use crate::serde::ed25519_pubkey_hex;
-
 /// A set of core nodes in a session.
 #[derive(Clone, Debug)]
 pub struct Membership<NodeId> {
@@ -32,7 +30,7 @@ pub struct Node<Id> {
     /// A listening address
     pub address: Multiaddr,
     /// A public key used for the blend message encryption
-    #[serde(with = "ed25519_pubkey_hex")]
+    #[serde(with = "nomos_blend_message::crypto::serde::ed25519_pubkey_hex")]
     pub public_key: Ed25519PublicKey,
 }
 

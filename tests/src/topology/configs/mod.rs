@@ -11,10 +11,8 @@ pub mod tracing;
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
 use da::GeneralDaConfig;
-use key_management_system::{
-    backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, ZkKey},
-};
+use key_management_system_keys::keys::{Ed25519Key, ZkKey};
+use key_management_system_service::backend::preload::PreloadKMSBackendSettings;
 use network::GeneralNetworkConfig;
 use nomos_core::{
     mantle::GenesisTx as _,

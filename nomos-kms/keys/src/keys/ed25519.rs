@@ -56,6 +56,12 @@ impl From<SigningKey> for Ed25519Key {
     }
 }
 
+impl From<Ed25519Key> for SigningKey {
+    fn from(value: Ed25519Key) -> Self {
+        value.0.clone()
+    }
+}
+
 impl AsRef<SigningKey> for Ed25519Key {
     fn as_ref(&self) -> &SigningKey {
         &self.0

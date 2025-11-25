@@ -1,13 +1,16 @@
 use async_trait::async_trait;
 use groth16::{Field as _, fr_to_bytes};
-use nomos_blend_message::crypto::{
-    key_ext::{Ed25519PrivateKey, Ed25519PublicKey},
-    proofs::{
-        Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey,
-        quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
-        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_crypto::{keys::Ed25519PublicKey, random_sized_bytes};
+use nomos_blend_message::crypto::proofs::{
+    Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey,
+};
+use nomos_blend_proofs::{
+    quota::{
+        ProofOfQuota, VerifiedProofOfQuota,
+        inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
     },
-    random_sized_bytes,
+    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
 use nomos_blend_scheduling::message_blend::{
     CoreProofOfQuotaGenerator,
@@ -18,8 +21,9 @@ use nomos_blend_scheduling::message_blend::{
         leader::LeaderProofsGenerator,
     },
 };
-use nomos_blend_service::{ProofOfLeadershipQuotaInputs, ProofsVerifier, RealProofsVerifier};
+use nomos_blend_service::{ProofsVerifier, RealProofsVerifier};
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
 use poq::PoQProof;
 
 const LOG_TARGET: &str = "node::blend::proofs";
@@ -109,7 +113,7 @@ fn random_proof() -> BlendLayerProof {
             continue;
         };
         return BlendLayerProof {
-            ephemeral_signing_key: Ed25519PrivateKey::generate(),
+            ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
             proof_of_quota,
             proof_of_selection,
         };
@@ -187,20 +191,20 @@ impl ProofsVerifier for BlendProofsVerifier {
 mod core_to_core_tests {
     use futures::future::ready;
     use groth16::Field as _;
-    use nomos_blend_message::crypto::{
-        key_ext::Ed25519PrivateKey,
-        proofs::{
-            Error as VerifierError, PoQVerificationInputsMinusSigningKey,
-            quota::{
-                self, VerifiedProofOfQuota,
-                inputs::prove::{
-                    PrivateInputs, PublicInputs,
-                    private::ProofOfCoreQuotaInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
+    use key_management_system_keys::keys::Ed25519Key;
+    use nomos_blend_message::crypto::proofs::{
+        Error as VerifierError, PoQVerificationInputsMinusSigningKey,
+    };
+    use nomos_blend_proofs::{
+        quota::{
+            self, VerifiedProofOfQuota,
+            inputs::prove::{
+                PrivateInputs, PublicInputs,
+                private::ProofOfCoreQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
             },
-            selection::{self, inputs::VerifyInputs},
         },
+        selection::{self, inputs::VerifyInputs},
     };
     use nomos_blend_scheduling::message_blend::{
         CoreProofOfQuotaGenerator,
@@ -211,6 +215,7 @@ mod core_to_core_tests {
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
     use nomos_core::crypto::ZkHash;
+    use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
     use zksign::SecretKey;
 
     use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};
@@ -524,7 +529,7 @@ mod core_to_core_tests {
         let verified_proof = verifier
             .verify_proof_of_quota(
                 proof_of_quota.into_inner(),
-                &Ed25519PrivateKey::generate().public_key(),
+                &Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
             )
             .unwrap();
         assert_eq!(verified_proof.key_nullifier(), ZkHash::ZERO);

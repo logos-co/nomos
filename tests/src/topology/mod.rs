@@ -13,10 +13,8 @@ use configs::{
     tracing::create_tracing_configs,
 };
 use futures::future::join_all;
-use key_management_system::{
-    backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, ZkKey},
-};
+use key_management_system_keys::keys::{Ed25519Key, ZkKey};
+use key_management_system_service::backend::preload::PreloadKMSBackendSettings;
 use nomos_core::{
     mantle::{GenesisTx as _, Note, NoteId},
     sdp::{Locator, ServiceType, SessionNumber},

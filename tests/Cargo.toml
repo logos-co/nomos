@@ -29,6 +29,7 @@ futures                       = { default-features = false, version = "0.3" }
 futures-util                  = { default-features = false, version = "0.3.31" }
 groth16                       = { workspace = true }
 hex                           = { default-features = false, version = "0.4.3" }
+key-management-system-keys    = { workspace = true }
 key-management-system-service = { workspace = true }
 kzgrs-backend                 = { workspace = true }
 nomos-api                     = { workspace = true }

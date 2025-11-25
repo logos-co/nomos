@@ -26,7 +26,7 @@ mod test_utils;
 pub struct SessionCryptographicProcessorSettings {
     /// The non-ephemeral signing key (NSK) corresponding to the public key
     /// registered in the membership (SDP).
-    #[serde(with = "crate::serde::ed25519_privkey_hex")]
+    #[serde(with = "nomos_blend_message::crypto::serde::ed25519_privkey_hex")]
     #[derivative(Debug = "ignore")]
     pub non_ephemeral_signing_key: Ed25519Key,
     /// `ß_c`: number of blending operations for each locally generated message.

@@ -1,8 +1,6 @@
 use groth16::fr_to_bytes;
-use key_management_system::{
-    backend::preload::KeyId,
-    keys::{Key, secured_key::SecuredKey as _},
-};
+use key_management_system_keys::keys::{Key, secured_key::SecuredKey as _};
+use key_management_system_service::backend::preload::KeyId;
 
 #[must_use]
 pub fn key_id_for_preload_backend(key: &Key) -> KeyId {
