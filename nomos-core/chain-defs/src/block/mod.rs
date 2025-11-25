@@ -42,7 +42,6 @@ pub struct Proposal {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct References {
-    pub service_reward: Option<TxHash>,
     pub mempool_transactions: Vec<TxHash>,
 }
 
@@ -50,7 +49,6 @@ pub struct References {
 pub struct Block<Tx> {
     header: Header,
     signature: ed25519_dalek::Signature,
-    service_reward: Option<Tx>,
     transactions: Vec<Tx>,
 }
 
@@ -82,7 +80,6 @@ impl<Tx> Block<Tx> {
         slot: Slot,
         proof_of_leadership: Groth16LeaderProof,
         transactions: Vec<Tx>,
-        service_reward: Option<Tx>,
         signing_key: &ed25519_dalek::SigningKey,
     ) -> Result<Self, Error>
     where
@@ -101,7 +98,7 @@ impl<Tx> Block<Tx> {
             });
         }
 
-        let block_root = Self::calculate_content_id(&transactions, service_reward.as_ref());
+        let block_root = Self::calculate_content_id(&transactions);
 
         let header = Header::new(parent_block, block_root, slot, proof_of_leadership);
 
@@ -110,7 +107,6 @@ impl<Tx> Block<Tx> {
         Ok(Self {
             header,
             signature,
-            service_reward,
             transactions,
         })
     }
@@ -118,7 +114,6 @@ impl<Tx> Block<Tx> {
     pub fn reconstruct(
         header: Header,
         transactions: Vec<Tx>,
-        service_reward: Option<Tx>,
         signature: ed25519_dalek::Signature,
     ) -> Result<Self, Error>
     where
@@ -131,8 +126,7 @@ impl<Tx> Block<Tx> {
             });
         }
 
-        let calculated_content_id =
-            Self::calculate_content_id(&transactions, service_reward.as_ref());
+        let calculated_content_id = Self::calculate_content_id(&transactions);
         if header.block_root() != &calculated_content_id {
             return Err(Error::BlockRootMismatch);
         }
@@ -147,20 +141,15 @@ impl<Tx> Block<Tx> {
         Ok(Self {
             header,
             signature,
-            service_reward,
             transactions,
         })
     }
 
-    fn calculate_content_id(transactions: &[Tx], service_reward: Option<&Tx>) -> ContentId
+    fn calculate_content_id(transactions: &[Tx]) -> ContentId
     where
         Tx: Transaction<Hash = TxHash>,
     {
-        let tx_hashes: Vec<TxHash> = service_reward
-            .into_iter()
-            .chain(transactions.iter())
-            .map(Transaction::hash)
-            .collect();
+        let tx_hashes: Vec<TxHash> = transactions.iter().map(Transaction::hash).collect();
 
         let root_hash = merkle::calculate_merkle_root(&tx_hashes, None);
         ContentId::from(root_hash)
@@ -187,11 +176,6 @@ impl<Tx> Block<Tx> {
     }
 
     #[must_use]
-    pub const fn service_reward(&self) -> &Option<Tx> {
-        &self.service_reward
-    }
-
-    #[must_use]
     pub const fn signature(&self) -> &ed25519_dalek::Signature {
         &self.signature
     }
@@ -202,11 +186,7 @@ impl<Tx> Block<Tx> {
     {
         let mempool_transactions: Vec<TxHash> =
             self.transactions.iter().map(Transaction::hash).collect();
-
-        let service_reward_hash = self.service_reward.as_ref().map(Transaction::hash);
-
         let references = References {
-            service_reward: service_reward_hash,
             mempool_transactions,
         };
 
@@ -295,7 +275,6 @@ mod tests {
         let slot = Slot::from(42u64);
         let proof_of_leadership = create_proof();
         let transactions: Vec<Tx> = vec![];
-        let service_reward = None;
 
         let valid_signing_key = SigningKey::from_bytes(&[0; 32]);
         let valid_block = Block::create(
@@ -303,7 +282,6 @@ mod tests {
             slot,
             proof_of_leadership,
             transactions.clone(),
-            service_reward.clone(),
             &valid_signing_key,
         )
         .expect("Valid block should be created");
@@ -311,21 +289,16 @@ mod tests {
         let header = valid_block.header().clone();
         let valid_signature = *valid_block.signature();
 
-        let _reconstructed_block = Block::reconstruct(
-            header.clone(),
-            transactions.clone(),
-            service_reward.clone(),
-            valid_signature,
-        )
-        .expect("Should reconstruct block with valid signature");
+        let _reconstructed_block =
+            Block::reconstruct(header.clone(), transactions.clone(), valid_signature)
+                .expect("Should reconstruct block with valid signature");
 
         let wrong_signing_key = SigningKey::from_bytes(&[1u8; 32]);
         let invalid_signature = header
             .sign(&wrong_signing_key)
             .expect("Signing should work");
 
-        let invalid_block_result =
-            Block::reconstruct(header, transactions, service_reward, invalid_signature);
+        let invalid_block_result = Block::reconstruct(header, transactions, invalid_signature);
 
         assert!(
             invalid_block_result.is_err(),
@@ -338,7 +311,6 @@ mod tests {
         let parent_block = [0u8; 32].into();
         let slot = Slot::from(42u64);
         let proof_of_leadership = create_proof();
-        let service_reward = None;
         let signing_key = SigningKey::from_bytes(&[0; 32]);
 
         let _valid_block: Block<Tx> = Block::create(
@@ -346,7 +318,6 @@ mod tests {
             slot,
             proof_of_leadership.clone(),
             vec![],
-            service_reward.clone(),
             &signing_key,
         )
         .expect("Valid block should be created");
@@ -356,7 +327,6 @@ mod tests {
             slot,
             proof_of_leadership,
             create_transactions(MAX_TRANSACTIONS + 1),
-            service_reward,
             &signing_key,
         );
 
