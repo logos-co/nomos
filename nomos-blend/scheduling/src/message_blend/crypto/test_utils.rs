@@ -2,21 +2,18 @@ use core::convert::Infallible;
 
 use async_trait::async_trait;
 use futures::future::ready;
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_message::{
-    crypto::{
-        key_ext::Ed25519PublicKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::{
-                self, ProofOfQuota, VerifiedProofOfQuota,
-                inputs::prove::{
-                    PublicInputs, private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
-                },
-            },
-            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
+    crypto::proofs::PoQVerificationInputsMinusSigningKey, encap::ProofsVerifier,
+};
+use nomos_blend_proofs::{
+    quota::{
+        self, ProofOfQuota, VerifiedProofOfQuota,
+        inputs::prove::{
+            PublicInputs, private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
         },
     },
-    encap::ProofsVerifier,
+    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
 use nomos_core::crypto::ZkHash;
 

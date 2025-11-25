@@ -2,20 +2,20 @@ use core::pin::Pin;
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, stream};
-use nomos_blend_message::crypto::{
-    key_ext::Ed25519PrivateKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::{
-            VerifiedProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
-                public::LeaderInputs,
-            },
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_proofs::{
+    quota::{
+        VerifiedProofOfQuota,
+        inputs::prove::{
+            PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
+            public::LeaderInputs,
         },
-        selection::VerifiedProofOfSelection,
     },
+    selection::VerifiedProofOfSelection,
 };
+use nomos_utils::blake_rng::BlakeRng;
+use rand::SeedableRng as _;
 use tokio::task::spawn_blocking;
 
 use crate::message_blend::provers::{BlendLayerProof, ProofsGeneratorSettings};
@@ -111,8 +111,9 @@ fn create_leadership_proof_stream(
             let encapsulation_layer = current_index % message_quota;
             let private_inputs = private_inputs.clone();
 
+            let mut rng = BlakeRng::from_entropy();
             spawn_blocking(move || {
-                let ephemeral_signing_key = Ed25519PrivateKey::generate();
+                let ephemeral_signing_key = Ed25519Key::generate(&mut rng);
                 let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
                     &PublicInputs {
                         signing_key: ephemeral_signing_key.public_key(),

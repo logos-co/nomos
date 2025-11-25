@@ -1,4 +1,4 @@
-use nomos_blend_message::crypto::proofs::selection::inputs::VerifyInputs;
+use nomos_blend_proofs::selection::inputs::VerifyInputs;
 use test_log::test;
 
 use crate::message_blend::provers::{

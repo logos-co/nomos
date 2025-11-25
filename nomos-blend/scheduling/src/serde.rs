@@ -1,31 +1,30 @@
-use nomos_blend_message::crypto::key_ext::KEY_SIZE;
 use serde::{Deserialize as _, Deserializer, de::Error as _};
 
 /// [`Ed25519PrivateKey`] <> Hex string hex/deserialization
 pub mod ed25519_privkey_hex {
-    use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
+    use key_management_system_keys::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key};
     use serde::{Deserializer, Serialize as _, Serializer};
 
     use crate::serde::deserialize_hex_to_key;
 
-    pub fn serialize<S>(key: &Ed25519PrivateKey, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(key: &Ed25519Key, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         hex::encode(key.as_bytes()).serialize(serializer)
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Ed25519PrivateKey, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Ed25519Key, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Ok(deserialize_hex_to_key(deserializer)?.into())
+        Ok(deserialize_hex_to_key::<ED25519_SECRET_KEY_SIZE, _>(deserializer)?.into())
     }
 }
 
 /// [`Ed25519PublicKey`] <> Hex string serialization/deserialization
 pub mod ed25519_pubkey_hex {
-    use nomos_blend_message::crypto::key_ext::Ed25519PublicKey;
+    use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
     use serde::{Deserializer, Serialize as _, Serializer, de::Error as _};
 
     use crate::serde::deserialize_hex_to_key;
@@ -41,13 +40,16 @@ pub mod ed25519_pubkey_hex {
     where
         D: Deserializer<'de>,
     {
-        deserialize_hex_to_key(deserializer)?
-            .try_into()
-            .map_err(D::Error::custom)
+        Ed25519PublicKey::from_bytes(&deserialize_hex_to_key::<ED25519_PUBLIC_KEY_SIZE, _>(
+            deserializer,
+        )?)
+        .map_err(D::Error::custom)
     }
 }
 
-fn deserialize_hex_to_key<'de, D>(deserializer: D) -> Result<[u8; KEY_SIZE], D::Error>
+fn deserialize_hex_to_key<'de, const KEY_SIZE: usize, D>(
+    deserializer: D,
+) -> Result<[u8; KEY_SIZE], D::Error>
 where
     D: Deserializer<'de>,
 {

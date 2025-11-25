@@ -1,7 +1,7 @@
 use key_management_system_keys::keys::Ed25519Key;
 use nomos_blend_crypto::keys::X25519PrivateKey;
 
-pub(crate) trait Ed25519SecretKeyExt {
+pub trait Ed25519SecretKeyExt {
     fn derive_x25519(&self) -> X25519PrivateKey;
 }
 

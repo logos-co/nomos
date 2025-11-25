@@ -4,7 +4,7 @@ use std::{
 };
 
 use multiaddr::Multiaddr;
-use nomos_blend_message::crypto::key_ext::Ed25519PublicKey;
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use rand::{Rng, seq::IteratorRandom as _};
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +66,12 @@ where
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     #[must_use]
     pub fn new_without_local(nodes: &[Node<NodeId>]) -> Self {
-        Self::new(nodes, &[0; _].try_into().unwrap())
+        use nomos_blend_crypto::keys::ED25519_PUBLIC_KEY_SIZE;
+
+        Self::new(
+            nodes,
+            &Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
+        )
     }
 }
 
@@ -138,7 +143,7 @@ impl<NodeId> Membership<NodeId> {
 
 #[cfg(test)]
 mod tests {
-    use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
+    use key_management_system_keys::keys::Ed25519Key;
     use rand::rngs::OsRng;
 
     use super::*;
@@ -292,7 +297,7 @@ mod tests {
     }
 
     fn key(seed: u8) -> Ed25519PublicKey {
-        Ed25519PrivateKey::from([seed; 32]).public_key()
+        Ed25519Key::from([seed; 32]).public_key()
     }
 
     fn node(id: u32, seed: u8) -> Node<u32> {

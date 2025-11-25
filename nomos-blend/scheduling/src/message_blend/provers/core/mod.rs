@@ -2,14 +2,14 @@ use core::pin::Pin;
 
 use async_trait::async_trait;
 use futures::stream::{self, Stream, StreamExt as _};
-use nomos_blend_message::crypto::{
-    key_ext::Ed25519PrivateKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::{PublicInputs, public::LeaderInputs},
-        selection::VerifiedProofOfSelection,
-    },
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_proofs::{
+    quota::inputs::prove::{PublicInputs, public::LeaderInputs},
+    selection::VerifiedProofOfSelection,
 };
+use nomos_utils::blake_rng::BlakeRng;
+use rand::SeedableRng as _;
 
 use crate::message_blend::{
     CoreProofOfQuotaGenerator,
@@ -124,9 +124,10 @@ where
     tracing::trace!(target: LOG_TARGET, "Generating {proofs_to_generate} core quota proofs starting from index: {starting_key_index}.");
 
     let quota = public_inputs.core.quota;
+    let mut rng = BlakeRng::from_entropy();
     stream::iter(starting_key_index..quota)
         .map(move |key_index| {
-            let ephemeral_signing_key = Ed25519PrivateKey::generate();
+            let ephemeral_signing_key = Ed25519Key::generate(&mut rng);
             let proof_of_quota_generator = proof_of_quota_generator.clone();
 
             async move {

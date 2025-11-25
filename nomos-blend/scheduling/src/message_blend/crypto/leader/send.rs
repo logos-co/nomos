@@ -2,12 +2,11 @@ use core::hash::Hash;
 use std::num::NonZeroU64;
 
 use nomos_blend_message::{
-    Error, PaddedPayloadBody, PayloadType,
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
-    },
+    Error, PaddedPayloadBody, PayloadType, crypto::proofs::PoQVerificationInputsMinusSigningKey,
     input::EncapsulationInput,
+};
+use nomos_blend_proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
 
 use crate::{
@@ -140,18 +139,17 @@ mod test {
     use std::num::NonZeroU64;
 
     use groth16::Field as _;
+    use key_management_system_keys::keys::Ed25519Key;
     use libp2p::{Multiaddr, PeerId};
-    use nomos_blend_message::crypto::{
-        key_ext::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::ProofOfLeadershipQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
-            },
-        },
+    use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
+    use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+    use nomos_blend_proofs::quota::inputs::prove::{
+        private::ProofOfLeadershipQuotaInputs,
+        public::{CoreInputs, LeaderInputs},
     };
     use nomos_core::crypto::ZkHash;
+    use nomos_utils::blake_rng::BlakeRng;
+    use rand::SeedableRng;
 
     use super::SessionCryptographicProcessor;
     use crate::{
@@ -166,13 +164,14 @@ mod test {
         let mut processor =
             SessionCryptographicProcessor::<_, TestEpochChangeLeaderProofsGenerator>::new(
                 &SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
+                    non_ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
                     num_blend_layers: NonZeroU64::new(1).unwrap(),
                 },
                 Membership::new_without_local(&[Node {
                     address: Multiaddr::empty(),
                     id: PeerId::random(),
-                    public_key: [0; _].try_into().unwrap(),
+                    public_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE])
+                        .unwrap(),
                 }]),
                 PoQVerificationInputsMinusSigningKey {
                     session: 1,
