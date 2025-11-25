@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chain_service::Slot;
 use futures::{Stream, future::ready, stream::once};
 use groth16::Field as _;
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
+use nomos_blend_proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_core::crypto::ZkHash;
 use nomos_ledger::EpochState;
 use overwatch::overwatch::OverwatchHandle;

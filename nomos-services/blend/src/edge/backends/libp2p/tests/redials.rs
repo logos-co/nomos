@@ -1,9 +1,11 @@
 use core::slice::from_ref;
 
+use key_management_system_keys::keys::Ed25519Key;
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
+use nomos_utils::blake_rng::BlakeRng;
+use rand::SeedableRng;
 use test_log::test;
 use tokio::spawn;
 
@@ -28,7 +30,7 @@ async fn edge_redial_same_peer() {
         EdgeSwarmBuilder::new(Membership::new_without_local(from_ref(&Node {
             address: empty_multiaddr.clone(),
             id: random_peer_id,
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
         })))
         .build();
     let message = TestEncapsulatedMessage::new(b"test-payload");
@@ -133,7 +135,7 @@ async fn edge_redial_different_peer_after_redial_limit() {
         Node {
             address: empty_multiaddr,
             id: random_peer_id,
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
         },
     ]);
     let EdgeTestSwarm {

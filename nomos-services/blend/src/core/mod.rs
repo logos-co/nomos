@@ -13,17 +13,12 @@ use futures::{
     FutureExt as _, Stream, StreamExt as _,
     future::{BoxFuture, join_all},
 };
-use key_management_system::{api::KmsServiceApi, keys::PublicKeyEncoding};
+use key_management_system_keys::keys::PublicKeyEncoding;
+use key_management_system_service::api::KmsServiceApi;
 use network::NetworkAdapter;
+use nomos_blend_crypto::random_sized_bytes;
 use nomos_blend_message::{
     PayloadType,
-    crypto::{
-        proofs::quota::inputs::prove::{
-            private::ProofOfLeadershipQuotaInputs,
-            public::{CoreInputs, LeaderInputs},
-        },
-        random_sized_bytes,
-    },
     encap::{
         ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,
@@ -32,6 +27,10 @@ use nomos_blend_message::{
         self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
         SessionBlendingTokenCollector,
     },
+};
+use nomos_blend_proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs,
+    public::{CoreInputs, LeaderInputs},
 };
 use nomos_blend_scheduling::{
     SessionMessageScheduler,

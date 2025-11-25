@@ -1,9 +1,7 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey,
-    quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
-};
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_blend_scheduling::{
     membership::Membership,
     message_blend::{

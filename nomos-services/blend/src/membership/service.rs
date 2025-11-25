@@ -2,7 +2,7 @@ use std::{hash::Hash, marker::PhantomData};
 
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
-use nomos_blend_message::crypto::key_ext::Ed25519PublicKey;
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::sdp::{ProviderId, ProviderInfo};
 use overwatch::{
@@ -161,7 +161,7 @@ where
             warn!("Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
-    let public_key = Ed25519PublicKey::try_from(*provider_id)
+    let public_key = Ed25519PublicKey::from_bytes(provider_id)
         .map_err(|e| {
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })

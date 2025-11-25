@@ -3,17 +3,14 @@ use std::iter::repeat_with;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use key_management_system_keys::keys::Ed25519Key;
 use libp2p::{
     Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
     identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{
-    crypto::key_ext::Ed25519PrivateKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
+use nomos_blend_message::encap::{
+    ProofsVerifier as ProofsVerifierTrait, validated::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use nomos_blend_network::core::{
     Config, NetworkBehaviour,
@@ -64,7 +61,7 @@ pub fn new_nodes_with_empty_address(
         .map(|identity| Node {
             id: identity.public().into(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
         })
         .collect::<Vec<_>>();
     (ids.into_iter(), nodes)
@@ -277,7 +274,7 @@ impl SwarmExt for Swarm<BlendBehaviour<MockProofsVerifier, TestObservationWindow
             Node {
                 address,
                 id: *self.local_peer_id(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
+                public_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
             },
             memory_addr_listener_id,
         )

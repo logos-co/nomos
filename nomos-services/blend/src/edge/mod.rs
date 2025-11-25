@@ -15,12 +15,10 @@ use std::{
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{Stream, StreamExt as _};
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey,
-    quota::inputs::prove::{
-        private::ProofOfLeadershipQuotaInputs,
-        public::{CoreInputs, LeaderInputs},
-    },
+use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
+use nomos_blend_proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs,
+    public::{CoreInputs, LeaderInputs},
 };
 use nomos_blend_scheduling::{
     membership::Membership,

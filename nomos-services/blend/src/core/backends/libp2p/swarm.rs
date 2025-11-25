@@ -12,18 +12,16 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_message::{
-    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
+use nomos_blend_message::encap::{
+    ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+    validated::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use nomos_blend_network::core::{
     NetworkBehaviourEvent,
     with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
     with_edge::behaviour::Event as CoreToEdgeEvent,
 };
+use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;

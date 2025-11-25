@@ -4,21 +4,20 @@ use core::{
     time::Duration,
 };
 
+use key_management_system_keys::keys::Ed25519Key;
 use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::Keypair, plaintext, swarm, tcp, yamux,
 };
 use nomos_blend_message::{
-    PayloadType,
-    crypto::{
-        key_ext::Ed25519PrivateKey,
-        proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
-    },
-    encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    PayloadType, encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
     input::EncapsulationInput,
 };
+use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
+use nomos_utils::blake_rng::BlakeRng;
+use rand::SeedableRng;
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/swarm/test");
 
@@ -54,12 +53,12 @@ impl DerefMut for TestEncapsulatedMessage {
 }
 
 fn generate_valid_inputs() -> Vec<EncapsulationInput> {
-    repeat_with(Ed25519PrivateKey::generate)
+    repeat_with(|| Ed25519Key::generate(&mut BlakeRng::from_entropy()))
         .take(3)
         .map(|recipient_signing_key| {
             let recipient_signing_pubkey = recipient_signing_key.public_key();
             EncapsulationInput::new(
-                Ed25519PrivateKey::generate(),
+                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
                 &recipient_signing_pubkey,
                 VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),

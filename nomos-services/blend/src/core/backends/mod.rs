@@ -2,14 +2,12 @@ use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
 use nomos_blend_message::{
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::public::{CoreInputs, LeaderInputs},
-    },
+    crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::{
         encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
+use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
 use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use overwatch::overwatch::handle::OverwatchHandle;
 
@@ -62,6 +60,7 @@ where
 impl<NodeId> From<Membership<NodeId>> for PublicInfo<NodeId> {
     fn from(value: Membership<NodeId>) -> Self {
         use groth16::Field as _;
+        use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
         use nomos_core::crypto::ZkHash;
 
         Self {

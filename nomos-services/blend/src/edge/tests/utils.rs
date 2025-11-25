@@ -6,11 +6,9 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{StreamExt as _, future::ready, stream::once};
-use nomos_blend_message::{
-    crypto::proofs::quota::inputs::prove::{
-        private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
-    },
-    encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+use nomos_blend_proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
 use nomos_blend_scheduling::{
     membership::Membership,

@@ -220,24 +220,23 @@ pub enum Error {
 mod tests {
     use core::num::NonZeroU64;
 
+    use key_management_system_keys::keys::Ed25519Key;
+    use nomos_blend_crypto::keys::Ed25519PublicKey;
     use nomos_blend_message::{
-        Error as InnerError, PayloadType,
-        crypto::{
-            key_ext::{Ed25519PrivateKey, Ed25519PublicKey},
-            proofs::{
-                PoQVerificationInputsMinusSigningKey,
-                quota::{
-                    VerifiedProofOfQuota,
-                    inputs::prove::public::{CoreInputs, LeaderInputs},
-                },
-                selection::{self, VerifiedProofOfSelection},
-            },
+        Error as InnerError, PayloadType, crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader, input::EncapsulationInput,
+    };
+    use nomos_blend_proofs::{
+        quota::{
+            VerifiedProofOfQuota,
+            inputs::prove::public::{CoreInputs, LeaderInputs},
         },
-        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
-        input::EncapsulationInput,
+        selection::{self, VerifiedProofOfSelection},
     };
     use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
+    use nomos_utils::blake_rng::BlakeRng;
+    use rand::SeedableRng;
 
     use crate::{
         core::processor::{CoreCryptographicProcessor, DecapsulatedMessageType, Error},
@@ -454,7 +453,7 @@ mod tests {
     ) -> EncapsulatedMessageWithVerifiedPublicHeader {
         let inputs = std::iter::repeat_with(|| {
             EncapsulationInput::new(
-                Ed25519PrivateKey::generate(),
+                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
                 recipient_signing_pubkey,
                 VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),

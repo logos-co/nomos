@@ -1,6 +1,6 @@
 use std::{num::NonZeroU64, path::PathBuf};
 
-use key_management_system::backend::preload::KeyId;
+use key_management_system_service::backend::preload::KeyId;
 use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
@@ -99,6 +99,5 @@ pub struct MessageDelayerSettings {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ZkSettings {
-    #[serde(rename = "secret_key_kms_id")]
     pub secret_key_kms_id: KeyId,
 }
