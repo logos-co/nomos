@@ -126,12 +126,6 @@ impl VerifiedProofOfSelection {
         self.0
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub fn dummy() -> Self {
-        Self::from_bytes_unchecked([0u8; _])
-    }
-
     #[must_use]
     pub const fn from_proof_of_selection_unchecked(proof: ProofOfSelection) -> Self {
         Self(proof)

@@ -1,3 +1,59 @@
+use core::mem::swap;
+
+use nomos_blend_crypto::keys::Ed25519PublicKey;
+use nomos_blend_proofs::{
+    quota::{
+        self, ProofOfQuota, VerifiedProofOfQuota,
+        inputs::prove::{
+            PublicInputs,
+            public::{CoreInputs, LeaderInputs},
+        },
+    },
+    selection::{self, ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
+};
+use thiserror::Error;
+
+use crate::encap::ProofsVerifier;
+
+/// The inputs required to verify a Proof of Quota, without the signing key,
+/// which is retrieved from the public header of the message layer being
+/// verified.
+#[derive(Debug, Clone, Copy)]
+pub struct PoQVerificationInputsMinusSigningKey {
+    pub session: u64,
+    pub core: CoreInputs,
+    pub leader: LeaderInputs,
+}
+
+#[cfg(test)]
+impl Default for PoQVerificationInputsMinusSigningKey {
+    fn default() -> Self {
+        use nomos_core::crypto::ZkHash;
+
+        Self {
+            session: 1,
+            core: CoreInputs {
+                zk_root: ZkHash::default(),
+                quota: 1,
+            },
+            leader: LeaderInputs {
+                pol_ledger_aged: ZkHash::default(),
+                pol_epoch_nonce: ZkHash::default(),
+                message_quota: 1,
+                total_stake: 1,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Invalid Proof of Quota: {0}.")]
+    ProofOfQuota(#[from] quota::Error),
+    #[error("Invalid Proof of Selection: {0}.")]
+    ProofOfSelection(selection::Error),
+}
+
 /// Verifier that actually verifies the validity of Blend-related proofs.
 #[derive(Clone)]
 pub struct RealProofsVerifier {

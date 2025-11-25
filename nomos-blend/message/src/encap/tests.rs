@@ -1,18 +1,20 @@
 use core::convert::Infallible;
 
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_crypto::{
+    keys::{Ed25519PublicKey, X25519PrivateKey},
+    signatures::Signature,
+};
+use nomos_blend_proofs::{
+    quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
+};
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
 
 use crate::{
     Error, PayloadType,
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey, X25519PrivateKey},
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
-            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-        },
-        signatures::{SIGNATURE_SIZE, Signature},
-    },
+    crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
     encap::{
         ProofsVerifier,
         decapsulated::DecapsulationOutput,
@@ -213,7 +215,7 @@ fn invalid_public_header_signature() {
             PayloadType::Data,
             PAYLOAD_BODY.try_into().unwrap(),
         ));
-        *msg.public_header_mut().signature_mut() = Signature::from([100u8; SIGNATURE_SIZE]);
+        *msg.public_header_mut().signature_mut() = Signature::from([100u8; _]);
         msg
     };
 
@@ -227,7 +229,7 @@ fn invalid_public_header_signature() {
 
 #[test]
 fn invalid_public_header_proof_of_quota() {
-    use crate::crypto::proofs::quota::Error as PoQError;
+    use nomos_blend_proofs::quota::Error as PoQError;
 
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfQuotaVerifier;
@@ -250,7 +252,7 @@ fn invalid_public_header_proof_of_quota() {
 
 #[test]
 fn invalid_blend_header_proof_of_selection() {
-    use crate::crypto::proofs::selection::Error as PoSelError;
+    use nomos_blend_proofs::selection::Error as PoSelError;
 
     const PAYLOAD_BODY: &[u8] = b"hello";
     let verifier = AlwaysFailingProofOfSelectionVerifier;
@@ -295,17 +297,18 @@ fn serde_encapsulated_and_verified() {
 }
 
 fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey>) {
-    let recipient_signing_keys = core::iter::repeat_with(Ed25519PrivateKey::generate)
-        .take(cnt)
-        .collect::<Vec<_>>();
+    let recipient_signing_keys =
+        core::iter::repeat_with(|| Ed25519Key::generate(&mut BlakeRng::from_entropy()))
+            .take(cnt)
+            .collect::<Vec<_>>();
     let inputs = recipient_signing_keys
         .iter()
         .map(|recipient_signing_key| {
             EncapsulationInput::new(
-                Ed25519PrivateKey::generate(),
+                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
                 &recipient_signing_key.public_key(),
-                VerifiedProofOfQuota::dummy(),
-                VerifiedProofOfSelection::dummy(),
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             )
         })
         .collect::<Vec<_>>();
@@ -313,7 +316,7 @@ fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey
         inputs,
         recipient_signing_keys
             .iter()
-            .map(Ed25519PrivateKey::derive_x25519)
+            .map(Ed25519Key::derive_x25519)
             .collect(),
     )
 }

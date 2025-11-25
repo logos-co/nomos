@@ -221,7 +221,7 @@ mod tests {
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
     use nomos_blend_message::crypto::{
-        keys::Ed25519PublicKey,
+        key_ext::Ed25519PublicKey,
         proofs::quota::{
             VerifiedProofOfQuota,
             inputs::prove::{

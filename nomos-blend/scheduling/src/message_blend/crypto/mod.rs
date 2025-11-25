@@ -3,7 +3,7 @@ use std::num::NonZeroU64;
 use derivative::Derivative;
 use nomos_blend_message::{
     Error,
-    crypto::keys::Ed25519PrivateKey,
+    crypto::key_ext::Ed25519PrivateKey,
     encap::{
         encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },

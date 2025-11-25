@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use derivative::Derivative;
-use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
+use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Derivative, Clone)]

@@ -2,7 +2,7 @@ use core::time::Duration;
 use std::{num::NonZeroU64, str::FromStr as _};
 
 use key_management_system::keys::ZkKey;
-use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
+use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
 use nomos_blend_service::core::settings::ZkSettings;
 use nomos_libp2p::Multiaddr;
 use nomos_node::config::blend::serde::{

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::future::ready;
 use nomos_blend_message::{
     crypto::{
-        keys::Ed25519PublicKey,
+        key_ext::Ed25519PublicKey,
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{

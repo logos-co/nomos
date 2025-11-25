@@ -1,12 +1,14 @@
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_crypto::{
+    keys::{Ed25519PublicKeyExt, X25519PrivateKey},
+    random_sized_bytes,
+};
+use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::inputs::VerifyInputs};
+use nomos_utils::blake_rng::{BlakeRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, MessageIdentifier, PaddedPayloadBody, PayloadType,
-    crypto::{
-        keys::{Ed25519PrivateKey, X25519PrivateKey},
-        proofs::{quota::VerifiedProofOfQuota, selection::inputs::VerifyInputs},
-        random_sized_bytes,
-    },
     encap::{
         ProofsVerifier,
         decapsulated::{DecapsulatedMessage, DecapsulationOutput, PartDecapsulationOutput},
@@ -55,7 +57,7 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 // Start with an initialized encapsulated part,
                 // a random signing key, and proof of quota.
                 EncapsulatedPart::initialize(inputs, payload_type, payload_body),
-                Ed25519PrivateKey::generate(),
+                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
                 VerifiedProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
             |(part, signing_key, proof_of_quota), (i, input)| {

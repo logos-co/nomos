@@ -11,7 +11,7 @@ use libp2p::{
 use nomos_blend_message::{
     PayloadType,
     crypto::{
-        keys::Ed25519PrivateKey,
+        key_ext::Ed25519PrivateKey,
         proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     },
     encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,

@@ -5,7 +5,7 @@ use futures::Stream;
 use groth16::Field as _;
 use nomos_blend_message::{
     crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
+        key_ext::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{

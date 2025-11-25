@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
 use libp2p::Multiaddr;
-use nomos_blend_message::crypto::keys::{Ed25519PrivateKey, Ed25519PublicKey};
+use nomos_blend_message::crypto::key_ext::{Ed25519PrivateKey, Ed25519PublicKey};
 use nomos_blend_scheduling::membership::{Membership, Node};
 
 pub fn membership<NodeId>(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId>

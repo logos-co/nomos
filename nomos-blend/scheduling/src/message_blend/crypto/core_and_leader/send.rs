@@ -4,7 +4,7 @@ use std::num::NonZeroU64;
 use nomos_blend_message::{
     Error, PaddedPayloadBody, PayloadType,
     crypto::{
-        keys::X25519PrivateKey,
+        key_ext::X25519PrivateKey,
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
@@ -221,7 +221,7 @@ mod test {
     use groth16::Field as _;
     use multiaddr::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
+        key_ext::Ed25519PrivateKey,
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::inputs::prove::{

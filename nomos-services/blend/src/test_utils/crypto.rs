@@ -3,7 +3,7 @@ use core::{cell::Cell, convert::Infallible};
 use async_trait::async_trait;
 use nomos_blend_message::{
     crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
+        key_ext::{Ed25519PrivateKey, Ed25519PublicKey},
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::{

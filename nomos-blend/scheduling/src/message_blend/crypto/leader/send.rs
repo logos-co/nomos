@@ -142,7 +142,7 @@ mod test {
     use groth16::Field as _;
     use libp2p::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
+        key_ext::Ed25519PrivateKey,
         proofs::{
             PoQVerificationInputsMinusSigningKey,
             quota::inputs::prove::{

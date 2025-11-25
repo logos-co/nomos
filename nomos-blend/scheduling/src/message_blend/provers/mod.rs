@@ -1,5 +1,5 @@
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
+    key_ext::Ed25519PrivateKey,
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::{VerifiedProofOfQuota, inputs::prove::public::CoreInputs},

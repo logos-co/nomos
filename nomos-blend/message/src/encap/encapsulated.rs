@@ -1,17 +1,18 @@
 use itertools::Itertools as _;
+use key_management_system_keys::keys::Ed25519Key;
+use nomos_blend_crypto::{
+    keys::{Ed25519PublicKey, SharedKey},
+    signatures::Signature,
+};
+use nomos_blend_proofs::{
+    quota::{self, VerifiedProofOfQuota},
+    selection::{self, VerifiedProofOfSelection, inputs::VerifyInputs},
+};
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, PayloadType,
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey, SharedKey},
-        proofs::{
-            quota::{self, VerifiedProofOfQuota},
-            selection::{self, VerifiedProofOfSelection, inputs::VerifyInputs},
-        },
-        signatures::Signature,
-    },
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
@@ -120,7 +121,7 @@ impl EncapsulatedPart {
     pub(super) fn encapsulate(
         self,
         shared_key: &SharedKey,
-        signing_key: &Ed25519PrivateKey,
+        signing_key: &Ed25519Key,
         proof_of_quota: &VerifiedProofOfQuota,
         proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
@@ -202,8 +203,9 @@ impl EncapsulatedPart {
     }
 
     /// Signs the encapsulated part using the provided key.
-    pub(super) fn sign(&self, key: &Ed25519PrivateKey) -> Signature {
-        key.sign(&signing_body(&self.private_header, &self.payload))
+    pub(super) fn sign(&self, key: &Ed25519Key) -> Signature {
+        key.sign_payload(&signing_body(&self.private_header, &self.payload))
+            .into()
     }
 }
 

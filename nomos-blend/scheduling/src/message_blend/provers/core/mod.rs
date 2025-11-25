@@ -3,7 +3,7 @@ use core::pin::Pin;
 use async_trait::async_trait;
 use futures::stream::{self, Stream, StreamExt as _};
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
+    key_ext::Ed25519PrivateKey,
     proofs::{
         PoQVerificationInputsMinusSigningKey,
         quota::inputs::prove::{PublicInputs, public::LeaderInputs},

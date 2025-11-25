@@ -17,3 +17,6 @@ blake2        = { workspace = true }
 ed25519-dalek = { default-features = false, version = "2" }
 nomos-utils   = { features = ["rng"], workspace = true }
 rand          = { workspace = true, features = ["getrandom"] }
+serde         = { workspace = true }
+x25519-dalek  = { default-features = false, features = ["serde", "static_secrets", "zeroize"], version = "2" }
+zeroize       = { workspace = true }

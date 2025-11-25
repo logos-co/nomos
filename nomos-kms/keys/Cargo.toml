@@ -18,7 +18,7 @@ bytes                        = { workspace = true }
 ed25519-dalek                = { default-features = false, features = ["rand_core", "serde", "zeroize"], version = "2" }
 groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
-nomos-blend-message          = { workspace = true }
+nomos-blend-proofs           = { workspace = true }
 nomos-utils                  = { features = ["rng", "serde", "types"], workspace = true }
 poq                          = { workspace = true }
 poseidon2                    = { workspace = true }

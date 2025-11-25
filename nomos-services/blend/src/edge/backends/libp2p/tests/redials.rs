@@ -1,7 +1,7 @@
 use core::slice::from_ref;
 
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
+use nomos_blend_message::crypto::key_ext::Ed25519PrivateKey;
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;

@@ -135,12 +135,6 @@ impl VerifiedProofOfQuota {
         self.0.key_nullifier
     }
 
-    #[cfg(test)]
-    #[must_use]
-    pub fn dummy() -> Self {
-        Self::from_bytes_unchecked([0u8; _])
-    }
-
     /// Returns an unverified Proof of Quota from a verified one without
     /// performing any checks.
     ///

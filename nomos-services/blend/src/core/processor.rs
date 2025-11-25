@@ -223,7 +223,7 @@ mod tests {
     use nomos_blend_message::{
         Error as InnerError, PayloadType,
         crypto::{
-            keys::{Ed25519PrivateKey, Ed25519PublicKey},
+            key_ext::{Ed25519PrivateKey, Ed25519PublicKey},
             proofs::{
                 PoQVerificationInputsMinusSigningKey,
                 quota::{
