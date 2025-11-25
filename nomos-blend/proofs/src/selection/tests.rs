@@ -5,7 +5,7 @@ use nomos_core::{
     crypto::ZkHash,
 };
 
-use crate::crypto::proofs::selection::{
+use crate::selection::{
     Error, KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR, ProofOfSelection,
     VerifiedProofOfSelection, derive_key_nullifier_from_secret_selection_randomness,
     inputs::VerifyInputs,

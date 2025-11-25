@@ -1,12 +1,10 @@
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use num_bigint::BigUint;
 
-use crate::crypto::{
-    keys::Ed25519PublicKey,
-    proofs::quota::inputs::prove::{
-        PublicInputs,
-        private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
-        public::{CoreInputs, LeaderInputs},
-    },
+use crate::quota::inputs::prove::{
+    PublicInputs,
+    private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs},
+    public::{CoreInputs, LeaderInputs},
 };
 
 // Reference values taken from the tests within the `poq` crate.

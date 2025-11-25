@@ -20,8 +20,10 @@ members = [
   "nodes/nomos-executor/http-client",
   "nodes/nomos-node/http-client",
   "nodes/nomos-node/node",
+  "nomos-blend/crypto",
   "nomos-blend/message",
   "nomos-blend/network",
+  "nomos-blend/proofs",
   "nomos-blend/scheduling",
   "nomos-bundler",
   "nomos-c",
@@ -99,8 +101,10 @@ kzgrs                         = { default-features = false, path = "./nomos-da/k
 kzgrs-backend                 = { default-features = false, path = "./nomos-da/kzgrs-backend" }
 mmr                           = { default-features = false, path = "./mmr" }
 nomos-api                     = { default-features = false, path = "./nomos-services/api" }
+nomos-blend-crypto            = { default-features = false, path = "./nomos-blend/crypto" }
 nomos-blend-message           = { default-features = false, path = "./nomos-blend/message" }
 nomos-blend-network           = { default-features = false, path = "./nomos-blend/network" }
+nomos-blend-proofs            = { default-features = false, path = "./nomos-blend/proofs" }
 nomos-blend-scheduling        = { default-features = false, path = "./nomos-blend/scheduling" }
 nomos-blend-service           = { default-features = false, path = "./nomos-services/blend" }
 nomos-cli                     = { default-features = false, path = "./nomos-cli" }

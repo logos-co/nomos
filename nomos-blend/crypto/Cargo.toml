@@ -1,0 +1,19 @@
+[package]
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-blend-crypto"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+blake2        = { workspace = true }
+ed25519-dalek = { default-features = false, version = "2" }
+nomos-utils   = { features = ["rng"], workspace = true }
+rand          = { workspace = true, features = ["getrandom"] }

@@ -3,15 +3,13 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
+use nomos_blend_crypto::{blake2b512, pseudo_random_sized_bytes};
 use nomos_core::crypto::ZkHash;
 use num_bigint::BigUint;
 use thiserror::Error;
 
-use crate::crypto::{
-    blake2b512,
-    proofs::{ZkCompressExt as _, selection::inputs::VerifyInputs},
-    pseudo_random_sized_bytes,
-};
+use crate::{ZkCompressExt as _, selection::inputs::VerifyInputs};
+
 pub mod inputs;
 
 #[cfg(test)]

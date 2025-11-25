@@ -16,7 +16,7 @@ pub(super) mod proof {
 mod tests {
     use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-    use crate::crypto::proofs::quota::{ProofOfQuota, VerifiedProofOfQuota};
+    use crate::quota::{ProofOfQuota, VerifiedProofOfQuota};
 
     #[test]
     fn serialize_deserialize() {

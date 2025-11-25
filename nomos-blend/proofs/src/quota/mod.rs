@@ -7,7 +7,7 @@ use nomos_core::crypto::ZkHash;
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
-use crate::crypto::proofs::{
+use crate::{
     ZkHashExt as _,
     quota::inputs::{
         VerifyInputs,

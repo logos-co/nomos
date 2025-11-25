@@ -4,7 +4,7 @@ use poq::{
     PoQWalletInputsData, PoQWitnessInputs,
 };
 
-use crate::crypto::proofs::quota::inputs::{
+use crate::quota::inputs::{
     prove::private::{ProofOfCoreQuotaInputs, ProofOfLeadershipQuotaInputs, ProofType},
     split_ephemeral_signing_key,
 };
