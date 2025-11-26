@@ -43,6 +43,7 @@ pub struct Config {
 
 /// `ServiceConfig` combines user-provided configuration with
 /// deployment-specific settings
+#[derive(Clone)]
 pub struct ServiceConfig {
     pub user: Config,
     pub deployment: DeploymentSettings,

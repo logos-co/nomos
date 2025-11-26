@@ -1,7 +1,4 @@
-use nomos_da_dispersal::{
-    DispersalServiceSettings,
-    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
-};
+use nomos_da_dispersal::{DispersalServiceSettings, backend::kzgrs::DispersalKZGRSBackendSettings};
 use nomos_da_network_service::{
     NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings as DaNetworkApiAdapterSettings,
@@ -45,6 +42,10 @@ pub fn da_config_to_executor_settings(
     DaSamplingSettings,
     Option<DaDispersalSettings>,
 ) {
+    let (_, verifier_settings, sampling_settings, dispersal_settings) = config.clone().into();
+
+    // Build executor-specific network settings (only difference is the backend
+    // type)
     let network_settings = DaNetworkSettings {
         backend: DaNetworkExecutorBackendSettings {
             validator_settings: DaNetworkBackendSettings {
@@ -59,7 +60,6 @@ pub fn da_config_to_executor_settings(
             },
             num_subnets: config.deployment.common.num_subnets as u16,
         },
-
         membership: NomosDaMembership::new(
             0,
             config.deployment.network.subnetwork_size,
@@ -73,47 +73,6 @@ pub fn da_config_to_executor_settings(
         subnet_threshold: config.deployment.network.subnet_threshold,
         min_session_members: config.deployment.network.min_session_members,
     };
-
-    let verifier_settings = DaVerifierSettings {
-        share_verifier_settings: KzgrsDaVerifierSettings {
-            global_params_path: config.deployment.common.global_params_path.clone(),
-            domain_size: config.deployment.common.domain_size,
-        },
-        tx_verifier_settings: (),
-
-        mempool_trigger_settings: config.deployment.verifier.mempool_trigger_settings,
-    };
-
-    let sampling_settings = DaSamplingSettings {
-        sampling_settings: KzgrsSamplingBackendSettings {
-            num_samples: config.deployment.sampling.num_samples,
-            num_subnets: config.deployment.common.num_subnets as u16,
-            old_blobs_check_interval: config.deployment.sampling.old_blobs_check_interval,
-            blobs_validity_duration: config.deployment.sampling.blobs_validity_duration,
-        },
-        share_verifier_settings: SamplingVerifierSettings {
-            global_params_path: config.deployment.common.global_params_path,
-            domain_size: config.deployment.common.domain_size,
-        },
-        commitments_wait_duration: config.deployment.sampling.commitments_wait_duration,
-        sdp_blob_trigger_sampling_delay: config.deployment.sampling.sdp_blob_trigger_sampling_delay,
-    };
-
-    let dispersal_settings = config
-        .user
-        .dispersal
-        .map(|dispersal_config| DaDispersalSettings {
-            backend: DispersalKZGRSBackendSettings {
-                encoder_settings: EncoderSettings {
-                    num_columns: config.deployment.common.num_subnets,
-                    with_cache: dispersal_config.encoder_settings.with_cache,
-                    global_params_path: dispersal_config.encoder_settings.global_params_path,
-                },
-                dispersal_timeout: config.deployment.dispersal.dispersal_timeout,
-                retry_cooldown: config.deployment.dispersal.retry_cooldown,
-                retry_limit: config.deployment.dispersal.retry_limit,
-            },
-        });
 
     (
         network_settings,
