@@ -13,9 +13,9 @@ use libp2p::{
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use libp2p_stream::OpenStreamError;
-use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
-use nomos_blend_network::send_msg;
-use nomos_blend_scheduling::{
+use nomos_blend_core::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+use nomos_blend_core::network::send_msg;
+use nomos_blend_core::scheduling::{
     membership::{Membership, Node},
     serialize_encapsulated_message,
 };

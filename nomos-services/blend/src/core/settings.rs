@@ -1,7 +1,7 @@
 use std::{num::NonZeroU64, path::PathBuf};
 
 use key_management_system_service::backend::preload::KeyId;
-use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
+use nomos_blend_core::scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 use services_utils::overwatch::recovery::backends::FileBackendSettings;
@@ -26,8 +26,8 @@ impl<BackendSettings> BlendConfig<BackendSettings> {
             .session_quota(&self.crypto, &self.time, membership_size)
     }
 
-    pub(super) fn scheduler_settings(&self) -> nomos_blend_scheduling::message_scheduler::Settings {
-        nomos_blend_scheduling::message_scheduler::Settings {
+    pub(super) fn scheduler_settings(&self) -> nomos_blend_core::scheduling::message_scheduler::Settings {
+        nomos_blend_core::scheduling::message_scheduler::Settings {
             additional_safety_intervals: self.scheduler.cover.intervals_for_safety_buffer,
             expected_intervals_per_session: self.time.intervals_per_session(),
             maximum_release_delay_in_rounds: self.scheduler.delayer.maximum_release_delay_in_rounds,

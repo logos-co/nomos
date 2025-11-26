@@ -4,17 +4,19 @@ use core::{
     time::Duration,
 };
 
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_service::keys::Ed25519Key;
 use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::Keypair, plaintext, swarm, tcp, yamux,
 };
-use nomos_blend_message::{
-    PayloadType, encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    input::EncapsulationInput,
+use nomos_blend_core::{
+    message::{
+        PayloadType, encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        input::EncapsulationInput,
+    },
+    proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
+    scheduling::membership::Membership,
 };
-use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
-use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{NetworkBehaviour, upgrade::Version};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;

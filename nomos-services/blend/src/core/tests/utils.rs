@@ -3,35 +3,38 @@ use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::Stream;
 use groth16::Field as _;
-use key_management_system_keys::keys::Ed25519Key;
-use nomos_blend_crypto::keys::Ed25519PublicKey;
-use nomos_blend_message::{
-    crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{
-        ProofsVerifier, encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
-    reward,
-};
-use nomos_blend_proofs::{
-    quota::{
-        ProofOfQuota, VerifiedProofOfQuota,
-        inputs::prove::{
-            private::ProofOfLeadershipQuotaInputs,
-            public::{CoreInputs, LeaderInputs},
+use key_management_system_service::keys::Ed25519Key;
+use nomos_blend_core::{
+    crypto::keys::Ed25519PublicKey,
+    message::{
+        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::{
+            ProofsVerifier, encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
+        reward,
     },
-    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::SessionCryptographicProcessorSettings,
-        provers::{
-            BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{
+                private::ProofOfLeadershipQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
+            },
         },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
-    message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::SessionCryptographicProcessorSettings,
+            provers::{
+                BlendLayerProof, ProofsGeneratorSettings,
+                core_and_leader::CoreAndLeaderProofsGenerator,
+            },
+        },
+        message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
+    },
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};

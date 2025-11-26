@@ -1,20 +1,20 @@
 use core::{cell::Cell, convert::Infallible};
 
 use async_trait::async_trait;
-use key_management_system_keys::keys::Ed25519Key;
-use nomos_blend_crypto::keys::Ed25519PublicKey;
-use nomos_blend_message::{
-    crypto::proofs::PoQVerificationInputsMinusSigningKey, encap::ProofsVerifier,
-};
-use nomos_blend_proofs::{
-    quota::{
-        ProofOfQuota, VerifiedProofOfQuota,
-        inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+use key_management_system_service::keys::Ed25519Key;
+use nomos_blend_core::{
+    crypto::keys::Ed25519PublicKey,
+    message::{crypto::proofs::PoQVerificationInputsMinusSigningKey, encap::ProofsVerifier},
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+        },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
-    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-};
-use nomos_blend_scheduling::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    scheduling::message_blend::provers::{
+        BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    },
 };
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;

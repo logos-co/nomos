@@ -1,9 +1,11 @@
 use std::hash::Hash;
 
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_service::keys::Ed25519Key;
 use libp2p::Multiaddr;
-use nomos_blend_crypto::keys::Ed25519PublicKey;
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend_core::{
+    crypto::keys::Ed25519PublicKey,
+    scheduling::membership::{Membership, Node},
+};
 
 pub fn membership<NodeId>(ids: &[NodeId], local_id: NodeId) -> Membership<NodeId>
 where

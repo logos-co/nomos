@@ -3,7 +3,7 @@ use std::{
     hash::Hash,
 };
 
-use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
+use nomos_blend_core::scheduling::{membership::Membership, session::SessionEvent};
 use nomos_network::NetworkService;
 use overwatch::{
     overwatch::OverwatchHandle,
@@ -302,10 +302,9 @@ impl Mode {
 mod tests {
     use std::time::Duration;
 
-    use key_management_system_keys::keys::Ed25519Key;
+    use key_management_system_service::keys::Ed25519Key;
     use libp2p::Multiaddr;
-    use nomos_blend_crypto::keys::Ed25519PublicKey;
-    use nomos_blend_scheduling::membership::Node;
+    use nomos_blend_core::{crypto::keys::Ed25519PublicKey, scheduling::membership::Node};
     use nomos_network::config::NetworkConfig;
     use overwatch::{
         DynError, OpaqueServiceResourcesHandle,

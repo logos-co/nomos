@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use nomos_blend_scheduling::{
+use nomos_blend_core::scheduling::{
     SessionMessageScheduler,
     message_scheduler::{ProcessedMessageScheduler as _, Settings, session_info::SessionInfo},
 };

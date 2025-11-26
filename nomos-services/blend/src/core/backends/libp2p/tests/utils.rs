@@ -3,21 +3,24 @@ use std::iter::repeat_with;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_service::keys::Ed25519Key;
 use libp2p::{
     Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
     identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::encap::{
-    ProofsVerifier as ProofsVerifierTrait, validated::EncapsulatedMessageWithVerifiedPublicHeader,
+use nomos_blend_core::{
+    message::encap::{
+        ProofsVerifier as ProofsVerifierTrait,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    },
+    network::core::{
+        Config, NetworkBehaviour,
+        with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
+        with_edge::behaviour::Config as CoreToEdgeConfig,
+    },
+    scheduling::membership::{Membership, Node},
 };
-use nomos_blend_network::core::{
-    Config, NetworkBehaviour,
-    with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
-    with_edge::behaviour::Config as CoreToEdgeConfig,
-};
-use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;

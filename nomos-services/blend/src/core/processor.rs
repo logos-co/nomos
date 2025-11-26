@@ -4,25 +4,27 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::{
-    Error as InnerError,
-    crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
-        encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
-    reward::BlendingToken,
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::{
-            SessionCryptographicProcessorSettings,
-            core_and_leader::send_and_receive::SessionCryptographicProcessor,
+use nomos_blend_core::{
+    message::{
+        Error as InnerError,
+        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::{
+            ProofsVerifier as ProofsVerifierTrait,
+            decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+            encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
-        provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        reward::BlendingToken,
+    },
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::{
+                SessionCryptographicProcessorSettings,
+                core_and_leader::send_and_receive::SessionCryptographicProcessor,
+            },
+            provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        },
     },
 };
 
@@ -220,20 +222,23 @@ pub enum Error {
 mod tests {
     use core::num::NonZeroU64;
 
-    use key_management_system_keys::keys::Ed25519Key;
-    use nomos_blend_crypto::keys::Ed25519PublicKey;
-    use nomos_blend_message::{
-        Error as InnerError, PayloadType, crypto::proofs::PoQVerificationInputsMinusSigningKey,
-        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader, input::EncapsulationInput,
-    };
-    use nomos_blend_proofs::{
-        quota::{
-            VerifiedProofOfQuota,
-            inputs::prove::public::{CoreInputs, LeaderInputs},
+    use key_management_system_service::keys::Ed25519Key;
+    use nomos_blend_core::{
+        crypto::keys::Ed25519PublicKey,
+        message::{
+            Error as InnerError, PayloadType, crypto::proofs::PoQVerificationInputsMinusSigningKey,
+            encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+            input::EncapsulationInput,
         },
-        selection::{self, VerifiedProofOfSelection},
+        proofs::{
+            quota::{
+                VerifiedProofOfQuota,
+                inputs::prove::public::{CoreInputs, LeaderInputs},
+            },
+            selection::{self, VerifiedProofOfSelection},
+        },
+        scheduling::message_blend::crypto::SessionCryptographicProcessorSettings,
     };
-    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
     use nomos_utils::blake_rng::BlakeRng;
     use rand::SeedableRng as _;

@@ -1,11 +1,14 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
-use nomos_blend_proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::leader::send::SessionCryptographicProcessor, provers::leader::LeaderProofsGenerator,
+use nomos_blend_core::{
+    message::crypto::proofs::PoQVerificationInputsMinusSigningKey,
+    proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::leader::send::SessionCryptographicProcessor,
+            provers::leader::LeaderProofsGenerator,
+        },
     },
 };
 use nomos_utils::blake_rng::BlakeRng;

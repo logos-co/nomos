@@ -1,14 +1,17 @@
 use core::fmt::{Debug, Display};
 
 use async_trait::async_trait;
-use key_management_system_keys::{keys::KeyOperators, operators::blend::poq::PoQOperator};
 use key_management_system_service::{
     KMSService,
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
+    keys::KeyOperators,
+    operators::blend::poq::PoQOperator,
 };
-use nomos_blend_proofs::quota::{self, VerifiedProofOfQuota, inputs::prove::PublicInputs};
-use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
+use nomos_blend_core::{
+    proofs::quota::{self, VerifiedProofOfQuota, inputs::prove::PublicInputs},
+    scheduling::message_blend::CoreProofOfQuotaGenerator,
+};
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;

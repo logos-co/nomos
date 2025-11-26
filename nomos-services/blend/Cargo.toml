@@ -20,15 +20,10 @@ cryptarchia-engine            = { workspace = true }
 fork_stream                   = { workspace = true }
 futures                       = { default-features = false, version = "0.3" }
 groth16                       = { default-features = false, workspace = true }
-key-management-system-keys    = { workspace = true }
 key-management-system-service = { workspace = true }
 libp2p                        = { optional = true, workspace = true }
 libp2p-stream                 = { optional = true, workspace = true }
-nomos-blend-crypto            = { workspace = true }
-nomos-blend-message           = { workspace = true }
-nomos-blend-network           = { workspace = true }
-nomos-blend-proofs            = { workspace = true }
-nomos-blend-scheduling        = { workspace = true }
+nomos-blend-core              = { workspace = true }
 nomos-core                    = { workspace = true }
 nomos-ledger                  = { workspace = true }
 nomos-libp2p                  = { optional = true, workspace = true }
@@ -49,14 +44,12 @@ tracing                       = { workspace = true }
 zksign                        = { workspace = true }
 
 [dev-dependencies]
-libp2p                 = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
-libp2p-swarm-test      = { default-features = false, version = "0.5.0" }
-nomos-blend-message    = { workspace = true }
-nomos-blend-network    = { features = ["unsafe-test-functions"], workspace = true }
-nomos-blend-scheduling = { workspace = true, features = ["unsafe-test-functions"] }
-num-bigint             = { default-features = false, version = "0.4" }
-tempfile               = { workspace = true }
-test-log               = { default-features = false, version = "0.2.18", features = ["trace"] }
+libp2p            = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
+libp2p-swarm-test = { default-features = false, version = "0.5.0" }
+nomos-blend-core  = { features = ["unsafe-test-functions"], workspace = true }
+num-bigint        = { default-features = false, version = "0.4" }
+tempfile          = { workspace = true }
+test-log          = { default-features = false, version = "0.2.18", features = ["trace"] }
 
 [features]
 default = []
