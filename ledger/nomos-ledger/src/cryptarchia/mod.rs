@@ -569,7 +569,6 @@ pub mod tests {
         slot: impl Into<Slot>,
         utxo_proof: Utxo,
         utxo_add: Utxo,
-        config: &Config,
     ) -> HeaderId {
         let id = update_ledger(ledger, parent, slot, utxo_proof).unwrap();
         // we still don't have transactions, so the only way to add a commitment to
@@ -579,7 +578,7 @@ pub mod tests {
         block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
         ledger
             .states
-            .insert(id, full_ledger_state(block_state, config));
+            .insert(id, full_ledger_state(block_state, &ledger.config));
         id
     }
 
@@ -606,12 +605,10 @@ pub mod tests {
 
     #[test]
     fn test_epoch_transition() {
-        let config = config();
-
         let utxos = std::iter::repeat_with(utxo).take(4).collect::<Vec<_>>();
         let utxo_4 = utxo();
         let utxo_5 = utxo();
-        let (mut ledger, genesis) = ledger(&utxos, config.clone());
+        let (mut ledger, genesis) = ledger(&utxos, config());
 
         // An epoch will be 10 slots long, with stake distribution snapshot taken at the
         // start of the epoch and nonce snapshot before slot 7
@@ -624,7 +621,7 @@ pub mod tests {
 
         let h_2 = update_ledger(&mut ledger, h_1, 6, utxos[1]).unwrap();
 
-        let h_3 = apply_and_add_utxo(&mut ledger, h_2, 9, utxos[2], utxo_4, &config);
+        let h_3 = apply_and_add_utxo(&mut ledger, h_2, 9, utxos[2], utxo_4);
 
         // test epoch jump
         let h_4 = update_ledger(&mut ledger, h_3, 20, utxos[3]).unwrap();
@@ -642,7 +639,7 @@ pub mod tests {
 
         // nonce for epoch 1 should be taken at the end of slot 6
         update_ledger(&mut ledger, h_3, 10, utxos[3]).unwrap();
-        let h_5 = apply_and_add_utxo(&mut ledger, h_3, 10, utxos[3], utxo_5, &config);
+        let h_5 = apply_and_add_utxo(&mut ledger, h_3, 10, utxos[3], utxo_5);
         assert_eq!(
             ledger.states[&h_5].cryptarchia_ledger.epoch_state.nonce,
             ledger.states[&h_2].cryptarchia_ledger.nonce,
@@ -659,16 +656,14 @@ pub mod tests {
 
     #[test]
     fn test_new_utxos_becoming_eligible_after_stake_distribution_stabilizes() {
-        let config = config();
-
         let utxo_1 = utxo();
         let utxo = utxo();
 
-        let (mut ledger, genesis) = ledger(&[utxo], config.clone());
+        let (mut ledger, genesis) = ledger(&[utxo], config());
 
         // EPOCH 0
         // mint a new utxo to be used for leader elections in upcoming epochs
-        let h_0_1 = apply_and_add_utxo(&mut ledger, genesis, 1, utxo, utxo_1, &config);
+        let h_0_1 = apply_and_add_utxo(&mut ledger, genesis, 1, utxo, utxo_1);
 
         // the new utxo is not yet eligible for leader elections
         assert!(matches!(
