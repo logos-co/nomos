@@ -1,9 +1,7 @@
 use std::fmt::{Debug, Display};
 
-use key_management_system_keys::keys::{
-    KeyOperators,
-    secured_key::{SecureKeyOperator, SecuredKey as _},
-};
+pub use key_management_system_keys as keys;
+use key_management_system_keys::keys::secured_key::SecuredKey;
 use log::error;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -50,8 +48,13 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for KMSService<Backend, RuntimeServiceId>
 where
-    Backend: KMSBackend<Key = <KeyOperators as SecureKeyOperator>::Key> + Send + 'static,
+    Backend: KMSBackend + Send + 'static,
     Backend::KeyId: Clone + Debug + Send,
+    Backend::Key: Debug + Send,
+    <Backend::Key as SecuredKey>::Payload: Send,
+    <Backend::Key as SecuredKey>::Signature: Send,
+    <Backend::Key as SecuredKey>::PublicKey: Send,
+    Backend::KeyOperations: Send,
     Backend::Settings: Clone + Send + Sync,
     Backend::Error: Debug + Send,
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
@@ -98,8 +101,9 @@ where
 
 impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
-    Backend: KMSBackend<Key = <KeyOperators as SecureKeyOperator>::Key> + 'static,
+    Backend: KMSBackend + 'static,
     Backend::KeyId: Debug + Clone,
+    Backend::Key: Debug,
     Backend::Settings: Clone,
     Backend::Error: Debug,
 {
@@ -147,11 +151,7 @@ where
                 }
             }
             KMSMessage::Execute { key_id, operator } => {
-                let Some(key) = backend.retrieve(&key_id) else {
-                    error!("Key ID {key_id:?} not found for execution.");
-                    return;
-                };
-                let _ = key.execute(operator).await.inspect_err(|e| {
+                let _ = backend.execute(&key_id, operator).await.inspect_err(|e| {
                     error!("Failed to execute operator with key ID {key_id:?}. Error: {e:?}");
                 });
             }

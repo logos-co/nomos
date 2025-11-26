@@ -2,14 +2,8 @@ use std::fmt::Debug;
 
 use zeroize::ZeroizeOnDrop;
 
-pub(crate) trait SecureKeyOperatorSeal {}
-
 #[async_trait::async_trait]
-#[expect(
-    private_bounds,
-    reason = "Sealed trait to prevent external implementations"
-)]
-pub trait SecureKeyOperator: SecureKeyOperatorSeal {
+pub trait SecureKeyOperator {
     type Key;
     type Error;
     async fn execute(self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error>;
