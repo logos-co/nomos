@@ -4,14 +4,12 @@ use chain_service::StartingState;
 use futures::StreamExt as _;
 use kzgrs_backend::{common::share::DaShare, reconstruction::reconstruct_without_missing_data};
 use serial_test::serial;
-use subnetworks_assignations::MembershipHandler as _;
 use tests::{
     common::da::{
         disseminate_with_metadata, setup_test_channel, wait_for_blob_onchain,
         wait_for_shares_number,
     },
     nodes::executor::{Executor, create_executor_config},
-    secret_key_to_peer_id,
     topology::{
         Topology, TopologyConfig,
         configs::{create_general_configs, deployment::get_e2e_custom_settings},
@@ -170,102 +168,6 @@ async fn disseminate_from_non_membership() {
 
         assert_eq!(reconstructed, data);
     }
-}
-
-#[ignore = "Reenable when tools to inspect mempool are added"]
-#[tokio::test]
-#[serial]
-async fn four_subnets_disseminate_retrieve_reconstruct() {
-    const ITERATIONS: usize = 10;
-
-    let topology = Topology::spawn(TopologyConfig::validators_and_executor(3, 4, 2)).await;
-    //
-
-    let validator_subnet_0 = topology
-        .validators()
-        .iter()
-        .find(|v| {
-            // let node_key = v.config().da.network.node_key.clone();
-            // let peer_id = secret_key_to_peer_id(node_key);
-            // let subnets = membership.membership(&peer_id);
-            // subnets.contains(&0)
-
-            // TODO: figure out how to get approriate membership based on the session update
-            // logic
-            true
-        })
-        .expect("Validator subnet 0 not found");
-
-    let validator_subnet_1 = topology
-        .validators()
-        .iter()
-        .find(|v| {
-            // let node_key = v.config().da.network.node_key.clone();
-            // let peer_id = secret_key_to_peer_id(node_key);
-            // let subnets = membership.membership(&peer_id);
-            // subnets.contains(&1)
-
-            // TODO: figure out how to get approriate membership based on the session update
-            // logic
-            true
-        })
-        .expect("Validator subnet 1 not found");
-
-    let executor = &topology.executors()[0];
-
-    let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
-
-    let data = [1u8; 31 * ITERATIONS];
-
-    for i in 0..ITERATIONS {
-        let data_size = 31 * (i + 1);
-        println!("disseminating {data_size} bytes");
-        let data = &data[..data_size]; // test increasing size data
-        let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, data)
-            .await
-            .unwrap();
-
-        parent_msg_id = wait_for_blob_onchain(executor, test_channel_id, blob_id).await;
-
-        let share_commitments = validator_subnet_1
-            .get_commitments(blob_id, 0)
-            .await
-            .unwrap();
-
-        let mut validator_subnet_0_shares = validator_subnet_0
-            .get_shares(blob_id, [].into(), [].into(), true)
-            .await
-            .unwrap()
-            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
-            .collect::<Vec<_>>()
-            .await;
-        validator_subnet_0_shares.sort_by_key(|share| share.share_idx);
-
-        let mut validator_subnet_1_shares = validator_subnet_1
-            .get_shares(blob_id, [].into(), [].into(), true)
-            .await
-            .unwrap()
-            .map(|light_share| DaShare::from((light_share, share_commitments.clone())))
-            .collect::<Vec<_>>()
-            .await;
-        validator_subnet_1_shares.sort_by_key(|share| share.share_idx);
-
-        let reconstruction_shares = vec![
-            validator_subnet_0_shares[0].clone(),
-            validator_subnet_1_shares[0].clone(),
-        ];
-
-        // Reconstruction is performed from the one of the two blobs.
-        let reconstructed = reconstruct_without_missing_data(&reconstruction_shares);
-        assert_eq!(&reconstructed[..data.len()], data);
-    }
-
-    // TODO think about a test with malicious/unhealthy peers that'd trigger
-    // recording some monitor stats too
-    assert_eq!(executor.balancer_stats().await.len(), 2);
-    assert!(executor.monitor_stats().await.0.is_empty());
-    assert_eq!(validator_subnet_0.balancer_stats().await.len(), 2);
-    assert!(validator_subnet_0.monitor_stats().await.0.is_empty());
 }
 
 #[tokio::test]
