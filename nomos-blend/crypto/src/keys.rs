@@ -41,14 +41,26 @@ impl From<[u8; X25519_SECRET_KEY_LENGTH]> for X25519PrivateKey {
     }
 }
 
+impl From<X25519PrivateKey> for [u8; X25519_SECRET_KEY_LENGTH] {
+    fn from(key: X25519PrivateKey) -> Self {
+        key.0.to_bytes()
+    }
+}
+
 pub const X25519_PUBLIC_KEY_LENGTH: usize = 32;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct X25519PublicKey(x25519_dalek::PublicKey);
 
 impl From<[u8; X25519_PUBLIC_KEY_LENGTH]> for X25519PublicKey {
     fn from(bytes: [u8; X25519_PUBLIC_KEY_LENGTH]) -> Self {
         Self(x25519_dalek::PublicKey::from(bytes))
+    }
+}
+
+impl From<X25519PublicKey> for [u8; X25519_PUBLIC_KEY_LENGTH] {
+    fn from(key: X25519PublicKey) -> Self {
+        key.0.to_bytes()
     }
 }
 
