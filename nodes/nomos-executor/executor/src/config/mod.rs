@@ -1,12 +1,13 @@
 pub mod da;
-
+pub mod deployment;
 use color_eyre::eyre::Result;
+use deployment::Settings as DeploymentSettings;
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        BlendArgs, blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig, update_blend,
-        update_cryptarchia_leader_consensus, update_network,
+        BlendArgs, blend::serde::Config as BlendConfig, mempool::MempoolConfig,
+        network::serde::Config as NetworkConfig, update_blend, update_cryptarchia_leader_consensus,
+        update_network,
     },
     generic_services::SdpService,
 };
@@ -25,7 +26,7 @@ pub struct Config {
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
-    pub da: nomos_node::config::da::Config,
+    pub da: da::Config,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,

@@ -19,7 +19,6 @@ pub struct Settings {
     pub network: NetworkSettings,
     pub verifier: VerifierSettings,
     pub sampling: SamplingSettings,
-    pub dispersal: DispersalSettings,
 }
 
 impl From<DeploymentSettings> for Settings {
@@ -94,7 +93,8 @@ pub struct DispersalSettings {
     pub retry_limit: usize,
 }
 
-fn mainnet_settings() -> Settings {
+#[must_use]
+pub fn mainnet_settings() -> Settings {
     let common = CommonSettings {
         replication_protocol_name: StreamProtocol::new("/nomos/da/1.0.0/replication"),
         dispersal_protocol_name: StreamProtocol::new("/nomos/da/1.0.0/dispersal"),
@@ -162,17 +162,16 @@ fn mainnet_settings() -> Settings {
         },
     };
 
-    let dispersal = DispersalSettings {
-        dispersal_timeout: Duration::from_secs(20),
-        retry_cooldown: Duration::from_secs(5),
-        retry_limit: 2,
-    };
+    // let dispersal = DispersalSettings {
+    //     dispersal_timeout: Duration::from_secs(20),
+    //     retry_cooldown: Duration::from_secs(5),
+    //     retry_limit: 2,
+    // };
 
     Settings {
         common,
         network,
         verifier,
         sampling,
-        dispersal,
     }
 }

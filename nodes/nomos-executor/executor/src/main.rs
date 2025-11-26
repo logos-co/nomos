@@ -3,14 +3,13 @@ use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
     NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
-    config::{Config as ExecutorConfig, da::da_config_to_executor_settings},
+    config::{Config as ExecutorConfig, da::ServiceConfig as DaConfig},
 };
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
     config::{
-        BlendArgs, blend::ServiceConfig as BlendConfig, da::ServiceConfig as DaConfig,
-        network::ServiceConfig as NetworkConfig,
+        BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
     },
 };
 use nomos_sdp::SdpSettings;
@@ -71,23 +70,27 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let node_deployment: nomos_node::config::deployment::Settings =
+        config.deployment.clone().into();
+
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.clone().into(),
+        deployment: node_deployment.clone().into(),
     }
     .into();
 
     let (da_network_config, da_verifier_config, da_sampling_config, da_dispersal_config) =
-        da_config_to_executor_settings(DaConfig {
+        DaConfig {
             user: config.da,
             deployment: config.deployment.clone().into(),
-        });
+        }
+        .into();
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: NetworkConfig {
                 user: config.network,
-                deployment: config.deployment.into(),
+                deployment: node_deployment.clone().into(),
             }
             .into(),
             blend: blend_config,

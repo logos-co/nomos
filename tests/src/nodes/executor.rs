@@ -48,7 +48,7 @@ use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
     IS_DEBUG_TRACING, adjust_timeout,
     nodes::{DA_GET_TESTING_ENDPOINT_ERROR, LOGS_PREFIX},
-    topology::configs::{GeneralConfig, deployment::default_e2e_deployment_settings},
+    topology::configs::{GeneralConfig, deployment::default_executor_deployment_settings},
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-executor";
@@ -345,7 +345,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
     Config {
         network: config.network_config,
         blend: config.blend_config.0,
-        deployment: default_e2e_deployment_settings(),
+        deployment: default_executor_deployment_settings(),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {
@@ -405,19 +405,19 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             read_only: false,
             column_family: Some("blocks".into()),
         },
-        da: nomos_node::config::da::Config {
+        da: nomos_executor::config::da::Config {
             network: nomos_node::config::da::network::Config {
                 node_key: config.da_config.node_key,
                 listening_address: config.da_config.listening_address,
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
-            dispersal: Some(nomos_node::config::da::dispersal::Config {
-                encoder_settings: nomos_node::config::da::dispersal::EncoderConfig {
+            dispersal: nomos_executor::config::da::dispersal::Config {
+                encoder_settings: nomos_executor::config::da::dispersal::EncoderConfig {
                     with_cache: false,
                     global_params_path: config.da_config.global_params_path,
                 },
-            }),
+            },
         },
         time: TimeServiceSettings {
             backend_settings: NtpTimeBackendSettings {

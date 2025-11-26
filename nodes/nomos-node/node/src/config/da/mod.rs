@@ -1,4 +1,3 @@
-use nomos_da_dispersal::{DispersalServiceSettings, backend::kzgrs::DispersalKZGRSBackendSettings};
 use nomos_da_network_service::{
     NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings as DaNetworkApiAdapterSettings,
@@ -14,13 +13,11 @@ use serde::{Deserialize, Serialize};
 use crate::{
     NomosDaMembership, RuntimeServiceId,
     config::da::{
-        deployment::Settings as DeploymentSettings, dispersal::Config as DispersalUserConfig,
-        network::Config as NetworkUserConfig,
+        deployment::Settings as DeploymentSettings, network::Config as NetworkUserConfig,
     },
 };
 
 pub mod deployment;
-pub mod dispersal;
 pub mod network;
 pub mod sampling;
 pub mod verifier;
@@ -30,9 +27,6 @@ pub mod verifier;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub network: NetworkUserConfig,
-    /// Dispersal config - only present for executor nodes
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dispersal: Option<DispersalUserConfig>,
 }
 
 /// `ServiceConfig` combines user-provided configuration with
@@ -55,18 +49,9 @@ type DaVerifierSettings = DaVerifierServiceSettings<KzgrsDaVerifierSettings, ()>
 type DaSamplingSettings =
     DaSamplingServiceSettings<KzgrsSamplingBackendSettings, SamplingVerifierSettings>;
 
-type DaDispersalSettings = DispersalServiceSettings<DispersalKZGRSBackendSettings>;
-
 /// Converts `ServiceConfig` into a tuple of all DA service settings
 /// Returns (Network, Verifier, Sampling, Optional Dispersal)
-impl From<ServiceConfig>
-    for (
-        DaNetworkSettings,
-        DaVerifierSettings,
-        DaSamplingSettings,
-        Option<DaDispersalSettings>,
-    )
-{
+impl From<ServiceConfig> for (DaNetworkSettings, DaVerifierSettings, DaSamplingSettings) {
     fn from(config: ServiceConfig) -> Self {
         // Network settings
         let network_settings = DaNetworkSettings {
@@ -138,6 +123,6 @@ impl From<ServiceConfig>
                 .sdp_blob_trigger_sampling_delay,
         };
 
-        (network_settings, verifier_settings, sampling_settings, None)
+        (network_settings, verifier_settings, sampling_settings)
     }
 }

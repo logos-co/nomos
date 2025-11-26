@@ -9,6 +9,10 @@ use nomos_da_network_core::{
     swarm::{DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig},
 };
 use nomos_da_verifier::backend::trigger::MempoolPublishTriggerConfig;
+use nomos_executor::config::{
+    da::deployment::Settings as DaDeploymentSettings,
+    deployment::{CustomDeployment, Settings as DeploymentSettings},
+};
 use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_node::config::{
     blend::deployment::{
@@ -18,9 +22,8 @@ use nomos_node::config::{
     da::deployment::{
         CommonSettings as DaCommonSettings, DispersalSettings as DaDispersalSettings,
         NetworkSettings as DaNetworkSettings, SamplingSettings as DaSamplingSettings,
-        Settings as DaDeploymentSettings, VerifierSettings as DaVerifierSettings,
+        VerifierSettings as DaVerifierSettings,
     },
-    deployment::{CustomDeployment, Settings as DeploymentSettings},
     network::deployment::Settings as NetworkDeploymentSettings,
 };
 use nomos_utils::math::NonNegativeF64;
@@ -29,7 +32,7 @@ use crate::{adjust_timeout, topology::configs::da::GLOBAL_PARAMS_PATH};
 
 #[expect(clippy::too_many_lines, reason = "Big config constructor")]
 #[must_use]
-pub fn default_e2e_deployment_settings() -> DeploymentSettings {
+pub fn default_executor_deployment_settings() -> DeploymentSettings {
     DeploymentSettings::Custom(Box::new(CustomDeployment {
         blend: BlendDeploymentSettings {
             common: BlendCommonSettings {
@@ -142,8 +145,13 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
 }
 
 #[must_use]
+pub fn default_validator_deployment_settings() -> nomos_node::config::deployment::Settings {
+    default_executor_deployment_settings().into()
+}
+
+#[must_use]
 pub fn get_e2e_custom_settings() -> CustomDeployment {
-    match default_e2e_deployment_settings() {
+    match default_executor_deployment_settings() {
         DeploymentSettings::Custom(custom) => *custom,
         DeploymentSettings::Mainnet => unreachable!("tests use custom deployment"),
     }

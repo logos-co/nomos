@@ -244,7 +244,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
     }
     .into();
 
-    let (da_network_config, da_verifier_config, da_sampling_config, _) = DaConfig {
+    let (da_network_config, da_verifier_config, da_sampling_config) = DaConfig {
         user: config.da,
         deployment: config.deployment.clone().into(),
     }

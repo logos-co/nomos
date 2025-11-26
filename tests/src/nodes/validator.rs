@@ -56,7 +56,7 @@ use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
     IS_DEBUG_TRACING, adjust_timeout,
     nodes::LOGS_PREFIX,
-    topology::configs::{GeneralConfig, deployment::default_e2e_deployment_settings},
+    topology::configs::{GeneralConfig, deployment::default_validator_deployment_settings},
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -434,7 +434,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
     Config {
         network: config.network_config,
         blend: config.blend_config.0,
-        deployment: default_e2e_deployment_settings(),
+        deployment: default_validator_deployment_settings(),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {
@@ -496,7 +496,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
-            dispersal: None,
         },
         storage: RocksBackendSettings {
             db_path: "./db".into(),
