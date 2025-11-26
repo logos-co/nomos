@@ -20,7 +20,6 @@ groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 nomos-blend-proofs           = { workspace = true }
 nomos-utils                  = { features = ["rng", "serde", "types"], workspace = true }
-rand                         = { workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
 thiserror                    = { default-features = false, version = "2" }
 tokio                        = { default-features = false, version = "1", features = ["rt"] }
