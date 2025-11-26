@@ -2,7 +2,7 @@ use std::fmt::{Debug, Display};
 
 use key_management_system_keys::keys::{
     KeyOperators,
-    secured_key::{SecureKeyOperator, SecuredKey},
+    secured_key::{SecureKeyOperator, SecuredKey as _},
 };
 use log::error;
 use overwatch::{

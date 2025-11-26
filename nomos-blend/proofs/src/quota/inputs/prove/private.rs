@@ -1,5 +1,7 @@
 use nomos_core::crypto::ZkHash;
-use poq::{CorePathAndSelectors, NotePathAndSelectors, SlotSecretPath};
+use poq::{NotePathAndSelectors, SlotSecretPath};
+
+use crate::CorePathAndSelectors;
 
 /// Private inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4>.
 #[derive(Debug, Clone)]

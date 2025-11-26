@@ -1,4 +1,5 @@
 use nomos_core::crypto::{ZkHash, ZkHasher};
+pub use poq::CorePathAndSelectors;
 
 pub mod quota;
 pub mod selection;

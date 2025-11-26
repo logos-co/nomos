@@ -1,11 +1,13 @@
 use std::fmt::Debug;
 
-use nomos_blend_proofs::quota::{
-    self, VerifiedProofOfQuota,
-    inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
+use groth16::Fr;
+use nomos_blend_proofs::{
+    CorePathAndSelectors,
+    quota::{
+        self, VerifiedProofOfQuota,
+        inputs::prove::{PrivateInputs, PublicInputs, private::ProofOfCoreQuotaInputs},
+    },
 };
-use poq::CorePathAndSelectors;
-use poseidon2::ZkHash;
 use tokio::{sync::oneshot, task::spawn_blocking};
 use tracing::error;
 
@@ -18,7 +20,7 @@ pub struct PoQOperator {
     core_path_and_selectors: CorePathAndSelectors,
     public_inputs: PublicInputs,
     key_index: u64,
-    response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
+    response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, Fr), quota::Error>>,
 }
 
 impl Debug for PoQOperator {
@@ -33,7 +35,7 @@ impl PoQOperator {
         core_path_and_selectors: CorePathAndSelectors,
         public_inputs: PublicInputs,
         key_index: u64,
-        response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
+        response_channel: oneshot::Sender<Result<(VerifiedProofOfQuota, Fr), quota::Error>>,
     ) -> Self {
         Self {
             core_path_and_selectors,

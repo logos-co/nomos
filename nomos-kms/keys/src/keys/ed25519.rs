@@ -33,7 +33,7 @@ impl<'de> Deserialize<'de> for Ed25519Key {
 }
 
 impl Ed25519Key {
-    /// Generates a new Ed25519 private key using the [`BlakeRng`].
+    /// Generates a new Ed25519 private key using the provided RNG.
     #[must_use]
     pub fn generate<Rng>(rng: &mut Rng) -> Self
     where
@@ -47,7 +47,7 @@ impl Ed25519Key {
         Self(signing_key)
     }
 
-    /// Signs a message.
+    /// Signs a payload.
     #[must_use]
     pub fn sign_payload(&self, message: &[u8]) -> Signature {
         self.0.sign(message)
@@ -82,6 +82,9 @@ impl From<Ed25519Key> for SigningKey {
     }
 }
 
+// This implementation is needed for as long as we don't force ALL operations to
+// go through KMS. Until then, we need to let users of this key type be able to
+// at the very least get a reference to the underlying secret key.
 impl AsRef<SigningKey> for Ed25519Key {
     fn as_ref(&self) -> &SigningKey {
         &self.0
@@ -96,7 +99,7 @@ impl SecuredKey for Ed25519Key {
     type Error = KeyError;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.sign(payload.iter().as_slice()))
+        Ok(self.sign_payload(payload))
     }
 
     fn sign_multiple(
@@ -107,6 +110,6 @@ impl SecuredKey for Ed25519Key {
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
-        self.0.verifying_key()
+        self.public_key()
     }
 }
