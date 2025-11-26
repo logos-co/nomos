@@ -18,7 +18,6 @@ pub struct ValidationRequest<T> {
 #[async_trait::async_trait]
 pub trait NetworkAdapter<RuntimeServiceId> {
     type Backend: NetworkBackend<RuntimeServiceId> + Send + 'static;
-    type Settings;
     type Share;
     type Tx;
     type Membership: MembershipHandler + Clone;
@@ -28,7 +27,6 @@ pub trait NetworkAdapter<RuntimeServiceId> {
     type SdpAdapter: SdpAdapter<RuntimeServiceId>;
 
     async fn new(
-        settings: Self::Settings,
         network_relay: OutboundRelay<
             <NetworkService<
                 Self::Backend,

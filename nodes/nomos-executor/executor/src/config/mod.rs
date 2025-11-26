@@ -1,3 +1,5 @@
+pub mod da;
+
 use color_eyre::eyre::Result;
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
@@ -13,7 +15,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
-    DaDispersalService, DaNetworkService, DaSamplingService, DaVerifierService,
     KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
 };
 
@@ -24,11 +25,8 @@ pub struct Config {
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
-    pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
-    pub da_network: <DaNetworkService as ServiceData>::Settings,
+    pub da: nomos_node::config::da::Config,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
-    pub da_verifier: <DaVerifierService as ServiceData>::Settings,
-    pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
     pub chain_network: <ChainNetworkService as ServiceData>::Settings,

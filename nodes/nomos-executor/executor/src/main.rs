@@ -2,13 +2,15 @@ use clap::Parser;
 use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
-    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
+    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
+    config::{Config as ExecutorConfig, da::da_config_to_executor_settings},
 };
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
     config::{
-        BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
+        BlendArgs, blend::ServiceConfig as BlendConfig, da::ServiceConfig as DaConfig,
+        network::ServiceConfig as NetworkConfig,
     },
 };
 use nomos_sdp::SdpSettings;
@@ -75,6 +77,12 @@ async fn main() -> Result<()> {
     }
     .into();
 
+    let (da_network_config, da_verifier_config, da_sampling_config, da_dispersal_config) =
+        da_config_to_executor_settings(DaConfig {
+            user: config.da,
+            deployment: config.deployment.clone().into(),
+        });
+
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: NetworkConfig {
@@ -97,10 +105,10 @@ async fn main() -> Result<()> {
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },
-            da_dispersal: config.da_dispersal,
-            da_network: config.da_network,
-            da_sampling: config.da_sampling,
-            da_verifier: config.da_verifier,
+            da_dispersal: da_dispersal_config.expect("Executor should have dispersal config"),
+            da_network: da_network_config,
+            da_sampling: da_sampling_config,
+            da_verifier: da_verifier_config,
             cryptarchia: config.cryptarchia,
             chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,

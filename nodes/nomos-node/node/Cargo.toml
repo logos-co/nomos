@@ -28,6 +28,7 @@ chain-service            = { workspace = true }
 clap                     = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre               = { default-features = false, version = "0.6.0" }
 derivative               = { version = "2", default-features = false }
+fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
 groth16                  = { workspace = true }
 hex                      = { default-features = false, version = "0.4.3" }
@@ -39,6 +40,7 @@ nomos-blend-message      = { workspace = true }
 nomos-blend-scheduling   = { workspace = true }
 nomos-blend-service      = { features = ["libp2p"], workspace = true }
 nomos-core               = { workspace = true }
+nomos-da-dispersal       = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-da-network-core    = { workspace = true }
 nomos-da-network-service = { workspace = true }

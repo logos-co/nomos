@@ -1,7 +1,7 @@
 use nomos_libp2p::protocol_name::StreamProtocol;
 use serde::{Deserialize, Serialize};
 
-use crate::config::deployment::{CustomDeployment, Settings as DeploymentSettings};
+use crate::config::deployment::Settings as DeploymentSettings;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -16,7 +16,7 @@ impl From<DeploymentSettings> for Settings {
                 identify_protocol_name: StreamProtocol::new("/nomos/identify/1.0.0"),
                 kademlia_protocol_name: StreamProtocol::new("/nomos/kad/1.0.0"),
             },
-            DeploymentSettings::Custom(CustomDeployment { network, .. }) => network,
+            DeploymentSettings::Custom(custom) => custom.network,
         }
     }
 }

@@ -68,7 +68,6 @@ macro_rules! adapter_for {
             SdpAdapter: SdpAdapterTrait<RuntimeServiceId>,
         {
             type Backend = $DaNetworkBackend<Membership>;
-            type Settings = ();
             type Share = DaShare;
             type Tx = SignedMantleTx;
             type Membership = Membership;
@@ -78,7 +77,6 @@ macro_rules! adapter_for {
             type SdpAdapter = SdpAdapter;
 
             async fn new(
-                _settings: Self::Settings,
                 network_relay: OutboundRelay<
                     <NetworkService<
                         Self::Backend,

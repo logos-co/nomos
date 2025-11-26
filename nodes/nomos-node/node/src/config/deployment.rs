@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     blend::deployment::Settings as BlendDeploymentSettings,
+    da::deployment::Settings as DaDeploymentSettings,
     network::deployment::Settings as NetworkDeploymentSettings,
 };
 
@@ -13,11 +14,12 @@ use crate::config::{
 pub enum Settings {
     #[serde(rename = "mainnet")]
     Mainnet,
-    Custom(CustomDeployment),
+    Custom(Box<CustomDeployment>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CustomDeployment {
     pub blend: BlendDeploymentSettings,
     pub network: NetworkDeploymentSettings,
+    pub da: DaDeploymentSettings,
 }

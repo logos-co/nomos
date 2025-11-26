@@ -16,16 +16,17 @@ use tracing::Level;
 
 use crate::{
     ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
-    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
-    StorageService, TimeService,
+    KeyManagementService, RuntimeServiceId, StorageService, TimeService,
     config::{
-        blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+        blend::serde::Config as BlendConfig, da::Config as DaConfig,
+        deployment::Settings as DeploymentSettings, mempool::MempoolConfig,
+        network::serde::Config as NetworkConfig,
     },
     generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
+pub mod da;
 pub mod deployment;
 pub mod mempool;
 pub mod network;
@@ -206,10 +207,8 @@ pub struct Config {
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
-    pub da_network: <DaNetworkService as ServiceData>::Settings,
-    pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
-    pub da_sampling: <DaSamplingService as ServiceData>::Settings,
+    pub da: DaConfig,
     pub http: <ApiService as ServiceData>::Settings,
     pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
     pub chain_network: <ChainNetworkService as ServiceData>::Settings,
