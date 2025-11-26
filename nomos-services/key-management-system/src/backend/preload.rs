@@ -37,7 +37,6 @@ pub struct PreloadKMSBackendSettings {
 impl KMSBackend for PreloadKMSBackend {
     type KeyId = KeyId;
     type Key = Key;
-    type KeyOperations = KeyOperators;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;
 
@@ -101,7 +100,7 @@ impl KMSBackend for PreloadKMSBackend {
     async fn execute(
         &mut self,
         key_id: &Self::KeyId,
-        operator: Self::KeyOperations,
+        operator: KeyOperators,
     ) -> Result<(), Self::Error> {
         let key = self
             .keys

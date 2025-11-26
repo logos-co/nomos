@@ -1,4 +1,4 @@
-use key_management_system_keys::keys::secured_key::SecuredKey;
+use key_management_system_keys::keys::{KeyOperators, secured_key::SecuredKey};
 use tokio::sync::oneshot;
 
 use crate::backend::KMSBackend;
@@ -37,6 +37,6 @@ where
     },
     Execute {
         key_id: Backend::KeyId,
-        operator: Backend::KeyOperations,
+        operator: KeyOperators,
     },
 }

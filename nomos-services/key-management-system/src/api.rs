@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display};
 
-use key_management_system_keys::keys::secured_key::SecuredKey;
+use key_management_system_keys::keys::{KeyOperators, secured_key::SecuredKey};
 use overwatch::{
     DynError,
     services::{AsServiceId, ServiceData, relay::OutboundRelay},
@@ -46,13 +46,11 @@ where
 }
 
 type KmsBackendKey<Kms> = <<Kms as KmsServiceData>::Backend as KMSBackend>::Key;
-type KmsKeyOperations<Kms> = <<Kms as KmsServiceData>::Backend as KMSBackend>::KeyOperations;
 impl<Kms, RuntimeServiceId> KmsServiceApi<Kms, RuntimeServiceId>
 where
     Kms: KmsServiceData,
     Kms::Backend: KMSBackend<KeyId: Send, Key: Send, Error: Send>,
     KmsBackendKey<Kms>: SecuredKey<Payload: Send, PublicKey: Send, Signature: Send>,
-    KmsKeyOperations<Kms>: Send,
     RuntimeServiceId: AsServiceId<Kms> + Debug + Display + Sync,
 {
     #[must_use]
@@ -152,7 +150,7 @@ where
     pub async fn execute(
         &self,
         key_id: <Kms::Backend as KMSBackend>::KeyId,
-        operator: <Kms::Backend as KMSBackend>::KeyOperations,
+        operator: KeyOperators,
     ) -> Result<(), DynError> {
         self.relay
             .send(KMSMessage::Execute { key_id, operator })
