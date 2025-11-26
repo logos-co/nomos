@@ -21,8 +21,8 @@ nomos-blend-scheduling = { workspace = true }
 
 [features]
 unsafe-test-functions = [
-    "nomos-blend-message/unsafe-test-functions",
-    "nomos-blend-network/unsafe-test-functions",
-    "nomos-blend-proofs/unsafe-test-functions",
-    "nomos-blend-scheduling/unsafe-test-functions",
+  "nomos-blend-message/unsafe-test-functions",
+  "nomos-blend-network/unsafe-test-functions",
+  "nomos-blend-proofs/unsafe-test-functions",
+  "nomos-blend-scheduling/unsafe-test-functions",
 ]
