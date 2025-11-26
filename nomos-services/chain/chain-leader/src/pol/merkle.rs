@@ -1,3 +1,4 @@
+
 use cryptarchia_engine::Slot;
 use futures::StreamExt;
 use groth16::Fr;
@@ -33,14 +34,15 @@ impl MerklePol {
         for i in 1usize..=2usize.pow(MAX_TREE_DEPTH as u32) {
             let mut hash = hashed_leafs.next().unwrap();
             if i.is_power_of_two() {
+                let mut proof_element = hash;
                 if i != 1 {
                     let mut roots = mmr.roots().iter().copied().collect::<Vec<_>>();
                     for j in (0..roots.len() - 1) {
                         let root = roots[j].root();
-                        hash = <ZkHasher as ZkDigest>::compress(&[root, hash]);
+                        proof_element = <ZkHasher as ZkDigest>::compress(&[root, proof_element]);
                     }
                 }
-                merkle_proof.push(hash);
+                merkle_proof.push(proof_element);
             }
             mmr = mmr.push(hash.into());
         }
@@ -75,7 +77,7 @@ mod test {
         let merkle_proof_root = merkle_pol
             .merkle_proof
             .iter()
-            .take(MAX_TREE_DEPTH as usize)
+            .take(MAX_TREE_DEPTH as usize + 1)
             .copied()
             .reduce(|a, b| <ZkHasher as ZkDigest>::compress(&[a, b]))
             .unwrap();
