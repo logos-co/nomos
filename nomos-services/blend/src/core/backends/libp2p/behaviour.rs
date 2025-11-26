@@ -6,10 +6,8 @@ use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendC
 
 #[derive(NetworkBehaviour)]
 pub struct BlendBehaviour<ProofsVerifier, ObservationWindowProvider> {
-    pub blend: nomos_blend::network::core::NetworkBehaviour<
-        ProofsVerifier,
-        ObservationWindowProvider,
-    >,
+    pub blend:
+        nomos_blend::network::core::NetworkBehaviour<ProofsVerifier, ObservationWindowProvider>,
     pub limits: libp2p::connection_limits::Behaviour,
     pub blocked_peers: libp2p::allow_block_list::Behaviour<BlockedPeers>,
 }
