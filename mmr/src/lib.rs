@@ -89,7 +89,7 @@ where
             // we want the frontier root to have a fixed height, so each individual root
             // must be less than MAX_HEIGHT
             assert!(
-                root.height < MAX_HEIGHT,
+                root.height <= MAX_HEIGHT,
                 "Height must be less than {MAX_HEIGHT}"
             );
             if last_root.height == root.height {
@@ -98,12 +98,6 @@ where
                     root: Hash::compress(&[root.root, last_root.root]),
                     height: last_root.height + 1,
                 };
-                // // we want the frontier root to have a fixed height, so each
-                // individual root // must be less than
-                // MAX_HEIGHT assert!(
-                //     last_root.height < MAX_HEIGHT,
-                //     "Height must be less than {MAX_HEIGHT}"
-                // );
             } else {
                 break;
             }

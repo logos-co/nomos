@@ -9,23 +9,21 @@ use nomos_core::{
 
 use crate::pol::{MAX_TREE_DEPTH, SlotSecret};
 
-pub type Mmr = MerkleMountainRange<SlotSecret, ZkHasher, { MAX_TREE_DEPTH + 1 }>;
-
-pub struct MerklePol {
+pub struct MerklePol<const MAX_TREE_DEPTH: u8> {
     slot_secret_root: Fr,
     merkle_proof: Vec<Fr>,
     current_slot: Slot,
 }
 
-impl MerklePol {
+impl<const TREE_DEPTH: u8> MerklePol<TREE_DEPTH> {
     pub fn new(seed: Fr) -> Self {
         let mut hashed_leafs =
             std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])));
 
-        let mut mmr = Mmr::new();
+        let mut mmr = MerkleMountainRange::<SlotSecret, ZkHasher, TREE_DEPTH>::new();
         let mut merkle_proof: Vec<Fr> = Vec::new();
 
-        for i in 1usize..=2usize.pow(MAX_TREE_DEPTH as u32) {
+        for i in 1usize..=2usize.pow(TREE_DEPTH as u32 - 1) {
             let mut hash = hashed_leafs.next().unwrap();
             if i.is_power_of_two() {
                 let mut proof_element = hash;
@@ -62,16 +60,18 @@ mod test {
     use groth16::fr_from_bytes;
     use nomos_core::crypto::{ZkDigest, ZkHasher};
 
-    use crate::pol::{MAX_TREE_DEPTH, merkle::MerklePol};
+    use crate::pol::merkle::MerklePol;
+
+    const MAX_TREE_DEPTH: u8 = 8;
 
     #[test]
     fn new_roots_are_consistent() {
-        let merkle_pol = MerklePol::new(fr_from_bytes(b"1987").unwrap());
-        assert_eq!(merkle_pol.merkle_proof.len(), MAX_TREE_DEPTH as usize + 1);
+        let merkle_pol = MerklePol::<MAX_TREE_DEPTH>::new(fr_from_bytes(b"1987").unwrap());
+        assert_eq!(merkle_pol.merkle_proof.len(), MAX_TREE_DEPTH as usize);
         let merkle_proof_root = merkle_pol
             .merkle_proof
             .iter()
-            .take(MAX_TREE_DEPTH as usize + 1)
+            .take(MAX_TREE_DEPTH as usize)
             .copied()
             .reduce(|a, b| <ZkHasher as ZkDigest>::compress(&[a, b]))
             .unwrap();

@@ -13,8 +13,6 @@ use nomos_core::{
 use rs_merkle_tree::stores::MemoryStore;
 use zeroize::Zeroize;
 
-use crate::pol::merkle::Mmr;
-
 #[derive(Zeroize, Copy, Clone)]
 pub struct SlotSecret(Fr);
 
@@ -36,36 +34,6 @@ static NOMOS_POL_SK_V1: LazyLock<Fr> = LazyLock::new(|| {
 
 const MAX_TREE_DEPTH: u8 = 25;
 const TREE_LEAF_COUNT: usize = 2 << MAX_TREE_DEPTH;
-pub struct PolSecretKey {
-    current_slot: Slot,
-    mmr: Mmr,
-}
-
-// #[must_use]
-// pub fn pol_sk_generator(slot_start: Slot, seed: ZkHash) -> (SlotSecret,
-// Vec<Fr>) {     let mut frontier_nodes: Mmr = Mmr::new();
-//     // let mut frontier_vec = Vec::with_capacity();
-//     // let mut path = MerklePath::new();
-//     let depth = 2u64.pow(u32::from(MAX_TREE_DEPTH));
-//     let mut nodes = Vec::with_capacity(depth.try_into().unwrap());
-//     let mut slot_secret: SlotSecret = seed.into();
-//
-//     for i in 0..depth {
-//         frontier_nodes = frontier_nodes.push(slot_secret);
-//         nodes.push(frontier_nodes.frontier_root());
-//
-//         slot_secret = ZkHasher::digest(&[slot_secret.0]).into();
-//     }
-//
-//     let root = frontier_nodes.frontier_root();
-//     let slot_start_fr = fr_from_bytes(slot_start.to_le_bytes().as_slice())
-//         .expect("Slot should be a valid Fr range");
-//
-//     (
-//         SlotSecret(ZkHasher::digest(&[*NOMOS_POL_SK_V1, slot_start_fr,
-// root])),         nodes,
-//     )
-// }
 
 pub struct InnerTreeZkHasher;
 
