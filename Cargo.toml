@@ -102,7 +102,7 @@ kzgrs                         = { default-features = false, path = "./nomos-da/k
 kzgrs-backend                 = { default-features = false, path = "./nomos-da/kzgrs-backend" }
 mmr                           = { default-features = false, path = "./mmr" }
 nomos-api                     = { default-features = false, path = "./nomos-services/api" }
-nomos-blend-core              = { default-features = false, path = "./nomos-blend/core" }
+nomos-blend                   = { default-features = false, path = "./nomos-blend/core" }
 nomos-blend-crypto            = { default-features = false, path = "./nomos-blend/crypto" }
 nomos-blend-message           = { default-features = false, path = "./nomos-blend/message" }
 nomos-blend-network           = { default-features = false, path = "./nomos-blend/network" }

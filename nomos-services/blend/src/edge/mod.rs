@@ -15,7 +15,7 @@ use std::{
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{Stream, StreamExt as _};
-use nomos_blend_core::{
+use nomos_blend::{
     message::crypto::proofs::PoQVerificationInputsMinusSigningKey,
     proofs::quota::inputs::prove::{
         private::ProofOfLeadershipQuotaInputs,

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use groth16::{Field as _, fr_to_bytes};
 use key_management_system_service::keys::Ed25519Key;
-use nomos_blend_core::{
+use nomos_blend::{
     crypto::{keys::Ed25519PublicKey, random_sized_bytes},
     message::crypto::proofs::{Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey},
     proofs::{
@@ -192,7 +192,7 @@ mod core_to_core_tests {
     use futures::future::ready;
     use groth16::Field as _;
     use key_management_system_service::keys::Ed25519Key;
-    use nomos_blend_core::{
+    use nomos_blend::{
         message::crypto::proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
         proofs::{
             quota::{

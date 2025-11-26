@@ -7,8 +7,8 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-pub use nomos_blend_core::message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
-use nomos_blend_core::scheduling::session::UninitializedSessionEventStream;
+pub use nomos_blend::message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
+use nomos_blend::scheduling::session::UninitializedSessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,

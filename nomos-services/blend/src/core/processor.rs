@@ -4,7 +4,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_core::{
+use nomos_blend::{
     message::{
         Error as InnerError,
         crypto::proofs::PoQVerificationInputsMinusSigningKey,
@@ -223,7 +223,7 @@ mod tests {
     use core::num::NonZeroU64;
 
     use key_management_system_service::keys::Ed25519Key;
-    use nomos_blend_core::{
+    use nomos_blend::{
         crypto::keys::Ed25519PublicKey,
         message::{
             Error as InnerError, PayloadType, crypto::proofs::PoQVerificationInputsMinusSigningKey,

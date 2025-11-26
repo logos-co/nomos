@@ -220,7 +220,7 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_blend_core::{
+    use nomos_blend::{
         crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey},
         proofs::quota::{
             VerifiedProofOfQuota,

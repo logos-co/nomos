@@ -32,7 +32,7 @@ hex                           = { default-features = false, version = "0.4.3" }
 key-management-system-service = { workspace = true }
 kzgrs-backend                 = { workspace = true }
 nomos-api                     = { workspace = true }
-nomos-blend-core              = { workspace = true }
+nomos-blend                   = { workspace = true }
 nomos-blend-service           = { features = ["libp2p"], workspace = true }
 nomos-core                    = { workspace = true }
 nomos-da-dispersal            = { workspace = true }

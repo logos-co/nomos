@@ -23,7 +23,7 @@ groth16                       = { default-features = false, workspace = true }
 key-management-system-service = { workspace = true }
 libp2p                        = { optional = true, workspace = true }
 libp2p-stream                 = { optional = true, workspace = true }
-nomos-blend-core              = { workspace = true }
+nomos-blend                   = { workspace = true }
 nomos-core                    = { workspace = true }
 nomos-ledger                  = { workspace = true }
 nomos-libp2p                  = { optional = true, workspace = true }
@@ -46,7 +46,7 @@ zksign                        = { workspace = true }
 [dev-dependencies]
 libp2p            = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
 libp2p-swarm-test = { default-features = false, version = "0.5.0" }
-nomos-blend-core  = { features = ["unsafe-test-functions"], workspace = true }
+nomos-blend       = { features = ["unsafe-test-functions"], workspace = true }
 num-bigint        = { default-features = false, version = "0.4" }
 tempfile          = { workspace = true }
 test-log          = { default-features = false, version = "0.2.18", features = ["trace"] }

@@ -1,7 +1,7 @@
 use core::num::NonZeroUsize;
 
 use libp2p::{PeerId, identity::Keypair};
-use nomos_blend_core::scheduling::membership::Membership;
+use nomos_blend::scheduling::membership::Membership;
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
 use tokio::sync::mpsc;

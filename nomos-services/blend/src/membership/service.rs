@@ -2,8 +2,8 @@ use std::{hash::Hash, marker::PhantomData};
 
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
-use nomos_blend_core::crypto::keys::Ed25519PublicKey;
-use nomos_blend_core::scheduling::membership::{Membership, Node};
+use nomos_blend::crypto::keys::Ed25519PublicKey;
+use nomos_blend::scheduling::membership::{Membership, Node};
 use nomos_core::sdp::{ProviderId, ProviderInfo};
 use overwatch::{
     DynError,

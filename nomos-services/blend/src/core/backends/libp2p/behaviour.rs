@@ -1,12 +1,12 @@
 use libp2p::{PeerId, allow_block_list::BlockedPeers, connection_limits::ConnectionLimits};
-use nomos_blend_core::scheduling::membership::Membership;
+use nomos_blend::scheduling::membership::Membership;
 use nomos_libp2p::NetworkBehaviour;
 
 use crate::core::{backends::libp2p::Libp2pBlendBackendSettings, settings::BlendConfig};
 
 #[derive(NetworkBehaviour)]
 pub struct BlendBehaviour<ProofsVerifier, ObservationWindowProvider> {
-    pub blend: nomos_blend_core::network::core::NetworkBehaviour<
+    pub blend: nomos_blend::network::core::NetworkBehaviour<
         ProofsVerifier,
         ObservationWindowProvider,
     >,
@@ -36,14 +36,14 @@ where
         let maximum_edge_incoming_connections =
             config.backend.max_edge_node_incoming_connections as usize;
         Self {
-            blend: nomos_blend_core::network::core::NetworkBehaviour::new(
-                &nomos_blend_core::network::core::Config {
-                    with_core: nomos_blend_core::network::core::with_core::behaviour::Config {
+            blend: nomos_blend::network::core::NetworkBehaviour::new(
+                &nomos_blend::network::core::Config {
+                    with_core: nomos_blend::network::core::with_core::behaviour::Config {
                         peering_degree: minimum_core_healthy_peering_degree
                             ..=maximum_core_peering_degree,
                         minimum_network_size: config.minimum_network_size.try_into().unwrap(),
                     },
-                    with_edge: nomos_blend_core::network::core::with_edge::behaviour::Config {
+                    with_edge: nomos_blend::network::core::with_edge::behaviour::Config {
                         connection_timeout: config.backend.edge_node_connection_timeout,
                         max_incoming_connections: maximum_edge_incoming_connections,
                         minimum_network_size: config.minimum_network_size.try_into().unwrap(),

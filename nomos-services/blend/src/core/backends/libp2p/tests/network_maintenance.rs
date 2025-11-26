@@ -1,8 +1,8 @@
 use core::time::Duration;
 
 use libp2p::core::Endpoint;
-use nomos_blend_core::network::core::with_core::behaviour::NegotiatedPeerState;
-use nomos_blend_core::scheduling::membership::Node;
+use nomos_blend::network::core::with_core::behaviour::NegotiatedPeerState;
+use nomos_blend::scheduling::membership::Node;
 use test_log::test;
 use tokio::{select, time::sleep};
 

@@ -2,7 +2,7 @@ use core::{cell::Cell, convert::Infallible};
 
 use async_trait::async_trait;
 use key_management_system_service::keys::Ed25519Key;
-use nomos_blend_core::{
+use nomos_blend::{
     crypto::keys::Ed25519PublicKey,
     message::{crypto::proofs::PoQVerificationInputsMinusSigningKey, encap::ProofsVerifier},
     proofs::{

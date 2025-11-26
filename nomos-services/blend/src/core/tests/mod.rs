@@ -3,8 +3,8 @@ mod utils;
 use std::num::NonZeroU64;
 
 use groth16::Field as _;
-use nomos_blend_core::message::reward::SessionBlendingTokenCollector;
-use nomos_blend_core::scheduling::{
+use nomos_blend::message::reward::SessionBlendingTokenCollector;
+use nomos_blend::scheduling::{
     SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
     session::SessionEvent,
 };

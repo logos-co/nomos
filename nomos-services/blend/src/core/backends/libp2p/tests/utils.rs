@@ -9,7 +9,7 @@ use libp2p::{
     identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_core::{
+use nomos_blend::{
     message::encap::{
         ProofsVerifier as ProofsVerifierTrait,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,

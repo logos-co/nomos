@@ -12,7 +12,7 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_core::{
+use nomos_blend::{
     message::encap::{
         ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,
@@ -224,37 +224,37 @@ where
 
     fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
-            nomos_blend_core::network::core::with_core::behaviour::Event::Message(msg, conn) => {
+            nomos_blend::network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
                 self.forward_validated_swarm_message(&(*msg).clone(), conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::PeerDisconnected(
+            nomos_blend::network::core::with_core::behaviour::Event::PeerDisconnected(
                 peer_id,
                 peer_state,
             ) => {
                 self.handle_disconnected_peer(peer_id, peer_state);
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
                 // If we ran out of dial attempts, we try to connect to another random peer that we are not yet connected to.
                 if self.retry_dial(peer_id).is_some() {
                     self.dial_random_peers_except(1, Some(peer_id));
                 }
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
                 assert!(self.ongoing_dials.remove(&peer_id).is_some(), "Peer ID for a successfully upgraded connection must be present in storage");
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::InboundConnectionUpgradeFailed(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::InboundConnectionUpgradeFailed(peer_id) => {
                 tracing::warn!(target: LOG_TARGET, "Inbound connection upgrade failed for {peer_id:?}");
             }
-            nomos_blend_core::network::core::with_core::behaviour::Event::InboundConnectionUpgradeSucceeded(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::InboundConnectionUpgradeSucceeded(peer_id) => {
                 tracing::debug!(target: LOG_TARGET, "Inbound connection upgrade succeeded for {peer_id:?}");
             }
         }
@@ -411,7 +411,7 @@ where
 
     fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
         match blend_event {
-            nomos_blend_core::network::core::with_edge::behaviour::Event::Message(msg) => {
+            nomos_blend::network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
                 self.publish_validated_swarm_message(&msg);
                 // Bubble up to service for decapsulation and delaying.

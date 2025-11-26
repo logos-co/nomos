@@ -1,7 +1,7 @@
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_core::{
+use nomos_blend::{
     message::{
         crypto::proofs::PoQVerificationInputsMinusSigningKey,
         encap::{

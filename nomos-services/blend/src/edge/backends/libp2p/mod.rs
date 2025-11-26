@@ -3,7 +3,7 @@ mod swarm;
 
 use futures::future::{AbortHandle, Abortable};
 use libp2p::PeerId;
-use nomos_blend_core::{
+use nomos_blend::{
     message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
     scheduling::membership::Membership,
 };

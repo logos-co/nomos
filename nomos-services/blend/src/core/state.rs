@@ -1,7 +1,7 @@
 mod serde {
     use std::collections::HashSet;
 
-    use nomos_blend_core::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -72,7 +72,7 @@ mod service {
     };
     use std::collections::HashSet;
 
-    use nomos_blend_core::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
 
     use crate::{
         core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
@@ -263,7 +263,7 @@ pub use self::state_updater::StateUpdater;
 mod state_updater {
     use core::hash::Hash;
 
-    use nomos_blend_core::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 

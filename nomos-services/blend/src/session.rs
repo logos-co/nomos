@@ -1,4 +1,4 @@
-use nomos_blend_core::{
+use nomos_blend::{
     proofs::quota::inputs::prove::public::CoreInputs, scheduling::membership::Membership,
 };
 

@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use broadcast_service::BlockBroadcastService;
 use chain_leader::LeaderMsg;
 use futures::{Stream, StreamExt as _};
-use nomos_blend_core::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
+use nomos_blend::proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs;
 use nomos_blend_service::{
     core::kms::PreloadKMSBackendCorePoQGenerator,
     epoch_info::{PolEpochInfo, PolInfoProvider as PolInfoProviderTrait},

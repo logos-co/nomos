@@ -8,7 +8,7 @@ use key_management_system_service::{
     keys::KeyOperators,
     operators::blend::poq::PoQOperator,
 };
-use nomos_blend_core::{
+use nomos_blend::{
     proofs::quota::{self, VerifiedProofOfQuota, inputs::prove::PublicInputs},
     scheduling::message_blend::CoreProofOfQuotaGenerator,
 };

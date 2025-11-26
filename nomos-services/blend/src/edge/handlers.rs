@@ -1,6 +1,6 @@
 use std::{hash::Hash, marker::PhantomData};
 
-use nomos_blend_core::{
+use nomos_blend::{
     message::crypto::proofs::PoQVerificationInputsMinusSigningKey,
     proofs::quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
     scheduling::{

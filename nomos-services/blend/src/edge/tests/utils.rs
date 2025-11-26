@@ -6,7 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{StreamExt as _, future::ready, stream::once};
-use nomos_blend_core::{
+use nomos_blend::{
     message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
     proofs::quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
     scheduling::{

@@ -9,7 +9,7 @@ use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::Keypair, plaintext, swarm, tcp, yamux,
 };
-use nomos_blend_core::{
+use nomos_blend::{
     message::{
         PayloadType, encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
         input::EncapsulationInput,

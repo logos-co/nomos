@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use key_management_system_service::keys::Ed25519Key;
 use libp2p::Multiaddr;
-use nomos_blend_core::{
+use nomos_blend::{
     crypto::keys::Ed25519PublicKey,
     scheduling::membership::{Membership, Node},
 };

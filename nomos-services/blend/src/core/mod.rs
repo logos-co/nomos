@@ -15,7 +15,7 @@ use futures::{
 };
 use key_management_system_service::{api::KmsServiceApi, keys::PublicKeyEncoding};
 use network::NetworkAdapter;
-use nomos_blend_core::{
+use nomos_blend::{
     crypto::random_sized_bytes,
     message::{
         PayloadType,

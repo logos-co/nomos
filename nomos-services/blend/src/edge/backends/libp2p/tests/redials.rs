@@ -2,7 +2,7 @@ use core::slice::from_ref;
 
 use key_management_system_service::keys::Ed25519Key;
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_core::scheduling::membership::{Membership, Node};
+use nomos_blend::scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
