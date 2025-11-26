@@ -38,10 +38,16 @@ impl<T, Hash, const MAX_HEIGHT: u8> Eq for MerkleMountainRange<T, Hash, MAX_HEIG
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Root {
+pub struct Root {
     #[cfg_attr(feature = "serde", serde(with = "serde_fr"))]
     root: Fr,
     height: u8,
+}
+
+impl Root {
+    pub fn root(&self) -> Fr {
+        self.root
+    }
 }
 
 impl<const MAX_HEIGHT: u8, T, Hash> Default for MerkleMountainRange<T, Hash, MAX_HEIGHT>
@@ -72,29 +78,36 @@ where
     }
 
     #[must_use]
-    pub fn push(&self, elem: T) -> Self {
-        let root = Hash::digest(&[*elem.as_ref()]);
-        let mut last_root = Root { root, height: 1 };
+    pub fn push(&self, root: T) -> Self {
+        let mut last_root = Root {
+            root: *root.as_ref(),
+            height: 1,
+        };
         let mut roots = self.roots.clone();
 
         while let Some(root) = roots.peek().copied() {
+            // we want the frontier root to have a fixed height, so each individual root
+            // must be less than MAX_HEIGHT
+            assert!(
+                root.height < MAX_HEIGHT,
+                "Height must be less than {MAX_HEIGHT}"
+            );
             if last_root.height == root.height {
                 roots.pop_mut();
                 last_root = Root {
                     root: Hash::compress(&[root.root, last_root.root]),
                     height: last_root.height + 1,
                 };
-                // we want the frontier root to have a fixed height, so each individual root
-                // must be less than MAX_HEIGHT
-                assert!(
-                    last_root.height < MAX_HEIGHT,
-                    "Height must be less than {MAX_HEIGHT}"
-                );
+                // // we want the frontier root to have a fixed height, so each
+                // individual root // must be less than
+                // MAX_HEIGHT assert!(
+                //     last_root.height < MAX_HEIGHT,
+                //     "Height must be less than {MAX_HEIGHT}"
+                // );
             } else {
                 break;
             }
         }
-
         roots = roots.push(last_root);
 
         Self {
@@ -138,6 +151,11 @@ where
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.roots.is_empty()
+    }
+
+    #[must_use]
+    pub fn roots(&self) -> &StackSync<Root> {
+        &self.roots
     }
 }
 
