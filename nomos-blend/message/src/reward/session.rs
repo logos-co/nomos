@@ -146,9 +146,8 @@ pub fn activity_threshold(token_count_bit_len: u64, num_core_nodes: u64) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
-
     use super::*;
+    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
     #[test]
     fn test_activity_threshold() {
