@@ -2,9 +2,7 @@
 //! are preloaded from config file.
 use std::collections::HashMap;
 
-use key_management_system_keys::keys::{
-    Key, KeyOperators, errors::KeyError, secured_key::SecuredKey,
-};
+use key_management_system_keys::keys::{Key, errors::KeyError, secured_key::SecuredKey};
 use serde::{Deserialize, Serialize};
 
 use crate::backend::KMSBackend;
@@ -97,19 +95,8 @@ impl KMSBackend for PreloadKMSBackend {
         Ok(Self::Key::sign_multiple(&keys, &payload)?)
     }
 
-    async fn execute(
-        &mut self,
-        key_id: &Self::KeyId,
-        operator: KeyOperators,
-    ) -> Result<(), Self::Error> {
-        let key = self
-            .keys
-            .get_mut(key_id)
-            .ok_or_else(|| PreloadBackendError::NotRegisteredKeyId(key_id.to_owned()))?;
-
-        key.execute(operator)
-            .await
-            .map_err(PreloadBackendError::KeyError)
+    fn retrieve<'s>(&'s self, key_id: &Self::KeyId) -> Option<&'s Self::Key> {
+        self.keys.get(key_id)
     }
 }
 

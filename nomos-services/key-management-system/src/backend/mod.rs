@@ -1,4 +1,4 @@
-use key_management_system_keys::keys::{KeyOperators, secured_key::SecuredKey};
+use key_management_system_keys::keys::secured_key::SecuredKey;
 
 pub mod preload;
 
@@ -30,9 +30,5 @@ pub trait KMSBackend {
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
 
-    async fn execute(
-        &mut self,
-        key_id: &Self::KeyId,
-        operator: KeyOperators,
-    ) -> Result<(), Self::Error>;
+    fn retrieve(&self, key_id: &Self::KeyId) -> Option<&Self::Key>;
 }
