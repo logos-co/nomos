@@ -687,12 +687,10 @@ pub fn create_kms_configs(
                 keys: [
                     (
                         key_id_for_preload_backend(
-                            &Ed25519Key::new(
-                                blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                            )
-                            .into(),
+                            &Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
+                                .into(),
                         ),
-                        Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
+                        Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
                             .into(),
                     ),
                     (
@@ -700,8 +698,10 @@ pub fn create_kms_configs(
                         ZkKey::new(zk_secret_key.clone()).into(),
                     ),
                     (
-                        key_id_for_preload_backend(&Ed25519Key::new(da_conf.signer.clone()).into()),
-                        Ed25519Key::new(da_conf.signer.clone()).into(),
+                        key_id_for_preload_backend(
+                            &Ed25519Key::from(da_conf.signer.clone()).into(),
+                        ),
+                        Ed25519Key::from(da_conf.signer.clone()).into(),
                     ),
                     (
                         key_id_for_preload_backend(

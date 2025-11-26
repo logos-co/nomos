@@ -1,4 +1,4 @@
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
 use nomos_blend_proofs::{
     quota::{VerifiedProofOfQuota, inputs::prove::public::CoreInputs},
@@ -19,7 +19,7 @@ pub struct BlendLayerProof {
     /// `PoSel`
     pub proof_of_selection: VerifiedProofOfSelection,
     /// Ephemeral key used to sign the message layer's payload.
-    pub ephemeral_signing_key: Ed25519Key,
+    pub ephemeral_signing_key: UnsecuredEd25519Key,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1,9 +1,12 @@
 use async_trait::async_trait;
 use groth16::{Field as _, fr_to_bytes};
-use key_management_system_service::keys::Ed25519Key;
+use key_management_system_service::keys::UnsecuredEd25519Key;
 use nomos_blend::{
     crypto::{keys::Ed25519PublicKey, random_sized_bytes},
-    message::crypto::proofs::{Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey},
+    message::crypto::{
+        key_ext::Ed25519SecretKeyExt as _,
+        proofs::{Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey},
+    },
     proofs::{
         quota::{
             ProofOfQuota, VerifiedProofOfQuota,
@@ -23,7 +26,6 @@ use nomos_blend::{
 };
 use nomos_blend_service::{ProofsVerifier, RealProofsVerifier};
 use nomos_core::{codec::DeserializeOp as _, crypto::ZkHash};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use poq::PoQProof;
 
 const LOG_TARGET: &str = "node::blend::proofs";
@@ -113,7 +115,7 @@ fn random_proof() -> BlendLayerProof {
             continue;
         };
         return BlendLayerProof {
-            ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+            ephemeral_signing_key: UnsecuredEd25519Key::generate(),
             proof_of_quota,
             proof_of_selection,
         };
@@ -191,9 +193,12 @@ impl ProofsVerifier for BlendProofsVerifier {
 mod core_to_core_tests {
     use futures::future::ready;
     use groth16::Field as _;
-    use key_management_system_service::keys::Ed25519Key;
+    use key_management_system_service::keys::UnsecuredEd25519Key;
     use nomos_blend::{
-        message::crypto::proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
+        message::crypto::{
+            key_ext::Ed25519SecretKeyExt as _,
+            proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
+        },
         proofs::{
             quota::{
                 self, VerifiedProofOfQuota,
@@ -215,7 +220,6 @@ mod core_to_core_tests {
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
     use nomos_core::crypto::ZkHash;
-    use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
     use zksign::SecretKey;
 
     use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};
@@ -529,7 +533,7 @@ mod core_to_core_tests {
         let verified_proof = verifier
             .verify_proof_of_quota(
                 proof_of_quota.into_inner(),
-                &Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
+                &UnsecuredEd25519Key::generate().public_key(),
             )
             .unwrap();
         assert_eq!(verified_proof.key_nullifier(), ZkHash::ZERO);

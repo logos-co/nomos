@@ -7,19 +7,21 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
 use groth16::Field as _;
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use libp2p::{
     Multiaddr, PeerId, Swarm,
     identity::{PublicKey, ed25519},
 };
 use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_crypto::keys::Ed25519PublicKey;
-use nomos_blend_message::{crypto::proofs::PoQVerificationInputsMinusSigningKey, encap};
+use nomos_blend_message::{
+    crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
+    encap,
+};
 use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use tokio::time::interval;
 use tokio_stream::wrappers::IntervalStream;
 
@@ -240,7 +242,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()).public_key(),
+            public_key: UnsecuredEd25519Key::generate().public_key(),
         })
         .collect::<Vec<_>>();
     nodes

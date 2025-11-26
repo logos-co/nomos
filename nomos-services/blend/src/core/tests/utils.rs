@@ -3,11 +3,11 @@ use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::Stream;
 use groth16::Field as _;
-use key_management_system_service::keys::Ed25519Key;
+use key_management_system_service::keys::UnsecuredEd25519Key;
 use nomos_blend::{
     crypto::keys::Ed25519PublicKey,
     message::{
-        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
         encap::{
             ProofsVerifier, encapsulated::EncapsulatedMessage,
             validated::EncapsulatedMessageWithVerifiedPublicHeader,
@@ -38,13 +38,11 @@ use nomos_blend::{
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
-use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
 use poq::CorePathAndSelectors;
-use rand::SeedableRng as _;
 use tempfile::NamedTempFile;
 use tokio::sync::{
     broadcast::{self},
@@ -73,7 +71,7 @@ pub type NodeId = [u8; 32];
 
 /// Creates a membership with the given size and returns it along with the
 /// private key of the local node.
-pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519Key) {
+pub fn new_membership(size: u8) -> (Membership<NodeId>, UnsecuredEd25519Key) {
     let ids = (0..size).map(|i| [i; 32]).collect::<Vec<_>>();
     let local_id = *ids.first().unwrap();
     (
@@ -88,7 +86,7 @@ pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519Key) {
 /// Also returns a [`NamedTempFile`] used for service recovery
 /// that must not be dropped, as doing so will delete the underlying temp file.
 pub fn settings<BackendSettings>(
-    local_private_key: Ed25519Key,
+    local_private_key: UnsecuredEd25519Key,
     minimum_network_size: NonZeroU64,
     backend_settings: BackendSettings,
 ) -> (BlendConfig<BackendSettings>, NamedTempFile) {
@@ -441,7 +439,7 @@ fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
     }
 }
 

@@ -6,7 +6,7 @@ use core::{
 };
 use std::time::Duration;
 
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::PublicKey, plaintext, swarm, tcp, yamux,
@@ -15,7 +15,7 @@ use libp2p_swarm_test::SwarmExt as _;
 use nomos_blend_crypto::{keys::Ed25519PublicKey, signatures::Signature};
 use nomos_blend_message::{
     PayloadType,
-    crypto::proofs::PoQVerificationInputsMinusSigningKey,
+    crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
     encap::{ProofsVerifier, validated::EncapsulatedMessageWithVerifiedPublicHeader},
     input::EncapsulationInput,
 };
@@ -26,7 +26,6 @@ use nomos_blend_proofs::{
 use nomos_blend_scheduling::message_blend::provers::BlendLayerProof;
 use nomos_core::sdp::SessionNumber;
 use nomos_libp2p::{NetworkBehaviour, ed25519, upgrade::Version};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 
 pub const PROTOCOL_NAME: StreamProtocol = StreamProtocol::new("/blend/core-behaviour/test");
 
@@ -157,12 +156,12 @@ impl Deref for TestEncapsulatedMessageWithSession {
 }
 
 fn generate_valid_inputs(session: SessionNumber) -> Vec<EncapsulationInput> {
-    repeat_with(|| Ed25519Key::generate(&mut BlakeRng::from_entropy()))
+    repeat_with(UnsecuredEd25519Key::generate)
         .take(3)
         .map(|recipient_signing_key| {
             let proofs = session_based_mock_blend_proof(session);
             EncapsulationInput::new(
-                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+                UnsecuredEd25519Key::generate(),
                 &recipient_signing_key.public_key(),
                 proofs.proof_of_quota,
                 proofs.proof_of_selection,
@@ -224,7 +223,7 @@ fn session_based_mock_blend_proof(session: SessionNumber) -> BlendLayerProof {
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
     }
 }
 

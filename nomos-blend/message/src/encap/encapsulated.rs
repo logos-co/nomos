@@ -1,5 +1,5 @@
 use itertools::Itertools as _;
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_crypto::{
     keys::{Ed25519PublicKey, SharedKey},
     signatures::Signature,
@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, PayloadType,
+    crypto::key_ext::Ed25519SecretKeyExt as _,
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
@@ -121,7 +122,7 @@ impl EncapsulatedPart {
     pub(super) fn encapsulate(
         self,
         shared_key: &SharedKey,
-        signing_key: &Ed25519Key,
+        signing_key: &UnsecuredEd25519Key,
         proof_of_quota: &VerifiedProofOfQuota,
         proof_of_selection: VerifiedProofOfSelection,
         is_last: bool,
@@ -203,9 +204,8 @@ impl EncapsulatedPart {
     }
 
     /// Signs the encapsulated part using the provided key.
-    pub(super) fn sign(&self, key: &Ed25519Key) -> Signature {
-        key.sign_payload(&signing_body(&self.private_header, &self.payload))
-            .into()
+    pub(super) fn sign(&self, key: &UnsecuredEd25519Key) -> Signature {
+        key.sign(&signing_body(&self.private_header, &self.payload))
     }
 }
 

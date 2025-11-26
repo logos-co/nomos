@@ -1,6 +1,6 @@
 use core::convert::Infallible;
 
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_crypto::{
     keys::{Ed25519PublicKey, X25519PrivateKey},
     signatures::Signature,
@@ -10,7 +10,6 @@ use nomos_blend_proofs::{
     selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 
 use crate::{
     Error, PayloadType,
@@ -297,15 +296,14 @@ fn serde_encapsulated_and_verified() {
 }
 
 fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey>) {
-    let recipient_signing_keys =
-        core::iter::repeat_with(|| Ed25519Key::generate(&mut BlakeRng::from_entropy()))
-            .take(cnt)
-            .collect::<Vec<_>>();
+    let recipient_signing_keys = core::iter::repeat_with(UnsecuredEd25519Key::generate)
+        .take(cnt)
+        .collect::<Vec<_>>();
     let inputs = recipient_signing_keys
         .iter()
         .map(|recipient_signing_key| {
             EncapsulationInput::new(
-                Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+                UnsecuredEd25519Key::generate(),
                 &recipient_signing_key.public_key(),
                 VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
@@ -316,7 +314,7 @@ fn generate_inputs(cnt: usize) -> (Vec<EncapsulationInput>, Vec<X25519PrivateKey
         inputs,
         recipient_signing_keys
             .iter()
-            .map(Ed25519Key::derive_x25519)
+            .map(UnsecuredEd25519Key::derive_x25519)
             .collect(),
     )
 }

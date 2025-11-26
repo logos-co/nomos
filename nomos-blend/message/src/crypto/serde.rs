@@ -1,27 +1,5 @@
 use serde::{Deserialize as _, Deserializer, de::Error as _};
 
-/// [`Ed25519PrivateKey`] <> Hex string hex/deserialization
-pub mod ed25519_privkey_hex {
-    use key_management_system_keys::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key};
-    use serde::{Deserializer, Serialize as _, Serializer};
-
-    use crate::crypto::serde::deserialize_hex_to_key;
-
-    pub fn serialize<S>(key: &Ed25519Key, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        hex::encode(key.as_bytes()).serialize(serializer)
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Ed25519Key, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(deserialize_hex_to_key::<ED25519_SECRET_KEY_SIZE, _>(deserializer)?.into())
-    }
-}
-
 /// [`Ed25519PublicKey`] <> Hex string serialization/deserialization
 pub mod ed25519_pubkey_hex {
     use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};

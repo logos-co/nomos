@@ -1,4 +1,4 @@
-use key_management_system_keys::keys::Ed25519Key;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_crypto::{
     keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey},
     pseudo_random_sized_bytes,
@@ -9,6 +9,8 @@ use nomos_blend_proofs::{
     selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection, VerifiedProofOfSelection},
 };
 use serde::{Deserialize, Serialize};
+
+use crate::crypto::key_ext::Ed25519SecretKeyExt as _;
 
 /// A blending header that is fully decapsulated.
 /// This must be encapsulated when being sent to the blend network.
@@ -36,7 +38,7 @@ impl BlendingHeader {
             // and then derive the public key from it
             // because a public key cannot always be successfully derived from random bytes.
             // TODO: This will be changed once we have zerocopy serde.
-            signing_pubkey: Ed25519Key::from(r1).public_key(),
+            signing_pubkey: UnsecuredEd25519Key::from_bytes(r1).public_key(),
             proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(r2).into_inner(),
             signature: Signature::from(r3),
             proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(r4).into_inner(),

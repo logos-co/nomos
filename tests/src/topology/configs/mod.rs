@@ -127,13 +127,10 @@ pub fn create_general_configs_with_blend_core_subset(
             keys: [
                 (
                     key_id_for_preload_backend(
-                        &Ed25519Key::new(
-                            blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                        )
-                        .into(),
+                        &Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
+                            .into(),
                     ),
-                    Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
-                        .into(),
+                    Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone()).into(),
                 ),
                 (
                     blend_conf.core.zk.secret_key_kms_id.clone(),

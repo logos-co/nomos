@@ -141,7 +141,8 @@ impl<NodeId> Membership<NodeId> {
 
 #[cfg(test)]
 mod tests {
-    use key_management_system_keys::keys::Ed25519Key;
+    use key_management_system_keys::keys::UnsecuredEd25519Key;
+    use nomos_blend_message::crypto::key_ext::Ed25519SecretKeyExt as _;
     use rand::rngs::OsRng;
 
     use super::*;
@@ -295,7 +296,7 @@ mod tests {
     }
 
     fn key(seed: u8) -> Ed25519PublicKey {
-        Ed25519Key::from([seed; 32]).public_key()
+        UnsecuredEd25519Key::from_bytes([seed; 32]).public_key()
     }
 
     fn node(id: u32, seed: u8) -> Node<u32> {

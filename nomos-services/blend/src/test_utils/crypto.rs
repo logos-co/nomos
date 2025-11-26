@@ -1,10 +1,13 @@
 use core::{cell::Cell, convert::Infallible};
 
 use async_trait::async_trait;
-use key_management_system_service::keys::Ed25519Key;
+use key_management_system_service::keys::UnsecuredEd25519Key;
 use nomos_blend::{
     crypto::keys::Ed25519PublicKey,
-    message::{crypto::proofs::PoQVerificationInputsMinusSigningKey, encap::ProofsVerifier},
+    message::{
+        crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
+        encap::ProofsVerifier,
+    },
     proofs::{
         quota::{
             ProofOfQuota, VerifiedProofOfQuota,
@@ -16,8 +19,6 @@ use nomos_blend::{
         BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
     },
 };
-use nomos_utils::blake_rng::BlakeRng;
-use rand::SeedableRng as _;
 
 pub struct MockCoreAndLeaderProofsGenerator;
 
@@ -138,6 +139,6 @@ pub fn mock_blend_proof() -> BlendLayerProof {
     BlendLayerProof {
         proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
         proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
-        ephemeral_signing_key: Ed25519Key::generate(&mut BlakeRng::from_entropy()),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
     }
 }

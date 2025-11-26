@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
 pub use crate::keys::{
-    ed25519::{Ed25519Key, KEY_SIZE as ED25519_SECRET_KEY_SIZE},
+    ed25519::{Ed25519Key, KEY_SIZE as ED25519_SECRET_KEY_SIZE, UnsecuredEd25519Key},
     zk::ZkKey,
 };
 

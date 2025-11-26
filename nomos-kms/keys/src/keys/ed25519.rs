@@ -10,10 +10,14 @@ use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 pub const KEY_SIZE: usize = SECRET_KEY_LENGTH;
 
+/// An Ed25519 secret key exposing methods to retrieve its inner secret value.
+///
+/// To be used in contexts where a KMS-like key is required, but it's not
+/// possible to go through the KMS roundtrip of executing operators.
 #[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
-pub struct Ed25519Key(SigningKey);
+pub struct UnsecuredEd25519Key(SigningKey);
 
-impl Serialize for Ed25519Key {
+impl Serialize for UnsecuredEd25519Key {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -22,7 +26,7 @@ impl Serialize for Ed25519Key {
     }
 }
 
-impl<'de> Deserialize<'de> for Ed25519Key {
+impl<'de> Deserialize<'de> for UnsecuredEd25519Key {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -32,62 +36,49 @@ impl<'de> Deserialize<'de> for Ed25519Key {
     }
 }
 
-impl Ed25519Key {
-    /// Generates a new Ed25519 private key using the provided RNG.
-    #[must_use]
-    pub fn generate<Rng>(rng: &mut Rng) -> Self
-    where
-        Rng: rand::CryptoRng + rand::RngCore,
-    {
-        Self(SigningKey::generate(rng))
-    }
-
-    #[must_use]
-    pub const fn new(signing_key: SigningKey) -> Self {
-        Self(signing_key)
-    }
-
-    /// Signs a payload.
-    #[must_use]
-    pub fn sign_payload(&self, message: &[u8]) -> Signature {
-        self.0.sign(message)
-    }
-
-    #[must_use]
-    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
-        self.0.as_bytes()
-    }
-
-    #[must_use]
-    pub fn public_key(&self) -> VerifyingKey {
-        self.0.verifying_key()
-    }
-}
-
-impl From<[u8; KEY_SIZE]> for Ed25519Key {
-    fn from(bytes: [u8; KEY_SIZE]) -> Self {
-        Self(SigningKey::from_bytes(&bytes))
-    }
-}
-
-impl From<SigningKey> for Ed25519Key {
+impl From<SigningKey> for UnsecuredEd25519Key {
     fn from(value: SigningKey) -> Self {
         Self(value)
     }
 }
 
-impl From<Ed25519Key> for SigningKey {
-    fn from(value: Ed25519Key) -> Self {
+impl From<UnsecuredEd25519Key> for SigningKey {
+    fn from(value: UnsecuredEd25519Key) -> Self {
         value.0.clone()
     }
 }
 
-// This implementation is needed for as long as we don't force ALL operations to
-// go through KMS. Until then, we need to let users of this key type be able to
-// at the very least get a reference to the underlying secret key.
-impl AsRef<SigningKey> for Ed25519Key {
+/// Return a reference to the inner secret key.
+impl AsRef<SigningKey> for UnsecuredEd25519Key {
     fn as_ref(&self) -> &SigningKey {
         &self.0
+    }
+}
+
+/// An hardened Ed25519 secret key that only exposes methods to retrieve public
+/// information.
+///
+/// It is a secured variant of a [`Ed25519Key`] and used within the set of
+/// supported KMS keys.
+#[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop, Serialize, Deserialize)]
+pub struct Ed25519Key(UnsecuredEd25519Key);
+
+impl Ed25519Key {
+    #[must_use]
+    pub const fn new(signing_key: SigningKey) -> Self {
+        Self(UnsecuredEd25519Key(signing_key))
+    }
+}
+
+impl From<UnsecuredEd25519Key> for Ed25519Key {
+    fn from(value: UnsecuredEd25519Key) -> Self {
+        Self(value)
+    }
+}
+
+impl From<SigningKey> for Ed25519Key {
+    fn from(value: SigningKey) -> Self {
+        Self(UnsecuredEd25519Key::from(value))
     }
 }
 
@@ -99,7 +90,7 @@ impl SecuredKey for Ed25519Key {
     type Error = KeyError;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.sign_payload(payload))
+        Ok(self.0.as_ref().sign(payload.iter().as_slice()))
     }
 
     fn sign_multiple(
@@ -110,6 +101,6 @@ impl SecuredKey for Ed25519Key {
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
-        self.public_key()
+        self.0.as_ref().verifying_key()
     }
 }
