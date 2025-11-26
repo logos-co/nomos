@@ -1,24 +1,24 @@
 use async_trait::async_trait;
 use groth16::{Field as _, fr_to_bytes};
-use key_management_system_keys::keys::Ed25519Key;
-use nomos_blend_crypto::{keys::Ed25519PublicKey, random_sized_bytes};
-use nomos_blend_message::crypto::proofs::{
-    Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey,
-};
-use nomos_blend_proofs::{
-    quota::{
-        ProofOfQuota, VerifiedProofOfQuota,
-        inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+use key_management_system_service::keys::Ed25519Key;
+use nomos_blend_core::{
+    crypto::{keys::Ed25519PublicKey, random_sized_bytes},
+    message::crypto::proofs::{Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey},
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+        },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
-    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-};
-use nomos_blend_scheduling::message_blend::{
-    CoreProofOfQuotaGenerator,
-    provers::{
-        BlendLayerProof, ProofsGeneratorSettings,
-        core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
-        core_and_leader::CoreAndLeaderProofsGenerator,
-        leader::LeaderProofsGenerator,
+    scheduling::message_blend::{
+        CoreProofOfQuotaGenerator,
+        provers::{
+            BlendLayerProof, ProofsGeneratorSettings,
+            core::{CoreProofsGenerator as _, RealCoreProofsGenerator},
+            core_and_leader::CoreAndLeaderProofsGenerator,
+            leader::LeaderProofsGenerator,
+        },
     },
 };
 use nomos_blend_service::{ProofsVerifier, RealProofsVerifier};
@@ -191,26 +191,26 @@ impl ProofsVerifier for BlendProofsVerifier {
 mod core_to_core_tests {
     use futures::future::ready;
     use groth16::Field as _;
-    use key_management_system_keys::keys::Ed25519Key;
-    use nomos_blend_message::crypto::proofs::{
-        Error as VerifierError, PoQVerificationInputsMinusSigningKey,
-    };
-    use nomos_blend_proofs::{
-        quota::{
-            self, VerifiedProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs,
-                private::ProofOfCoreQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
+    use key_management_system_service::keys::Ed25519Key;
+    use nomos_blend_core::{
+        message::crypto::proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
+        proofs::{
+            quota::{
+                self, VerifiedProofOfQuota,
+                inputs::prove::{
+                    PrivateInputs, PublicInputs,
+                    private::ProofOfCoreQuotaInputs,
+                    public::{CoreInputs, LeaderInputs},
+                },
             },
+            selection::{self, inputs::VerifyInputs},
         },
-        selection::{self, inputs::VerifyInputs},
-    };
-    use nomos_blend_scheduling::message_blend::{
-        CoreProofOfQuotaGenerator,
-        provers::{
-            BlendLayerProof, ProofsGeneratorSettings,
-            core_and_leader::CoreAndLeaderProofsGenerator as _,
+        scheduling::message_blend::{
+            CoreProofOfQuotaGenerator,
+            provers::{
+                BlendLayerProof, ProofsGeneratorSettings,
+                core_and_leader::CoreAndLeaderProofsGenerator as _,
+            },
         },
     };
     use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
