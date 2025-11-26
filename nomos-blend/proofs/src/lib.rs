@@ -7,10 +7,6 @@ trait ZkHashExt {
     fn hash(&self) -> ZkHash;
 }
 
-trait ZkCompressExt {
-    fn compress(&self) -> ZkHash;
-}
-
 impl<T> ZkHashExt for T
 where
     T: AsRef<[ZkHash]>,
@@ -20,6 +16,10 @@ where
         hasher.update(self.as_ref());
         hasher.finalize()
     }
+}
+
+trait ZkCompressExt {
+    fn compress(&self) -> ZkHash;
 }
 
 impl ZkCompressExt for [ZkHash; 2] {

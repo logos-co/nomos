@@ -1,6 +1,7 @@
+use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
+
 pub mod prove;
 pub mod verify;
-use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
 
 pub use self::verify::Inputs as VerifyInputs;
 
