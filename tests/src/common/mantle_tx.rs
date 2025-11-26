@@ -14,8 +14,8 @@ use nomos_core::{
         tx::TxHash,
     },
     sdp::{
-        ActiveMessage, ActivityMetadata, DaActivityProof, DeclarationMessage, ServiceType,
-        SessionNumber, WithdrawMessage,
+        ActiveMessage, ActivityMetadata, DeclarationMessage, ServiceType, SessionNumber,
+        WithdrawMessage, da,
     },
 };
 use zksign::{PublicKey, SecretKey};
@@ -238,7 +238,7 @@ pub fn create_sdp_withdraw_tx(
 
 #[must_use]
 pub const fn empty_da_activity_proof() -> ActivityMetadata {
-    ActivityMetadata::DataAvailability(DaActivityProof {
+    ActivityMetadata::DataAvailability(da::ActivityProof {
         current_session: 0,
         previous_session_opinions: vec![],
         current_session_opinions: vec![],

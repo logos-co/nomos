@@ -47,7 +47,7 @@ pub fn activity_threshold(token_count_bit_len: u64, network_size_bit_len: u64) -
         .saturating_sub(ACTIVITY_THRESHOLD_SENSITIVITY_PARAM)
 }
 
-impl From<&ActivityProof> for nomos_core::sdp::BlendActivityProof {
+impl From<&ActivityProof> for nomos_core::sdp::blend::ActivityProof {
     fn from(proof: &ActivityProof) -> Self {
         Self {
             session: proof.session_number,
@@ -57,10 +57,10 @@ impl From<&ActivityProof> for nomos_core::sdp::BlendActivityProof {
     }
 }
 
-impl TryFrom<&nomos_core::sdp::BlendActivityProof> for ActivityProof {
+impl TryFrom<&nomos_core::sdp::blend::ActivityProof> for ActivityProof {
     type Error = Box<dyn std::error::Error>;
 
-    fn try_from(proof: &nomos_core::sdp::BlendActivityProof) -> Result<Self, Self::Error> {
+    fn try_from(proof: &nomos_core::sdp::blend::ActivityProof) -> Result<Self, Self::Error> {
         Ok(Self::new(
             proof.session,
             BlendingToken::new(

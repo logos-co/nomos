@@ -370,7 +370,7 @@ fn distribute_rewards(
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::sdp::{DaActivityProof, Declaration, DeclarationId};
+    use nomos_core::sdp::{Declaration, DeclarationId, da::ActivityProof};
     use num_bigint::BigUint;
 
     use super::*;
@@ -525,7 +525,7 @@ mod tests {
         let create_all_positive = || vec![0b0000_1111u8]; // All 4 providers positive
 
         // Provider 1 submits: positive about all
-        let proof1 = DaActivityProof {
+        let proof1 = ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: create_all_positive(),
@@ -535,7 +535,7 @@ mod tests {
             .unwrap();
 
         // Provider 2 submits: positive about first 3 (bits 0, 1, 2)
-        let proof2 = DaActivityProof {
+        let proof2 = ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: vec![0b0000_0111u8],
@@ -545,7 +545,7 @@ mod tests {
             .unwrap();
 
         // Provider 3 submits: positive about all
-        let proof3 = DaActivityProof {
+        let proof3 = ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: create_all_positive(),
@@ -634,7 +634,7 @@ mod tests {
         };
 
         // Provider 1 submits opinions for current session
-        let proof1 = DaActivityProof {
+        let proof1 = ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![0b0000_0001u8], // Positive about provider1 in prev
             current_session_opinions: vec![0b0000_0011u8],  // Positive about both in current
@@ -644,7 +644,7 @@ mod tests {
             .unwrap();
 
         // Provider 2 submits opinions for current session only
-        let proof2 = DaActivityProof {
+        let proof2 = ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![0b0000_0001u8], // Positive about provider1 in prev
             current_session_opinions: vec![0b0000_0011u8],  // Positive about both in current
