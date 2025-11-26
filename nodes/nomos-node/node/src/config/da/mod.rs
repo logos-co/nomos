@@ -15,8 +15,7 @@ use crate::{
     NomosDaMembership, RuntimeServiceId,
     config::da::{
         deployment::Settings as DeploymentSettings, dispersal::Config as DispersalUserConfig,
-        network::Config as NetworkUserConfig, sampling::Config as SamplingUserConfig,
-        verifier::Config as VerifierUserConfig,
+        network::Config as NetworkUserConfig,
     },
 };
 
@@ -31,8 +30,6 @@ pub mod verifier;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub network: NetworkUserConfig,
-    pub verifier: VerifierUserConfig,
-    pub sampling: SamplingUserConfig,
     /// Dispersal config - only present for executor nodes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispersal: Option<DispersalUserConfig>,

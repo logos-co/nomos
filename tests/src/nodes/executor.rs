@@ -412,8 +412,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
-            verifier: nomos_node::config::da::verifier::Config,
-            sampling: nomos_node::config::da::sampling::Config,
             dispersal: Some(nomos_node::config::da::dispersal::Config {
                 encoder_settings: nomos_node::config::da::dispersal::EncoderConfig {
                     with_cache: false,

@@ -496,8 +496,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                 api_port: config.api_config.address.port(),
                 is_secure: false,
             },
-            verifier: nomos_node::config::da::verifier::Config,
-            sampling: nomos_node::config::da::sampling::Config,
             dispersal: None,
         },
         storage: RocksBackendSettings {
