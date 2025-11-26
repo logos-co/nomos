@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },
-            da_dispersal: da_dispersal_config.expect("Executor should have dispersal config"),
+            da_dispersal: da_dispersal_config,
             da_network: da_network_config,
             da_sampling: da_sampling_config,
             da_verifier: da_verifier_config,

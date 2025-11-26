@@ -1,7 +1,4 @@
-use nomos_da_dispersal::{
-    DispersalServiceSettings,
-    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
-};
+use nomos_da_dispersal::{DispersalServiceSettings, backend::kzgrs::DispersalKZGRSBackendSettings};
 use nomos_da_network_service::{
     NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings as DaNetworkApiAdapterSettings,
@@ -144,30 +141,6 @@ impl From<ServiceConfig>
                 .sdp_blob_trigger_sampling_delay,
         };
 
-        // Dispersal settings (optional - only for executors)
-        let dispersal_settings = config.user.dispersal.map(|dispersal_config| {
-            DaDispersalSettings {
-                backend: DispersalKZGRSBackendSettings {
-                    encoder_settings: EncoderSettings {
-                        // deployment
-                        num_columns: config.deployment.common.num_subnets,
-                        // User values
-                        with_cache: dispersal_config.encoder_settings.with_cache,
-                        global_params_path: dispersal_config.encoder_settings.global_params_path,
-                    },
-                    // Deployment values
-                    dispersal_timeout: config.deployment.dispersal.dispersal_timeout,
-                    retry_cooldown: config.deployment.dispersal.retry_cooldown,
-                    retry_limit: config.deployment.dispersal.retry_limit,
-                },
-            }
-        });
-
-        (
-            network_settings,
-            verifier_settings,
-            sampling_settings,
-            dispersal_settings,
-        )
+        (network_settings, verifier_settings, sampling_settings, None)
     }
 }

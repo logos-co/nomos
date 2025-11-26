@@ -1,4 +1,7 @@
-use nomos_da_dispersal::{DispersalServiceSettings, backend::kzgrs::DispersalKZGRSBackendSettings};
+use nomos_da_dispersal::{
+    DispersalServiceSettings,
+    backend::kzgrs::{DispersalKZGRSBackendSettings, EncoderSettings},
+};
 use nomos_da_network_service::{
     NetworkConfig as DaNetworkConfig,
     api::http::ApiAdapterSettings as DaNetworkApiAdapterSettings,
@@ -40,9 +43,9 @@ pub fn da_config_to_executor_settings(
     DaNetworkSettings,
     DaVerifierSettings,
     DaSamplingSettings,
-    Option<DaDispersalSettings>,
+    DaDispersalSettings,
 ) {
-    let (_, verifier_settings, sampling_settings, dispersal_settings) = config.clone().into();
+    let (_, verifier_settings, sampling_settings, _) = config.clone().into();
 
     // Build executor-specific network settings (only difference is the backend
     // type)
@@ -73,6 +76,28 @@ pub fn da_config_to_executor_settings(
         subnet_threshold: config.deployment.network.subnet_threshold,
         min_session_members: config.deployment.network.min_session_members,
     };
+
+    let dispersal_settings = config
+        .user
+        .dispersal
+        .map(|dispersal_config| {
+            DaDispersalSettings {
+                backend: DispersalKZGRSBackendSettings {
+                    encoder_settings: EncoderSettings {
+                        // deployment
+                        num_columns: config.deployment.common.num_subnets,
+                        // User values
+                        with_cache: dispersal_config.encoder_settings.with_cache,
+                        global_params_path: dispersal_config.encoder_settings.global_params_path,
+                    },
+                    // Deployment values
+                    dispersal_timeout: config.deployment.dispersal.dispersal_timeout,
+                    retry_cooldown: config.deployment.dispersal.retry_cooldown,
+                    retry_limit: config.deployment.dispersal.retry_limit,
+                },
+            }
+        })
+        .expect("Dispersal settings is mandatory in executor config");
 
     (
         network_settings,
