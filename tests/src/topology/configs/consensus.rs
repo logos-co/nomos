@@ -19,7 +19,7 @@ use nomos_core::{
     },
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType},
 };
-use nomos_ledger::mantle::sdp::{ServiceRewardsParameters, rewards::BlendRewardsParameters};
+use nomos_ledger::mantle::sdp::{ServiceRewardsParameters, rewards};
 use nomos_node::{SignedMantleTx, Transaction as _};
 use nomos_utils::math::NonNegativeF64;
 use num_bigint::BigUint;
@@ -172,7 +172,7 @@ pub fn create_consensus_configs(
                 .into(),
             ),
             service_rewards_params: ServiceRewardsParameters {
-                blend: BlendRewardsParameters {
+                blend: rewards::blend::RewardsParameters {
                     rounds_per_session: NonZeroU64::new(1000).unwrap(),
                     message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                     num_blend_layers: NonZeroU64::new(3).unwrap(),

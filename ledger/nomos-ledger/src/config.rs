@@ -60,7 +60,7 @@ mod tests {
     use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
     use nomos_utils::math::NonNegativeF64;
 
-    use crate::mantle::sdp::{ServiceRewardsParameters, rewards::BlendRewardsParameters};
+    use crate::mantle::sdp::{ServiceRewardsParameters, rewards::blend::RewardsParameters};
 
     #[test]
     fn epoch_snapshots() {
@@ -101,7 +101,7 @@ mod tests {
                     .into(),
                 ),
                 service_rewards_params: ServiceRewardsParameters {
-                    blend: BlendRewardsParameters {
+                    blend: RewardsParameters {
                         rounds_per_session: NonZeroU64::new(10).unwrap(),
                         message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZeroU64::new(3).unwrap(),
@@ -160,7 +160,7 @@ mod tests {
                     .into(),
                 ),
                 service_rewards_params: ServiceRewardsParameters {
-                    blend: BlendRewardsParameters {
+                    blend: RewardsParameters {
                         rounds_per_session: NonZeroU64::new(10).unwrap(),
                         message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZeroU64::new(3).unwrap(),

@@ -17,17 +17,20 @@ use nomos_core::{
         ServiceType, SessionNumber,
     },
 };
-use rewards::{BlendRewards, DaRewards, Error as RewardsError, Rewards};
+use rewards::{Error as RewardsError, Rewards};
 
-use crate::{UtxoTree, mantle::sdp::rewards::BlendRewardsParameters};
+use crate::{
+    UtxoTree,
+    mantle::sdp::rewards::{blend, da},
+};
 
 type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 enum Service {
-    DataAvailability(ServiceState<DaRewards>),
-    BlendNetwork(ServiceState<BlendRewards>),
+    DataAvailability(ServiceState<da::Rewards>),
+    BlendNetwork(ServiceState<blend::Rewards>),
 }
 
 impl Service {
@@ -132,7 +135,7 @@ pub struct Config {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceRewardsParameters {
-    pub blend: BlendRewardsParameters,
+    pub blend: blend::RewardsParameters,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -408,15 +411,16 @@ impl SdpLedger {
 
     #[must_use]
     pub fn with_da_service(mut self) -> Self {
-        let service = Service::DataAvailability(Self::new_service_state(DaRewards::default()));
+        let service = Service::DataAvailability(Self::new_service_state(da::Rewards::default()));
         self.services = self.services.insert(ServiceType::DataAvailability, service);
         self
     }
 
     #[must_use]
-    pub fn with_blend_service(mut self, rewards_settings: BlendRewardsParameters) -> Self {
-        let service =
-            Service::BlendNetwork(Self::new_service_state(BlendRewards::new(rewards_settings)));
+    pub fn with_blend_service(mut self, rewards_settings: blend::RewardsParameters) -> Self {
+        let service = Service::BlendNetwork(Self::new_service_state(blend::Rewards::new(
+            rewards_settings,
+        )));
         self.services = self.services.insert(ServiceType::BlendNetwork, service);
         self
     }
@@ -685,7 +689,7 @@ mod tests {
         Config {
             service_params: Arc::new(params),
             service_rewards_params: ServiceRewardsParameters {
-                blend: BlendRewardsParameters {
+                blend: blend::RewardsParameters {
                     rounds_per_session: NonZeroU64::new(10).unwrap(),
                     message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                     num_blend_layers: NonZeroU64::new(3).unwrap(),

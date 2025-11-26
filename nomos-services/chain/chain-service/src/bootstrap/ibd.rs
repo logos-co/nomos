@@ -365,7 +365,7 @@ mod tests {
     };
     use nomos_ledger::{
         LedgerState,
-        mantle::sdp::{ServiceRewardsParameters, rewards::BlendRewardsParameters},
+        mantle::sdp::{ServiceRewardsParameters, rewards},
     };
     use nomos_network::{NetworkService, backends::NetworkBackend, message::ChainSyncEvent};
     use nomos_utils::math::NonNegativeF64;
@@ -1045,7 +1045,7 @@ mod tests {
                     .into(),
                 ),
                 service_rewards_params: ServiceRewardsParameters {
-                    blend: BlendRewardsParameters {
+                    blend: rewards::blend::RewardsParameters {
                         rounds_per_session: NonZeroU64::new(10).unwrap(),
                         message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZeroU64::new(3).unwrap(),

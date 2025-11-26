@@ -353,7 +353,7 @@ pub mod tests {
     use crate::{
         Ledger,
         leader_proof::LeaderProof,
-        mantle::sdp::{ServiceRewardsParameters, rewards::BlendRewardsParameters},
+        mantle::sdp::{ServiceRewardsParameters, rewards},
     };
 
     type HeaderId = [u8; 32];
@@ -506,7 +506,7 @@ pub mod tests {
             sdp_config: crate::mantle::sdp::Config {
                 service_params: std::sync::Arc::new(service_params),
                 service_rewards_params: ServiceRewardsParameters {
-                    blend: BlendRewardsParameters {
+                    blend: rewards::blend::RewardsParameters {
                         rounds_per_session: NonZeroU64::new(10).unwrap(),
                         message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZeroU64::new(3).unwrap(),
