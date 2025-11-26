@@ -1,4 +1,3 @@
-
 use cryptarchia_engine::Slot;
 use futures::StreamExt;
 use groth16::Fr;
@@ -8,14 +7,9 @@ use nomos_core::{
     utils::merkle::MerklePath,
 };
 
-use crate::pol::{MAX_TREE_DEPTH, SlotSecret, TREE_LEAF_COUNT};
+use crate::pol::{MAX_TREE_DEPTH, SlotSecret};
 
 pub type Mmr = MerkleMountainRange<SlotSecret, ZkHasher, { MAX_TREE_DEPTH + 1 }>;
-pub type CachedRoots = Vec<Fr>;
-pub struct SubTree {
-    leave: Fr,
-}
-pub struct SlotBranch(MerklePath<SlotSecret>);
 
 pub struct MerklePol {
     slot_secret_root: Fr,
@@ -26,19 +20,23 @@ pub struct MerklePol {
 impl MerklePol {
     pub fn new(seed: Fr) -> Self {
         let mut hashed_leafs =
-            std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])))
-                .take(TREE_LEAF_COUNT);
+            std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])));
 
         let mut mmr = Mmr::new();
         let mut merkle_proof: Vec<Fr> = Vec::new();
+
         for i in 1usize..=2usize.pow(MAX_TREE_DEPTH as u32) {
             let mut hash = hashed_leafs.next().unwrap();
             if i.is_power_of_two() {
                 let mut proof_element = hash;
                 if i != 1 {
-                    let mut roots = mmr.roots().iter().copied().collect::<Vec<_>>();
-                    for j in (0..roots.len() - 1) {
-                        let root = roots[j].root();
+                    let roots = mmr
+                        .roots()
+                        .iter()
+                        .map(|root| root.root())
+                        .take(mmr.roots().iter().count() - 1);
+
+                    for root in roots {
                         proof_element = <ZkHasher as ZkDigest>::compress(&[root, proof_element]);
                     }
                 }
@@ -55,10 +53,6 @@ impl MerklePol {
             current_slot: Slot::new(0),
         }
     }
-
-    // pub fn current_slot_secret(&self) -> (Slot, SlotSecret) {
-    //     self.slot_secret_root.clone().into()
-    // }
 
     // pub fn next(&mut self) -> SlotSecret {}
 }

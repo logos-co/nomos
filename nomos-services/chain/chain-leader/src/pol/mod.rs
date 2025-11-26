@@ -34,7 +34,7 @@ static NOMOS_POL_SK_V1: LazyLock<Fr> = LazyLock::new(|| {
     fr_from_bytes(b"NOMOS_POL_SK_V1").expect("NOMOS_POL_SK_V1 should be a valid Fr")
 });
 
-const MAX_TREE_DEPTH: u8 = 8;
+const MAX_TREE_DEPTH: u8 = 25;
 const TREE_LEAF_COUNT: usize = 2 << MAX_TREE_DEPTH;
 pub struct PolSecretKey {
     current_slot: Slot,
