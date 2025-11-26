@@ -178,7 +178,8 @@ impl From<&VerifiedProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
     }
 }
 
-// TODO: Remove this. VerifiedProofOfQuota should be created via ProofOfQuota::verify
+// TODO: Remove this. VerifiedProofOfQuota should be created via
+// ProofOfQuota::verify
 impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for VerifiedProofOfQuota {
     type Error = Box<dyn std::error::Error>;
 

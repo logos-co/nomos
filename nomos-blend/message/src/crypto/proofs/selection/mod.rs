@@ -181,7 +181,8 @@ impl From<&VerifiedProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
     }
 }
 
-// TODO: Remove this. VerifiedProofOfSelection should only be created via the ProofOfSelection::verify
+// TODO: Remove this. VerifiedProofOfSelection should only be created via the
+// ProofOfSelection::verify
 impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for VerifiedProofOfSelection {
     type Error = Box<dyn std::error::Error>;
 
