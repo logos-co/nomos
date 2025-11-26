@@ -17,7 +17,6 @@ async-trait                = { default-features = false, version = "0.1" }
 derivative                 = "2"
 fork_stream                = { workspace = true }
 futures                    = { default-features = false, version = "0.3" }
-hex                        = { default-features = false, version = "0.4" }
 key-management-system-keys = { workspace = true }
 multiaddr                  = { default-features = false, version = "0.18" }
 nomos-blend-crypto         = { workspace = true }
@@ -37,9 +36,7 @@ groth16             = { workspace = true }
 libp2p              = { workspace = true }
 nomos-blend-message = { workspace = true, features = ["unsafe-test-functions"] }
 nomos-blend-proofs  = { workspace = true, features = ["unsafe-test-functions"] }
-nomos-utils         = { workspace = true }
 test-log            = { default-features = false, version = "0.2.18", features = ["trace"] }
-tokio               = { default-features = false, version = "1" }
 
 [features]
 unsafe-test-functions = []

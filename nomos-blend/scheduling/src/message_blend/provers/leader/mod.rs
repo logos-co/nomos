@@ -106,12 +106,13 @@ fn create_leadership_proof_stream(
 ) -> impl Stream<Item = BlendLayerProof> {
     let message_quota = public_inputs.leader.message_quota;
 
+    let rng = BlakeRng::from_entropy();
     stream::iter(0u64..)
         .map(move |current_index| {
             let encapsulation_layer = current_index % message_quota;
             let private_inputs = private_inputs.clone();
 
-            let mut rng = BlakeRng::from_entropy();
+            let mut rng = rng.clone();
             spawn_blocking(move || {
                 let ephemeral_signing_key = Ed25519Key::generate(&mut rng);
                 let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
