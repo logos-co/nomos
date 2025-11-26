@@ -2,15 +2,35 @@ use bytes::Bytes;
 use ed25519_dalek::{
     SECRET_KEY_LENGTH, Signature, SigningKey, VerifyingKey, ed25519::signature::Signer as _,
 };
-use serde::{Deserialize, Serialize};
+use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 pub const KEY_SIZE: usize = SECRET_KEY_LENGTH;
 
-#[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize, ZeroizeOnDrop)]
+#[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
 pub struct Ed25519Key(SigningKey);
+
+impl Serialize for Ed25519Key {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serialize_bytes_array::<KEY_SIZE, _>(self.0.to_bytes(), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Ed25519Key {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = deserialize_bytes_array::<KEY_SIZE, _>(deserializer)?;
+        Ok(Self(SigningKey::from_bytes(&bytes)))
+    }
+}
 
 impl Ed25519Key {
     /// Generates a new Ed25519 private key using the [`BlakeRng`].
