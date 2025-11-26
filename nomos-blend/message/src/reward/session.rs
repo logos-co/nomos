@@ -50,10 +50,7 @@ pub struct BlendingTokenEvaluation {
 impl BlendingTokenEvaluation {
     pub fn new(core_quota: u64, num_core_nodes: u64) -> Result<Self, Error> {
         let expected_token_count_bit_len = token_count_bit_len(core_quota, num_core_nodes)?;
-        let activity_threshold = activity_threshold(
-            expected_token_count_bit_len,
-            (num_core_nodes as f64).log2().ceil() as u64,
-        )?;
+        let activity_threshold = activity_threshold(expected_token_count_bit_len, num_core_nodes)?;
 
         Ok(Self {
             token_count_byte_len: expected_token_count_bit_len.div_ceil(8),
@@ -149,6 +146,8 @@ pub fn activity_threshold(token_count_bit_len: u64, num_core_nodes: u64) -> Resu
 
 #[cfg(test)]
 mod tests {
+    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
+
     use super::*;
 
     #[test]
@@ -182,5 +181,33 @@ mod tests {
         let core_quota = 0;
         // ceil(log2(0 + 1))
         assert_eq!(token_count_bit_len(core_quota, num_core_nodes).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_token_evaluation() {
+        let evaluation = BlendingTokenEvaluation::new(1000, 2).unwrap();
+        // token_count_bit_len = ceil(log2((1000*2) + 1)) = 11
+        // token_count_byte_len = ceil(token_count_bit_len / 8) = 2
+        assert_eq!(evaluation.token_count_byte_len, 2);
+        // token_count_bit_len - ceil(log2(2+1)) - 1 = 8
+        assert_eq!(evaluation.activity_threshold, 8);
+
+        let maybe_distance = evaluation.evaluate(
+            &BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([0; _]),
+                ProofOfSelection::from_bytes_unchecked([0; _]),
+            ),
+            SessionRandomness::from([0; 64]),
+        );
+        assert_eq!(maybe_distance, None);
+
+        let maybe_distance = evaluation.evaluate(
+            &BlendingToken::new(
+                ProofOfQuota::from_bytes_unchecked([1; _]),
+                ProofOfSelection::from_bytes_unchecked([1; _]),
+            ),
+            SessionRandomness::from([0; 64]),
+        );
+        assert_eq!(maybe_distance, Some(5));
     }
 }
