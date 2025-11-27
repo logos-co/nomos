@@ -17,14 +17,15 @@ use nomos_da_sampling::{
     verifier::kzgrs::KzgrsDaVerifierSettings as SamplingVerifierSettings,
 };
 use nomos_da_verifier::{DaVerifierServiceSettings, backend::kzgrs::KzgrsDaVerifierSettings};
-use nomos_node::{NomosDaMembership, config::da::network::Config as NetworkUserConfig};
+use nomos_node::NomosDaMembership;
 use serde::{Deserialize, Serialize};
 
 use crate::RuntimeServiceId;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
-    pub network: NetworkUserConfig,
+    #[serde(flatten)]
+    pub validator: nomos_node::config::da::Config,
     pub dispersal: DispersalUserConfig,
 }
 
@@ -64,7 +65,7 @@ impl From<ServiceConfig>
         // Reuse validator conversion for verifier and sampling (they're identical)
         let validator_config = nomos_node::config::da::ServiceConfig {
             user: nomos_node::config::da::Config {
-                network: config.user.network.clone(),
+                network: config.user.validator.network.clone(),
             },
             deployment: nomos_node::config::da::deployment::Settings {
                 common: config.deployment.validator.common.clone(),
@@ -80,8 +81,8 @@ impl From<ServiceConfig>
               backend: nomos_da_network_service::backends::libp2p::executor::DaNetworkExecutorBackendSettings {
                   validator_settings: DaNetworkBackendSettings {
                       // User values
-                      node_key: config.user.network.node_key,
-                      listening_address: config.user.network.listening_address,
+                      node_key: config.user.validator.network.node_key,
+                      listening_address: config.user.validator.network.listening_address,
 
                       // Deployment values
                       policy_settings: config.deployment.validator.network.policy_settings,
@@ -102,8 +103,8 @@ impl From<ServiceConfig>
 
               // User values
               api_adapter_settings: DaNetworkApiAdapterSettings {
-                  api_port: config.user.network.api_port,
-                  is_secure: config.user.network.is_secure,
+                  api_port: config.user.validator.network.api_port,
+                  is_secure: config.user.validator.network.is_secure,
               },
 
               // Deployment values

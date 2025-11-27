@@ -406,11 +406,13 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
             column_family: Some("blocks".into()),
         },
         da: nomos_executor::config::da::Config {
-            network: nomos_node::config::da::network::Config {
-                node_key: config.da_config.node_key,
-                listening_address: config.da_config.listening_address,
-                api_port: config.api_config.address.port(),
-                is_secure: false,
+            validator: nomos_node::config::da::Config {
+                network: nomos_node::config::da::network::Config {
+                    node_key: config.da_config.node_key,
+                    listening_address: config.da_config.listening_address,
+                    api_port: config.api_config.address.port(),
+                    is_secure: false,
+                },
             },
             dispersal: nomos_executor::config::da::dispersal::Config {
                 encoder_settings: nomos_executor::config::da::dispersal::EncoderConfig {
