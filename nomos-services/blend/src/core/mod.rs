@@ -13,36 +13,37 @@ use futures::{
     FutureExt as _, Stream, StreamExt as _,
     future::{BoxFuture, join_all},
 };
-use key_management_system::{api::KmsServiceApi, keys::PublicKeyEncoding};
+use key_management_system_service::{api::KmsServiceApi, keys::PublicKeyEncoding};
 use network::NetworkAdapter;
-use nomos_blend_message::{
-    PayloadType,
-    crypto::{
-        proofs::quota::inputs::prove::{
-            private::ProofOfLeadershipQuotaInputs,
-            public::{CoreInputs, LeaderInputs},
+use nomos_blend::{
+    crypto::random_sized_bytes,
+    message::{
+        PayloadType,
+        crypto::key_ext::Ed25519SecretKeyExt as _,
+        encap::{
+            ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
-        random_sized_bytes,
+        reward::{
+            self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
+            SessionBlendingTokenCollector,
+        },
     },
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    proofs::quota::inputs::prove::{
+        private::ProofOfLeadershipQuotaInputs,
+        public::{CoreInputs, LeaderInputs},
     },
-    reward::{
-        self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
-        SessionBlendingTokenCollector,
+    scheduling::{
+        SessionMessageScheduler,
+        message_blend::provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        message_scheduler::{
+            OldSessionMessageScheduler, ProcessedMessageScheduler,
+            round_info::{RoundInfo, RoundReleaseType},
+            session_info::SessionInfo as SchedulerSessionInfo,
+        },
+        session::{SessionEvent, UninitializedSessionEventStream},
+        stream::UninitializedFirstReadyStream,
     },
-};
-use nomos_blend_scheduling::{
-    SessionMessageScheduler,
-    message_blend::provers::core_and_leader::CoreAndLeaderProofsGenerator,
-    message_scheduler::{
-        OldSessionMessageScheduler, ProcessedMessageScheduler,
-        round_info::{RoundInfo, RoundReleaseType},
-        session_info::SessionInfo as SchedulerSessionInfo,
-    },
-    session::{SessionEvent, UninitializedSessionEventStream},
-    stream::UninitializedFirstReadyStream,
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 use nomos_network::NetworkService;

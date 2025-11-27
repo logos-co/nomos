@@ -1,22 +1,23 @@
 use core::{cell::Cell, convert::Infallible};
 
 use async_trait::async_trait;
-use nomos_blend_message::{
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::{
-                ProofOfQuota, VerifiedProofOfQuota,
-                inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
-            },
-            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-        },
+use key_management_system_service::keys::UnsecuredEd25519Key;
+use nomos_blend::{
+    crypto::keys::Ed25519PublicKey,
+    message::{
+        crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
+        encap::ProofsVerifier,
     },
-    encap::ProofsVerifier,
-};
-use nomos_blend_scheduling::message_blend::provers::{
-    BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+        },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
+    },
+    scheduling::message_blend::provers::{
+        BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    },
 };
 
 pub struct MockCoreAndLeaderProofsGenerator;
@@ -138,6 +139,6 @@ pub fn mock_blend_proof() -> BlendLayerProof {
     BlendLayerProof {
         proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
         proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
-        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
     }
 }

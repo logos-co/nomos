@@ -7,21 +7,18 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
 use groth16::Field as _;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use libp2p::{
     Multiaddr, PeerId, Swarm,
     identity::{PublicKey, ed25519},
 };
 use libp2p_swarm_test::SwarmExt as _;
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_message::{
-    crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::public::{CoreInputs, LeaderInputs},
-        },
-    },
+    crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
     encap,
 };
+use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
 use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_libp2p::{NetworkBehaviour, SwarmEvent};
@@ -77,10 +74,7 @@ pub fn new_nodes_with_empty_address(
         .map(|identity| Node {
             id: PublicKey::from(identity.public()).into(),
             address: Multiaddr::empty(),
-            public_key: identity
-                .public()
-                .to_bytes()
-                .try_into()
+            public_key: Ed25519PublicKey::from_bytes(&identity.public().to_bytes())
                 .expect("must be a valid ed25519 public key"),
         })
         .collect::<Vec<_>>();
@@ -112,10 +106,7 @@ impl BehaviourBuilder {
     pub fn with_membership(mut self, nodes: &[Node<PeerId>]) -> Self {
         self.membership = Some(Membership::new(
             nodes,
-            &self
-                .local_public_key
-                .to_bytes()
-                .try_into()
+            &Ed25519PublicKey::from_bytes(&self.local_public_key.to_bytes())
                 .expect("must be a valid ed25519 public key"),
         ));
         self
@@ -251,7 +242,7 @@ pub fn build_memberships<Behaviour: NetworkBehaviour>(
         .map(|swarm| Node {
             id: *swarm.local_peer_id(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: UnsecuredEd25519Key::generate().public_key(),
         })
         .collect::<Vec<_>>();
     nodes

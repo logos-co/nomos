@@ -1,10 +1,11 @@
 use std::ops::{Add as _, Deref};
 
 use groth16::fr_to_bytes;
+use nomos_blend_crypto::blake2b512;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 
-use crate::{crypto::blake2b512, reward::activity::activity_threshold};
+use crate::reward::activity::activity_threshold;
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {

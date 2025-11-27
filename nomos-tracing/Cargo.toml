@@ -27,7 +27,7 @@ opentelemetry-semantic-conventions = "0.26"
 opentelemetry_sdk                  = { default-features = false, features = ["rt-tokio"], version = "0.26" }
 rand                               = { workspace = true }
 reqwest                            = { workspace = true }
-serde                              = { default-features = false, version = "1.0" }
+serde                              = { workspace = true }
 tokio                              = "1"
 tracing                            = { workspace = true }
 tracing-appender                   = "0.2"

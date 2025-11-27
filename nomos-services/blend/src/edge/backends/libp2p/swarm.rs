@@ -13,11 +13,13 @@ use libp2p::{
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use libp2p_stream::OpenStreamError;
-use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
-use nomos_blend_network::send_msg;
-use nomos_blend_scheduling::{
-    membership::{Membership, Node},
-    serialize_encapsulated_message,
+use nomos_blend::{
+    message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    network::send_msg,
+    scheduling::{
+        membership::{Membership, Node},
+        serialize_encapsulated_message,
+    },
 };
 use nomos_libp2p::{DialError, DialOpts, SwarmEvent};
 use rand::RngCore;

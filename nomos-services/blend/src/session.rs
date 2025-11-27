@@ -1,5 +1,6 @@
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::public::CoreInputs;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend::{
+    proofs::quota::inputs::prove::public::CoreInputs, scheduling::membership::Membership,
+};
 
 #[derive(Clone)]
 /// All info that Blend services need to be available on new sessions.

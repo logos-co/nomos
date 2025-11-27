@@ -3,36 +3,38 @@ use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::Stream;
 use groth16::Field as _;
-use nomos_blend_message::{
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::{
-                ProofOfQuota, VerifiedProofOfQuota,
-                inputs::prove::{
-                    private::ProofOfLeadershipQuotaInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
+use key_management_system_service::keys::UnsecuredEd25519Key;
+use nomos_blend::{
+    crypto::keys::Ed25519PublicKey,
+    message::{
+        crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
+        encap::{
+            ProofsVerifier, encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        },
+        reward,
+    },
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{
+                private::ProofOfLeadershipQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
             },
-            selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
         },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
-    encap::{
-        ProofsVerifier, encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
-    reward,
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::SessionCryptographicProcessorSettings,
-        provers::{
-            BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::SessionCryptographicProcessorSettings,
+            provers::{
+                BlendLayerProof, ProofsGeneratorSettings,
+                core_and_leader::CoreAndLeaderProofsGenerator,
+            },
         },
+        message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
     },
-    message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
@@ -69,7 +71,7 @@ pub type NodeId = [u8; 32];
 
 /// Creates a membership with the given size and returns it along with the
 /// private key of the local node.
-pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519PrivateKey) {
+pub fn new_membership(size: u8) -> (Membership<NodeId>, UnsecuredEd25519Key) {
     let ids = (0..size).map(|i| [i; 32]).collect::<Vec<_>>();
     let local_id = *ids.first().unwrap();
     (
@@ -84,7 +86,7 @@ pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519PrivateKey) {
 /// Also returns a [`NamedTempFile`] used for service recovery
 /// that must not be dropped, as doing so will delete the underlying temp file.
 pub fn settings<BackendSettings>(
-    local_private_key: Ed25519PrivateKey,
+    local_private_key: UnsecuredEd25519Key,
     minimum_network_size: NonZeroU64,
     backend_settings: BackendSettings,
 ) -> (BlendConfig<BackendSettings>, NamedTempFile) {
@@ -437,7 +439,7 @@ fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
     }
 }
 

@@ -6,12 +6,12 @@ use futures::{
     future::{AbortHandle, Abortable},
 };
 use libp2p::PeerId;
-use nomos_blend_message::{
-    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
-    encap::{
+use nomos_blend::{
+    message::encap::{
         ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
+    proofs::quota::inputs::prove::public::LeaderInputs,
 };
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;

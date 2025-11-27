@@ -1,6 +1,4 @@
-use nomos_blend_message::crypto::proofs::quota::{
-    self, VerifiedProofOfQuota, inputs::prove::PublicInputs,
-};
+use nomos_blend_proofs::quota::{self, VerifiedProofOfQuota, inputs::prove::PublicInputs};
 use nomos_core::crypto::ZkHash;
 
 pub mod crypto;

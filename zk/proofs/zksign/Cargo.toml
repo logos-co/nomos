@@ -17,7 +17,7 @@ generic-array     = "1.2.0"
 groth16           = { features = ["deser"], workspace = true }
 num-bigint        = { version = "0.4", default-features = false }
 poseidon2         = { workspace = true }
-serde             = { features = ["derive"], version = "1.0" }
+serde             = { workspace = true, features = ["derive"] }
 serde_json        = { workspace = true }
 thiserror         = { workspace = true }
 tracing           = { workspace = true }
