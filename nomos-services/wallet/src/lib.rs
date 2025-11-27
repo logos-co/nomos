@@ -302,7 +302,10 @@ where
         }
     }
 
-    #[expect(clippy::cognitive_complexity, reason = "Message dispatch with error handling")]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Message dispatch with error handling"
+    )]
     async fn handle_wallet_message(
         msg: WalletMsg,
         wallet: &mut Wallet,

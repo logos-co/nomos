@@ -220,7 +220,10 @@ where
         + Sync
         + 'static,
 {
-    #[expect(clippy::cognitive_complexity, reason = "Transaction building with error handling")]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Transaction building with error handling"
+    )]
     async fn handle_post_declaration(
         &self,
         declaration: Box<DeclarationMessage>,
@@ -290,7 +293,10 @@ where
         }
     }
 
-    #[expect(clippy::cognitive_complexity, reason = "Transaction building with error handling")]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Transaction building with error handling"
+    )]
     async fn handle_post_withdrawal(
         &mut self,
         declaration_id: DeclarationId,
