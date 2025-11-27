@@ -2,7 +2,7 @@ use ed25519_dalek::{Verifier as _, ed25519::signature::Signer as _};
 use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{pseudo_random_bytes, signatures::Signature};
+use crate::crypto::{blake2b512, pseudo_random_bytes, signatures::Signature};
 
 pub const KEY_SIZE: usize = 32;
 
@@ -131,20 +131,36 @@ impl SharedKey {
         &self.0
     }
 
+    pub fn rng(&self) -> BlakeRng {
+        BlakeRng::from_seed(blake2b512(&[&self.0]).into())
+    }
+
     /// Encrypts data in-place by XOR operation with a pseudo-random bytes.
+    // TODO: Remove this unsafe function!
     pub fn encrypt(&self, data: &mut [u8]) {
-        Self::xor_in_place(data, &pseudo_random_bytes(self.as_slice(), data.len()));
+        xor_in_place(data, &pseudo_random_bytes(data.len(), &mut self.rng()));
     }
 
     /// Decrypts data in-place by XOR operation with a pseudo-random bytes.
+    // TODO: Remove this unsafe function!
     pub fn decrypt(&self, data: &mut [u8]) {
         self.encrypt(data); // encryption and decryption are symmetric.
     }
+}
 
-    fn xor_in_place(a: &mut [u8], b: &[u8]) {
-        assert_eq!(a.len(), b.len());
-        a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
-    }
+/// Encrypts data in-place by XOR operation with a pseudo-random bytes.
+pub fn encrypt(data: &mut [u8], rng: &mut BlakeRng) {
+    xor_in_place(data, &pseudo_random_bytes(data.len(), rng));
+}
+
+/// Decrypts data in-place by XOR operation with a pseudo-random bytes.
+pub fn decrypt(data: &mut [u8], rng: &mut BlakeRng) {
+    encrypt(data, rng); // encryption and decryption are symmetric.
+}
+
+fn xor_in_place(a: &mut [u8], b: &[u8]) {
+    assert_eq!(a.len(), b.len());
+    a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
 }
 
 #[cfg(test)]
@@ -161,8 +177,9 @@ mod tests {
         // Encrypt two different data using the same key.
         // A new PRG is created with the same seed (key) each time.
         let key = SharedKey([0; _]);
-        let cipher1 = encrypt_cloned(&plain1, &key);
-        let cipher2 = encrypt_cloned(&plain2, &key);
+        let mut rng = key.rng();
+        let cipher1 = encrypt_cloned(&plain1, &mut rng);
+        let cipher2 = encrypt_cloned(&plain2, &mut rng);
         println!("cipher2: {cipher2:?}");
 
         // XOR the two ciphertexts
@@ -173,14 +190,14 @@ mod tests {
         let xor_two_plains = xor(&plain1, &plain2);
         println!("XOR(plain1, plain2): {xor_two_plains:?}");
 
-        // xor_two_plains and xor_two_ciphers are the same
-        // because `encrypt` creates a new PRG with the same seed (key) each time.
-        assert_eq!(xor_two_plains, xor_two_ciphers);
+        // xor_two_plains and xor_two_ciphers shouldn't be the same.
+        // because we reuse PRG for encryptions.
+        assert_ne!(xor_two_plains, xor_two_ciphers);
 
-        // Because of that, plain2 can be recovered as below,
+        // plain2 can't be recovered as below,
         // even if he doesn't know the key, but knows plain "somehow".
         let leaked_plain2 = xor(&plain1, &xor_two_ciphers);
-        assert_eq!(leaked_plain2, plain2);
+        assert_ne!(leaked_plain2, plain2);
     }
 
     #[test]
@@ -194,11 +211,13 @@ mod tests {
         let key2 = SharedKey([1; _]);
 
         // First, encrypt the plain2 with the key2.
-        let cipher2 = encrypt_cloned(&plain2, &key2);
+        let mut rng2 = key2.rng();
+        let cipher2 = encrypt_cloned(&plain2, &mut rng2);
 
         // Second, encrypt plain1 and cipher2 with key1.
-        let cipher1 = encrypt_cloned(&plain1, &key1);
-        let double_cipher2 = encrypt_cloned(&cipher2, &key1);
+        let mut rng1 = key1.rng();
+        let cipher1 = encrypt_cloned(&plain1, &mut rng1);
+        let double_cipher2 = encrypt_cloned(&cipher2, &mut rng1);
 
         // XOR cipher1 and double_cipher2
         let xor_cipher1_and_double_cipher2 = xor(&cipher1, &double_cipher2);
@@ -206,35 +225,36 @@ mod tests {
 
         // Now, someone who knows the key1 can recover plain1 and cipher2 (not plain2).
         // This is the intended use case.
-        let recovered_plain1 = decrypt_cloned(&cipher1, &key1);
+        //
+        // PRG must be created again from key1, and be used in the same order as encryptions.
+        let mut rng1 = key1.rng();
+        let recovered_plain1 = decrypt_cloned(&cipher1, &mut rng1);
         assert_eq!(recovered_plain1, plain1);
-        let recovered_cipher2 = decrypt_cloned(&double_cipher2, &key1);
+        let recovered_cipher2 = decrypt_cloned(&double_cipher2, &mut rng1);
         assert_eq!(recovered_cipher2, cipher2);
 
-        // If someone, who doesn't know the key1, knows the plain1 "somehow",
-        // he can recover cipher2 as below.
-        // It's because `encrypt` creates a new PRG with the same seed (key) each time.
+        // Even if someone, who doesn't know the key1, knows the plain1 "somehow",
+        // he can't recover cipher2 as below.
+        // It's because `encrypt` reuses PRG.
         let leaked_cipher2 = xor(&plain1, &xor_cipher1_and_double_cipher2);
-        assert_eq!(leaked_cipher2, cipher2);
-        // Even if he recovers cipher2, he can't decrypt it unless he knows key2.
-        // But, what if he is the one who has key2?
+        assert_ne!(leaked_cipher2, cipher2);
     }
 
-    fn encrypt_cloned(data: &[u8], key: &SharedKey) -> Vec<u8> {
+    fn encrypt_cloned(data: &[u8], rng: &mut BlakeRng) -> Vec<u8> {
         let mut buf = data.to_vec();
-        key.encrypt(&mut buf);
+        encrypt(&mut buf, rng);
         buf
     }
 
-    fn decrypt_cloned(data: &[u8], key: &SharedKey) -> Vec<u8> {
+    fn decrypt_cloned(data: &[u8], rng: &mut BlakeRng) -> Vec<u8> {
         let mut buf = data.to_vec();
-        key.decrypt(&mut buf);
+        decrypt(&mut buf, rng);
         buf
     }
 
     fn xor(a: &[u8], b: &[u8]) -> Vec<u8> {
         let mut buf = a.to_vec();
-        SharedKey::xor_in_place(&mut buf, b);
+        xor_in_place(&mut buf, b);
         buf
     }
 }
