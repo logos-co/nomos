@@ -17,7 +17,7 @@ pub const KEY_SIZE: usize = SECRET_KEY_LENGTH;
 ///
 /// To be used in contexts where a KMS-like key is required, but it's not
 /// possible to go through the KMS roundtrip of executing operators.
-#[derive(ZeroizeOnDrop, Clone)]
+#[derive(ZeroizeOnDrop, Clone, Debug)]
 pub struct UnsecuredEd25519Key(SigningKey);
 
 impl Serialize for UnsecuredEd25519Key {
@@ -84,7 +84,12 @@ impl Ed25519Key {
 
 impl Debug for Ed25519Key {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Ed25519Key(<redacted>)")
+        let private_key = if cfg!(feature = "unsafe") {
+            format!("{:?}", self.0)
+        } else {
+            "<redacted>".to_owned()
+        };
+        write!(f, "Ed25519Key({private_key})")
     }
 }
 
