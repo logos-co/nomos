@@ -3,24 +3,27 @@ use std::iter::repeat_with;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use key_management_system_service::keys::UnsecuredEd25519Key;
 use libp2p::{
     Multiaddr, PeerId, Swarm, allow_block_list, connection_limits, core::transport::ListenerId,
     identity::Keypair,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::{
-    crypto::keys::Ed25519PrivateKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
+use nomos_blend::{
+    message::{
+        crypto::key_ext::Ed25519SecretKeyExt as _,
+        encap::{
+            ProofsVerifier as ProofsVerifierTrait,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        },
     },
+    network::core::{
+        Config, NetworkBehaviour,
+        with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
+        with_edge::behaviour::Config as CoreToEdgeConfig,
+    },
+    scheduling::membership::{Membership, Node},
 };
-use nomos_blend_network::core::{
-    Config, NetworkBehaviour,
-    with_core::behaviour::{Config as CoreToCoreConfig, IntervalStreamProvider},
-    with_edge::behaviour::Config as CoreToEdgeConfig,
-};
-use nomos_blend_scheduling::membership::{Membership, Node};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use nomos_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
@@ -64,7 +67,7 @@ pub fn new_nodes_with_empty_address(
         .map(|identity| Node {
             id: identity.public().into(),
             address: Multiaddr::empty(),
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: UnsecuredEd25519Key::generate().public_key(),
         })
         .collect::<Vec<_>>();
     (ids.into_iter(), nodes)
@@ -277,7 +280,7 @@ impl SwarmExt for Swarm<BlendBehaviour<MockProofsVerifier, TestObservationWindow
             Node {
                 address,
                 id: *self.local_peer_id(),
-                public_key: Ed25519PrivateKey::generate().public_key(),
+                public_key: UnsecuredEd25519Key::generate().public_key(),
             },
             memory_addr_listener_id,
         )

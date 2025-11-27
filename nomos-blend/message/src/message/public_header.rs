@@ -1,14 +1,11 @@
+use nomos_blend_crypto::{
+    keys::{Ed25519PublicKey, Ed25519PublicKeyExt as _},
+    signatures::Signature,
+};
+use nomos_blend_proofs::quota::{self, ProofOfQuota, VerifiedProofOfQuota};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    Error, MessageIdentifier,
-    crypto::{
-        keys::Ed25519PublicKey,
-        proofs::quota::{self, ProofOfQuota, VerifiedProofOfQuota},
-        signatures::Signature,
-    },
-    encap::ProofsVerifier,
-};
+use crate::{Error, MessageIdentifier, encap::ProofsVerifier};
 
 const LATEST_BLEND_MESSAGE_VERSION: u8 = 1;
 
@@ -165,18 +162,17 @@ impl VerifiedPublicHeader {
 
 #[cfg(test)]
 mod tests {
+    use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
+    use nomos_blend_proofs::quota::VerifiedProofOfQuota;
     use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-    use crate::{
-        crypto::proofs::quota::VerifiedProofOfQuota,
-        message::{PublicHeader, public_header::VerifiedPublicHeader},
-    };
+    use crate::message::{PublicHeader, public_header::VerifiedPublicHeader};
 
     #[test]
     fn serde_verified_and_unverified() {
         let verified_header = VerifiedPublicHeader {
             version: 1,
-            signing_pubkey: [200; 32].try_into().unwrap(),
+            signing_pubkey: Ed25519PublicKey::from_bytes(&[200; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
             proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([201; _]),
             signature: [202; 64].into(),
         };

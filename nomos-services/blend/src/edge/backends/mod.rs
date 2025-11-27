@@ -1,5 +1,7 @@
-use nomos_blend_message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend::{
+    message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    scheduling::membership::Membership,
+};
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
 

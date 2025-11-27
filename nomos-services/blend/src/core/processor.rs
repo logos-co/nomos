@@ -4,25 +4,27 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::{
-    Error as InnerError,
-    crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
-        encapsulated::EncapsulatedMessage,
-        validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
-    reward::BlendingToken,
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::{
-            SessionCryptographicProcessorSettings,
-            core_and_leader::send_and_receive::SessionCryptographicProcessor,
+use nomos_blend::{
+    message::{
+        Error as InnerError,
+        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::{
+            ProofsVerifier as ProofsVerifierTrait,
+            decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+            encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
-        provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        reward::BlendingToken,
+    },
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::{
+                SessionCryptographicProcessorSettings,
+                core_and_leader::send_and_receive::SessionCryptographicProcessor,
+            },
+            provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        },
     },
 };
 
@@ -220,23 +222,26 @@ pub enum Error {
 mod tests {
     use core::num::NonZeroU64;
 
-    use nomos_blend_message::{
-        Error as InnerError, PayloadType,
-        crypto::{
-            keys::{Ed25519PrivateKey, Ed25519PublicKey},
-            proofs::{
-                PoQVerificationInputsMinusSigningKey,
-                quota::{
-                    VerifiedProofOfQuota,
-                    inputs::prove::public::{CoreInputs, LeaderInputs},
-                },
-                selection::{self, VerifiedProofOfSelection},
+    use key_management_system_service::keys::UnsecuredEd25519Key;
+    use nomos_blend::{
+        crypto::keys::Ed25519PublicKey,
+        message::{
+            Error as InnerError, PayloadType,
+            crypto::{
+                key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
             },
+            encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+            input::EncapsulationInput,
         },
-        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
-        input::EncapsulationInput,
+        proofs::{
+            quota::{
+                VerifiedProofOfQuota,
+                inputs::prove::public::{CoreInputs, LeaderInputs},
+            },
+            selection::{self, VerifiedProofOfSelection},
+        },
+        scheduling::message_blend::crypto::SessionCryptographicProcessorSettings,
     };
-    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
 
     use crate::{
@@ -454,7 +459,7 @@ mod tests {
     ) -> EncapsulatedMessageWithVerifiedPublicHeader {
         let inputs = std::iter::repeat_with(|| {
             EncapsulationInput::new(
-                Ed25519PrivateKey::generate(),
+                UnsecuredEd25519Key::generate(),
                 recipient_signing_pubkey,
                 VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),

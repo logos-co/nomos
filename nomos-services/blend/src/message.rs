@@ -1,4 +1,4 @@
-use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
+use nomos_blend::message::encap::encapsulated::EncapsulatedMessage;
 use serde::{Deserialize, Serialize};
 
 /// A message that is handled by [`BlendService`].

@@ -19,16 +19,16 @@ thiserror   = "1.0"
 tokio       = { features = ["sync"], version = "1" }
 tracing     = { workspace = true }
 
-chain-service         = { workspace = true }
-groth16               = { workspace = true }
-key-management-system = { workspace = true }
-nomos-core            = { workspace = true }
-nomos-ledger          = { workspace = true }
-nomos-storage         = { features = ["mock"], workspace = true }
-overwatch             = { workspace = true }
-services-utils        = { workspace = true }
-wallet                = { workspace = true }
-zksign                = { workspace = true }
+chain-service                 = { workspace = true }
+groth16                       = { workspace = true }
+key-management-system-service = { workspace = true }
+nomos-core                    = { workspace = true }
+nomos-ledger                  = { workspace = true }
+nomos-storage                 = { features = ["mock"], workspace = true }
+overwatch                     = { workspace = true }
+services-utils                = { workspace = true }
+wallet                        = { workspace = true }
+zksign                        = { workspace = true }
 
 [lints]
 workspace = true

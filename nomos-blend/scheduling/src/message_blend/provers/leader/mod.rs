@@ -2,19 +2,19 @@ use core::pin::Pin;
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, stream};
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::{
-            VerifiedProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
-                public::LeaderInputs,
-            },
+    key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
+};
+use nomos_blend_proofs::{
+    quota::{
+        VerifiedProofOfQuota,
+        inputs::prove::{
+            PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
+            public::LeaderInputs,
         },
-        selection::VerifiedProofOfSelection,
     },
+    selection::VerifiedProofOfSelection,
 };
 use tokio::task::spawn_blocking;
 
@@ -112,7 +112,7 @@ fn create_leadership_proof_stream(
             let private_inputs = private_inputs.clone();
 
             spawn_blocking(move || {
-                let ephemeral_signing_key = Ed25519PrivateKey::generate();
+                let ephemeral_signing_key = UnsecuredEd25519Key::generate();
                 let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
                     &PublicInputs {
                         signing_key: ephemeral_signing_key.public_key(),
