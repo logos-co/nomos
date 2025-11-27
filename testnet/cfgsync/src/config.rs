@@ -339,7 +339,7 @@ mod cfgsync_tests {
         );
 
         for (host, (_idx, config)) in &configs {
-            let network_port = config.network_config.swarm_config.port;
+            let network_port = config.network_config.backend.inner.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
             let blend_port = extract_port(&config.blend_config.0.core.backend.listening_address);
 

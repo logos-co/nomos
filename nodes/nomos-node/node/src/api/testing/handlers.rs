@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use super::backend::TestHttpCryptarchiaService;
-use crate::{SdpService, generic_services::TxMempoolService, make_request_and_return_response};
+use crate::{generic_services::{SdpService, TxMempoolService}, make_request_and_return_response};
 
 pub async fn da_get_membership<
     Backend,
@@ -127,7 +127,7 @@ where
         + Display
         + 'static
         + AsServiceId<TestHttpCryptarchiaService<RuntimeServiceId>>
-        + AsServiceId<SdpService>
+        + AsServiceId<SdpService<RuntimeServiceId>>
         + AsServiceId<TxMempoolService<RuntimeServiceId>>,
 {
     make_request_and_return_response!(mantle::get_sdp_declarations::<RuntimeServiceId>(&handle))
