@@ -67,10 +67,10 @@ impl From<ServiceConfig>
                 network: config.user.network.clone(),
             },
             deployment: nomos_node::config::da::deployment::Settings {
-                common: config.deployment.common.clone(),
-                network: config.deployment.network.clone(),
-                verifier: config.deployment.verifier.clone(),
-                sampling: config.deployment.sampling.clone(),
+                common: config.deployment.validator.common.clone(),
+                network: config.deployment.validator.network.clone(),
+                verifier: config.deployment.validator.verifier.clone(),
+                sampling: config.deployment.validator.sampling.clone(),
             },
         };
         let (_, verifier_settings, sampling_settings) = validator_config.into();
@@ -84,20 +84,20 @@ impl From<ServiceConfig>
                       listening_address: config.user.network.listening_address,
 
                       // Deployment values
-                      policy_settings: config.deployment.network.policy_settings,
-                      monitor_settings: config.deployment.network.monitor_settings,
-                      balancer_interval: config.deployment.network.balancer_interval,
-                      redial_cooldown: config.deployment.network.redial_cooldown,
-                      replication_settings: config.deployment.network.replication_settings,
-                      subnets_settings: config.deployment.network.subnets_settings,
+                      policy_settings: config.deployment.validator.network.policy_settings,
+                      monitor_settings: config.deployment.validator.network.monitor_settings,
+                      balancer_interval: config.deployment.validator.network.balancer_interval,
+                      redial_cooldown: config.deployment.validator.network.redial_cooldown,
+                      replication_settings: config.deployment.validator.network.replication_settings,
+                      subnets_settings: config.deployment.validator.network.subnets_settings,
                   },
-                  num_subnets: config.deployment.common.num_subnets as u16,
+                  num_subnets: config.deployment.validator.common.num_subnets as u16,
               },
 
               membership: NomosDaMembership::new(
                   0,
-                  config.deployment.network.subnetwork_size,
-                  config.deployment.network.replication_factor,
+                  config.deployment.validator.network.subnetwork_size,
+                  config.deployment.validator.network.replication_factor,
               ),
 
               // User values
@@ -107,9 +107,9 @@ impl From<ServiceConfig>
               },
 
               // Deployment values
-              subnet_refresh_interval: config.deployment.network.subnet_refresh_interval,
-              subnet_threshold: config.deployment.network.subnet_threshold,
-              min_session_members: config.deployment.network.min_session_members,
+              subnet_refresh_interval: config.deployment.validator.network.subnet_refresh_interval,
+              subnet_threshold: config.deployment.validator.network.subnet_threshold,
+              min_session_members: config.deployment.validator.network.min_session_members,
           };
 
         // Dispersal settings (executor-only)
@@ -117,7 +117,7 @@ impl From<ServiceConfig>
             backend: DispersalKZGRSBackendSettings {
                 encoder_settings: EncoderSettings {
                     // Deployment value
-                    num_columns: config.deployment.common.num_subnets,
+                    num_columns: config.deployment.validator.common.num_subnets,
 
                     // User values
                     with_cache: config.user.dispersal.encoder_settings.with_cache,

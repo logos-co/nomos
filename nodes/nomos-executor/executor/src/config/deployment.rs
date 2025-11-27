@@ -22,14 +22,7 @@ impl From<Settings> for nomos_node::config::deployment::Settings {
                 Self::Custom(Box::new(nomos_node::config::deployment::CustomDeployment {
                     blend: custom.blend,
                     network: custom.network,
-                    // Convert executor DA deployment to validator DA deployment
-                    // (strip dispersal since validator doesn't need it)
-                    da: nomos_node::config::da::deployment::Settings {
-                        common: custom.da.common,
-                        network: custom.da.network,
-                        verifier: custom.da.verifier,
-                        sampling: custom.da.sampling,
-                    },
+                    da: custom.da.validator,
                 }))
             }
         }

@@ -164,7 +164,7 @@ async fn test_get_shares() {
 
     let executor = &topology.executors()[0];
     let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
-    let num_subnets = get_e2e_custom_settings().da.common.num_subnets;
+    let num_subnets = get_e2e_custom_settings().da.validator.common.num_subnets;
 
     let data = [1u8; 31];
     let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)

@@ -10,10 +10,7 @@ use crate::config::deployment::Settings as DeploymentSettings;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     #[serde(flatten)]
-    pub common: CommonSettings,
-    pub network: NetworkSettings,
-    pub verifier: VerifierSettings,
-    pub sampling: SamplingSettings,
+    pub validator: nomos_node::config::da::deployment::Settings,
     pub dispersal: DispersalSettings,
 }
 
@@ -27,13 +24,7 @@ impl From<DeploymentSettings> for Settings {
 }
 
 fn mainnet_settings() -> Settings {
-    // Get validator's mainnet settings
-    let nomos_node::config::da::deployment::Settings {
-        common,
-        network,
-        verifier,
-        sampling,
-    } = nomos_node::config::da::deployment::mainnet_settings();
+    let validator = nomos_node::config::da::deployment::mainnet_settings();
 
     // Add executor-specific dispersal settings
     let dispersal = DispersalSettings {
@@ -43,10 +34,7 @@ fn mainnet_settings() -> Settings {
     };
 
     Settings {
-        common,
-        network,
-        verifier,
-        sampling,
+        validator,
         dispersal,
     }
 }
