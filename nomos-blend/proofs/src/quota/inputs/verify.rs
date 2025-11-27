@@ -1,8 +1,10 @@
 use groth16::fr_from_bytes;
-use nomos_core::crypto::ZkHash;
 use poq::{PoQVerifierInput, PoQVerifierInputData};
 
-use crate::quota::inputs::{prove::PublicInputs, split_ephemeral_signing_key};
+use crate::{
+    ZkHash,
+    quota::inputs::{prove::PublicInputs, split_ephemeral_signing_key},
+};
 
 /// Set of inputs required to verify a Proof of Quota.
 ///

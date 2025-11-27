@@ -3,12 +3,11 @@ use std::sync::LazyLock;
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
 use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
-use nomos_core::crypto::ZkHash;
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
 use crate::{
-    ZkHashExt as _,
+    ZkHash, ZkHashExt as _,
     quota::inputs::{
         VerifyInputs,
         prove::{Inputs, PrivateInputs, PublicInputs},

@@ -1,14 +1,14 @@
 use const_hex::FromHex as _;
 use groth16::{Field as _, fr_from_bytes_unchecked};
-use nomos_core::{
-    codec::{DeserializeOp as _, SerializeOp as _},
-    crypto::ZkHash,
-};
+use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
 
-use crate::selection::{
-    Error, KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR, ProofOfSelection,
-    VerifiedProofOfSelection, derive_key_nullifier_from_secret_selection_randomness,
-    inputs::VerifyInputs,
+use crate::{
+    ZkHash,
+    selection::{
+        Error, KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR, ProofOfSelection,
+        VerifiedProofOfSelection, derive_key_nullifier_from_secret_selection_randomness,
+        inputs::VerifyInputs,
+    },
 };
 
 #[test]

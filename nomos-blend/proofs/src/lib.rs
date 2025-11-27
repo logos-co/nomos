@@ -1,5 +1,7 @@
-use nomos_core::crypto::{ZkHash, ZkHasher};
 pub use poq::CorePathAndSelectors;
+
+pub(crate) type ZkHash = groth16::Fr;
+pub(crate) type ZkHasher = poseidon2::Poseidon2Bn254Hasher;
 
 pub mod quota;
 pub mod selection;

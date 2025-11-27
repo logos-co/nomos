@@ -1,5 +1,6 @@
 use nomos_blend_crypto::keys::Ed25519PublicKey;
-use nomos_core::crypto::ZkHash;
+
+use crate::ZkHash;
 
 /// Public inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80ce943dce35dd5403ac>.
 #[derive(Debug, Clone, Copy)]

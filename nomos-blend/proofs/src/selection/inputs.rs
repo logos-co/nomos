@@ -1,4 +1,4 @@
-use nomos_core::crypto::ZkHash;
+use crate::ZkHash;
 
 /// Set of inputs required to verify a Proof of Selection.
 #[derive(Debug, Clone, Copy)]
