@@ -1,3 +1,5 @@
+use core::fmt::{self, Debug, Formatter};
+
 use groth16::Fr;
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
@@ -5,7 +7,7 @@ use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
+#[derive(Serialize, Deserialize, ZeroizeOnDrop, Clone)]
 pub struct ZkKey(SecretKey);
 
 impl ZkKey {
@@ -19,6 +21,20 @@ impl ZkKey {
         self.0.as_fr()
     }
 }
+
+impl Debug for ZkKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "ZkKey(<redacted>)")
+    }
+}
+
+impl PartialEq for ZkKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_fr() == other.0.as_fr()
+    }
+}
+
+impl Eq for ZkKey {}
 
 #[async_trait::async_trait]
 impl SecuredKey for ZkKey {

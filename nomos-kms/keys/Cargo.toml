@@ -21,6 +21,7 @@ key-management-system-macros = { workspace = true }
 nomos-blend-proofs           = { workspace = true }
 nomos-utils                  = { features = ["rng", "serde", "types"], workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
+subtle                       = { workspace = true }
 thiserror                    = { default-features = false, version = "2" }
 tokio                        = { default-features = false, version = "1", features = ["rt"] }
 tracing                      = { default-features = false, version = "0.1" }
