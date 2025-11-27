@@ -146,3 +146,95 @@ impl SharedKey {
         a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shared_key_encryption_security() {
+        let plain1 = b"hello".to_vec();
+        println!("plain1: {plain1:?}");
+        let plain2 = b"world".to_vec();
+        println!("plain2: {plain2:?}");
+
+        // Encrypt two different data using the same key.
+        // A new PRG is created with the same seed (key) each time.
+        let key = SharedKey([0; _]);
+        let cipher1 = encrypt_cloned(&plain1, &key);
+        let cipher2 = encrypt_cloned(&plain2, &key);
+        println!("cipher2: {cipher2:?}");
+
+        // XOR the two ciphertexts
+        let xor_two_ciphers = xor(&cipher1, &cipher2);
+        println!("XOR(cipher1, cipher2): {xor_two_ciphers:?}");
+
+        // XOR the two plaintexts
+        let xor_two_plains = xor(&plain1, &plain2);
+        println!("XOR(plain1, plain2): {xor_two_plains:?}");
+
+        // xor_two_plains and xor_two_ciphers are the same
+        // because `encrypt` creates a new PRG with the same seed (key) each time.
+        assert_eq!(xor_two_plains, xor_two_ciphers);
+
+        // Because of that, plain2 can be recovered as below,
+        // even if he doesn't know the key, but knows plain "somehow".
+        let leaked_plain2 = xor(&plain1, &xor_two_ciphers);
+        assert_eq!(leaked_plain2, plain2);
+    }
+
+    #[test]
+    fn shared_key_encapsulation_security() {
+        let plain1 = b"hello".to_vec();
+        println!("plain1: {plain1:?}");
+        let plain2 = b"world".to_vec();
+        println!("plain2: {plain2:?}");
+
+        let key1 = SharedKey([0; _]);
+        let key2 = SharedKey([1; _]);
+
+        // First, encrypt the plain2 with the key2.
+        let cipher2 = encrypt_cloned(&plain2, &key2);
+
+        // Second, encrypt plain1 and cipher2 with key1.
+        let cipher1 = encrypt_cloned(&plain1, &key1);
+        let double_cipher2 = encrypt_cloned(&cipher2, &key1);
+
+        // XOR cipher1 and double_cipher2
+        let xor_cipher1_and_double_cipher2 = xor(&cipher1, &double_cipher2);
+        println!("XOR(cipher1, double_cipher2): {xor_cipher1_and_double_cipher2:?}");
+
+        // Now, someone who knows the key1 can recover plain1 and cipher2 (not plain2).
+        // This is the intended use case.
+        let recovered_plain1 = decrypt_cloned(&cipher1, &key1);
+        assert_eq!(recovered_plain1, plain1);
+        let recovered_cipher2 = decrypt_cloned(&double_cipher2, &key1);
+        assert_eq!(recovered_cipher2, cipher2);
+
+        // If someone, who doesn't know the key1, knows the plain1 "somehow",
+        // he can recover cipher2 as below.
+        // It's because `encrypt` creates a new PRG with the same seed (key) each time.
+        let leaked_cipher2 = xor(&plain1, &xor_cipher1_and_double_cipher2);
+        assert_eq!(leaked_cipher2, cipher2);
+        // Even if he recovers cipher2, he can't decrypt it unless he knows key2.
+        // But, what if he is the one who has key2?
+    }
+
+    fn encrypt_cloned(data: &[u8], key: &SharedKey) -> Vec<u8> {
+        let mut buf = data.to_vec();
+        key.encrypt(&mut buf);
+        buf
+    }
+
+    fn decrypt_cloned(data: &[u8], key: &SharedKey) -> Vec<u8> {
+        let mut buf = data.to_vec();
+        key.decrypt(&mut buf);
+        buf
+    }
+
+    fn xor(a: &[u8], b: &[u8]) -> Vec<u8> {
+        let mut buf = a.to_vec();
+        SharedKey::xor_in_place(&mut buf, b);
+        buf
+    }
+}
