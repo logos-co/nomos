@@ -162,12 +162,6 @@ pub fn mainnet_settings() -> Settings {
         },
     };
 
-    // let dispersal = DispersalSettings {
-    //     dispersal_timeout: Duration::from_secs(20),
-    //     retry_cooldown: Duration::from_secs(5),
-    //     retry_limit: 2,
-    // };
-
     Settings {
         common,
         network,
