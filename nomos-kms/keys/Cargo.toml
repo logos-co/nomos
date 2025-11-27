@@ -27,3 +27,6 @@ tokio                        = { default-features = false, version = "1", featur
 tracing                      = { default-features = false, version = "0.1" }
 zeroize                      = { workspace = true }
 zksign                       = { workspace = true }
+
+[features]
+unsafe = []

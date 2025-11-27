@@ -71,7 +71,8 @@ impl AsRef<SigningKey> for UnsecuredEd25519Key {
 ///
 /// It is a secured variant of a [`Ed25519Key`] and used within the set of
 /// supported KMS keys.
-#[derive(Serialize, Deserialize, ZeroizeOnDrop, Clone)]
+#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "unsafe", derive(Serialize))]
 pub struct Ed25519Key(UnsecuredEd25519Key);
 
 impl Ed25519Key {

@@ -1,13 +1,14 @@
 use core::fmt::{self, Debug, Formatter};
 
 use groth16::Fr;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, ZeroizeOnDrop, Clone)]
+#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "unsafe", derive(serde::Serialize))]
 pub struct ZkKey(SecretKey);
 
 impl ZkKey {

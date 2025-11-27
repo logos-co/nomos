@@ -5,7 +5,7 @@ mod ed25519;
 mod zk;
 
 use key_management_system_macros::KmsEnumKey;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
 pub use crate::keys::{
@@ -17,7 +17,8 @@ pub use crate::keys::{
 ///
 /// Works as a [`SecuredKey`] over [`Encoding`], delegating requests to the
 /// appropriate key.
-#[derive(Serialize, Deserialize, ZeroizeOnDrop, PartialEq, Eq, Clone, Debug, KmsEnumKey)]
+#[derive(Deserialize, ZeroizeOnDrop, PartialEq, Eq, Clone, Debug, KmsEnumKey)]
+#[cfg_attr(feature = "unsafe", derive(serde::Serialize))]
 pub enum Key {
     Ed25519(Ed25519Key),
     Zk(ZkKey),
