@@ -18,7 +18,10 @@ use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
 
 use super::backend::TestHttpCryptarchiaService;
-use crate::{generic_services::{SdpService, TxMempoolService}, make_request_and_return_response};
+use crate::{
+    generic_services::{SdpService, TxMempoolService},
+    make_request_and_return_response,
+};
 
 pub async fn da_get_membership<
     Backend,
