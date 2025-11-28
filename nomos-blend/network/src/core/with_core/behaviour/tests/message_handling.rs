@@ -43,7 +43,7 @@ async fn message_sending_and_reception() {
     let test_message_id = test_message.id();
     dialing_swarm
         .behaviour_mut()
-        .publish_validated_message(&test_message)
+        .validate_and_publish_message(test_message.clone().into())
         .unwrap();
 
     loop {
@@ -155,7 +155,7 @@ async fn duplicate_message_received() {
     let test_message = TestEncapsulatedMessage::new(b"msg");
     dialing_swarm
         .behaviour_mut()
-        .publish_validated_message(&test_message)
+        .validate_and_publish_message(test_message.clone().into())
         .unwrap();
 
     // Wait enough time to not considered spammy by the listener.

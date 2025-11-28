@@ -155,7 +155,7 @@ async fn forward_message() {
                 if let SwarmEvent::Behaviour(Event::Message(message, conn)) = event {
                     assert_eq!(message.id(), test_message.id());
                     forwarder.behaviour_mut()
-                        .forward_validated_message(&message, conn)
+                        .validate_and_forward_message(test_message.clone().into(), conn)
                         .unwrap();
                 }
             }
@@ -193,7 +193,7 @@ async fn forward_message() {
                 if let SwarmEvent::Behaviour(Event::Message(message, conn)) = event {
                     assert_eq!(message.id(), test_message.id());
                     forwarder.behaviour_mut()
-                        .forward_validated_message(&message, conn)
+                        .validate_and_forward_message(test_message.clone().into(), conn)
                         .unwrap();
                 }
             }

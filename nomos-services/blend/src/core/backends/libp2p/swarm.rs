@@ -226,7 +226,7 @@ where
         match blend_event {
             nomos_blend::network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&(*msg).clone(), conn);
+                self.validate_and_forward_swarm_message((*msg).clone().into(), conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
@@ -333,16 +333,13 @@ where
         self.ongoing_dials.remove(&peer_id)
     }
 
-    fn publish_validated_swarm_message(
-        &mut self,
-        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
-    ) {
+    fn validate_and_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .publish_validated_message(msg)
+            .validate_and_publish_message(msg)
         {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -351,9 +348,9 @@ where
         }
     }
 
-    fn forward_validated_swarm_message(
+    fn validate_and_forward_swarm_message(
         &mut self,
-        msg: &EncapsulatedMessageWithVerifiedPublicHeader,
+        msg: EncapsulatedMessage,
         except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
@@ -361,7 +358,7 @@ where
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .forward_validated_message(msg, except)
+            .validate_and_forward_message(msg, except)
         {
             tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -413,7 +410,7 @@ where
         match blend_event {
             nomos_blend::network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg);
+                self.validate_and_publish_swarm_message(msg.clone().into());
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
