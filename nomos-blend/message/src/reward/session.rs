@@ -6,7 +6,7 @@ use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 use serde::{Deserialize, Serialize};
 
-use crate::reward::{BlendingToken, activity};
+use crate::reward::{BlendingToken, activity, token::HammingDistance};
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {
@@ -42,7 +42,7 @@ impl SessionInfo {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlendingTokenEvaluation {
     token_count_byte_len: u64,
-    activity_threshold: u64,
+    activity_threshold: HammingDistance,
 }
 
 impl BlendingTokenEvaluation {
@@ -64,7 +64,7 @@ impl BlendingTokenEvaluation {
         &self,
         token: &BlendingToken,
         next_session_randomness: SessionRandomness,
-    ) -> Option<u64> {
+    ) -> Option<HammingDistance> {
         let distance = token.hamming_distance(self.token_count_byte_len, next_session_randomness);
         (distance <= self.activity_threshold).then_some(distance)
     }
@@ -126,7 +126,10 @@ pub fn token_count_bit_len(core_quota: u64, num_core_nodes: u64) -> Result<u64, 
         .ceil() as u64)
 }
 
-pub fn activity_threshold(token_count_bit_len: u64, num_core_nodes: u64) -> Result<u64, Error> {
+pub fn activity_threshold(
+    token_count_bit_len: u64,
+    num_core_nodes: u64,
+) -> Result<HammingDistance, Error> {
     let network_size_bit_len = F64Ge1::try_from(
         num_core_nodes
             .checked_add(1)
@@ -154,19 +157,19 @@ mod tests {
         let token_count_bit_len = 10;
         let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
         // 10 - log2(127+1) - 1
-        assert_eq!(threshold, 2);
+        assert_eq!(threshold, 2.into());
 
         let network_size = 0;
         let token_count_bit_len = 10;
         let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
         // 10 - log2(0+1) - 1
-        assert_eq!(threshold, 9);
+        assert_eq!(threshold, 9.into());
 
         let network_size = 127;
         let token_count_bit_len = 0;
         let threshold = activity_threshold(token_count_bit_len, network_size).unwrap();
         // 0 - log2(127+1) - 1 (by saturated_sub)
-        assert_eq!(threshold, 0);
+        assert_eq!(threshold, 0.into());
     }
 
     #[test]
@@ -188,7 +191,7 @@ mod tests {
         // token_count_byte_len = ceil(token_count_bit_len / 8) = 2
         assert_eq!(evaluation.token_count_byte_len, 2);
         // token_count_bit_len - ceil(log2(2+1)) - 1 = 8
-        assert_eq!(evaluation.activity_threshold, 8);
+        assert_eq!(evaluation.activity_threshold, 8.into());
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
@@ -206,6 +209,6 @@ mod tests {
             ),
             SessionRandomness::from([0; 64]),
         );
-        assert_eq!(maybe_distance, Some(5));
+        assert_eq!(maybe_distance, Some(5.into()));
     }
 }

@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, iter::once, num::NonZeroU64};
 
 use groth16::Fr;
-use nomos_blend_message::reward::{BlendingTokenEvaluation, SessionRandomness};
+use nomos_blend_message::reward::{BlendingTokenEvaluation, HammingDistance, SessionRandomness};
 use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 use nomos_core::{
     blend::core_quota,
@@ -38,7 +38,7 @@ pub enum Rewards {
         next_session_randomness: SessionRandomness,
         /// Proofs submitted by providers in the session corresponding to
         /// `session_number`.
-        submitted_proofs: HashTrieMapSync<ProviderId, (PublicKey, u64)>,
+        submitted_proofs: HashTrieMapSync<ProviderId, (PublicKey, HammingDistance)>,
         /// Tracking the minimum Hamming distance among submitted proofs.
         min_hamming_distance: MinHammingDistance,
         /// Settings that don't change per session.
@@ -271,28 +271,28 @@ impl RewardsParameters {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MinHammingDistance {
-    distance: u64,
+    min_distance: HammingDistance,
     providers: HashTrieSetSync<ProviderId>,
 }
 
 impl MinHammingDistance {
     fn new() -> Self {
         Self {
-            distance: u64::MAX,
+            min_distance: HammingDistance::MAX,
             providers: HashTrieSetSync::new_sync(),
         }
     }
 
     /// Creates a new [`MinHammingDistance`] updated with the given distance and
     /// provider.
-    fn with_update(&self, distance: u64, provider: ProviderId) -> Self {
-        match distance.cmp(&self.distance) {
+    fn with_update(&self, distance: HammingDistance, provider: ProviderId) -> Self {
+        match distance.cmp(&self.min_distance) {
             Ordering::Less => Self {
-                distance,
+                min_distance: distance,
                 providers: once(provider).collect(),
             },
             Ordering::Equal => Self {
-                distance,
+                min_distance: distance,
                 providers: self.providers.insert(provider),
             },
             Ordering::Greater => self.clone(),

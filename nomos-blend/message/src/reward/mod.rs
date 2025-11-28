@@ -7,7 +7,7 @@ use std::collections::HashSet;
 pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
-pub use token::BlendingToken;
+pub use token::{BlendingToken, HammingDistance};
 
 pub use crate::reward::session::{BlendingTokenEvaluation, Error, SessionRandomness};
 
