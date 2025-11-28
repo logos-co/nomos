@@ -60,5 +60,5 @@ utoipa-swagger-ui        = { workspace = true }
 default         = ["tracing"]
 instrumentation = ["nomos-node/instrumentation"]
 profiling       = ["nomos-http-api-common/profiling", "nomos-node/profiling"]
-testing         = []
+testing         = ["nomos-node/testing"]
 tracing         = ["nomos-node/tracing"]

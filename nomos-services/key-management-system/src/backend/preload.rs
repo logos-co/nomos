@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use key_management_system_keys::keys::{
     Key, KeyOperators, errors::KeyError, secured_key::SecuredKey,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::backend::KMSBackend;
 
@@ -28,7 +28,8 @@ pub struct PreloadKMSBackend {
 /// This setting contains all [`Key`]s to be loaded into the
 /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
 /// populate the settings from bytes.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
+#[cfg_attr(any(test, feature = "unsafe"), derive(serde::Serialize))]
 pub struct PreloadKMSBackendSettings {
     pub keys: HashMap<KeyId, Key>,
 }
