@@ -106,15 +106,13 @@ where
         }
 
         let valid_responses = responses_stream
-            .filter_map(|event| async move {
-                match event {
-                    Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
-                    Err(e) => {
-                        tracing::error!("Error dispersing in dispersal stream: {e}");
-                        None
-                    }
-                    _ => None,
+            .filter_map(async |event| match event {
+                Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
+                Err(e) => {
+                    tracing::error!("Error dispersing in dispersal stream: {e}");
+                    None
                 }
+                _ => None,
             })
             .take(num_columns)
             .collect::<()>();
@@ -136,11 +134,9 @@ where
         }
 
         let valid_responses = responses_stream
-            .filter_map(|event| async move {
-                match event {
-                    Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
-                    _ => None,
-                }
+            .filter_map(async |event| match event {
+                Ok((_blob_id, _)) if _blob_id == blob_id => Some(()),
+                _ => None,
             })
             .take(self.num_columns)
             .collect::<()>();

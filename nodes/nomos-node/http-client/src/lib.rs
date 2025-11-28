@@ -118,7 +118,7 @@ impl CommonHttpClient {
         let response = request.send().await.map_err(Error::Request)?;
         let status = response.status();
 
-        let lib_stream = response.bytes_stream().filter_map(|item| async move {
+        let lib_stream = response.bytes_stream().filter_map(async |item| {
             let bytes = item.ok()?;
             serde_json::from_slice::<BlockInfo>(&bytes).ok()
         });
@@ -197,7 +197,7 @@ impl CommonHttpClient {
         let response = request.send().await.map_err(Error::Request)?;
         let status = response.status();
 
-        let shares_stream = response.bytes_stream().filter_map(|item| async move {
+        let shares_stream = response.bytes_stream().filter_map(async |item| {
             let bytes = item.ok()?;
             serde_json::from_slice::<B::LightShare>(&bytes).ok()
         });

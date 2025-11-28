@@ -57,7 +57,7 @@ async fn test_orphan_handling() {
     tokio::time::timeout(adjust_timeout(Duration::from_secs(300)), async {
         loop {
             let initial_nodes_info: Vec<_> = stream::iter(&validators)
-                .then(|n| async move { n.consensus_info().await })
+                .then(async |n| n.consensus_info().await)
                 .collect()
                 .await;
             println!(

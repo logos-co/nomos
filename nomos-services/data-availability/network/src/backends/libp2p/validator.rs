@@ -279,22 +279,22 @@ where
         match event {
             DaNetworkEventKind::Sampling => Box::pin(
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Sampling),
             ),
             DaNetworkEventKind::Commitments => Box::pin(
                 BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::HistoricSampling => Box::pin(
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::HistoricSampling),
             ),
         }

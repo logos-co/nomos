@@ -240,8 +240,7 @@ unseparated_literal_suffix        = { level = "allow" }
 use_debug                         = { level = "allow" }
 wildcard_enum_match_arm           = { level = "allow" }
 
-# TODO: Address these allow-by-default lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
-# When doing so, please update the same table for all crates that are not part of the workspace.
+# TODO: Address these lints at some point. To allow them, move them to the section where they belong (e.g., pedantic), and keep allowing them. To enforce them, since all lints are "warn" by default, just remove them from this list.
 arithmetic_side_effects     = { level = "allow" }
 as_conversions              = { level = "allow" }
 as_pointer_underscore       = { level = "allow" }
@@ -251,7 +250,6 @@ cast_possible_truncation    = { level = "allow" }
 cast_possible_wrap          = { level = "allow" }
 cast_precision_loss         = { level = "allow" }
 cast_sign_loss              = { level = "allow" }
-doc_broken_link             = { level = "allow" }
 error_impl_error            = { level = "allow" }
 impl_trait_in_params        = { level = "allow" }
 indexing_slicing            = { level = "allow" }
@@ -284,12 +282,18 @@ unused_crate_dependencies = { level = "allow" } # Too many false positives espec
 unused_results            = { level = "allow" } # We have Clippy lints to warn on unused `must_use` results. This is too pedantic as it complains on EVERY unused result.
 
 # Lints which are allow-by-default but have been changed to "warn"
+ambiguous_negative_literals   = { level = "warn" }
+closure_returning_async_block = { level = "warn" }
+deref_into_dyn_supertrait     = { level = "warn" }
 impl_trait_redundant_captures = { level = "warn" }
+macro_use_extern_crate        = { level = "warn" }
 missing_unsafe_on_extern      = { level = "warn" }
 redundant_imports             = { level = "warn" }
 redundant_lifetimes           = { level = "warn" }
 single_use_lifetimes          = { level = "warn" }
+tail_expr_drop_order          = { level = "warn" }
 trivial_numeric_casts         = { level = "warn" }
+unit_bindings                 = { level = "warn" }
 unsafe_attr_outside_unsafe    = { level = "warn" }
 unsafe_op_in_unsafe_fn        = { level = "warn" }
 unstable_features             = { level = "warn" }
@@ -299,24 +303,17 @@ unused_lifetimes              = { level = "warn" }
 unused_macro_rules            = { level = "warn" }
 unused_qualifications         = { level = "warn" }
 
-# TODO: Address these allow-by-default Rustc lints at some point by either allowing them permanently or enforce them, and move them to the relative section according to the decision.
-# When doing so, please update the same table for all crates that are not part of the workspace.
+# TODO: Address these allow-by-default Rustc lints at some point. To allow them, move them to the list of explicitly allowed lints. To enforce them, move them to the list of explicitly warned ones.
 absolute_paths_not_starting_with_crate = { level = "allow" }
-ambiguous_negative_literals            = { level = "allow" }
-closure_returning_async_block          = { level = "allow" }
-deref_into_dyn_supertrait              = { level = "allow" }
 elided_lifetimes_in_paths              = { level = "allow" }
 ffi_unwind_calls                       = { level = "allow" }
 impl_trait_overcaptures                = { level = "allow" }
 let_underscore_drop                    = { level = "allow" }
 linker_messages                        = { level = "allow" }
-macro_use_extern_crate                 = { level = "allow" }
 missing_copy_implementations           = { level = "allow" }
 missing_debug_implementations          = { level = "allow" }
 missing_docs                           = { level = "allow" }
-tail_expr_drop_order                   = { level = "allow" }
 trivial_casts                          = { level = "allow" }
-unit_bindings                          = { level = "allow" }
 unreachable_pub                        = { level = "allow" }
 unsafe_code                            = { level = "allow" }
 variant_size_differences               = { level = "allow" }

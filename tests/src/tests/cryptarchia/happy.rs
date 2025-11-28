@@ -36,13 +36,13 @@ async fn happy_test(topology: &Topology) {
         tokio::select! {
             () = timeout => panic!("timed out waiting for nodes to produce {} blocks", n_blocks),
             () = async { while stream::iter(nodes)
-                .any(|n| async move { (n.consensus_info().await.height as u32) < n_blocks })
+                .any(async |n| (n.consensus_info().await.height as u32) < n_blocks)
                 .await
             {
                 println!(
                     "waiting... {}",
                     stream::iter(nodes)
-                        .then(|n| async move { format!("{}", n.consensus_info().await.height) })
+                        .then(async |n| { format!("{}", n.consensus_info().await.height) })
                         .collect::<Vec<_>>()
                         .await
                         .join(" | ")
@@ -56,7 +56,7 @@ async fn happy_test(topology: &Topology) {
     println!("{:?}", nodes[0].consensus_info().await);
 
     let infos = stream::iter(nodes)
-        .then(|n| async move { n.get_headers(None, None).await })
+        .then(async |n| n.get_headers(None, None).await)
         // TODO: this can actually fail if the one node is slightly behind, we should really either
         // get the block at a specific height, but we currently lack the API for that
         .map(|blocks| blocks.last().copied().unwrap()) // we're getting the LIB

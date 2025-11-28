@@ -255,7 +255,7 @@ mod test {
         let task_1 = async move {
             wait_for_incoming_connection(&mut swarm_1, peer_id2).await;
             swarm_1
-                .filter_map(|event| async {
+                .filter_map(async |event| {
                     if let SwarmEvent::Behaviour(ReplicationEvent::IncomingMessage {
                         message,
                         ..
