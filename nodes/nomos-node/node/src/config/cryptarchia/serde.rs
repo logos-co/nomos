@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chain_network::{SyncConfig, network::adapters::libp2p::LibP2pAdapterSettings};
+use chain_network::SyncConfig;
 use chain_service::StartingState;
 use nomos_libp2p::PeerId;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,6 @@ pub struct ServiceConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NetworkConfig {
-    pub adapter: LibP2pAdapterSettings,
     pub bootstrap: chain_network::BootstrapConfig<PeerId>,
     pub sync: SyncConfig,
 }

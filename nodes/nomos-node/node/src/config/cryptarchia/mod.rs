@@ -1,3 +1,4 @@
+use chain_network::network::adapters::libp2p::LibP2pAdapterSettings;
 use nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings;
 use nomos_libp2p::PeerId;
 
@@ -14,10 +15,7 @@ pub struct ServiceConfig {
 impl From<ServiceConfig>
     for (
         chain_service::CryptarchiaSettings,
-        chain_network::ChainNetworkSettings<
-            PeerId,
-            chain_network::network::adapters::libp2p::LibP2pAdapterSettings,
-        >,
+        chain_network::ChainNetworkSettings<PeerId, LibP2pAdapterSettings>,
         chain_leader::LeaderSettings<(), Libp2pBroadcastSettings>,
     )
 {
@@ -31,11 +29,15 @@ impl From<ServiceConfig>
         let chain_network_settings = chain_network::ChainNetworkSettings {
             bootstrap: value.user.network.bootstrap,
             config: value.deployment.ledger.clone(),
-            network_adapter_settings: value.user.network.adapter,
+            network_adapter_settings: LibP2pAdapterSettings {
+                topic: value.deployment.gossipsub_protocol.clone(),
+            },
             sync: value.user.network.sync,
         };
         let chain_leader_settings = chain_leader::LeaderSettings {
-            blend_broadcast_settings: value.deployment.leader.broadcast,
+            blend_broadcast_settings: Libp2pBroadcastSettings {
+                topic: value.deployment.gossipsub_protocol,
+            },
             config: value.deployment.ledger,
             leader_config: value.user.leader.leader,
             transaction_selector_settings: (),

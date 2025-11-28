@@ -181,17 +181,15 @@ cryptarchia:
         grace_period: [ 1200, 0 ]
         state_recording_interval: [ 60, 0 ]
   network:
-    adapter:
-      topic: /cryptarchia/proto
     bootstrap:
       ibd:
         peers: [ ]
     sync:
       orphan:
         max_orphan_cache_size: 5
-    leader:
-      pk: "0000000000000000000000000000000000000000000000000000000000000000"
-      sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
+  leader:
+    pk: "0000000000000000000000000000000000000000000000000000000000000000"
+    sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
 storage:
   db_path: nomos_db
   read_only: false
