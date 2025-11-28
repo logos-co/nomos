@@ -51,22 +51,8 @@ impl From<&ActivityProof> for nomos_core::sdp::blend::ActivityProof {
     fn from(proof: &ActivityProof) -> Self {
         Self {
             session: proof.session_number,
-            proof_of_quota: proof.token.proof_of_quota().into(),
-            proof_of_selection: proof.token.proof_of_selection().into(),
+            proof_of_quota: (*proof.token.proof_of_quota()).into(),
+            proof_of_selection: (*proof.token.proof_of_selection()).into(),
         }
-    }
-}
-
-impl TryFrom<&nomos_core::sdp::blend::ActivityProof> for ActivityProof {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(proof: &nomos_core::sdp::blend::ActivityProof) -> Result<Self, Self::Error> {
-        Ok(Self::new(
-            proof.session,
-            BlendingToken::new(
-                (&proof.proof_of_quota).try_into()?,
-                (&proof.proof_of_selection).try_into()?,
-            ),
-        ))
     }
 }

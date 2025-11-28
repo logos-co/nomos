@@ -95,6 +95,22 @@ impl PartialEq<VerifiedProofOfSelection> for ProofOfSelection {
     }
 }
 
+impl From<&ProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
+    fn from(proof: &ProofOfSelection) -> Self {
+        fr_to_bytes(&proof.selection_randomness)
+    }
+}
+
+impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            selection_randomness: fr_from_bytes(&value).map_err(Box::new)?,
+        })
+    }
+}
+
 /// A verified Proof of Selection.
 #[derive(Clone, Debug, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfSelection(ProofOfSelection);
@@ -165,22 +181,4 @@ pub fn derive_key_nullifier_from_secret_selection_randomness(
         secret_selection_randomness,
     ]
     .compress()
-}
-
-impl From<&VerifiedProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
-    fn from(proof: &VerifiedProofOfSelection) -> Self {
-        fr_to_bytes(&proof.0.selection_randomness)
-    }
-}
-
-// TODO: Remove this. VerifiedProofOfSelection should only be created via the
-// ProofOfSelection::verify
-impl TryFrom<&[u8; PROOF_OF_SELECTION_SIZE]> for VerifiedProofOfSelection {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(value: &[u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
-        Ok(Self(ProofOfSelection {
-            selection_randomness: fr_from_bytes(value).map_err(Box::new)?,
-        }))
-    }
 }

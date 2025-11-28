@@ -73,6 +73,33 @@ impl PartialEq<VerifiedProofOfQuota> for ProofOfQuota {
     }
 }
 
+impl From<&ProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
+    fn from(proof: &ProofOfQuota) -> Self {
+        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
+        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.key_nullifier));
+        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.proof.to_bytes());
+        bytes
+    }
+}
+
+impl TryFrom<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
+        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
+        let key_nullifier = fr_from_bytes(key_nullifier_bytes).map_err(Box::new)?;
+        let (pi_a, pi_b, pi_c) = split_proof_components::<
+            <Bn254 as CompressSize>::G1CompressedSize,
+            <Bn254 as CompressSize>::G2CompressedSize,
+        >(proof_circuit_bytes.try_into().map_err(Box::new)?);
+
+        Ok(Self {
+            key_nullifier,
+            proof: PoQProof::new(pi_a, pi_b, pi_c),
+        })
+    }
+}
+
 /// A verified Proof of Quota.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfQuota(ProofOfQuota);
@@ -160,35 +187,6 @@ impl AsRef<ProofOfQuota> for VerifiedProofOfQuota {
 impl PartialEq<ProofOfQuota> for VerifiedProofOfQuota {
     fn eq(&self, other: &ProofOfQuota) -> bool {
         self.0 == *other
-    }
-}
-
-impl From<&VerifiedProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
-    fn from(proof: &VerifiedProofOfQuota) -> Self {
-        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
-        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.0.key_nullifier));
-        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.0.proof.to_bytes());
-        bytes
-    }
-}
-
-// TODO: Remove this. VerifiedProofOfQuota should be created via
-// ProofOfQuota::verify
-impl TryFrom<&[u8; PROOF_OF_QUOTA_SIZE]> for VerifiedProofOfQuota {
-    type Error = Box<dyn std::error::Error>;
-
-    fn try_from(bytes: &[u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
-        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
-        let key_nullifier = fr_from_bytes(key_nullifier_bytes).map_err(Box::new)?;
-        let (pi_a, pi_b, pi_c) = split_proof_components::<
-            <Bn254 as CompressSize>::G1CompressedSize,
-            <Bn254 as CompressSize>::G2CompressedSize,
-        >(proof_circuit_bytes.try_into().map_err(Box::new)?);
-
-        Ok(Self(ProofOfQuota {
-            key_nullifier,
-            proof: PoQProof::new(pi_a, pi_b, pi_c),
-        }))
     }
 }
 

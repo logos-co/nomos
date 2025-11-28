@@ -1,4 +1,3 @@
-pub mod blend;
 pub mod block;
 pub mod codec;
 pub mod crypto;

@@ -1,17 +1,17 @@
 use nom::{IResult, Parser as _, bytes::complete::take, number::complete::u8 as nom_u8};
+use nomos_blend_proofs::{
+    quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
+    selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
+};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
-    sdp::{ACTIVE_METADATA_BLEND_TYPE, SessionNumber, parse_session_number},
-};
+use crate::sdp::{ACTIVE_METADATA_BLEND_TYPE, SessionNumber, parse_session_number};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ActivityProof {
     pub session: SessionNumber,
-    #[serde(with = "serde_big_array::BigArray")]
-    pub proof_of_quota: [u8; PROOF_OF_QUOTA_SIZE],
-    pub proof_of_selection: [u8; PROOF_OF_SELECTION_SIZE],
+    pub proof_of_quota: ProofOfQuota,
+    pub proof_of_selection: ProofOfSelection,
 }
 
 const BLEND_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
@@ -19,21 +19,24 @@ const BLEND_ACTIVE_METADATA_VERSION_BYTE: u8 = 0x01;
 impl ActivityProof {
     #[must_use]
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
+        let proof_of_quota: [u8; _] = (&self.proof_of_quota).into();
+        let proof_of_selection: [u8; _] = (&self.proof_of_selection).into();
+
         let total_size = 2 // type + version byte
             + size_of::<SessionNumber>()
-            + self.proof_of_quota.len()
-            + self.proof_of_selection.len();
+            + proof_of_quota.len()
+            + proof_of_selection.len();
 
         let mut bytes = Vec::with_capacity(total_size);
         bytes.push(ACTIVE_METADATA_BLEND_TYPE);
         bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
         bytes.extend(&self.session.to_le_bytes());
-        bytes.extend(&self.proof_of_quota);
-        bytes.extend(&self.proof_of_selection);
+        bytes.extend(&proof_of_quota);
+        bytes.extend(&proof_of_selection);
         bytes
     }
 
-    /// Parse metadata bytes using nom combinators
+    /// Parse metadata bytes using `nom` combinators
     pub fn from_metadata_bytes(bytes: &[u8]) -> Result<Self, Box<dyn std::error::Error>> {
         Ok(parse_activity_proof(bytes)
             .map_err(|e| format!("Failed to parse metadata: {e}"))?
@@ -59,7 +62,13 @@ fn parse_activity_proof(input: &[u8]) -> IResult<&[u8], ActivityProof> {
     }
     let (input, session) = parse_session_number(input)?;
     let (input, proof_of_quota) = parse_const_size_bytes::<PROOF_OF_QUOTA_SIZE>(input)?;
+    let proof_of_quota = proof_of_quota
+        .try_into()
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
     let (input, proof_of_selection) = parse_const_size_bytes::<PROOF_OF_SELECTION_SIZE>(input)?;
+    let proof_of_selection = proof_of_selection
+        .try_into()
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
 
     if !input.is_empty() {
         return Err(nom::Err::Error(nom::error::Error::new(
@@ -88,6 +97,8 @@ fn parse_const_size_bytes<const N: usize>(input: &[u8]) -> IResult<&[u8], [u8; N
 
 #[cfg(test)]
 mod tests {
+    use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
+
     use super::*;
     use crate::sdp::ActivityMetadata;
 
@@ -95,8 +106,8 @@ mod tests {
     fn activity_proof_roundtrip() {
         let proof = ActivityProof {
             session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
+            proof_of_quota: new_proof_of_quota_unchecked(0),
+            proof_of_selection: new_proof_of_selection_unchecked(1),
         };
 
         let bytes = proof.to_metadata_bytes();
@@ -109,8 +120,8 @@ mod tests {
     fn activity_proof_invalid_version() {
         let proof = ActivityProof {
             session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
+            proof_of_quota: new_proof_of_quota_unchecked(0),
+            proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let mut bytes = proof.to_metadata_bytes();
         bytes[0] = 0x99; // Invalid version
@@ -133,8 +144,8 @@ mod tests {
     fn activity_proof_too_long() {
         let proof = ActivityProof {
             session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
+            proof_of_quota: new_proof_of_quota_unchecked(0),
+            proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let mut bytes = proof.to_metadata_bytes();
         bytes.push(0xFF); // An extra byte
@@ -148,8 +159,8 @@ mod tests {
     fn activity_metadata_roundtrip() {
         let proof = ActivityProof {
             session: 10,
-            proof_of_quota: [0u8; PROOF_OF_QUOTA_SIZE],
-            proof_of_selection: [1u8; PROOF_OF_SELECTION_SIZE],
+            proof_of_quota: new_proof_of_quota_unchecked(0),
+            proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let metadata = ActivityMetadata::Blend(proof.clone());
 
@@ -162,5 +173,13 @@ mod tests {
             panic!("Unexpected ActivityMetadata variant");
         };
         assert_eq!(proof, decoded_proof);
+    }
+
+    fn new_proof_of_quota_unchecked(byte: u8) -> ProofOfQuota {
+        VerifiedProofOfQuota::from_bytes_unchecked([byte; _]).into()
+    }
+
+    fn new_proof_of_selection_unchecked(byte: u8) -> ProofOfSelection {
+        VerifiedProofOfSelection::from_bytes_unchecked([byte; _]).into()
     }
 }
