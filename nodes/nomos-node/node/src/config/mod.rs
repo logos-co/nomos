@@ -19,13 +19,15 @@ use crate::{
     DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
     StorageService, TimeService,
     config::{
-        blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+        blend::serde::Config as BlendConfig, cryptarchia::serde::Config as CryptarchiaConfig,
+        deployment::Settings as DeploymentSettings, mempool::MempoolConfig,
+        network::serde::Config as NetworkConfig,
     },
     generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
+pub mod cryptarchia;
 pub mod deployment;
 pub mod mempool;
 pub mod network;
@@ -212,7 +214,7 @@ pub struct Config {
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub cryptarchia: CryptarchiaConfig,
     pub chain_network: <ChainNetworkService as ServiceData>::Settings,
     pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,

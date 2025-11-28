@@ -2,9 +2,11 @@ use color_eyre::eyre::Result;
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        BlendArgs, blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig, update_blend,
-        update_cryptarchia_leader_consensus, update_network,
+        BlendArgs, blend::serde::Config as BlendConfig,
+        cryptarchia::serde::Config as CryptarchiaConfig,
+        deployment::Settings as DeploymentSettings, mempool::MempoolConfig,
+        network::serde::Config as NetworkConfig, update_blend, update_cryptarchia_leader_consensus,
+        update_network,
     },
     generic_services::SdpService,
 };
@@ -12,9 +14,9 @@ use overwatch::services::ServiceData;
 use serde::Deserialize;
 
 use crate::{
-    ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
-    DaDispersalService, DaNetworkService, DaSamplingService, DaVerifierService,
-    KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
+    ApiService, ChainNetworkService, CryptarchiaLeaderService, DaDispersalService,
+    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
+    StorageService, TimeService, WalletService,
 };
 
 #[derive(Deserialize, Debug, Clone)]
@@ -31,7 +33,7 @@ pub struct Config {
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
+    pub cryptarchia: CryptarchiaConfig,
     pub chain_network: <ChainNetworkService as ServiceData>::Settings,
     pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,

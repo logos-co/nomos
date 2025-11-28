@@ -8,7 +8,8 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
     config::{
-        BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
+        BlendArgs, blend::ServiceConfig as BlendConfig,
+        cryptarchia::ServiceConfig as CryptarchiaConfig, network::ServiceConfig as NetworkConfig,
     },
 };
 use nomos_sdp::SdpSettings;
@@ -75,6 +76,12 @@ async fn main() -> Result<()> {
     }
     .into();
 
+    let chain_service_config = CryptarchiaConfig {
+        user: config.cryptarchia,
+        deployment: config.deployment.clone().into(),
+    }
+    .into();
+
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: NetworkConfig {
@@ -101,7 +108,7 @@ async fn main() -> Result<()> {
             da_network: config.da_network,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
-            cryptarchia: config.cryptarchia,
+            cryptarchia: chain_service_config,
             chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,
             time: config.time,
