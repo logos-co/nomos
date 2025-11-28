@@ -7,7 +7,7 @@ use nomos_core::{
     blend::core_quota,
     block::BlockNumber,
     mantle::Utxo,
-    sdp::{ActivityMetadata, ProviderId, ServiceParameters, ServiceType},
+    sdp::{ActivityMetadata, ProviderId, ServiceParameters, ServiceType, SessionNumber},
 };
 use nomos_utils::math::NonNegativeF64;
 use rpds::{HashTrieMapSync, HashTrieSetSync};
@@ -28,16 +28,16 @@ pub enum Rewards {
     /// State after the first session update (0 -> 1).
     /// This is updated every new session.
     Initialized {
-        /// State of the session that is referenced by the submitted proofs.
+        /// The session that is referenced by the submitted proofs.
         /// This is `s-1` if `s` is the session at which this message was sent.
-        session_state: SessionState,
+        session_number: SessionNumber,
         declarations: HashTrieMapSync<ProviderId, PublicKey>,
         /// Parameters for evaluating activity proofs in the session
         token_evaluation: BlendingTokenEvaluation,
         /// Session randomness for the session `s`.
         next_session_randomness: SessionRandomness,
         /// Proofs submitted by providers in the session corresponding to
-        /// `session_state`.
+        /// `session_number`.
         submitted_proofs: HashTrieMapSync<ProviderId, (PublicKey, u64)>,
         /// Tracking the minimum Hamming distance among submitted proofs.
         min_hamming_distance: MinHammingDistance,
@@ -68,7 +68,7 @@ impl super::Rewards for Rewards {
                 Err(Error::Uninitialized)
             }
             Self::Initialized {
-                session_state,
+                session_number,
                 declarations,
                 token_evaluation,
                 next_session_randomness,
@@ -87,9 +87,9 @@ impl super::Rewards for Rewards {
                     });
                 }
 
-                if proof.session != session_state.session_n {
+                if proof.session != *session_number {
                     return Err(Error::InvalidSession {
-                        expected: session_state.session_n,
+                        expected: *session_number,
                         got: proof.session,
                     });
                 }
@@ -114,7 +114,7 @@ impl super::Rewards for Rewards {
                 };
 
                 Ok(Self::Initialized {
-                    session_state: session_state.clone(),
+                    session_number: *session_number,
                     declarations: declarations.clone(),
                     token_evaluation: *token_evaluation,
                     next_session_randomness: *next_session_randomness,
@@ -143,7 +143,7 @@ impl super::Rewards for Rewards {
 
                 (
                     Self::Initialized {
-                        session_state: last_active.clone(),
+                        session_number: last_active.session_n,
                         declarations: build_declaration_map(last_active),
                         token_evaluation,
                         next_session_randomness: SessionRandomness::new(
@@ -196,7 +196,7 @@ impl super::Rewards for Rewards {
 
                 // Create new rewards state with updated sessions
                 let new_state = Self::Initialized {
-                    session_state: last_active.clone(),
+                    session_number: last_active.session_n,
                     declarations: build_declaration_map(last_active),
                     token_evaluation,
                     next_session_randomness: SessionRandomness::new(
@@ -229,7 +229,7 @@ fn verify_activity_proof(
     proof: &nomos_core::sdp::blend::ActivityProof,
 ) -> nomos_blend_message::reward::ActivityProof {
     // TODO: Verify PoQ and PoSel by holding all epoch infos that
-    // spanned across the `session_state.session_n` session.
+    // spanned across the target session.
     // For now, we just accept them without verification.
     let verified_proof_of_quota =
         VerifiedProofOfQuota::from_bytes_unchecked((&proof.proof_of_quota).into());
