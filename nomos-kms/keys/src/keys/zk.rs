@@ -2,6 +2,7 @@ use core::fmt::{self, Debug, Formatter};
 
 use groth16::Fr;
 use serde::Deserialize;
+use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
 use zksign::{PublicKey, SecretKey, Signature};
 
@@ -36,7 +37,7 @@ impl Debug for ZkKey {
 
 impl PartialEq for ZkKey {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_fr() == other.0.as_fr()
+        self.0.as_fr().0.0.ct_eq(&other.as_fr().0.0).into()
     }
 }
 
