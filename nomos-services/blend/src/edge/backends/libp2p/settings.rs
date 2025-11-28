@@ -1,6 +1,7 @@
 use core::num::NonZeroU64;
 
 use libp2p::identity::Keypair;
+use nomos_blend::message::crypto::key_ext::Ed25519SecretKeyExt as _;
 use nomos_libp2p::protocol_name::StreamProtocol;
 use serde::{Deserialize, Serialize};
 

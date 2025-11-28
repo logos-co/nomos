@@ -1,4 +1,4 @@
-use crate::crypto::proofs::{quota, selection};
+use nomos_blend_proofs::{quota, selection};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

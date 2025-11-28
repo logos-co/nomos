@@ -11,7 +11,7 @@ pub mod tracing;
 use blend::GeneralBlendConfig;
 use consensus::{GeneralConsensusConfig, ProviderInfo, create_genesis_tx_with_declarations};
 use da::GeneralDaConfig;
-use key_management_system::{
+use key_management_system_service::{
     backend::preload::PreloadKMSBackendSettings,
     keys::{Ed25519Key, ZkKey},
 };
@@ -127,13 +127,10 @@ pub fn create_general_configs_with_blend_core_subset(
             keys: [
                 (
                     key_id_for_preload_backend(
-                        &Ed25519Key::new(
-                            blend_conf.common.non_ephemeral_signing_key.clone().into(),
-                        )
-                        .into(),
+                        &Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
+                            .into(),
                     ),
-                    Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
-                        .into(),
+                    Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone()).into(),
                 ),
                 (
                     blend_conf.core.zk.secret_key_kms_id.clone(),

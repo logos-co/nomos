@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display};
 
+use key_management_system_keys::keys::secured_key::SecuredKey;
+pub use key_management_system_keys::{keys, operators};
 use log::error;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -11,15 +13,12 @@ use overwatch::{
 
 use crate::{
     backend::KMSBackend,
-    keys::secured_key::SecuredKey,
     message::{KMSMessage, KMSSigningStrategy},
 };
 
 pub mod api;
 pub mod backend;
-pub mod keys;
 pub mod message;
-pub mod operators;
 
 pub struct KMSService<Backend, RuntimeServiceId>
 where

@@ -1,5 +1,5 @@
 use groth16::fr_to_bytes;
-use key_management_system::{
+use key_management_system_service::{
     backend::preload::KeyId,
     keys::{Key, secured_key::SecuredKey as _},
 };

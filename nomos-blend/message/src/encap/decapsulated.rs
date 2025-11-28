@@ -1,6 +1,7 @@
+use nomos_blend_proofs::selection::VerifiedProofOfSelection;
+
 use crate::{
     PayloadType,
-    crypto::proofs::selection::VerifiedProofOfSelection,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
     reward::BlendingToken,

@@ -2,13 +2,11 @@ use blake2::{
     Blake2bVar,
     digest::{Update as _, VariableOutput as _},
 };
+use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 use nomos_core::codec::SerializeOp as _;
 use serde::Serialize;
 
-use crate::{
-    crypto::proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
-    reward::session::SessionRandomness,
-};
+use crate::reward::session::SessionRandomness;
 
 /// A blending token consisting of a proof of quota and a proof of selection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -83,7 +81,7 @@ fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE};
+    use nomos_blend_proofs::{quota::PROOF_OF_QUOTA_SIZE, selection::PROOF_OF_SELECTION_SIZE};
 
     use super::*;
 

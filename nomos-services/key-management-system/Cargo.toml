@@ -4,7 +4,7 @@ description = { workspace = true }
 edition     = { workspace = true }
 keywords    = { workspace = true }
 license     = { workspace = true }
-name        = "key-management-system"
+name        = "key-management-system-service"
 readme      = { workspace = true }
 repository  = { workspace = true }
 version     = { workspace = true }
@@ -13,27 +13,20 @@ version     = { workspace = true }
 workspace = true
 
 [dependencies]
-async-trait                  = "0.1"
-bytes                        = { workspace = true }
-ed25519-dalek                = { default-features = false, features = ["serde", "zeroize"], version = "2" }
-groth16                      = { workspace = true }
-key-management-system-macros = { workspace = true }
-log                          = "0.4.22"
-nomos-blend-message          = { workspace = true }
-nomos-utils                  = { features = ["serde", "types"], workspace = true }
-overwatch                    = { workspace = true }
-poq                          = { workspace = true }
-poseidon2                    = { workspace = true }
-serde                        = { default-features = false, features = ["derive"], version = "1" }
-thiserror                    = { default-features = false, version = "2" }
-tokio                        = { default-features = false, version = "1", features = ["rt"] }
-tracing                      = { default-features = false, version = "0.1" }
-zeroize                      = { workspace = true }
-zksign                       = { workspace = true }
+async-trait                = "0.1"
+key-management-system-keys = { workspace = true }
+log                        = "0.4.22"
+overwatch                  = { workspace = true }
+serde                      = { workspace = true, features = ["derive"] }
+thiserror                  = { default-features = false, version = "2" }
+tokio                      = { default-features = false, version = "1", features = ["rt"] }
+tracing                    = { default-features = false, version = "0.1" }
 
 [dev-dependencies]
-ed25519-dalek = { default-features = false, features = ["rand_core"], version = "2" }
+bytes         = { workspace = true }
+ed25519-dalek = { default-features = false, version = "2" }
 num-bigint    = { default-features = false, version = "0.4" }
 rand          = { features = ["getrandom"], workspace = true }
-serde         = { default-features = false, features = ["std"], version = "1" }
+serde         = { workspace = true, features = ["std"] }
 serde_yaml    = "0.9"
+zksign        = { workspace = true }

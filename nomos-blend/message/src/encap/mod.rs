@@ -1,11 +1,10 @@
-use crate::crypto::{
-    keys::Ed25519PublicKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
-        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
-    },
+use nomos_blend_crypto::keys::Ed25519PublicKey;
+use nomos_blend_proofs::{
+    quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+    selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
+
+use crate::crypto::proofs::PoQVerificationInputsMinusSigningKey;
 
 pub mod decapsulated;
 pub mod encapsulated;

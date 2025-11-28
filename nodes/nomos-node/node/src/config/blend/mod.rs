@@ -1,4 +1,4 @@
-use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
+use nomos_blend::scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
 use nomos_blend_service::{
     core::{
         backends::libp2p::Libp2pBlendBackendSettings as Libp2pCoreBlendBackendSettings,

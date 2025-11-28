@@ -33,7 +33,7 @@ num-bigint         = { version = "0.4", default-features = false }
 pol                = { workspace = true }
 poq                = { workspace = true }
 poseidon2          = { workspace = true }
-serde              = { default-features = false, version = "1.0" }
+serde              = { workspace = true }
 serde-big-array    = { default-features = false, version = "0.5" }
 serde_with         = { version = "3.14.0", default-features = false, features = ["alloc", "macros"] }
 strum              = { version = "0.27", features = ["derive"] }

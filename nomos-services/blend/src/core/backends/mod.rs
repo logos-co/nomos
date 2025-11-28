@@ -1,16 +1,17 @@
 use std::{fmt::Debug, pin::Pin};
 
 use futures::Stream;
-use nomos_blend_message::{
-    crypto::proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+use nomos_blend::{
+    message::{
+        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::{
+            encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        },
     },
-    encap::{
-        encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
-    },
+    proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs},
+    scheduling::{membership::Membership, session::SessionEvent},
 };
-use nomos_blend_scheduling::{membership::Membership, session::SessionEvent};
 use overwatch::overwatch::handle::OverwatchHandle;
 
 use crate::core::settings::BlendConfig;
