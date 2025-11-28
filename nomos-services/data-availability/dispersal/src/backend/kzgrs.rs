@@ -209,7 +209,7 @@ where
                 .await
                 {
                     Ok(tx) => {
-                        let _ = sender.send(Ok(blob_id));
+                        drop(sender.send(Ok(blob_id)));
                         return (channel_id, Some(tx));
                     }
                     Err(retry_err) => {
@@ -217,7 +217,7 @@ where
                             retry_err.downcast_ref::<ProcessingError>(),
                             Some(ProcessingError::InsufficientSubnetworkConnections)
                         ) {
-                            let _ = sender.send(Err(retry_err));
+                            drop(sender.send(Err(retry_err)));
                             return (channel_id, None);
                         }
                     }
@@ -230,7 +230,7 @@ where
                     retry_limit
                 );
             }
-            let _ = sender.send(Err("Retry limit reached".into()));
+            drop(sender.send(Err("Retry limit reached".into())));
             (channel_id, None)
         })
     }

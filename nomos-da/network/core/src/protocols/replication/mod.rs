@@ -147,11 +147,13 @@ mod test {
         // 1. Alice is the initiator, Bob forwards to Charlie, message flow: A -> B -> C
         // 2. And then, within the same connections, Charlie is the initiator, Bob
         //    forwards to Alice, message flow: C -> B -> A
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
+        drop(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .compact()
+                .with_writer(TestWriter::default())
+                .try_init(),
+        );
 
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
@@ -228,11 +230,13 @@ mod test {
 
     #[tokio::test]
     async fn test_connects_and_receives_replication_messages() {
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
+        drop(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .compact()
+                .with_writer(TestWriter::default())
+                .try_init(),
+        );
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
         let peer_id2 = PeerId::from_public_key(&k2.public());

@@ -123,7 +123,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                     subnetwork_id,
                 };
 
-                let _ = self.events_tx.send(Event::Disperse(success_message));
+                drop(self.events_tx.send(Event::Disperse(success_message)));
             }
         }
     }

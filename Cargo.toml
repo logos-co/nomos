@@ -286,6 +286,7 @@ ambiguous_negative_literals   = { level = "warn" }
 closure_returning_async_block = { level = "warn" }
 deref_into_dyn_supertrait     = { level = "warn" }
 impl_trait_redundant_captures = { level = "warn" }
+let_underscore_drop           = { level = "warn" }
 macro_use_extern_crate        = { level = "warn" }
 missing_unsafe_on_extern      = { level = "warn" }
 redundant_imports             = { level = "warn" }
@@ -308,7 +309,6 @@ absolute_paths_not_starting_with_crate = { level = "allow" }
 elided_lifetimes_in_paths              = { level = "allow" }
 ffi_unwind_calls                       = { level = "allow" }
 impl_trait_overcaptures                = { level = "allow" }
-let_underscore_drop                    = { level = "allow" }
 linker_messages                        = { level = "allow" }
 missing_copy_implementations           = { level = "allow" }
 missing_debug_implementations          = { level = "allow" }
