@@ -46,3 +46,13 @@ pub fn activity_threshold(token_count_bit_len: u64, network_size_bit_len: u64) -
         .saturating_sub(network_size_bit_len)
         .saturating_sub(ACTIVITY_THRESHOLD_SENSITIVITY_PARAM)
 }
+
+impl From<&ActivityProof> for nomos_core::sdp::blend::ActivityProof {
+    fn from(proof: &ActivityProof) -> Self {
+        Self {
+            session: proof.session_number,
+            proof_of_quota: (*proof.token.proof_of_quota()).into(),
+            proof_of_selection: (*proof.token.proof_of_selection()).into(),
+        }
+    }
+}

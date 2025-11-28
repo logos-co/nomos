@@ -1322,7 +1322,7 @@ mod tests {
             declaration_id: declaration_id_bn_2,
             nonce: 1,
             metadata: nomos_core::sdp::ActivityMetadata::DataAvailability(
-                nomos_core::sdp::DaActivityProof {
+                nomos_core::sdp::da::ActivityProof {
                     current_session: 2,
                     previous_session_opinions: vec![],
                     current_session_opinions: vec![],

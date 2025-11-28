@@ -43,6 +43,14 @@ impl BlendingToken {
 
         hamming_distance(&token_hash, &session_randomness_hash)
     }
+
+    pub(crate) const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
+        &self.proof_of_quota
+    }
+
+    pub(crate) const fn proof_of_selection(&self) -> &VerifiedProofOfSelection {
+        &self.proof_of_selection
+    }
 }
 
 /// Compute blake-2b hash of `input`, producing `output_size` bytes.

@@ -1,10 +1,10 @@
 use core::fmt::Debug;
 use std::sync::LazyLock;
 
-use ::serde::{Deserialize, Serialize};
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_blend_crypto::{blake2b512, pseudo_random_sized_bytes};
 use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{ZkCompressExt as _, ZkHash, selection::inputs::VerifyInputs};
@@ -92,6 +92,22 @@ impl ProofOfSelection {
 impl PartialEq<VerifiedProofOfSelection> for ProofOfSelection {
     fn eq(&self, other: &VerifiedProofOfSelection) -> bool {
         *self == other.0
+    }
+}
+
+impl From<&ProofOfSelection> for [u8; PROOF_OF_SELECTION_SIZE] {
+    fn from(proof: &ProofOfSelection) -> Self {
+        fr_to_bytes(&proof.selection_randomness)
+    }
+}
+
+impl TryFrom<[u8; PROOF_OF_SELECTION_SIZE]> for ProofOfSelection {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(value: [u8; PROOF_OF_SELECTION_SIZE]) -> Result<Self, Self::Error> {
+        Ok(Self {
+            selection_randomness: fr_from_bytes(&value).map_err(Box::new)?,
+        })
     }
 }
 

@@ -743,7 +743,7 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::*;
-    use crate::{mantle::Transaction as _, sdp::DaActivityProof};
+    use crate::{mantle::Transaction as _, sdp::da::ActivityProof};
 
     fn dbg_test_vector(actual: &str, expected: &str) {
         println!("{:32} {:32}", "actual", "expected");
@@ -1392,7 +1392,7 @@ mod tests {
 
     #[test]
     fn test_predict_signed_mantle_tx_size_with_sdp_active() {
-        let da_proof = DaActivityProof {
+        let da_proof = ActivityProof {
             current_session: 42,
             previous_session_opinions: vec![0xFF, 0xAA],
             current_session_opinions: vec![0x11, 0x22, 0x33],
@@ -1454,7 +1454,7 @@ mod tests {
             signer: signing_key.verifying_key(),
         };
 
-        let proof = DaActivityProof {
+        let proof = ActivityProof {
             current_session: u64::MAX,
             previous_session_opinions: vec![0xFF; 1000],
             current_session_opinions: vec![0xAA; 2000],

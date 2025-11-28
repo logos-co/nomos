@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use ::serde::{Deserialize, Serialize};
 use generic_array::{ArrayLength, GenericArray};
-use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked};
+use groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
 
@@ -70,6 +70,33 @@ impl ProofOfQuota {
 impl PartialEq<VerifiedProofOfQuota> for ProofOfQuota {
     fn eq(&self, other: &VerifiedProofOfQuota) -> bool {
         *self == other.0
+    }
+}
+
+impl From<&ProofOfQuota> for [u8; PROOF_OF_QUOTA_SIZE] {
+    fn from(proof: &ProofOfQuota) -> Self {
+        let mut bytes = [0u8; PROOF_OF_QUOTA_SIZE];
+        bytes[..KEY_NULLIFIER_SIZE].copy_from_slice(&fr_to_bytes(&proof.key_nullifier));
+        bytes[KEY_NULLIFIER_SIZE..].copy_from_slice(&proof.proof.to_bytes());
+        bytes
+    }
+}
+
+impl TryFrom<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
+    type Error = Box<dyn std::error::Error>;
+
+    fn try_from(bytes: [u8; PROOF_OF_QUOTA_SIZE]) -> Result<Self, Self::Error> {
+        let (key_nullifier_bytes, proof_circuit_bytes) = bytes.split_at(KEY_NULLIFIER_SIZE);
+        let key_nullifier = fr_from_bytes(key_nullifier_bytes).map_err(Box::new)?;
+        let (pi_a, pi_b, pi_c) = split_proof_components::<
+            <Bn254 as CompressSize>::G1CompressedSize,
+            <Bn254 as CompressSize>::G2CompressedSize,
+        >(proof_circuit_bytes.try_into().map_err(Box::new)?);
+
+        Ok(Self {
+            key_nullifier,
+            proof: PoQProof::new(pi_a, pi_b, pi_c),
+        })
     }
 }
 
