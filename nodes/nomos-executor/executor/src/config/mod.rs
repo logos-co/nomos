@@ -14,33 +14,31 @@ use overwatch::services::ServiceData;
 use serde::Deserialize;
 
 use crate::{
-    ApiService, ChainNetworkService, CryptarchiaLeaderService, DaDispersalService,
-    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
-    StorageService, TimeService, WalletService,
+    ApiService, DaDispersalService, DaNetworkService, DaSamplingService, DaVerifierService,
+    KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
 };
 
 #[derive(Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "testing", derive(serde::Serialize))]
 pub struct Config {
-    #[cfg(feature = "tracing")]
-    pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
+    pub cryptarchia: CryptarchiaConfig,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub cryptarchia: CryptarchiaConfig,
-    pub chain_network: <ChainNetworkService as ServiceData>::Settings,
-    pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
     pub wallet: <WalletService as ServiceData>::Settings,
     pub key_management: <KeyManagementService as ServiceData>::Settings,
+
+    #[cfg(feature = "tracing")]
+    pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]
     pub testing_http: <ApiService as ServiceData>::Settings,
@@ -67,7 +65,7 @@ impl Config {
         update_network(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
-        update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
+        update_cryptarchia_leader_consensus(&mut self.cryptarchia.leader, cryptarchia_leader_args)?;
         Ok(self)
     }
 }

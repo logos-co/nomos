@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings;
 use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +9,13 @@ use crate::config::deployment::Settings as DeploymentSettings;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     pub ledger: nomos_ledger::Config,
+    pub leader: LeaderSettings,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LeaderSettings {
+    #[serde(flatten)]
+    pub broadcast: Libp2pBroadcastSettings,
 }
 
 #[expect(clippy::fallible_impl_from, reason = "Well-known values.")]
@@ -56,6 +64,11 @@ impl From<DeploymentSettings> for Settings {
                             .into_iter()
                             .collect(),
                         ),
+                    },
+                },
+                leader: LeaderSettings {
+                    broadcast: Libp2pBroadcastSettings {
+                        topic: "/cryptarchia/proto".to_owned(),
                     },
                 },
             },

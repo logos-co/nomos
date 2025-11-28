@@ -244,7 +244,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
     }
     .into();
 
-    let chain_service_config = CryptarchiaConfig {
+    let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
         user: config.cryptarchia,
         deployment: config.deployment.clone().into(),
     }
@@ -276,8 +276,8 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
             cryptarchia: chain_service_config,
-            chain_network: config.chain_network,
-            cryptarchia_leader: config.cryptarchia_leader,
+            chain_network: chain_network_config,
+            cryptarchia_leader: chain_leader_config,
             time: config.time,
             storage: config.storage,
             system_sig: (),

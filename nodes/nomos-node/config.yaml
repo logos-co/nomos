@@ -139,112 +139,59 @@ time:
       timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
-  starting_state: !Genesis
-    genesis_tx:
-      mantle_tx:
-        ops:
-          - opcode: 0
-            payload:
-              channel_id: "0000000000000000000000000000000000000000000000000000000000000000"
-              inscription: [ 103, 101, 110, 101, 115, 105, 115 ]  # "genesis" in bytes
-              parent: "0000000000000000000000000000000000000000000000000000000000000000"
-              signer: "0000000000000000000000000000000000000000000000000000000000000000"
-        ledger_tx:
-          inputs: []
-          outputs:
-            - value: 1
-              pk: d204000000000000000000000000000000000000000000000000000000000000
-        execution_gas_price: 0
-        storage_gas_price: 0
-      ops_proofs: [NoProof]
-      ledger_tx_proof:
-        pi_a: [
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        ]
-        pi_b: [
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        ]
-        pi_c: [
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        ]
-  recovery_file: ./recovery/cryptarchia.json
-  bootstrap:
-    prolonged_bootstrap_period: [ 86400, 0 ]
-    force_bootstrap: false
-    offline_grace_period:
-      grace_period: [ 1200, 0 ]
-      state_recording_interval: [ 60, 0 ]
-chain_network:
-  config:
-    epoch_config:
-      epoch_stake_distribution_stabilization: 3
-      epoch_period_nonce_buffer: 3
-      epoch_period_nonce_stabilization: 4
-    consensus_config:
-      security_param: 10
-      active_slot_coeff: 0.9
-    sdp_config:
-      service_params:
-        BN:
-          lock_period: 10
-          inactivity_period: 20
-          retention_period: 100
-          timestamp: 0
-          session_duration: 1000
-        DA:
-          lock_period: 10
-          inactivity_period: 20
-          retention_period: 100
-          timestamp: 0
-          session_duration: 1000
-      min_stake:
-        threshold: 1
-        timestamp: 0
-  network_adapter_settings:
-    topic: /cryptarchia/proto
-  bootstrap:
-    ibd:
-      peers: [ ]
-  sync:
-    orphan:
-      max_orphan_cache_size: 5
-cryptarchia_leader:
-  transaction_selector_settings: null
-  config:
-    epoch_config:
-      epoch_stake_distribution_stabilization: 3
-      epoch_period_nonce_buffer: 3
-      epoch_period_nonce_stabilization: 4
-    consensus_config:
-      security_param: 10
-      active_slot_coeff: 0.9
-    sdp_config:
-      service_params:
-        BN:
-          lock_period: 10
-          inactivity_period: 20
-          retention_period: 100
-          timestamp: 0
-          session_duration: 1000
-        DA:
-          lock_period: 10
-          inactivity_period: 20
-          retention_period: 100
-          timestamp: 0
-          session_duration: 1000
-      min_stake:
-        threshold: 1
-        timestamp: 0
-  leader_config:
-    pk: "0000000000000000000000000000000000000000000000000000000000000000"
-    sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
-  blend_broadcast_settings:
-    topic: /cryptarchia/proto
+  service: 
+    starting_state: !Genesis
+      genesis_tx:
+        mantle_tx:
+          ops:
+            - opcode: 0
+              payload:
+                channel_id: "0000000000000000000000000000000000000000000000000000000000000000"
+                inscription: [ 103, 101, 110, 101, 115, 105, 115 ]  # "genesis" in bytes
+                parent: "0000000000000000000000000000000000000000000000000000000000000000"
+                signer: "0000000000000000000000000000000000000000000000000000000000000000"
+          ledger_tx:
+            inputs: []
+            outputs:
+              - value: 1
+                pk: d204000000000000000000000000000000000000000000000000000000000000
+          execution_gas_price: 0
+          storage_gas_price: 0
+        ops_proofs: [NoProof]
+        ledger_tx_proof:
+          pi_a: [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+          ]
+          pi_b: [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+          ]
+          pi_c: [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+          ]
+    recovery_file: ./recovery/cryptarchia.json
+    bootstrap:
+      prolonged_bootstrap_period: [ 86400, 0 ]
+      force_bootstrap: false
+      offline_grace_period:
+        grace_period: [ 1200, 0 ]
+        state_recording_interval: [ 60, 0 ]
+  network:
+    adapter:
+      topic: /cryptarchia/proto
+    bootstrap:
+      ibd:
+        peers: [ ]
+    sync:
+      orphan:
+        max_orphan_cache_size: 5
+    leader:
+      pk: "0000000000000000000000000000000000000000000000000000000000000000"
+      sk: 3cf3335017304dcfce45124a0633829f00000000000000000000000000000000
 storage:
   db_path: nomos_db
   read_only: false
