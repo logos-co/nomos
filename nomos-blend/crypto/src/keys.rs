@@ -1,5 +1,6 @@
 use ed25519_dalek::{Verifier as _, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq as _;
 use x25519_dalek::StaticSecret;
 use zeroize::ZeroizeOnDrop;
 
@@ -47,6 +48,14 @@ impl From<X25519PrivateKey> for [u8; X25519_SECRET_KEY_LENGTH] {
     }
 }
 
+impl PartialEq for X25519PrivateKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
+    }
+}
+
+impl Eq for X25519PrivateKey {}
+
 pub const X25519_PUBLIC_KEY_LENGTH: usize = 32;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -66,7 +75,7 @@ impl From<X25519PublicKey> for [u8; X25519_PUBLIC_KEY_LENGTH] {
 
 pub const X25519_SHARED_KEY_LENGTH: usize = 32;
 
-#[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct SharedKey([u8; X25519_SHARED_KEY_LENGTH]);
 
 impl SharedKey {
@@ -90,3 +99,11 @@ impl SharedKey {
         a.iter_mut().zip(b.iter()).for_each(|(x1, &x2)| *x1 ^= x2);
     }
 }
+
+impl PartialEq for SharedKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ct_eq(&other.0).into()
+    }
+}
+
+impl Eq for SharedKey {}
