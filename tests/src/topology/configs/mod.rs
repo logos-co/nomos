@@ -120,25 +120,37 @@ pub fn create_general_configs_with_blend_core_subset(
         c.genesis_tx = genesis_tx.clone();
     }
 
-    // Set Blend and DA keys in KMS of each node config.
+    // Set Blend, DA, and SDP funding keys in KMS of each node config.
     let kms_configs: Vec<_> = blend_configs
         .iter()
-        .map(|(blend_conf, zk_secret_key)| PreloadKMSBackendSettings {
-            keys: [
-                (
-                    key_id_for_preload_backend(
-                        &Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
+        .enumerate()
+        .map(
+            |(i, (blend_conf, zk_secret_key))| PreloadKMSBackendSettings {
+                keys: [
+                    (
+                        key_id_for_preload_backend(
+                            &Ed25519Key::new(
+                                blend_conf.common.non_ephemeral_signing_key.clone().into(),
+                            )
+                            .into(),
+                        ),
+                        Ed25519Key::new(blend_conf.common.non_ephemeral_signing_key.clone().into())
                             .into(),
                     ),
-                    Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone()).into(),
-                ),
-                (
-                    blend_conf.core.zk.secret_key_kms_id.clone(),
-                    ZkKey::new(zk_secret_key.clone()).into(),
-                ),
-            ]
-            .into(),
-        })
+                    (
+                        blend_conf.core.zk.secret_key_kms_id.clone(),
+                        ZkKey::new(zk_secret_key.clone()).into(),
+                    ),
+                    (
+                        key_id_for_preload_backend(
+                            &ZkKey::new(consensus_configs[i].sdp_notes[i].sk.clone()).into(),
+                        ),
+                        ZkKey::new(consensus_configs[i].sdp_notes[i].sk.clone()).into(),
+                    ),
+                ]
+                .into(),
+            },
+        )
         .collect();
 
     let mut general_configs = vec![];

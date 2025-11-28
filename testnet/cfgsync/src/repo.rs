@@ -14,7 +14,10 @@ use crate::{
 };
 
 pub enum RepoResponse {
-    Config(Box<GeneralConfig>),
+    Config {
+        idx: usize,
+        config: Box<GeneralConfig>,
+    },
     Timeout,
 }
 
@@ -91,8 +94,11 @@ impl ConfigRepo {
             );
 
             for (host, sender) in waiting_hosts.drain() {
-                let config = configs.get(&host).expect("host should have a config");
-                let _ = sender.send(RepoResponse::Config(Box::new(config.to_owned())));
+                let (idx, config) = configs.get(&host).expect("host should have a config");
+                let _ = sender.send(RepoResponse::Config {
+                    idx: *idx,
+                    config: Box::new(config.to_owned()),
+                });
             }
         } else {
             println!("Timeout: Not all hosts announced within the time limit");

@@ -68,7 +68,7 @@ async fn test_get_commitments_from_peers() {
     // from the previous two, so it will need to query the DA network over the
     // sampling protocol for the share commitments.
     let lone_general_config = create_general_configs(1).into_iter().next().unwrap();
-    let lone_validator_config = create_validator_config(lone_general_config);
+    let lone_validator_config = create_validator_config(0, lone_general_config);
     let lone_validator = Validator::spawn(lone_validator_config).await.unwrap();
 
     let (test_channel_id, parent_msg_id) = setup_test_channel(executor).await;

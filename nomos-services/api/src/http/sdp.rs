@@ -4,18 +4,19 @@ use nomos_core::sdp::{ActivityMetadata, DeclarationId, DeclarationMessage};
 use nomos_sdp::{SdpService, adapters::mempool::SdpMempoolAdapter};
 use overwatch::{DynError, overwatch::OverwatchHandle};
 
-pub async fn post_declaration_handler<MempoolAdapter, RuntimeServiceId>(
+pub async fn post_declaration_handler<MempoolAdapter, Wallet, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration: DeclarationMessage,
 ) -> Result<DeclarationId, DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    Wallet: Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, Wallet, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -31,18 +32,19 @@ where
     reply_rx.await?
 }
 
-pub async fn post_activity_handler<MempoolAdapter, RuntimeServiceId>(
+pub async fn post_activity_handler<MempoolAdapter, Wallet, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     metadata: ActivityMetadata,
 ) -> Result<(), DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    Wallet: Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, Wallet, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
 
@@ -54,18 +56,19 @@ where
     Ok(())
 }
 
-pub async fn post_withdrawal_handler<MempoolAdapter, RuntimeServiceId>(
+pub async fn post_withdrawal_handler<MempoolAdapter, Wallet, RuntimeServiceId>(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration_id: DeclarationId,
 ) -> Result<(), DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    Wallet: Send + Sync + 'static,
     RuntimeServiceId: Send
         + Sync
         + Debug
         + Display
         + 'static
-        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, RuntimeServiceId>>,
+        + overwatch::services::AsServiceId<SdpService<MempoolAdapter, Wallet, RuntimeServiceId>>,
 {
     let relay = handle.relay().await?;
 

@@ -2,14 +2,33 @@ use nomos_core::{
     header::HeaderId,
     mantle::{Utxo, Value, tx_builder::MantleTxBuilder},
 };
-use overwatch::{
-    DynError,
-    services::{AsServiceId, ServiceData, relay::OutboundRelay},
+use overwatch::services::{
+    AsServiceId, ServiceData,
+    relay::{OutboundRelay, RelayError},
 };
-use tokio::sync::oneshot;
+use tokio::sync::oneshot::{self, error::RecvError};
 use zksign::PublicKey;
 
-use crate::{WalletMsg, WalletServiceSettings};
+use crate::{WalletMsg, WalletServiceError, WalletServiceSettings};
+
+#[derive(Debug, thiserror::Error)]
+pub enum WalletApiError {
+    #[error("Failed to relay message with wallet:{relay_error:?}, msg={msg:?}")]
+    RelaySend {
+        relay_error: RelayError,
+        msg: WalletMsg,
+    },
+    #[error("Failed to recv message from wallet: {0}")]
+    RelayRecv(#[from] RecvError),
+    #[error(transparent)]
+    Wallet(#[from] WalletServiceError),
+}
+
+impl From<(RelayError, WalletMsg)> for WalletApiError {
+    fn from((relay_error, msg): (RelayError, WalletMsg)) -> Self {
+        Self::RelaySend { relay_error, msg }
+    }
+}
 
 pub trait WalletServiceData:
     ServiceData<Settings = WalletServiceSettings, Message = WalletMsg>
@@ -52,49 +71,67 @@ where
 
     pub async fn get_balance(
         &self,
-        tip: HeaderId,
+        tip: Option<HeaderId>,
         pk: PublicKey,
-    ) -> Result<Option<Value>, DynError> {
+    ) -> Result<Option<Value>, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
             .send(WalletMsg::GetBalance { tip, pk, resp_tx })
-            .await
-            .map_err(|e| format!("Failed to send balance request: {e:?}"))?;
+            .await?;
 
         Ok(rx.await??)
     }
 
-    pub async fn fund_and_sign_tx(
+    pub async fn fund_tx(
         &self,
-        tip: HeaderId,
+        tip: Option<HeaderId>,
         tx_builder: MantleTxBuilder,
         change_pk: PublicKey,
         funding_pks: Vec<PublicKey>,
-    ) -> Result<nomos_core::mantle::SignedMantleTx, DynError> {
+    ) -> Result<MantleTxBuilder, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::FundAndSignTx {
+            .send(WalletMsg::FundTx {
                 tip,
                 tx_builder,
                 change_pk,
                 funding_pks,
                 resp_tx,
             })
-            .await
-            .map_err(|e| format!("Failed to send fund_and_sign_tx request: {e:?}"))?;
+            .await?;
 
         Ok(rx.await??)
     }
 
-    pub async fn get_leader_aged_notes(&self, tip: HeaderId) -> Result<Vec<Utxo>, DynError> {
+    pub async fn sign_tx(
+        &self,
+        tip: Option<HeaderId>,
+        tx_builder: MantleTxBuilder,
+    ) -> Result<nomos_core::mantle::SignedMantleTx, WalletApiError> {
+        let (resp_tx, rx) = oneshot::channel();
+
+        self.relay
+            .send(WalletMsg::SignTx {
+                tip,
+                tx_builder,
+                resp_tx,
+            })
+            .await?;
+
+        Ok(rx.await??)
+    }
+
+    pub async fn get_leader_aged_notes(
+        &self,
+        tip: Option<HeaderId>,
+    ) -> Result<Vec<Utxo>, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
             .send(WalletMsg::GetLeaderAgedNotes { tip, resp_tx })
-            .await
-            .map_err(|e| format!("Failed to send get_leader_aged_notes request: {e:?}"))?;
+            .await?;
 
         Ok(rx.await??)
     }

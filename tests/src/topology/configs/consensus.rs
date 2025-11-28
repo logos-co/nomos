@@ -74,6 +74,7 @@ pub struct GeneralConsensusConfig {
     pub utxos: Vec<Utxo>,
     pub blend_notes: Vec<ServiceNote>,
     pub da_notes: Vec<ServiceNote>,
+    pub sdp_notes: Vec<ServiceNote>,
 }
 
 #[derive(Clone)]
@@ -122,12 +123,14 @@ pub fn create_consensus_configs(
     let mut leader_keys = Vec::new();
     let mut blend_notes = Vec::new();
     let mut da_notes = Vec::new();
+    let mut sdp_notes = Vec::new();
 
     let utxos = create_utxos_for_leader_and_services(
         ids,
         &mut leader_keys,
         &mut blend_notes,
         &mut da_notes,
+        &mut sdp_notes,
     );
     let genesis_tx = create_genesis_tx(&utxos);
     let ledger_config = nomos_ledger::Config {
@@ -182,6 +185,7 @@ pub fn create_consensus_configs(
             utxos: utxos.clone(),
             da_notes: da_notes.clone(),
             blend_notes: blend_notes.clone(),
+            sdp_notes: sdp_notes.clone(),
         })
         .collect()
 }
@@ -191,6 +195,7 @@ fn create_utxos_for_leader_and_services(
     leader_keys: &mut Vec<(PublicKey, SecretKey)>,
     blend_notes: &mut Vec<ServiceNote>,
     da_notes: &mut Vec<ServiceNote>,
+    sdp_notes: &mut Vec<ServiceNote>,
 ) -> Vec<Utxo> {
     let derive_key_material = |prefix: &[u8], id_bytes: &[u8]| -> [u8; 16] {
         let mut sk_data = [0; 16];
@@ -208,7 +213,7 @@ fn create_utxos_for_leader_and_services(
     // Assume output index which will be set by the ledger tx.
     let mut output_index = 0;
 
-    // Create notes for leader, Blend and DA declarations.
+    // Create notes for leader, Blend / DA declarations, and SDP tx funding.
     for &id in ids {
         let sk_leader_data = derive_key_material(b"ld", &id);
         let sk_leader = SecretKey::from(BigUint::from_bytes_le(&sk_leader_data));
@@ -217,7 +222,7 @@ fn create_utxos_for_leader_and_services(
         utxos.push(Utxo {
             note: Note::new(1_000, pk_leader),
             tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
+            output_index,
         });
         output_index += 1;
 
@@ -234,7 +239,7 @@ fn create_utxos_for_leader_and_services(
         utxos.push(Utxo {
             note: note_da,
             tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
+            output_index,
         });
         output_index += 1;
 
@@ -251,7 +256,24 @@ fn create_utxos_for_leader_and_services(
         utxos.push(Utxo {
             note: note_blend,
             tx_hash: BigUint::from(0u8).into(),
-            output_index: 0,
+            output_index,
+        });
+        output_index += 1;
+
+        let sk_sdp_data = derive_key_material(b"sdp", &id);
+        let sk_sdp = SecretKey::from(BigUint::from_bytes_le(&sk_sdp_data));
+        let pk_sdp = sk_sdp.to_public_key();
+        let note_sdp = Note::new(100_000, pk_sdp);
+        sdp_notes.push(ServiceNote {
+            pk: pk_sdp,
+            sk: sk_sdp,
+            note: note_sdp,
+            output_index,
+        });
+        utxos.push(Utxo {
+            note: note_sdp,
+            tx_hash: BigUint::from(0u8).into(),
+            output_index,
         });
         output_index += 1;
     }

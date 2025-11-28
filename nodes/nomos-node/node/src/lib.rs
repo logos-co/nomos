@@ -3,7 +3,9 @@ pub mod config;
 pub mod generic_services;
 
 use color_eyre::eyre::{Result, eyre};
-use generic_services::{SamplingMempoolAdapter, VerifierMempoolAdapter};
+use generic_services::{
+    SamplingMempoolAdapter, SdpService, SdpServiceAdapterGeneric, VerifierMempoolAdapter,
+};
 use kzgrs_backend::common::share::DaShare;
 pub use kzgrs_backend::dispersal::BlobInfo;
 pub use nomos_blend_service::{
@@ -36,7 +38,6 @@ use nomos_da_verifier::{
 };
 use nomos_libp2p::PeerId;
 pub use nomos_network::backends::libp2p::Libp2p as NetworkBackend;
-use nomos_sdp::SdpSettings;
 pub use nomos_storage::backends::{
     SerdeOp,
     rocksdb::{RocksBackend, RocksBackendSettings},
@@ -63,10 +64,7 @@ pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, Networ
 use crate::{
     api::backend::AxumBackend,
     config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
-    generic_services::{
-        DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
-        SdpServiceAdapterGeneric,
-    },
+    generic_services::{DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric},
 };
 
 pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
@@ -195,6 +193,7 @@ pub(crate) type ApiService = nomos_api::ApiService<
         ApiStorageAdapter<RuntimeServiceId>,
         RocksStorageAdapter<SignedMantleTx, TxHash>,
         SdpMempoolAdapterGeneric<RuntimeServiceId>,
+        WalletService,
     >,
     RuntimeServiceId,
 >;
@@ -273,7 +272,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             storage: config.storage,
             system_sig: (),
             key_management: config.key_management,
-            sdp: SdpSettings { declaration: None },
+            sdp: config.sdp,
             wallet: config.wallet,
             #[cfg(feature = "testing")]
             testing_http: config.testing_http,

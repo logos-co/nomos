@@ -16,14 +16,15 @@ const TEST_DURATION_SECS: u64 = 120;
 async fn immutable_blocks_two_nodes() {
     let configs = create_general_configs(2)
         .into_iter()
-        .map(|mut c| {
+        .enumerate()
+        .map(|(i, mut c)| {
             c.consensus_config
                 .ledger_config
                 .consensus_config
                 .security_param = NonZero::new(5).unwrap();
             c.time_config.slot_duration = Duration::from_secs(3);
             c.bootstrapping_config.prolonged_bootstrap_period = Duration::ZERO;
-            create_validator_config(c)
+            create_validator_config(i, c)
         })
         .collect::<Vec<_>>();
 
