@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
+use nomos_blend_proofs::quota::inputs::prove::{
     private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
 

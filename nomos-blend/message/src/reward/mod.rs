@@ -112,13 +112,13 @@ pub const fn evaluate_hamming_distance(distance: u64, activity_threshold: u64) -
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::{
-        blend::{PROOF_OF_QUOTA_SIZE, PROOF_OF_SELECTION_SIZE},
-        crypto::ZkHash,
+    use nomos_blend_proofs::{
+        quota::{PROOF_OF_QUOTA_SIZE, VerifiedProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, VerifiedProofOfSelection},
     };
+    use nomos_core::crypto::ZkHash;
 
     use super::*;
-    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {
@@ -161,8 +161,10 @@ mod tests {
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
         BlendingToken::new(
-            ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
-            ProofOfSelection::from_bytes_unchecked([proof_of_selection; PROOF_OF_SELECTION_SIZE]),
+            VerifiedProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
+            VerifiedProofOfSelection::from_bytes_unchecked(
+                [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+            ),
         )
     }
 }

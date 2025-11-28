@@ -3,10 +3,12 @@ mod utils;
 use std::num::NonZeroU64;
 
 use groth16::Field as _;
-use nomos_blend_message::reward::SessionBlendingTokenCollector;
-use nomos_blend_scheduling::{
-    SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
-    session::SessionEvent,
+use nomos_blend::{
+    message::reward::SessionBlendingTokenCollector,
+    scheduling::{
+        SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
+        session::SessionEvent,
+    },
 };
 use nomos_core::{codec::SerializeOp as _, crypto::ZkHash};
 use nomos_time::SlotTick;
@@ -68,9 +70,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
 
     // Check that the message is successfully decapsulated and scheduled.
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
@@ -127,9 +127,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = new_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(new_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,
@@ -154,9 +152,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = future_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(future_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,

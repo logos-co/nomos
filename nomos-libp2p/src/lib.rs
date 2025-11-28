@@ -1,5 +1,5 @@
 pub mod behaviour;
-mod config;
+pub mod config;
 pub mod protocol_name;
 mod swarm;
 

@@ -3,7 +3,10 @@ mod swarm;
 
 use futures::future::{AbortHandle, Abortable};
 use libp2p::PeerId;
-use nomos_blend_scheduling::{EncapsulatedMessage, membership::Membership};
+use nomos_blend::{
+    message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    scheduling::membership::Membership,
+};
 use overwatch::overwatch::OverwatchHandle;
 use rand::RngCore;
 pub use settings::Libp2pBlendBackendSettings;
@@ -62,7 +65,7 @@ impl<RuntimeServiceId> BlendBackend<PeerId, RuntimeServiceId> for Libp2pBlendBac
         drop(self);
     }
 
-    async fn send(&self, msg: EncapsulatedMessage) {
+    async fn send(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
         if let Err(e) = self
             .swarm_command_sender
             .send(swarm::Command::SendMessage(msg))

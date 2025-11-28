@@ -35,9 +35,8 @@ nomos-libp2p             = { workspace = true }
 nomos-network            = { workspace = true }
 nomos-sdp                = { workspace = true }
 nomos-storage            = { features = ["rocksdb-backend"], workspace = true }
-nomos-time               = { workspace = true }
 overwatch                = { workspace = true }
-serde                    = { default-features = false, version = "1" }
+serde                    = { workspace = true }
 serde_json               = { default-features = false, version = "1.0.140" }
 subnetworks-assignations = { workspace = true }
 tokio                    = { default-features = false, features = ["net"], version = "1" }
@@ -63,6 +62,6 @@ utoipa-swagger-ui = { workspace = true }
 axum              = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
 hyper             = { default-features = false, version = "1.0" }
 reqwest           = { default-features = false, workspace = true }
-serde             = { default-features = false, version = "1" }
+serde             = { workspace = true }
 tracing           = { workspace = true }
 utoipa-swagger-ui = { default-features = false, features = ["axum"], workspace = true }

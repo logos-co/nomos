@@ -1,14 +1,12 @@
 use std::ops::{Add as _, Deref};
 
 use groth16::fr_to_bytes;
+use nomos_blend_crypto::blake2b512;
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_utils::math::{F64Ge1, NonNegativeF64};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    crypto::blake2b512,
-    reward::{BlendingToken, activity},
-};
+use crate::reward::{BlendingToken, activity};
 
 /// Session-specific information to compute an activity proof.
 pub struct SessionInfo {
@@ -146,8 +144,9 @@ pub fn activity_threshold(token_count_bit_len: u64, num_core_nodes: u64) -> Resu
 
 #[cfg(test)]
 mod tests {
+    use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
+
     use super::*;
-    use crate::crypto::proofs::{quota::ProofOfQuota, selection::ProofOfSelection};
 
     #[test]
     fn test_activity_threshold() {
@@ -193,8 +192,8 @@ mod tests {
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
-                ProofOfQuota::from_bytes_unchecked([0; _]),
-                ProofOfSelection::from_bytes_unchecked([0; _]),
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             ),
             SessionRandomness::from([0; 64]),
         );
@@ -202,8 +201,8 @@ mod tests {
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
-                ProofOfQuota::from_bytes_unchecked([1; _]),
-                ProofOfSelection::from_bytes_unchecked([1; _]),
+                VerifiedProofOfQuota::from_bytes_unchecked([1; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([1; _]),
             ),
             SessionRandomness::from([0; 64]),
         );

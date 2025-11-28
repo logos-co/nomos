@@ -4,38 +4,22 @@ use std::{
 };
 
 use axum::{Json, extract::State, response::Response};
-use kzgrs_backend::common::share::DaShare;
 use nomos_api::http::{da, mantle};
-use nomos_core::{
-    header::HeaderId,
-    mantle::{SignedMantleTx, TxHash},
-    sdp::SessionNumber,
-};
+use nomos_core::{header::HeaderId, sdp::SessionNumber};
 use nomos_da_network_service::{
     NetworkService, api::ApiAdapter as ApiAdapterTrait, backends::NetworkBackend,
     sdp::SdpAdapter as SdpAdapterTrait,
 };
 use nomos_da_sampling::{
-    DaSamplingService,
-    backend::{DaSamplingServiceBackend, kzgrs::KzgrsSamplingBackend},
-    mempool::DaMempoolAdapter,
-    network::adapters::validator::Libp2pAdapter as SamplingLibp2pAdapter,
-    storage::adapters::rocksdb::{
-        RocksAdapter as SamplingStorageAdapter, converter::DaStorageConverter,
-    },
+    DaSamplingService, backend::DaSamplingServiceBackend, mempool::DaMempoolAdapter,
 };
-use nomos_time::backends::NtpTimeBackend;
 use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
 use serde::{Deserialize, Serialize};
 use subnetworks_assignations::MembershipHandler;
-use tx_service::storage::adapters::rocksdb::RocksStorageAdapter;
 
 use super::backend::TestHttpCryptarchiaService;
 use crate::{
-    DaMembershipStorage, DaNetworkApiAdapter, NomosDaMembership,
-    generic_services::{
-        DaMembershipAdapter, SdpService, SdpServiceAdapterGeneric, TxMempoolService,
-    },
+    generic_services::{SdpService, TxMempoolService},
     make_request_and_return_response,
 };
 
@@ -149,19 +133,5 @@ where
         + AsServiceId<SdpService<RuntimeServiceId>>
         + AsServiceId<TxMempoolService<RuntimeServiceId>>,
 {
-    make_request_and_return_response!(mantle::get_sdp_declarations::<
-        KzgrsSamplingBackend,
-        SamplingLibp2pAdapter<
-            NomosDaMembership,
-            DaMembershipAdapter<RuntimeServiceId>,
-            DaMembershipStorage,
-            DaNetworkApiAdapter,
-            SdpServiceAdapterGeneric<RuntimeServiceId>,
-            RuntimeServiceId,
-        >,
-        SamplingStorageAdapter<DaShare, DaStorageConverter>,
-        RocksStorageAdapter<SignedMantleTx, TxHash>,
-        NtpTimeBackend,
-        RuntimeServiceId,
-    >(&handle))
+    make_request_and_return_response!(mantle::get_sdp_declarations::<RuntimeServiceId>(&handle))
 }

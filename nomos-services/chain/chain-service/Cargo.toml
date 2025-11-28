@@ -16,32 +16,26 @@ workspace = true
 async-trait        = "0.1"
 broadcast-service  = { workspace = true }
 bytes              = { workspace = true }
-chain-common       = { workspace = true }
 cryptarchia-engine = { features = ["serde"], workspace = true }
 cryptarchia-sync   = { workspace = true }
 ed25519-dalek      = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures            = { default-features = false, version = "0.3" }
 groth16            = { workspace = true }
 nomos-core         = { workspace = true }
-nomos-da-sampling  = { workspace = true }
 nomos-ledger       = { features = ["serde"], workspace = true }
 nomos-network      = { workspace = true }
 nomos-storage      = { workspace = true }
-nomos-time         = { workspace = true }
 nomos-utils        = { workspace = true }
 num-bigint         = { default-features = false, version = "0.4" }
 overwatch          = { workspace = true }
-rand               = { default-features = false, version = "0.8" }
-serde              = { default-features = false, version = "1" }
+serde              = { workspace = true }
 serde_with         = { workspace = true }
 services-utils     = { workspace = true }
 strum              = "0.27"
 thiserror          = "1.0"
 tokio              = { default-features = false, version = "1" }
-tokio-stream       = { default-features = false, version = "0.1" }
 tracing            = { workspace = true }
-tracing-futures    = { default-features = false, version = "0.2" }
-tx-service         = { workspace = true }
+tracing-futures    = { default-features = false, features = ["std-future"], version = "0.2" }
 utoipa             = { optional = true, workspace = true }
 
 [dev-dependencies]

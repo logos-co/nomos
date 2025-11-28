@@ -23,7 +23,7 @@ use crate::{
 
 pub type ZkSignProof = CompressedGroth16Proof;
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, Clone)]
 pub enum ZkSignError {
     #[error("ZkSign supports up to 32 keys: got {0}")]
     TooManyKeys(usize),

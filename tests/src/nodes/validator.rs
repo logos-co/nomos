@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     net::SocketAddr,
-    num::{NonZeroU64, NonZeroUsize},
+    num::NonZeroUsize,
     path::PathBuf,
     process::{Child, Command, Stdio},
     str::FromStr as _,
@@ -10,19 +10,12 @@ use std::{
 
 use broadcast_service::BlockInfo;
 use chain_leader::LeaderSettings;
-use chain_service::{
-    CryptarchiaInfo, CryptarchiaSettings, OrphanConfig, StartingState, SyncConfig,
-};
+use chain_network::ChainNetworkSettings;
+use chain_service::{CryptarchiaInfo, CryptarchiaSettings, StartingState};
 use common_http_client::CommonHttpClient;
 use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
-use key_management_system::keys::ZkKey;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
-use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
-use nomos_blend_service::{
-    core::settings::{CoverTrafficSettings, MessageDelayerSettings, SchedulerSettings, ZkSettings},
-    settings::TimingSettings,
-};
 use nomos_core::{
     block::Block,
     da::BlobId,
@@ -51,17 +44,14 @@ use nomos_http_api_common::paths::{
     DA_GET_SHARES_COMMITMENTS, DA_HISTORIC_SAMPLING, DA_MONITOR_STATS, MANTLE_SDP_DECLARATIONS,
     NETWORK_INFO, STORAGE_BLOCK,
 };
-use nomos_network::{
-    backends::libp2p::{Libp2pConfig, Libp2pInfo},
-    config::NetworkConfig,
-};
+use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::{
     Config, HeaderId, RocksBackendSettings,
     api::{
         backend::AxumBackendSettings, handlers::GetCommitmentsRequest,
         testing::handlers::HistoricSamplingRequest,
     },
-    config::{blend::BlendConfig, mempool::MempoolConfig},
+    config::mempool::MempoolConfig,
 };
 use nomos_sdp::SdpSettings;
 use nomos_time::{
@@ -79,8 +69,9 @@ use tx_service::MempoolMetrics;
 
 use super::{CLIENT, create_tempdir, persist_tempdir};
 use crate::{
-    IS_DEBUG_TRACING, adjust_timeout, common::kms::key_id_for_preload_backend, nodes::LOGS_PREFIX,
-    topology::configs::GeneralConfig,
+    IS_DEBUG_TRACING, adjust_timeout,
+    nodes::LOGS_PREFIX,
+    topology::configs::{GeneralConfig, deployment::default_e2e_deployment_settings},
 };
 
 const BIN_PATH: &str = "../target/debug/nomos-node";
@@ -464,69 +455,14 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
 
     let da_policy_settings = config.da_config.policy_settings;
     Config {
-        network: NetworkConfig {
-            backend: Libp2pConfig {
-                inner: config.network_config.swarm_config,
-                initial_peers: config.network_config.initial_peers,
-            },
-        },
-        blend: BlendConfig::new(nomos_blend_service::settings::Settings {
-            common: nomos_blend_service::settings::CommonSettings {
-                crypto: SessionCryptographicProcessorSettings {
-                    non_ephemeral_signing_key: config.blend_config.private_key.clone(),
-                    num_blend_layers: NonZeroU64::try_from(1).unwrap(),
-                },
-                minimum_network_size: 1
-                    .try_into()
-                    .expect("Minimum Blend network size cannot be zero."),
-                time: TimingSettings {
-                    round_duration: Duration::from_secs(1),
-                    rounds_per_interval: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per interval cannot be zero."),
-                    // (21,600 blocks * 30s per block) / 1s per round = 648,000 rounds
-                    rounds_per_session: NonZeroU64::try_from(648_000u64)
-                        .expect("Rounds per session cannot be zero."),
-                    rounds_per_observation_window: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per observation window cannot be zero."),
-                    rounds_per_session_transition_period: NonZeroU64::try_from(30u64)
-                        .expect("Rounds per session transition period cannot be zero."),
-                    epoch_transition_period_in_slots: NonZeroU64::try_from(2_600)
-                        .expect("Epoch transition period in slots cannot be zero."),
-                },
-                recovery_path_prefix: "./recovery/blend".into(),
-            },
-            core: nomos_blend_service::settings::CoreSettings {
-                backend: config.blend_config.backend_core,
-                scheduler: SchedulerSettings {
-                    cover: CoverTrafficSettings {
-                        intervals_for_safety_buffer: 100,
-                        message_frequency_per_round: NonNegativeF64::try_from(1f64)
-                            .expect("Message frequency per round cannot be negative."),
-                    },
-                    delayer: MessageDelayerSettings {
-                        maximum_release_delay_in_rounds: NonZeroU64::try_from(3u64)
-                            .expect("Maximum release delay between rounds cannot be zero."),
-                    },
-                },
-                zk: ZkSettings {
-                    secret_key_kms_id: key_id_for_preload_backend(
-                        &ZkKey::new(config.blend_config.secret_zk_key).into(),
-                    ),
-                },
-            },
-            edge: nomos_blend_service::settings::EdgeSettings {
-                backend: config.blend_config.backend_edge,
-            },
-        }),
+        network: config.network_config,
+        blend: config.blend_config.0,
+        deployment: default_e2e_deployment_settings(),
         cryptarchia: CryptarchiaSettings {
             config: config.consensus_config.ledger_config.clone(),
             starting_state: StartingState::Genesis {
                 genesis_tx: config.consensus_config.genesis_tx,
             },
-            network_adapter_settings:
-                chain_service::network::adapters::libp2p::LibP2pAdapterSettings {
-                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
-                },
             recovery_file: PathBuf::from("./recovery/cryptarchia.json"),
             bootstrap: chain_service::BootstrapConfig {
                 prolonged_bootstrap_period: config.bootstrapping_config.prolonged_bootstrap_period,
@@ -535,13 +471,22 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     grace_period: Duration::from_secs(20 * 60),
                     state_recording_interval: Duration::from_secs(60),
                 },
-                ibd: chain_service::IbdConfig {
+            },
+        },
+        chain_network: ChainNetworkSettings {
+            config: config.consensus_config.ledger_config.clone(),
+            network_adapter_settings:
+                chain_network::network::adapters::libp2p::LibP2pAdapterSettings {
+                    topic: String::from(nomos_node::CONSENSUS_TOPIC),
+                },
+            bootstrap: chain_network::BootstrapConfig {
+                ibd: chain_network::IbdConfig {
                     peers: HashSet::new(),
                     delay_before_new_download: Duration::from_secs(10),
                 },
             },
-            sync: SyncConfig {
-                orphan: OrphanConfig {
+            sync: chain_network::SyncConfig {
+                orphan: chain_network::OrphanConfig {
                     max_orphan_cache_size: NonZeroUsize::new(5)
                         .expect("Max orphan cache size must be non-zero"),
                 },

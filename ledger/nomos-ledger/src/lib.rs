@@ -173,14 +173,20 @@ impl LedgerState {
     where
         LeaderProof: leader_proof::LeaderProof,
     {
-        let cryptarchia_ledger = self
+        let mut cryptarchia_ledger = self
             .cryptarchia_ledger
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
-        let mantle_ledger = self.mantle_ledger.try_apply_header(
+        let (mantle_ledger, reward_utxos) = self.mantle_ledger.try_apply_header(
             cryptarchia_ledger.epoch_state(),
             voucher,
             config,
         )?;
+
+        // Insert reward UTXOs into the cryptarchia ledger
+        for utxo in reward_utxos {
+            cryptarchia_ledger.utxos = cryptarchia_ledger.utxos.insert(utxo.id(), utxo).0;
+        }
+
         Ok(Self {
             block_number: self
                 .block_number
@@ -286,10 +292,8 @@ impl LedgerState {
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,
-        config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        self.mantle_ledger
-            .active_session_providers(service_type, config)
+        self.mantle_ledger.active_session_providers(service_type)
     }
 
     #[must_use]

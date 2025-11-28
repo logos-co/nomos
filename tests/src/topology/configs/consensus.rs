@@ -228,7 +228,7 @@ fn create_utxos_for_leader_and_services(
         let pk_leader = sk_leader.to_public_key();
         leader_keys.push((pk_leader, sk_leader));
         utxos.push(Utxo {
-            note: Note::new(1, pk_leader),
+            note: Note::new(1_000, pk_leader),
             tx_hash: BigUint::from(0u8).into(),
             output_index: 0,
         });

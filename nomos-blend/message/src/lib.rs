@@ -7,4 +7,4 @@ pub mod reward;
 
 pub use encap::encapsulated::MessageIdentifier;
 pub use error::Error;
-pub use message::payload::PayloadType;
+pub use message::payload::{PaddedPayloadBody, PayloadType};

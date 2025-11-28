@@ -15,18 +15,20 @@ use std::{
 use backends::BlendBackend;
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use futures::{Stream, StreamExt as _};
-use nomos_blend_message::crypto::proofs::{
-    PoQVerificationInputsMinusSigningKey,
-    quota::inputs::prove::{
+use nomos_blend::{
+    message::crypto::{
+        key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
+    },
+    proofs::quota::inputs::prove::{
         private::ProofOfLeadershipQuotaInputs,
         public::{CoreInputs, LeaderInputs},
     },
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::provers::leader::LeaderProofsGenerator,
-    session::{SessionEvent, UninitializedSessionEventStream},
-    stream::UninitializedFirstReadyStream,
+    scheduling::{
+        membership::Membership,
+        message_blend::provers::leader::LeaderProofsGenerator,
+        session::{SessionEvent, UninitializedSessionEventStream},
+        stream::UninitializedFirstReadyStream,
+    },
 };
 use nomos_core::codec::SerializeOp as _;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};

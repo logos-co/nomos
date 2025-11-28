@@ -1,8 +1,11 @@
 use core::slice::from_ref;
 
+use key_management_system_service::keys::UnsecuredEd25519Key;
 use libp2p::{Multiaddr, PeerId};
-use nomos_blend_message::crypto::keys::Ed25519PrivateKey;
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend::{
+    message::crypto::key_ext::Ed25519SecretKeyExt as _,
+    scheduling::membership::{Membership, Node},
+};
 use nomos_libp2p::{Protocol, SwarmEvent};
 use test_log::test;
 use tokio::spawn;
@@ -28,7 +31,7 @@ async fn edge_redial_same_peer() {
         EdgeSwarmBuilder::new(Membership::new_without_local(from_ref(&Node {
             address: empty_multiaddr.clone(),
             id: random_peer_id,
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: UnsecuredEd25519Key::generate().public_key(),
         })))
         .build();
     let message = TestEncapsulatedMessage::new(b"test-payload");
@@ -133,7 +136,7 @@ async fn edge_redial_different_peer_after_redial_limit() {
         Node {
             address: empty_multiaddr,
             id: random_peer_id,
-            public_key: Ed25519PrivateKey::generate().public_key(),
+            public_key: UnsecuredEd25519Key::generate().public_key(),
         },
     ]);
     let EdgeTestSwarm {
@@ -153,5 +156,5 @@ async fn edge_redial_different_peer_after_redial_limit() {
     // Verify the message is anyway received by the core swarm after the maximum
     // number of dial attempts have been performed with the unreachable address.
     let received_message = core_swarm_incoming_message_receiver.recv().await.unwrap();
-    assert_eq!(received_message.into_inner(), message.into_inner());
+    assert_eq!(received_message, message.into_inner());
 }

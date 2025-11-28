@@ -1,6 +1,7 @@
 use chain_leader::CryptarchiaLeader;
-use chain_service::{CryptarchiaConsensus, network::adapters::libp2p::LibP2pAdapter};
-use key_management_system::backend::preload::PreloadKMSBackend;
+use chain_network::network::adapters::libp2p::LibP2pAdapter;
+use chain_service::CryptarchiaConsensus;
+use key_management_system_service::backend::preload::PreloadKMSBackend;
 use kzgrs_backend::common::share::DaShare;
 use nomos_core::{
     header::HeaderId,
@@ -98,12 +99,15 @@ pub type MempoolBackend<RuntimeServiceId> = Mempool<
     RuntimeServiceId,
 >;
 
-pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaConsensus<
+pub type CryptarchiaService<RuntimeServiceId> =
+    CryptarchiaConsensus<SignedMantleTx, RocksBackend, RuntimeServiceId>;
+
+pub type ChainNetworkService<SamplingAdapter, RuntimeServiceId> = chain_network::ChainNetwork<
+    CryptarchiaService<RuntimeServiceId>,
     LibP2pAdapter<SignedMantleTx, RuntimeServiceId>,
     MempoolBackend<RuntimeServiceId>,
     MempoolAdapter<RuntimeServiceId>,
     SamplingMempoolAdapter<RuntimeServiceId>,
-    RocksBackend,
     KzgrsSamplingBackend,
     SamplingAdapter,
     DaSamplingStorage,
@@ -112,7 +116,7 @@ pub type CryptarchiaService<SamplingAdapter, RuntimeServiceId> = CryptarchiaCons
 >;
 
 pub type KeyManagementService<RuntimeServiceId> =
-    key_management_system::KMSService<PreloadKMSBackend, RuntimeServiceId>;
+    key_management_system_service::KMSService<PreloadKMSBackend, RuntimeServiceId>;
 
 pub type WalletService<Cryptarchia, RuntimeServiceId> = nomos_wallet::WalletService<
     KeyManagementService<RuntimeServiceId>,

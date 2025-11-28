@@ -3,12 +3,15 @@ pub mod da;
 
 use std::{collections::HashMap, num::NonZeroU64};
 
-use groth16::Fr;
+use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
     block::BlockNumber,
-    sdp::{ActivityMetadata, ProviderId, ServiceParameters, SessionNumber},
+    crypto::{ZkDigest, ZkHasher},
+    mantle::{Note, TxHash, Utxo},
+    sdp::{ActivityMetadata, ProviderId, ServiceParameters, ServiceType, SessionNumber},
 };
 use thiserror::Error;
+use zksign::PublicKey;
 
 use super::SessionState;
 
@@ -52,7 +55,7 @@ pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
         last_active: &SessionState,
         next_active_session_epoch_nonce: &Fr,
         config: &ServiceParameters,
-    ) -> (Self, HashMap<ProviderId, RewardAmount>);
+    ) -> (Self, Vec<Utxo>);
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
@@ -82,13 +85,58 @@ pub enum Error {
         num_declarations: u64,
         minimum_network_size: NonZeroU64,
     },
+    #[error("Unknown provider: {0:?}")]
+    UnknownProvider(Box<ProviderId>),
+}
+
+/// Creates a deterministic transaction hash for reward distribution.
+///
+/// The hash is computed from a version constant, session number, and service
+/// type, ensuring all nodes produce identical transaction hashes for reward
+/// notes.
+fn create_reward_tx_hash(session_n: SessionNumber, service_type: ServiceType) -> TxHash {
+    let mut hasher = ZkHasher::default();
+    let session_fr = Fr::from(session_n);
+    let service_type_fr = fr_from_bytes(service_type.as_ref().as_bytes())
+        .expect("Valid service type fr representation");
+    <ZkHasher as ZkDigest>::update(&mut hasher, &service_type_fr);
+    <ZkHasher as ZkDigest>::update(&mut hasher, &session_fr);
+
+    TxHash(hasher.finalize())
+}
+
+/// Distributes rewards as UTXOs, sorted by `zk_id` for determinism.
+///
+/// Creates reward notes that are:
+/// - Deterministic: Sorted by `zk_id` in ascending order
+/// - One note per `zk_id`
+/// - Filters out 0-value rewards
+fn distribute_rewards(
+    rewards: HashMap<PublicKey, RewardAmount>,
+    session_n: SessionNumber,
+    service_type: ServiceType,
+) -> Vec<Utxo> {
+    let mut sorted_rewards: Vec<(PublicKey, RewardAmount)> = rewards
+        .into_iter()
+        .filter(|(_, amount)| *amount > 0)
+        .collect();
+    sorted_rewards.sort_by_key(|(zk_id, _)| *zk_id);
+
+    let tx_hash = create_reward_tx_hash(session_n, service_type);
+
+    sorted_rewards
+        .into_iter()
+        .enumerate()
+        .map(|(output_index, (zk_id, reward_amount))| {
+            Utxo::new(tx_hash, output_index, Note::new(reward_amount, zk_id))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::sdp::{Declaration, DeclarationId, ServiceType};
+    use nomos_core::sdp::{Declaration, DeclarationId};
     use num_bigint::BigUint;
-    use zksign::PublicKey;
 
     use super::*;
 

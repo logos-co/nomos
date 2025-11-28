@@ -18,6 +18,7 @@ ed25519             = { default-features = false, version = "2.2.3" }
 groth16             = { workspace = true }
 mmr                 = { features = ["serde"], workspace = true }
 nomos-blend-message = { workspace = true }
+nomos-blend-proofs  = { workspace = true }
 nomos-core          = { workspace = true }
 nomos-utils         = { workspace = true }
 num-bigint          = { default-features = false, version = "0.4" }

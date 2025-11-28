@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash,
+        AuthenticatedMantleTx, GasConstants, GenesisTx, NoteId, TxHash, Utxo,
         ops::{Op, OpProof, leader_claim::VoucherCm},
     },
     sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType, SessionNumber},
@@ -102,10 +102,8 @@ impl LedgerState {
     pub fn active_session_providers(
         &self,
         service_type: ServiceType,
-        config: &Config,
     ) -> Option<HashMap<ProviderId, ProviderInfo>> {
-        self.sdp
-            .active_session_providers(service_type, &config.sdp_config)
+        self.sdp.active_session_providers(service_type)
     }
 
     #[must_use]
@@ -123,12 +121,13 @@ impl LedgerState {
         epoch_state: &EpochState,
         voucher: VoucherCm,
         config: &Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, Vec<Utxo>), Error> {
         self.leaders = self.leaders.try_apply_header(epoch_state.epoch, voucher)?;
-        self.sdp = self
+        let (new_sdp, reward_utxos) = self
             .sdp
             .try_apply_header(&config.sdp_config, &epoch_state.nonce)?;
-        Ok(self)
+        self.sdp = new_sdp;
+        Ok((self, reward_utxos))
     }
 
     fn try_apply_ops<'a>(

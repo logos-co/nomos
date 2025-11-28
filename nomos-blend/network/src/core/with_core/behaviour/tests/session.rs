@@ -1,6 +1,5 @@
 use futures::StreamExt as _;
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_message::encap::validated::OutgoingEncapsulatedMessageWithValidatedPublicHeader;
 use nomos_libp2p::SwarmEvent;
 use test_log::test;
 use tokio::select;
@@ -53,10 +52,10 @@ async fn publish_message() {
 
     // Send a message but expect [`Error::NoPeers`]
     // because we haven't establish connections for the new session.
-    let test_message = TestEncapsulatedMessageWithSession::new(session, b"msg").into_inner();
+    let test_message = TestEncapsulatedMessageWithSession::new(session, b"msg");
     let result = dialer
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone());
+        .validate_and_publish_message(test_message.clone().into());
     assert_eq!(result, Err(Error::NoPeers));
 
     // Establish a connection for the new session.
@@ -65,7 +64,7 @@ async fn publish_message() {
     // Now we can send the message successfully.
     dialer
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone())
+        .validate_and_publish_message(test_message.clone().into())
         .unwrap();
     loop {
         select! {
@@ -141,10 +140,10 @@ async fn forward_message() {
     forwarder.connect_and_wait_for_upgrade(&mut receiver2).await;
 
     // The sender publishes a message built with the old session to the forwarder.
-    let test_message = TestEncapsulatedMessageWithSession::new(old_session, b"msg").into_inner();
+    let test_message = TestEncapsulatedMessageWithSession::new(old_session, b"msg");
     sender
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone())
+        .validate_and_publish_message(test_message.clone().into())
         .unwrap();
 
     // We expect that the message goes through the forwarder and receiver1
@@ -156,7 +155,7 @@ async fn forward_message() {
                 if let SwarmEvent::Behaviour(Event::Message(message, conn)) = event {
                     assert_eq!(message.id(), test_message.id());
                     forwarder.behaviour_mut()
-                        .forward_validated_message(&OutgoingEncapsulatedMessageWithValidatedPublicHeader::from(*message), conn)
+                        .forward_validated_message(&message, conn)
                         .unwrap();
                 }
             }
@@ -180,10 +179,10 @@ async fn forward_message() {
 
     // The sender publishes a new message built with the new session to the
     // forwarder.
-    let test_message = TestEncapsulatedMessageWithSession::new(new_session, b"msg").into_inner();
+    let test_message = TestEncapsulatedMessageWithSession::new(new_session, b"msg");
     sender
         .behaviour_mut()
-        .validate_and_publish_message(test_message.clone())
+        .validate_and_publish_message(test_message.clone().into())
         .unwrap();
 
     // We expect that the message goes through the forwarder and receiver2.
@@ -194,7 +193,7 @@ async fn forward_message() {
                 if let SwarmEvent::Behaviour(Event::Message(message, conn)) = event {
                     assert_eq!(message.id(), test_message.id());
                     forwarder.behaviour_mut()
-                        .forward_validated_message(&OutgoingEncapsulatedMessageWithValidatedPublicHeader::from(*message), conn)
+                        .forward_validated_message(&message, conn)
                         .unwrap();
                 }
             }

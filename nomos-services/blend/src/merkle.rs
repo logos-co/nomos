@@ -220,10 +220,10 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_blend_message::crypto::{
-        keys::Ed25519PublicKey,
+    use nomos_blend::{
+        crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey},
         proofs::quota::{
-            ProofOfQuota,
+            VerifiedProofOfQuota,
             inputs::prove::{
                 PrivateInputs, PublicInputs,
                 private::ProofOfCoreQuotaInputs,
@@ -405,7 +405,7 @@ mod tests {
                 total_stake: 1,
             };
             let session = 1;
-            let signing_key: Ed25519PublicKey = [10; 32].try_into().unwrap();
+            let signing_key = Ed25519PublicKey::from_bytes(&[10; ED25519_PUBLIC_KEY_SIZE]).unwrap();
             PublicInputs {
                 core: core_inputs,
                 leader: leader_inputs,
@@ -435,12 +435,12 @@ mod tests {
         } = generate_inputs::<1>();
 
         for secret_input in secret_inputs {
-            let (poq, _) = ProofOfQuota::new(
+            let (poq, _) = VerifiedProofOfQuota::new(
                 &public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
             )
             .unwrap();
-            poq.verify(&public_inputs).unwrap();
+            poq.into_inner().verify(&public_inputs).unwrap();
         }
     }
 
@@ -452,12 +452,12 @@ mod tests {
         } = generate_inputs::<2>();
 
         for secret_input in secret_inputs {
-            let (poq, _) = ProofOfQuota::new(
+            let (poq, _) = VerifiedProofOfQuota::new(
                 &public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
             )
             .unwrap();
-            poq.verify(&public_inputs).unwrap();
+            poq.into_inner().verify(&public_inputs).unwrap();
         }
     }
 
@@ -469,12 +469,12 @@ mod tests {
         } = generate_inputs::<3>();
 
         for secret_input in secret_inputs {
-            let (poq, _) = ProofOfQuota::new(
+            let (poq, _) = VerifiedProofOfQuota::new(
                 &public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
             )
             .unwrap();
-            poq.verify(&public_inputs).unwrap();
+            poq.into_inner().verify(&public_inputs).unwrap();
         }
     }
 
@@ -486,12 +486,12 @@ mod tests {
         } = generate_inputs::<3>();
 
         for secret_input in secret_inputs {
-            let (poq, _) = ProofOfQuota::new(
+            let (poq, _) = VerifiedProofOfQuota::new(
                 &public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
             )
             .unwrap();
-            poq.verify(&public_inputs).unwrap();
+            poq.into_inner().verify(&public_inputs).unwrap();
         }
     }
 
@@ -503,12 +503,12 @@ mod tests {
         } = generate_inputs::<100>();
 
         for secret_input in secret_inputs {
-            let (poq, _) = ProofOfQuota::new(
+            let (poq, _) = VerifiedProofOfQuota::new(
                 &public_inputs,
                 PrivateInputs::new_proof_of_core_quota_inputs(0, secret_input),
             )
             .unwrap();
-            poq.verify(&public_inputs).unwrap();
+            poq.into_inner().verify(&public_inputs).unwrap();
         }
     }
 }
