@@ -233,6 +233,12 @@ chain_network:
           retention_period: 100
           timestamp: 0
           session_duration: 1000
+      service_rewards_params:
+        blend:
+          rounds_per_session: 648000
+          message_frequency_per_round: 1.0
+          num_blend_layers: 3
+          minimum_network_size: 1
       min_stake:
         threshold: 1
         timestamp: 0
