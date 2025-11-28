@@ -748,6 +748,9 @@ where
     /// Forwards a message to all healthy connections except the [`except`]
     /// connection.
     ///
+    /// Before the message is forwarded, its public header is validated to
+    /// make sure the receiving peer won't mark us as malicious.
+    ///
     /// If the [`except`] connection is part of the old session, the message is
     /// forwarded to the connections in the old session.
     /// Otherwise, it is forwarded to the connections in the current session.
