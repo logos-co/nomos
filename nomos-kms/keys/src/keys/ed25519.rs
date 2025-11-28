@@ -1,9 +1,12 @@
+use core::fmt::{self, Debug, Formatter};
+
 use bytes::Bytes;
 use ed25519_dalek::{
     SECRET_KEY_LENGTH, Signature, SigningKey, VerifyingKey, ed25519::signature::Signer as _,
 };
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
@@ -14,7 +17,7 @@ pub const KEY_SIZE: usize = SECRET_KEY_LENGTH;
 ///
 /// To be used in contexts where a KMS-like key is required, but it's not
 /// possible to go through the KMS roundtrip of executing operators.
-#[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
+#[derive(ZeroizeOnDrop, Clone, Debug)]
 pub struct UnsecuredEd25519Key(SigningKey);
 
 impl Serialize for UnsecuredEd25519Key {
@@ -35,6 +38,14 @@ impl<'de> Deserialize<'de> for UnsecuredEd25519Key {
         Ok(Self(SigningKey::from_bytes(&bytes)))
     }
 }
+
+impl PartialEq for UnsecuredEd25519Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_bytes().ct_eq(other.0.as_bytes()).into()
+    }
+}
+
+impl Eq for UnsecuredEd25519Key {}
 
 impl From<SigningKey> for UnsecuredEd25519Key {
     fn from(value: SigningKey) -> Self {
@@ -60,7 +71,8 @@ impl AsRef<SigningKey> for UnsecuredEd25519Key {
 ///
 /// It is a secured variant of a [`Ed25519Key`] and used within the set of
 /// supported KMS keys.
-#[derive(PartialEq, Eq, Clone, Debug, ZeroizeOnDrop, Serialize, Deserialize)]
+#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "unsafe", derive(Serialize))]
 pub struct Ed25519Key(UnsecuredEd25519Key);
 
 impl Ed25519Key {
@@ -69,6 +81,25 @@ impl Ed25519Key {
         Self(UnsecuredEd25519Key(signing_key))
     }
 }
+
+impl Debug for Ed25519Key {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let private_key = if cfg!(feature = "unsafe") {
+            format!("{:?}", self.0)
+        } else {
+            "<redacted>".to_owned()
+        };
+        write!(f, "Ed25519Key({private_key})")
+    }
+}
+
+impl PartialEq for Ed25519Key {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Ed25519Key {}
 
 impl From<UnsecuredEd25519Key> for Ed25519Key {
     fn from(value: UnsecuredEd25519Key) -> Self {

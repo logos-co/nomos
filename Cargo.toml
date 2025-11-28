@@ -160,6 +160,7 @@ serde             = { default-features = false, version = "1.0" }
 serde_json        = { default-features = false, version = "1.0" }
 serde_with        = { default-features = false, version = "3.14.0" }
 serde_yaml        = { default-features = false, version = "0.9.33" }
+subtle            = { default-features = false, version = "2.6.1" }
 tempfile          = { default-features = false, version = "3" }
 thiserror         = { default-features = false, version = "2.0" }
 tokio             = { default-features = false, version = "1" }

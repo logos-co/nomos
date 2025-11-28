@@ -1,11 +1,14 @@
+use core::fmt::{self, Debug, Formatter};
+
 use groth16::Fr;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug, ZeroizeOnDrop)]
+#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+#[cfg_attr(feature = "unsafe", derive(serde::Serialize))]
 pub struct ZkKey(SecretKey);
 
 impl ZkKey {
@@ -19,6 +22,25 @@ impl ZkKey {
         self.0.as_fr()
     }
 }
+
+impl Debug for ZkKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let private_key = if cfg!(feature = "unsafe") {
+            format!("{:?}", self.0)
+        } else {
+            "<redacted>".to_owned()
+        };
+        write!(f, "ZkKey({private_key})")
+    }
+}
+
+impl PartialEq for ZkKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_fr() == other.0.as_fr()
+    }
+}
+
+impl Eq for ZkKey {}
 
 #[async_trait::async_trait]
 impl SecuredKey for ZkKey {

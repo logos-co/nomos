@@ -14,7 +14,7 @@ workspace = true
 
 [dependencies]
 async-trait                = "0.1"
-key-management-system-keys = { workspace = true }
+key-management-system-keys = { workspace = true, features = ["unsafe"] }
 log                        = "0.4.22"
 overwatch                  = { workspace = true }
 serde                      = { workspace = true, features = ["derive"] }
