@@ -56,7 +56,7 @@ impl LeaderState {
             n_claimable_vouchers: 0,
             nfs: rpds::HashTrieSetSync::new_sync(),
             claimable_rewards: 0,
-            vouchers: MerkleMountainRange::new(),
+            vouchers: MerkleMountainRange::new(32),
         }
     }
 

@@ -38,6 +38,7 @@ tracing-futures     = { default-features = false, version = "0.2" }
 tx-service          = { workspace = true }
 zeroize             = { workspace = true }
 zksign              = { workspace = true }
+rand = "0.8.5"
 
 [dev-dependencies]
 divan = { default-features = false, version = "0.1" }

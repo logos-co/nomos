@@ -3,13 +3,8 @@ pub mod merkle;
 use std::sync::LazyLock;
 
 use cryptarchia_engine::Slot;
-use ed25519_dalek::ed25519::signature::digest::Mac;
 use groth16::{Fr, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use mmr::MerkleMountainRange;
-use nomos_core::{
-    crypto::{ZkDigest, ZkHash, ZkHasher},
-    utils::merkle::{MerkleNode, MerklePath},
-};
+use nomos_core::crypto::{ZkDigest, ZkHash, ZkHasher};
 use rs_merkle_tree::stores::MemoryStore;
 use zeroize::Zeroize;
 
