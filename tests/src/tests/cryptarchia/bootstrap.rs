@@ -5,7 +5,6 @@ use std::{
 
 use futures::stream::{self, StreamExt as _};
 use nomos_libp2p::PeerId;
-use nomos_node::config::cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
@@ -115,11 +114,11 @@ async fn test_ibd_behind_nodes() {
     // We spent some time for checking the heights of nodes
     // after the behind node finishes IBD.
     // So, calculate an acceptable height margin for safe comparison.
-    let cryptarchia_deployment_settings = CryptarchiaDeploymentSettings::from(config.deployment);
-
     let height_margin = acceptable_height_margin(
         general_configs.first().unwrap().time_config.slot_duration,
-        cryptarchia_deployment_settings
+        config
+            .deployment
+            .cryptarchia
             .ledger
             .consensus_config
             .active_slot_coeff,

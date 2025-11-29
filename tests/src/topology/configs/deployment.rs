@@ -12,10 +12,11 @@ use nomos_core::sdp::{ServiceParameters, ServiceType};
 use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_node::config::{
     blend::deployment::{
-        BlendDeploymentSettings, CommonSettings as BlendCommonSettings,
-        CoreSettings as BlendCoreSettings,
+        CommonSettings as BlendCommonSettings, CoreSettings as BlendCoreSettings,
+        Settings as BlendDeploymentSettings,
     },
     cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings,
+    deployment::DeploymentSettings,
     network::deployment::Settings as NetworkDeploymentSettings,
 };
 use nomos_utils::math::NonNegativeF64;

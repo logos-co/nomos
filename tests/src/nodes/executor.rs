@@ -370,7 +370,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
     Config {
         network: config.network_config,
         blend: config.blend_config.0,
-        deployment: custom_deployment_config.clone().into(),
+        deployment: custom_deployment_config.clone(),
         cryptarchia: config.consensus_config.user_config.clone(),
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {

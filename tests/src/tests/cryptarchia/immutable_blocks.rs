@@ -1,7 +1,6 @@
 use std::{num::NonZero, time::Duration};
 
 use futures_util::StreamExt as _;
-use nomos_node::config::cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
@@ -17,28 +16,20 @@ const TEST_DURATION_SECS: u64 = 120;
 async fn immutable_blocks_two_nodes() {
     let configs = create_general_configs(2)
         .into_iter()
-        .map(|mut c| {
-            c.time_config.slot_duration = Duration::from_secs(3);
-            c.consensus_config
-                .user_config
+        .map(|c| {
+            let mut config = create_validator_config(c);
+            config.time.backend_settings.slot_config.slot_duration = Duration::from_secs(3);
+            config
+                .cryptarchia
                 .service
                 .bootstrap
                 .prolonged_bootstrap_period = Duration::ZERO;
-            let mut config = create_validator_config(c);
-            // TODO: Find a different way to access the deployment settings, whatever input
-            // they were given. I.e., should be able to access each service property after
-            // it has been evaluated as a well-known deployment or a custom one. This means
-            // distinguishing between the serializable type and the actual type used. Then,
-            // on the actual type, we can modify stuff from CLI and env, and use that in the
-            // tests instead.
             config
+                .deployment
                 .cryptarchia
-                .c
-                .consensus_config
-                .ledger_config
+                .ledger
                 .consensus_config
                 .security_param = NonZero::new(5).unwrap();
-            config.time.backend_settings.slot_config.slot_duration = Duration::from_secs(3);
             config
         })
         .collect::<Vec<_>>();
