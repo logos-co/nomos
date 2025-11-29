@@ -1,6 +1,5 @@
 pub mod api;
 pub mod blend;
-pub mod bootstrap;
 pub mod consensus;
 pub mod da;
 pub mod deployment;
@@ -29,7 +28,6 @@ use crate::{
     topology::configs::{
         api::GeneralApiConfig,
         bootstrap::{GeneralBootstrapConfig, SHORT_PROLONGED_BOOTSTRAP_PERIOD},
-        consensus::ConsensusParams,
         da::DaParams,
         network::NetworkParams,
         time::GeneralTimeConfig,
@@ -40,7 +38,6 @@ use crate::{
 pub struct GeneralConfig {
     pub api_config: GeneralApiConfig,
     pub consensus_config: GeneralConsensusConfig,
-    pub bootstrapping_config: GeneralBootstrapConfig,
     pub da_config: GeneralDaConfig,
     pub network_config: GeneralNetworkConfig,
     pub blend_config: GeneralBlendConfig,
@@ -87,10 +84,8 @@ pub fn create_general_configs_with_blend_core_subset(
         blend_ports.push(get_available_udp_port().unwrap());
     }
 
-    let consensus_params = ConsensusParams::default_for_participants(n_nodes);
-    let mut consensus_configs = consensus::create_consensus_configs(&ids, &consensus_params);
-    let bootstrap_config =
-        bootstrap::create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
+    let mut consensus_configs =
+        consensus::create_consensus_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
     let network_configs = network::create_network_configs(&ids, network_params);
     let da_configs = da::create_da_configs(&ids, &DaParams::default(), &da_ports);
     let api_configs = api::create_api_configs(&ids);
@@ -147,7 +142,6 @@ pub fn create_general_configs_with_blend_core_subset(
         general_configs.push(GeneralConfig {
             api_config: api_configs[i].clone(),
             consensus_config: consensus_configs[i].clone(),
-            bootstrapping_config: bootstrap_config[i].clone(),
             da_config: da_configs[i].clone(),
             network_config: network_configs[i].clone(),
             blend_config: blend_configs[i].clone(),

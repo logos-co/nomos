@@ -1,6 +1,7 @@
 use std::{num::NonZero, time::Duration};
 
 use futures_util::StreamExt as _;
+use nomos_node::config::cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
@@ -17,10 +18,6 @@ async fn immutable_blocks_two_nodes() {
     let configs = create_general_configs(2)
         .into_iter()
         .map(|mut c| {
-            c.consensus_config
-                .ledger_config
-                .consensus_config
-                .security_param = NonZero::new(5).unwrap();
             c.time_config.slot_duration = Duration::from_secs(3);
             c.bootstrapping_config.prolonged_bootstrap_period = Duration::ZERO;
             create_validator_config(c)

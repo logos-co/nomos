@@ -40,7 +40,7 @@ use crate::{
         api::create_api_configs,
         blend::{GeneralBlendConfig, create_blend_configs},
         bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
-        consensus::{ConsensusParams, create_consensus_configs},
+        consensus::create_consensus_configs,
         da::GeneralDaConfig,
         time::default_time_config,
     },
@@ -49,7 +49,6 @@ use crate::{
 pub struct TopologyConfig {
     pub n_validators: usize,
     pub n_executors: usize,
-    pub consensus_params: ConsensusParams,
     pub da_params: DaParams,
     pub network_params: NetworkParams,
     pub extra_genesis_notes: Vec<GenesisNoteSpec>,
@@ -61,7 +60,6 @@ impl TopologyConfig {
         Self {
             n_validators: 2,
             n_executors: 0,
-            consensus_params: ConsensusParams::default_for_participants(2),
             da_params: DaParams::default(),
             network_params: NetworkParams::default(),
             extra_genesis_notes: Vec::new(),
@@ -73,7 +71,6 @@ impl TopologyConfig {
         Self {
             n_validators: 1,
             n_executors: 1,
-            consensus_params: ConsensusParams::default_for_participants(2),
             da_params: DaParams {
                 dispersal_factor: 2,
                 subnetwork_size: 2,
@@ -103,7 +100,6 @@ impl TopologyConfig {
         Self {
             n_validators: num_validators,
             n_executors: 1,
-            consensus_params: ConsensusParams::default_for_participants(num_validators + 1),
             da_params: DaParams {
                 dispersal_factor,
                 subnetwork_size: num_subnets,
@@ -167,7 +163,7 @@ impl Topology {
             blend_ports.push(get_available_udp_port().unwrap());
         }
 
-        let mut consensus_configs = create_consensus_configs(&ids, &config.consensus_params);
+        let mut consensus_configs = create_consensus_configs(&ids);
         let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
@@ -270,7 +266,7 @@ impl Topology {
     ) -> Self {
         let n_participants = config.n_validators + config.n_executors;
 
-        let consensus_configs = create_consensus_configs(ids, &config.consensus_params);
+        let consensus_configs = create_consensus_configs(ids);
         let bootstrapping_config = create_bootstrap_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);

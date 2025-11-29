@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use futures::stream::{self, StreamExt as _};
+use nomos_node::config::cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings;
 use serial_test::serial;
 use tests::{
     adjust_timeout,
@@ -17,11 +18,20 @@ const CHAIN_LENGTH_MULTIPLIER: u32 = 2;
 async fn happy_test(topology: &Topology) {
     let nodes = topology.validators();
     let config = nodes[0].config();
-    let security_param = config.cryptarchia.config.consensus_config.security_param;
+    let cryptarchia_deployment_settings =
+        CryptarchiaDeploymentSettings::from(config.clone().deployment);
+
+    let security_param = cryptarchia_deployment_settings
+        .ledger
+        .consensus_config
+        .security_param;
     let n_blocks = security_param.get() * CHAIN_LENGTH_MULTIPLIER;
     println!("waiting for {n_blocks} blocks");
     let timeout = (f64::from(n_blocks)
-        / config.cryptarchia.config.consensus_config.active_slot_coeff
+        / cryptarchia_deployment_settings
+            .ledger
+            .consensus_config
+            .active_slot_coeff
         * config
             .time
             .backend_settings

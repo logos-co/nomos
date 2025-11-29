@@ -125,6 +125,7 @@ async fn disseminate_from_non_membership() {
     let StartingState::Genesis { genesis_tx } = membership_executor
         .config()
         .cryptarchia
+        .service
         .starting_state
         .clone()
     else {

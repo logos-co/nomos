@@ -17,6 +17,12 @@ pub enum Settings {
     Custom(Box<CustomDeployment>),
 }
 
+impl From<CustomDeployment> for Settings {
+    fn from(value: CustomDeployment) -> Self {
+        Self::Custom(Box::new(value))
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CustomDeployment {
     pub blend: BlendDeploymentSettings,
