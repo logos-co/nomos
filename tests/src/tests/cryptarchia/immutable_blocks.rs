@@ -19,8 +19,27 @@ async fn immutable_blocks_two_nodes() {
         .into_iter()
         .map(|mut c| {
             c.time_config.slot_duration = Duration::from_secs(3);
-            c.bootstrapping_config.prolonged_bootstrap_period = Duration::ZERO;
-            create_validator_config(c)
+            c.consensus_config
+                .user_config
+                .service
+                .bootstrap
+                .prolonged_bootstrap_period = Duration::ZERO;
+            let mut config = create_validator_config(c);
+            // TODO: Find a different way to access the deployment settings, whatever input
+            // they were given. I.e., should be able to access each service property after
+            // it has been evaluated as a well-known deployment or a custom one. This means
+            // distinguishing between the serializable type and the actual type used. Then,
+            // on the actual type, we can modify stuff from CLI and env, and use that in the
+            // tests instead.
+            config
+                .cryptarchia
+                .c
+                .consensus_config
+                .ledger_config
+                .consensus_config
+                .security_param = NonZero::new(5).unwrap();
+            config.time.backend_settings.slot_config.slot_duration = Duration::from_secs(3);
+            config
         })
         .collect::<Vec<_>>();
 

@@ -6,6 +6,7 @@ use nomos_core::{
     mantle::{Note, NoteId, Transaction as _},
     sdp::{ActiveMessage, Declaration, Locator, ServiceType, SessionNumber, WithdrawMessage},
 };
+use nomos_node::config::cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings;
 use num_bigint::BigUint;
 use serial_test::serial;
 use tests::{
@@ -54,7 +55,9 @@ async fn sdp_ops_e2e() {
     let inclusion_timeout = Duration::from_secs(30);
     let state_timeout = Duration::from_secs(45);
 
-    let sdp_config = &validator.config().cryptarchia.config.sdp_config;
+    let cryptarchia_deployment_config =
+        CryptarchiaDeploymentSettings::from(validator.config().deployment.clone());
+    let sdp_config = cryptarchia_deployment_config.ledger.sdp_config;
 
     let validator_url = validator.url();
     let client = CommonHttpClient::new(None);

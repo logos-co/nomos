@@ -39,8 +39,7 @@ use crate::{
     topology::configs::{
         api::create_api_configs,
         blend::{GeneralBlendConfig, create_blend_configs},
-        bootstrap::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_bootstrap_configs},
-        consensus::create_consensus_configs,
+        consensus::{SHORT_PROLONGED_BOOTSTRAP_PERIOD, create_consensus_configs},
         da::GeneralDaConfig,
         time::default_time_config,
     },
@@ -163,8 +162,8 @@ impl Topology {
             blend_ports.push(get_available_udp_port().unwrap());
         }
 
-        let mut consensus_configs = create_consensus_configs(&ids);
-        let bootstrapping_config = create_bootstrap_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
+        let mut consensus_configs =
+            create_consensus_configs(&ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(&ids, &config.da_params, &da_ports);
         let network_configs = create_network_configs(&ids, &config.network_params);
         let blend_configs = create_blend_configs(&ids, &blend_ports);
@@ -233,7 +232,6 @@ impl Topology {
         for i in 0..n_participants {
             node_configs.push(GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
-                bootstrapping_config: bootstrapping_config[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
                 blend_config: blend_configs[i].clone(),
@@ -266,8 +264,7 @@ impl Topology {
     ) -> Self {
         let n_participants = config.n_validators + config.n_executors;
 
-        let consensus_configs = create_consensus_configs(ids);
-        let bootstrapping_config = create_bootstrap_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
+        let consensus_configs = create_consensus_configs(ids, SHORT_PROLONGED_BOOTSTRAP_PERIOD);
         let da_configs = create_da_configs(ids, &config.da_params, da_ports);
         let network_configs = create_network_configs(ids, &config.network_params);
         let blend_configs = create_blend_configs(ids, blend_ports);
@@ -285,7 +282,6 @@ impl Topology {
         for i in 0..n_participants {
             node_configs.push(GeneralConfig {
                 consensus_config: consensus_configs[i].clone(),
-                bootstrapping_config: bootstrapping_config[i].clone(),
                 da_config: da_configs[i].clone(),
                 network_config: network_configs[i].clone(),
                 blend_config: blend_configs[i].clone(),

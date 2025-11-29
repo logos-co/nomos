@@ -26,11 +26,8 @@ use tracing::GeneralTracingConfig;
 use crate::{
     common::kms::key_id_for_preload_backend,
     topology::configs::{
-        api::GeneralApiConfig,
-        bootstrap::{GeneralBootstrapConfig, SHORT_PROLONGED_BOOTSTRAP_PERIOD},
-        da::DaParams,
-        network::NetworkParams,
-        time::GeneralTimeConfig,
+        api::GeneralApiConfig, consensus::SHORT_PROLONGED_BOOTSTRAP_PERIOD, da::DaParams,
+        network::NetworkParams, time::GeneralTimeConfig,
     },
 };
 

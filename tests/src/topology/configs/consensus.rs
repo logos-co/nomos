@@ -24,6 +24,8 @@ use nomos_node::{
 use num_bigint::BigUint;
 use zksign::{PublicKey, SecretKey};
 
+pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
+
 #[derive(Clone)]
 pub struct GeneralConsensusConfig {
     pub user_config: Config,
