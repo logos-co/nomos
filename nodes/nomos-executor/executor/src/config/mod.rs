@@ -3,10 +3,9 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
         BlendArgs, blend::serde::Config as BlendConfig,
-        cryptarchia::serde::Config as CryptarchiaConfig,
-        deployment::Settings as DeploymentSettings, mempool::MempoolConfig,
-        network::serde::Config as NetworkConfig, update_blend, update_cryptarchia_leader_consensus,
-        update_network,
+        cryptarchia::serde::Config as CryptarchiaConfig, deployment::DeploymentSettings,
+        mempool::MempoolConfig, network::serde::Config as NetworkConfig, update_blend,
+        update_cryptarchia_leader_consensus, update_network,
     },
     generic_services::SdpService,
 };

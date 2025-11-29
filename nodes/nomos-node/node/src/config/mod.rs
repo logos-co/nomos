@@ -20,7 +20,7 @@ use crate::{
     config::{
         blend::serde::Config as BlendConfig,
         cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
-        deployment::Settings as DeploymentSettings,
+        deployment::DeploymentSettings,
         mempool::MempoolConfig,
         network::serde::Config as NetworkConfig,
     },

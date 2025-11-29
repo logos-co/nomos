@@ -8,7 +8,7 @@ use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_utils::math::NonNegativeF64;
 use serde::{Deserialize, Serialize};
 
-use crate::config::deployment::Settings as DeploymentSettings;
+use crate::config::deployment::WellKnownDeployment;
 
 /// Deployment-specific Blend settings.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -18,13 +18,10 @@ pub struct Settings {
     pub core: CoreSettings,
 }
 
-impl From<DeploymentSettings> for Settings {
-    fn from(value: DeploymentSettings) -> Self {
+impl From<WellKnownDeployment> for Settings {
+    fn from(value: WellKnownDeployment) -> Self {
         match value {
-            DeploymentSettings::Mainnet => mainnet_settings(),
-            DeploymentSettings::Custom(custom_deployment_settings) => {
-                custom_deployment_settings.blend
-            }
+            WellKnownDeployment::Mainnet => mainnet_settings(),
         }
     }
 }

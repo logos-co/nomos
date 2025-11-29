@@ -3,7 +3,7 @@ use std::sync::Arc;
 use nomos_core::sdp::{MinStake, ServiceParameters, ServiceType};
 use serde::{Deserialize, Serialize};
 
-use crate::config::deployment::Settings as DeploymentSettings;
+use crate::config::deployment::WellKnownDeployment;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
@@ -12,10 +12,10 @@ pub struct Settings {
 }
 
 #[expect(clippy::fallible_impl_from, reason = "Well-known values.")]
-impl From<DeploymentSettings> for Settings {
-    fn from(value: DeploymentSettings) -> Self {
+impl From<WellKnownDeployment> for Settings {
+    fn from(value: WellKnownDeployment) -> Self {
         match value {
-            DeploymentSettings::Mainnet => Self {
+            WellKnownDeployment::Mainnet => Self {
                 ledger: nomos_ledger::Config {
                     consensus_config: cryptarchia_engine::Config {
                         active_slot_coeff: 0.9,
@@ -61,9 +61,6 @@ impl From<DeploymentSettings> for Settings {
                 },
                 gossipsub_protocol: "/cryptarchia/proto".to_owned(),
             },
-            DeploymentSettings::Custom(custom_deployment_settings) => {
-                custom_deployment_settings.cryptarchia
-            }
         }
     }
 }

@@ -240,13 +240,13 @@ pub struct Nomos {
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.clone().into(),
+        deployment: config.deployment.blend,
     }
     .into();
 
     let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
         user: config.cryptarchia,
-        deployment: config.deployment.clone().into(),
+        deployment: config.deployment.cryptarchia,
     }
     .into();
 
@@ -254,7 +254,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
         NomosServiceSettings {
             network: NetworkConfig {
                 user: config.network,
-                deployment: config.deployment.into(),
+                deployment: config.deployment.network,
             }
             .into(),
             blend: blend_config,
