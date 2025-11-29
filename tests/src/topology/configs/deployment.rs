@@ -12,19 +12,18 @@ use nomos_core::sdp::{ServiceParameters, ServiceType};
 use nomos_libp2p::protocol_name::StreamProtocol;
 use nomos_node::config::{
     blend::deployment::{
-        CommonSettings as BlendCommonSettings, CoreSettings as BlendCoreSettings,
-        Settings as BlendDeploymentSettings,
+        BlendDeploymentSettings, CommonSettings as BlendCommonSettings,
+        CoreSettings as BlendCoreSettings,
     },
     cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings,
-    deployment::CustomDeployment,
     network::deployment::Settings as NetworkDeploymentSettings,
 };
 use nomos_utils::math::NonNegativeF64;
 
 #[must_use]
-pub fn default_e2e_deployment_settings() -> CustomDeployment {
-    CustomDeployment {
-        blend: BlendDeploymentSettings {
+pub fn default_e2e_deployment_settings() -> DeploymentSettings {
+    DeploymentSettings::new_custom(
+        BlendDeploymentSettings {
             common: BlendCommonSettings {
                 minimum_network_size: NonZeroU64::try_from(30u64)
                     .expect("Minimum network size cannot be zero."),
@@ -65,11 +64,11 @@ pub fn default_e2e_deployment_settings() -> CustomDeployment {
                 },
             },
         },
-        network: NetworkDeploymentSettings {
+        NetworkDeploymentSettings {
             identify_protocol_name: StreamProtocol::new("/integration/nomos/identify/1.0.0"),
             kademlia_protocol_name: StreamProtocol::new("/integration/nomos/kad/1.0.0"),
         },
-        cryptarchia: CryptarchiaDeploymentSettings {
+        CryptarchiaDeploymentSettings {
             gossipsub_protocol: "/integration/nomos/cryptarchia/proto/1.0.0".to_owned(),
             ledger: nomos_ledger::Config {
                 epoch_config: cryptarchia_engine::EpochConfig {
@@ -120,5 +119,5 @@ pub fn default_e2e_deployment_settings() -> CustomDeployment {
                 },
             },
         },
-    }
+    )
 }

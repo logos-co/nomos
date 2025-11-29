@@ -32,21 +32,42 @@ pub struct DeploymentSettings {
     pub cryptarchia: CryptarchiaDeploymentSettings,
 }
 
+impl DeploymentSettings {
+    #[must_use]
+    pub const fn new_custom(
+        blend: BlendDeploymentSettings,
+        network: NetworkDeploymentSettings,
+        cryptarchia: CryptarchiaDeploymentSettings,
+    ) -> Self {
+        Self {
+            well_known: None,
+            blend,
+            network,
+            cryptarchia,
+        }
+    }
+}
+
+impl From<WellKnownDeployment> for DeploymentSettings {
+    fn from(value: WellKnownDeployment) -> Self {
+        Self {
+            blend: value.clone().into(),
+            cryptarchia: value.clone().into(),
+            network: value.clone().into(),
+            well_known: Some(value),
+        }
+    }
+}
+
 impl From<SerdeSettings> for DeploymentSettings {
     fn from(value: SerdeSettings) -> Self {
         match value {
-            SerdeSettings::WellKnown(well_known_deployment) => Self {
-                blend: well_known_deployment.clone().into(),
-                cryptarchia: well_known_deployment.clone().into(),
-                network: well_known_deployment.clone().into(),
-                well_known: Some(well_known_deployment),
-            },
-            SerdeSettings::Custom(custom_deployment) => Self {
-                blend: custom_deployment.blend,
-                cryptarchia: custom_deployment.cryptarchia,
-                network: custom_deployment.network,
-                well_known: None,
-            },
+            SerdeSettings::WellKnown(well_known_deployment) => well_known_deployment.into(),
+            SerdeSettings::Custom(custom_deployment) => Self::new_custom(
+                custom_deployment.blend,
+                custom_deployment.network,
+                custom_deployment.cryptarchia,
+            ),
         }
     }
 }
