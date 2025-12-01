@@ -36,7 +36,7 @@ fn precompute_mmr(bencher: Bencher) {
             let seed: Fr = fr_from_bytes(b"1987").unwrap();
             seed
         })
-        .bench_values(|seed| black_box(MerklePol::new(seed)));
+        .bench_values(|seed| black_box(MerklePol::new(seed, 25)));
 }
 
 // #[divan::bench(sample_count = 1, sample_size = 1)]

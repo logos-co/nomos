@@ -1,8 +1,12 @@
 use groth16::Fr;
-use mmr::MerkleMountainRange;
+use mmr::{MerkleMountainRange, Root};
 use nomos_core::crypto::{ZkDigest, ZkHasher};
 
 use crate::pol::SlotSecret;
+
+pub struct MerklePolCache {
+    pub upper_merkle_pol: MerklePol,
+}
 
 pub struct MerklePol {
     slot_secret_root: Fr,
@@ -27,12 +31,11 @@ impl MerklePol {
                     let roots = mmr
                         .roots()
                         .iter()
-                        .map(|root| root.root())
+                        .map(Root::root)
                         .take(mmr.roots().iter().count() - 1);
-
-                    for root in roots {
-                        proof_element = <ZkHasher as ZkDigest>::compress(&[root, proof_element]);
-                    }
+                    proof_element = roots.fold(proof_element, |acc, root| {
+                        <ZkHasher as ZkDigest>::compress(&[root, acc])
+                    });
                 }
                 merkle_proof.push(proof_element);
             }
@@ -49,7 +52,8 @@ impl MerklePol {
         }
     }
 
-    pub fn next(&mut self) -> MerklePol {
+    #[must_use]
+    pub fn next_merkle(&mut self) -> Self {
         assert_ne!(
             self.current_index + 1,
             2usize.pow(self.tree_depth as u32) as u64
@@ -57,7 +61,7 @@ impl MerklePol {
 
         let index = self.current_index as usize;
         let depth_right_tree = 64 - ((index + 1) ^ index).leading_zeros() - 1;
-        let right_tree = MerklePol::new(
+        let right_tree = Self::new(
             ZkHasher::digest(&[self.merkle_proof[0]]),
             depth_right_tree as usize,
         );
@@ -65,22 +69,18 @@ impl MerklePol {
         let mut new_proof = right_tree.merkle_proof;
         let mut node = self.merkle_proof[0];
         for i in 0..self.tree_depth {
-            if i >= (depth_right_tree as usize) {
-                if i == depth_right_tree as usize {
-                    new_proof.push(node);
-                } else {
-                    new_proof.push(self.merkle_proof[i + 1]);
-                }
+            if i == depth_right_tree as usize {
+                new_proof.push(node);
+            } else if i > (depth_right_tree as usize) {
+                new_proof.push(self.merkle_proof[i + 1]);
+            } else if (index >> i) & 1 == 1 {
+                node = <ZkHasher as ZkDigest>::compress(&[self.merkle_proof[i + 1], node]);
             } else {
-                if (index >> i) & 1 == 1 {
-                    node = <ZkHasher as ZkDigest>::compress(&[self.merkle_proof[i + 1], node]);
-                } else {
-                    node = <ZkHasher as ZkDigest>::compress(&[node, self.merkle_proof[i + 1]]);
-                }
+                node = <ZkHasher as ZkDigest>::compress(&[node, self.merkle_proof[i + 1]]);
             }
         }
 
-        MerklePol {
+        Self {
             slot_secret_root: self.slot_secret_root,
             merkle_proof: new_proof,
             current_index: self.current_index + 1,
@@ -115,7 +115,7 @@ mod test {
         let mut merkle_pol = MerklePol::new(fr_from_bytes(b"1987").unwrap(), 8);
         let mut rng = rand::thread_rng();
         for _ in 0..rng.gen_range(2..250) {
-            merkle_pol = merkle_pol.next();
+            merkle_pol = merkle_pol.next_merkle();
         }
 
         let mut merkle_proof_root = merkle_pol.merkle_proof[0];
