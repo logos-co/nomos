@@ -151,5 +151,5 @@ where
             }
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async { result })
+        .filter_map(async |result| result)
 }

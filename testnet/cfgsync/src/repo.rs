@@ -92,14 +92,14 @@ impl ConfigRepo {
 
             for (host, sender) in waiting_hosts.drain() {
                 let config = configs.get(&host).expect("host should have a config");
-                let _ = sender.send(RepoResponse::Config(Box::new(config.to_owned())));
+                drop(sender.send(RepoResponse::Config(Box::new(config.to_owned()))));
             }
         } else {
             println!("Timeout: Not all hosts announced within the time limit");
 
             let mut waiting_hosts = self.waiting_hosts.lock().unwrap();
             for (_, sender) in waiting_hosts.drain() {
-                let _ = sender.send(RepoResponse::Timeout);
+                drop(sender.send(RepoResponse::Timeout));
             }
         }
     }

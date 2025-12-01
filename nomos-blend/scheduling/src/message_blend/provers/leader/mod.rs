@@ -135,5 +135,5 @@ fn create_leadership_proof_stream(
             })
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async move { result.ok().flatten() })
+        .filter_map(async |result| result.ok().flatten())
 }

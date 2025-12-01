@@ -89,7 +89,7 @@ async fn test_ibd_behind_nodes() {
     // Check if the behind node has caught up to the highest initial validator.
     let height_check_timestamp = Instant::now();
     let heights = stream::iter(&initial_validators)
-        .then(|n| async move { n.consensus_info().await.height })
+        .then(async |n| n.consensus_info().await.height)
         .collect::<Vec<_>>()
         .await;
     println!("initial validator heights: {heights:?}");
