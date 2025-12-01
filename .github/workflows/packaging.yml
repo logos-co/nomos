@@ -105,7 +105,9 @@ jobs:
         shell: bash
         run: |
           # Define version parameter for the binary
-          PARAMETER="-v ${{ env.VERSION }}"
+          VERSION="${{ env.VERSION }}"
+          VERSION="${VERSION:1}"
+          PARAMETER="-v ${VERSION}"
 
           if [[ ${{ github.event.debug || false }} == true ]]; then
             echo "This workflow is on debug mode: the bundle command's `-v` parameter will be removed for debugging." 

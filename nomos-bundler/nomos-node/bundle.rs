@@ -1,8 +1,8 @@
 use std::{env::set_var, fs::canonicalize};
 
 use bundler::utils::{
-    get_formatted_cargo_package_version, get_project_identifier,
-    get_target_directory_for_current_profile, get_workspace_root,
+    get_cargo_package_version, get_project_identifier, get_target_directory_for_current_profile,
+    get_workspace_root,
 };
 use clap::Parser;
 use log::{error, info};
@@ -143,15 +143,15 @@ struct BundleArguments {
         short,
         long,
         value_name = "VERSION",
-        help = "Expected Cargo package version. \
-        If passed, this verifies the Cargo package version, panicking if it doesn't match."
+        help = "Expected Cargo package version in X.Y.Z format. If passed, this verifies the Cargo package version, panicking if it doesn't match."
     )]
     version: Option<String>,
 }
 
 /// If a version argument is provided, verify it matches the Cargo package
-/// version This is passed by the CI/CD pipeline to ensure the version is
-/// consistent
+/// version.
+/// This is passed by the CI/CD pipeline to ensure the bundled version is
+/// consistent.
 fn parse_version(arguments: BundleArguments, cargo_package_version: String) -> String {
     if let Some(version) = arguments.version {
         // Check for version mismatch
@@ -172,7 +172,7 @@ fn parse_version(arguments: BundleArguments, cargo_package_version: String) -> S
 fn main() {
     let _ = env_logger::try_init();
 
-    let cargo_package_version = get_formatted_cargo_package_version(CRATE_NAME);
+    let cargo_package_version = get_cargo_package_version(CRATE_NAME);
     let bundle_arguments = BundleArguments::parse();
     let version = parse_version(bundle_arguments, cargo_package_version);
 
