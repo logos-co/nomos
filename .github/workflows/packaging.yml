@@ -84,7 +84,7 @@ jobs:
           os: ${{ matrix.platform.os }}
           target_triple: ${{ matrix.platform.target_triple }}
 
-      - name: Setup circuits
+      - name: Setup Circuits
         uses: ./.github/actions/setup-circuits
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
