@@ -13,7 +13,7 @@ use tauri_bundler::{
 use tauri_utils::platform::target_triple;
 
 const CRATE_NAME: &str = "nomos-node";
-const CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT: &str = "nodes/nomos-node";
+const CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT: &str = "nodes/nomos-node/node";
 
 /// Prepares the environment for bundling the application
 fn prepare_environment(architecture: &str) {
