@@ -3,7 +3,9 @@ mod target_session;
 
 use std::{fmt::Debug, num::NonZeroU64};
 
-use nomos_blend_message::reward::BlendingTokenEvaluation;
+use nomos_blend_message::{
+    encap::ProofsVerifier as ProofsVerifierTrait, reward::BlendingTokenEvaluation,
+};
 use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
 use nomos_core::{
     blend::core_quota,
@@ -35,7 +37,7 @@ const LOG_TARGET: &str = "ledger::mantle::rewards::blend";
 /// Activity proofs for the session `s-1` must be submitted during session `s`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
-pub enum Rewards {
+pub enum Rewards<ProofsVerifier> {
     /// State before the first target session is finalized, or if the target
     /// session has less than the minimum required number of declarations.
     /// No activity messages are accepted in this state.
@@ -47,7 +49,7 @@ pub enum Rewards {
     /// This tracks activity proofs for the target session `s-1` submitted
     /// during the current session `s`.
     WithTargetSession {
-        target_session_state: TargetSessionState,
+        target_session_state: TargetSessionState<ProofsVerifier>,
         target_session_tracker: TargetSessionTracker,
         current_session_state: CurrentSessionState,
         current_session_tracker: CurrentSessionTracker,
@@ -55,7 +57,10 @@ pub enum Rewards {
     },
 }
 
-impl super::Rewards for Rewards {
+impl<ProofsVerifier> super::Rewards for Rewards<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait + Clone + Debug + PartialEq + Send + Sync,
+{
     fn update_active(
         &self,
         provider_id: ProviderId,
@@ -182,7 +187,7 @@ impl super::Rewards for Rewards {
     }
 }
 
-impl Rewards {
+impl<ProofsVerifier> Rewards<ProofsVerifier> {
     /// Create a new uninitialized [`Rewards`] that doesn't accept activity
     /// messages until the first session update.
     #[must_use]
@@ -193,9 +198,14 @@ impl Rewards {
             current_session_tracker,
         }
     }
+}
 
+impl<ProofsVerifier> Rewards<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait + Clone + Debug + PartialEq + Send + Sync,
+{
     fn from_current_session_tracker_output(
-        current_session_output: CurrentSessionTrackerOutput,
+        current_session_output: CurrentSessionTrackerOutput<ProofsVerifier>,
         target_session_tracker: TargetSessionTracker,
         settings: RewardsParameters,
     ) -> Self {
@@ -231,17 +241,20 @@ pub struct RewardsParameters {
 }
 
 impl RewardsParameters {
-    fn token_evaluation(
+    fn core_quota_and_token_evaluation(
         &self,
         num_core_nodes: u64,
-    ) -> Result<BlendingTokenEvaluation, nomos_blend_message::reward::Error> {
+    ) -> Result<(u64, BlendingTokenEvaluation), nomos_blend_message::reward::Error> {
         let core_quota = core_quota(
             self.rounds_per_session,
             self.message_frequency_per_round,
             self.num_blend_layers,
             num_core_nodes as usize,
         );
-        BlendingTokenEvaluation::new(core_quota, num_core_nodes)
+        Ok((
+            core_quota,
+            BlendingTokenEvaluation::new(core_quota, num_core_nodes)?,
+        ))
     }
 
     fn leader_inputs(&self, epoch_state: &EpochState) -> LeaderInputs {
@@ -256,13 +269,19 @@ impl RewardsParameters {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, convert::Infallible};
 
+    use groth16::Field as _;
+    use nomos_blend_crypto::keys::Ed25519PublicKey;
+    use nomos_blend_message::crypto::proofs::PoQVerificationInputsMinusSigningKey;
     use nomos_blend_proofs::{
         quota::{ProofOfQuota, VerifiedProofOfQuota},
-        selection::{ProofOfSelection, VerifiedProofOfSelection},
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     };
-    use nomos_core::sdp::{ServiceType, blend};
+    use nomos_core::{
+        crypto::ZkHash,
+        sdp::{ServiceType, blend},
+    };
 
     use super::*;
     use crate::mantle::sdp::rewards::{
@@ -289,6 +308,10 @@ mod tests {
         VerifiedProofOfQuota::from_bytes_unchecked([byte; _]).into()
     }
 
+    fn new_signing_key(byte: u8) -> Ed25519PublicKey {
+        ed25519_dalek::SigningKey::from_bytes(&[byte; _]).verifying_key()
+    }
+
     fn new_proof_of_selection_unchecked(byte: u8) -> ProofOfSelection {
         VerifiedProofOfSelection::from_bytes_unchecked([byte; _]).into()
     }
@@ -297,7 +320,10 @@ mod tests {
     fn test_blend_no_reward_calculated_after_session_0() {
         // Create a reward tracker
         let epoch_state = dummy_epoch_state();
-        let rewards_tracker = Rewards::new(create_blend_rewards_params(864_000, 1), &epoch_state);
+        let rewards_tracker = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(864_000, 1),
+            &epoch_state,
+        );
 
         // Create session_0 with providers
         let session_0 = create_test_session_state(
@@ -323,16 +349,19 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state();
-        let (rewards_tracker, _) =
-            Rewards::new(create_blend_rewards_params(864_000, 1), &epoch_state).update_session(
-                &create_test_session_state(
-                    &[create_provider_id(1), create_provider_id(2)],
-                    ServiceType::BlendNetwork,
-                    0,
-                ),
-                &epoch_state,
-                &config,
-            );
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(864_000, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(
+                &[create_provider_id(1), create_provider_id(2)],
+                ServiceType::BlendNetwork,
+                0,
+            ),
+            &epoch_state,
+            &config,
+        );
 
         // Update session from 1 to 2 without any activity proofs submitted.
         let (_, rewards) = rewards_tracker.update_session(
@@ -358,16 +387,19 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state();
-        let (rewards_tracker, _) =
-            Rewards::new(create_blend_rewards_params(864_000, 1), &epoch_state).update_session(
-                &create_test_session_state(
-                    &[provider1, provider2, provider3, provider4],
-                    ServiceType::BlendNetwork,
-                    0,
-                ),
-                &epoch_state,
-                &config,
-            );
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(864_000, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(
+                &[provider1, provider2, provider3, provider4],
+                ServiceType::BlendNetwork,
+                0,
+            ),
+            &epoch_state,
+            &config,
+        );
 
         // provider1 submits an activity proof, which has the minimum
         // Hamming distance among all proofs.
@@ -377,6 +409,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(1),
                 })),
                 config.session_duration,
@@ -390,6 +423,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(2),
+                    signing_key: new_signing_key(2),
                     proof_of_selection: new_proof_of_selection_unchecked(2),
                 })),
                 config.session_duration,
@@ -405,6 +439,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(1),
                 })),
                 config.session_duration,
@@ -435,7 +470,7 @@ mod tests {
         };
         let zk_id_to_provider_id = target_session_state
             .providers()
-            .map(|(provider_id, zk_id)| (*zk_id, *provider_id))
+            .map(|(provider_id, (zk_id, _))| (*zk_id, *provider_id))
             .collect::<HashMap<_, _>>();
         let rewards: HashMap<ProviderId, u64> = reward_utxos
             .iter()
@@ -467,12 +502,15 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state();
-        let (rewards_tracker, _) =
-            Rewards::new(create_blend_rewards_params(864_000, 1), &epoch_state).update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
-                &epoch_state,
-                &config,
-            );
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(864_000, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
+            &epoch_state,
+            &config,
+        );
 
         // provider1 submits an activity proof.
         let rewards_tracker = rewards_tracker
@@ -481,6 +519,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(1),
                 })),
                 config.session_duration,
@@ -495,6 +534,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(2),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(2),
                 })),
                 config.session_duration,
@@ -516,12 +556,15 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state();
-        let (rewards_tracker, _) =
-            Rewards::new(create_blend_rewards_params(864_000, 1), &epoch_state).update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
-                &epoch_state,
-                &config,
-            );
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(864_000, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
+            &epoch_state,
+            &config,
+        );
 
         // provider1 submits an activity proof with invalid session.
         let err = rewards_tracker
@@ -530,6 +573,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 99,
                     proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(1),
                 })),
                 config.session_duration,
@@ -559,7 +603,7 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state();
-        let (rewards_tracker, _) = Rewards::new(
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
             // Set minimum network size to 2
             create_blend_rewards_params(864_000, 2),
             &epoch_state,
@@ -578,6 +622,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
                     proof_of_selection: new_proof_of_selection_unchecked(1),
                 })),
                 config.session_duration,
@@ -601,12 +646,15 @@ mod tests {
         // Create a reward tracker, and update session from 0 to 1.
         let config = create_service_parameters();
         let epoch_state = dummy_epoch_state_with(0, 9999);
-        let (rewards_tracker, _) = Rewards::new(create_blend_rewards_params(10, 1), &epoch_state)
-            .update_session(
-                &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
-                &epoch_state,
-                &config,
-            );
+        let (rewards_tracker, _) = Rewards::<AlwaysSuccessProofsVerifier>::new(
+            create_blend_rewards_params(10, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 0),
+            &epoch_state,
+            &config,
+        );
 
         // provider1 submits an activity proof that is larger than activity threshold.
         let err = rewards_tracker
@@ -615,6 +663,7 @@ mod tests {
                 &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
                     session: 0,
                     proof_of_quota: new_proof_of_quota_unchecked(2),
+                    signing_key: new_signing_key(2),
                     proof_of_selection: new_proof_of_selection_unchecked(2),
                 })),
                 config.session_duration,
@@ -632,9 +681,50 @@ mod tests {
     }
 
     #[test]
+    fn test_blend_invalid_proofs() {
+        let provider1 = create_provider_id(1);
+
+        // Create a reward tracker, and update session from 0 to 1.
+        let config = create_service_parameters();
+        let epoch_state = dummy_epoch_state();
+        let (rewards_tracker, _) = Rewards::<AlwaysFailureProofsVerifier>::new(
+            create_blend_rewards_params(1000, 1),
+            &epoch_state,
+        )
+        .update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 1),
+            &epoch_state,
+            &config,
+        );
+
+        // provider1 submits an activity proof, but PoQ/PoSel verification fails.
+        let err = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
+                    session: 1,
+                    proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
+                    proof_of_selection: new_proof_of_selection_unchecked(1),
+                })),
+                config.session_duration,
+            )
+            .unwrap_err();
+        assert_eq!(err, Error::InvalidProof);
+
+        // No reward should be calculated after session 1.
+        let (_, rewards) = rewards_tracker.update_session(
+            &create_test_session_state(&[provider1], ServiceType::BlendNetwork, 2),
+            &dummy_epoch_state(),
+            &config,
+        );
+        assert_eq!(rewards.len(), 0);
+    }
+
+    #[test]
     fn test_blend_epoch_updates() {
         // Create a reward tracker, and update session from 0 to 1.
-        let rewards_tracker = Rewards::new(
+        let rewards_tracker = Rewards::<ZeroNonceFailureProofsVerifier>::new(
             create_blend_rewards_params(1000, 1),
             // Set 0 to epoch nonce, to make a proof verifier that always fails.
             &dummy_epoch_state_with(0, 0),
@@ -650,6 +740,7 @@ mod tests {
         }
 
         // A new epoch received before a new session starts.
+        // Set non-zero to epoch nonce, to make a proof verifier that always succeed.
         let new_epoch = dummy_epoch_state_with(1, 1);
         let rewards_tracker = rewards_tracker.update_epoch(&new_epoch);
         if let Rewards::WithoutTargetSession {
@@ -678,6 +769,125 @@ mod tests {
             assert_eq!(current_session_tracker.epoch_count(), 1);
         } else {
             panic!("Should not be uninitialized");
+        }
+
+        rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
+                    session: 0,
+                    proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
+                    proof_of_selection: new_proof_of_selection_unchecked(1),
+                })),
+                config.session_duration,
+            )
+            .expect("Proofs must be successfully verified");
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct AlwaysSuccessProofsVerifier;
+
+    impl ProofsVerifierTrait for AlwaysSuccessProofsVerifier {
+        type Error = Infallible;
+
+        fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            Self
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<VerifiedProofOfQuota, Self::Error> {
+            Ok(VerifiedProofOfQuota::from_bytes_unchecked((&proof).into()))
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<VerifiedProofOfSelection, Self::Error> {
+            Ok(VerifiedProofOfSelection::from_bytes_unchecked(
+                (&proof).into(),
+            ))
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct AlwaysFailureProofsVerifier;
+
+    impl ProofsVerifierTrait for AlwaysFailureProofsVerifier {
+        type Error = ();
+
+        fn new(_public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            Self
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            _proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<VerifiedProofOfQuota, Self::Error> {
+            Err(())
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            _proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<VerifiedProofOfSelection, Self::Error> {
+            Err(())
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct ZeroNonceFailureProofsVerifier(bool);
+
+    impl ProofsVerifierTrait for ZeroNonceFailureProofsVerifier {
+        type Error = ();
+
+        fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
+            // Fail only if pol_epoch_nonce is ZERO
+            Self(public_inputs.leader.pol_epoch_nonce == ZkHash::ZERO)
+        }
+
+        fn start_epoch_transition(&mut self, _new_pol_inputs: LeaderInputs) {}
+
+        fn complete_epoch_transition(&mut self) {}
+
+        fn verify_proof_of_quota(
+            &self,
+            proof: ProofOfQuota,
+            _signing_key: &Ed25519PublicKey,
+        ) -> Result<VerifiedProofOfQuota, Self::Error> {
+            if self.0 {
+                Ok(VerifiedProofOfQuota::from_bytes_unchecked((&proof).into()))
+            } else {
+                Err(())
+            }
+        }
+
+        fn verify_proof_of_selection(
+            &self,
+            proof: ProofOfSelection,
+            _inputs: &VerifyInputs,
+        ) -> Result<VerifiedProofOfSelection, Self::Error> {
+            if self.0 {
+                Ok(VerifiedProofOfSelection::from_bytes_unchecked(
+                    (&proof).into(),
+                ))
+            } else {
+                Err(())
+            }
         }
     }
 }

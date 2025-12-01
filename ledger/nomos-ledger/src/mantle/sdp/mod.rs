@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use ed25519::{Signature as Ed25519Sig, signature::Verifier as _};
 use locked_notes::LockedNotes;
+use nomos_blend_message::crypto::proofs::RealProofsVerifier;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
@@ -30,7 +31,7 @@ type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 #[derive(Clone, Debug, PartialEq)]
 enum Service {
     DataAvailability(ServiceState<da::Rewards>),
-    BlendNetwork(ServiceState<blend::Rewards>),
+    BlendNetwork(ServiceState<blend::Rewards<RealProofsVerifier>>),
 }
 
 impl Service {
@@ -674,7 +675,6 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::{Field as _, Fr};
-    use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
     use nomos_core::crypto::ZkHash;
     use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
@@ -733,7 +733,7 @@ mod tests {
     fn gc_test_config() -> Config {
         let mut params = HashMap::new();
         params.insert(
-            ServiceType::BlendNetwork,
+            ServiceType::DataAvailability,
             ServiceParameters {
                 inactivity_period: 1,
                 lock_period: 5,
@@ -743,7 +743,7 @@ mod tests {
             },
         );
         params.insert(
-            ServiceType::DataAvailability,
+            ServiceType::BlendNetwork,
             ServiceParameters {
                 inactivity_period: 9,
                 lock_period: 5,
@@ -1331,7 +1331,7 @@ mod tests {
     #[test]
     fn test_garbage_collection_different_services() {
         // Tests: multiple services with different retention periods
-        // blocks BN config: retention_period=10, session_duration=5 → effective
+        // blocks DA config: retention_period=10, session_duration=5 → effective
         let config = gc_test_config();
         let service_da = ServiceType::DataAvailability;
         let service_bn = ServiceType::BlendNetwork;
@@ -1344,7 +1344,17 @@ mod tests {
             .with_da_service()
             .with_blend_service(config.service_rewards_params.blend.clone(), &epoch_state);
 
-        // Create declarations for both services at block 0
+        // Create 1 Blend declaration at block 0
+        let declare_op_bn = &SDPDeclareOp {
+            service_type: service_bn,
+            locked_note_id: utxo().id(),
+            zk_id: zk_key.to_public_key(),
+            provider_id: ProviderId(signing_key.verifying_key()),
+            locators: Vec::new(),
+        };
+        let declaration_id_bn = declare_op_bn.id();
+
+        // Create 2 DA declarations at block 0
         let declare_op_da = &SDPDeclareOp {
             service_type: service_da,
             locked_note_id: utxo().id(),
@@ -1353,57 +1363,47 @@ mod tests {
             locators: Vec::new(),
         };
         let declaration_id_da = declare_op_da.id();
-
-        let declare_op_bn = &SDPDeclareOp {
-            service_type: service_bn,
-            locked_note_id: utxo().id(),
-            zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
-            locators: Vec::new(),
-        };
         let (sk, utxo) = utxo_with_sk();
-        let declare_op_bn_2 = &SDPDeclareOp {
-            service_type: service_bn,
+        let declare_op_da_2 = &SDPDeclareOp {
+            service_type: service_da,
             locked_note_id: utxo.id(),
             zk_id: zk_key_2.to_public_key(),
             provider_id: ProviderId(signing_key.verifying_key()),
             locators: Vec::new(),
         };
-        let declaration_id_bn = declare_op_bn.id();
-        let declaration_id_bn_2 = declare_op_bn_2.id();
+        let declaration_id_da_2 = declare_op_da_2.id();
 
-        sdp_ledger =
-            apply_declare_with_dummies(sdp_ledger, declare_op_da, &zk_key, &config).unwrap();
         sdp_ledger =
             apply_declare_with_dummies(sdp_ledger, declare_op_bn, &zk_key, &config).unwrap();
         sdp_ledger =
-            apply_declare_with_dummies(sdp_ledger, declare_op_bn_2, &zk_key_2, &config).unwrap();
+            apply_declare_with_dummies(sdp_ledger, declare_op_da, &zk_key, &config).unwrap();
+        sdp_ledger =
+            apply_declare_with_dummies(sdp_ledger, declare_op_da_2, &zk_key_2, &config).unwrap();
 
-        // Move to block 25 (past BN's 20-block retention, at session boundary)
+        // Move to block 25 (past DA's 20-block retention, at session boundary)
         for _ in 1..26 {
             (sdp_ledger, _) = sdp_ledger.try_apply_header(&config, &epoch_state).unwrap();
         }
 
-        // Both declarations are still present, BN expires at 26 but next session
+        // Both declarations are still present, DA expires at 26 but next session
         // boundary is at 30
-        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
-        assert!(declarations_da.contains_key(&declaration_id_da));
         let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
         assert!(declarations_bn.contains_key(&declaration_id_bn));
-        assert!(declarations_bn.contains_key(&declaration_id_bn_2));
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(declarations_da.contains_key(&declaration_id_da));
+        assert!(declarations_da.contains_key(&declaration_id_da_2));
 
         // Send active message to update the declaration's active field to block 25
         let active_op = SDPActiveOp {
-            declaration_id: declaration_id_bn_2,
+            declaration_id: declaration_id_da_2,
             nonce: 1,
-            metadata: nomos_core::sdp::ActivityMetadata::Blend(Box::new(
-                nomos_core::sdp::blend::ActivityProof {
-                    session: 4,
-                    proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]).into(),
-                    proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _])
-                        .into(),
+            metadata: nomos_core::sdp::ActivityMetadata::DataAvailability(
+                nomos_core::sdp::da::ActivityProof {
+                    current_session: 4,
+                    previous_session_opinions: vec![0b00_11u8],
+                    current_session_opinions: vec![0b00_11u8],
                 },
-            )),
+            ),
         };
 
         let tx_hash = TxHash(Fr::from(2u8));
@@ -1419,12 +1419,12 @@ mod tests {
         }
 
         assert_eq!(sdp_ledger.block_number, 30);
-        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
-        assert!(declarations_da.contains_key(&declaration_id_da));
         let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
-        assert!(!declarations_bn.contains_key(&declaration_id_bn));
-        // Second BN declaration should still be present due to active msg
-        assert!(declarations_bn.contains_key(&declaration_id_bn_2));
+        assert!(declarations_bn.contains_key(&declaration_id_bn));
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(!declarations_da.contains_key(&declaration_id_da));
+        // Second DA declaration should still be present due to active msg
+        assert!(declarations_da.contains_key(&declaration_id_da_2));
 
         // Move to block 55
         for _ in 31..56 {
@@ -1432,11 +1432,11 @@ mod tests {
         }
 
         assert_eq!(sdp_ledger.block_number, 55);
-        // Now also DA declaration and second BN declaration should be removed
-        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
-        assert!(!declarations_da.contains_key(&declaration_id_da));
+        // Now also BN declaration and second DA declaration should be removed
         let declarations_bn = sdp_ledger.get_declarations(service_bn).unwrap();
         assert!(!declarations_bn.contains_key(&declaration_id_bn));
-        assert!(!declarations_bn.contains_key(&declaration_id_bn_2));
+        let declarations_da = sdp_ledger.get_declarations(service_da).unwrap();
+        assert!(!declarations_da.contains_key(&declaration_id_da));
+        assert!(!declarations_da.contains_key(&declaration_id_da_2));
     }
 }

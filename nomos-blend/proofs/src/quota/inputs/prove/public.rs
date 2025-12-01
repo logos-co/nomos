@@ -26,9 +26,10 @@ impl Default for Inputs {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Default))]
 pub struct CoreInputs {
+    #[serde(with = "groth16::serde::serde_fr")]
     pub zk_root: ZkHash,
     pub quota: u64,
 }

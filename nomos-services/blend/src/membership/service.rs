@@ -4,6 +4,7 @@ use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
 use nomos_blend::{
     crypto::keys::Ed25519PublicKey,
+    proofs::merkle::MerkleTree,
     scheduling::membership::{Membership, Node},
 };
 use nomos_core::sdp::{ProviderId, ProviderInfo};
@@ -15,10 +16,7 @@ use tokio::sync::oneshot;
 use tracing::warn;
 use zksign::PublicKey;
 
-use crate::{
-    membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id},
-    merkle::MerkleTree,
-};
+use crate::membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id};
 
 /// Wrapper around [`Node`] that includes its ZK public key.
 #[derive(Debug, Clone)]

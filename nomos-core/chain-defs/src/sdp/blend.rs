@@ -1,4 +1,6 @@
+use ed25519_dalek::PUBLIC_KEY_LENGTH;
 use nom::{IResult, Parser as _, bytes::complete::take, number::complete::u8 as nom_u8};
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_proofs::{
     quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
     selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
@@ -11,6 +13,7 @@ use crate::sdp::{ACTIVE_METADATA_BLEND_TYPE, SessionNumber, parse_session_number
 pub struct ActivityProof {
     pub session: SessionNumber,
     pub proof_of_quota: ProofOfQuota,
+    pub signing_key: Ed25519PublicKey,
     pub proof_of_selection: ProofOfSelection,
 }
 
@@ -20,11 +23,13 @@ impl ActivityProof {
     #[must_use]
     pub fn to_metadata_bytes(&self) -> Vec<u8> {
         let proof_of_quota: [u8; _] = (&self.proof_of_quota).into();
+        let signing_key: [u8; _] = self.signing_key.to_bytes();
         let proof_of_selection: [u8; _] = (&self.proof_of_selection).into();
 
         let total_size = 2 // type + version byte
             + size_of::<SessionNumber>()
             + proof_of_quota.len()
+            + signing_key.len()
             + proof_of_selection.len();
 
         let mut bytes = Vec::with_capacity(total_size);
@@ -32,6 +37,7 @@ impl ActivityProof {
         bytes.push(BLEND_ACTIVE_METADATA_VERSION_BYTE);
         bytes.extend(&self.session.to_le_bytes());
         bytes.extend(&proof_of_quota);
+        bytes.extend(&signing_key);
         bytes.extend(&proof_of_selection);
         bytes
     }
@@ -61,10 +67,16 @@ fn parse_activity_proof(input: &[u8]) -> IResult<&[u8], ActivityProof> {
         )));
     }
     let (input, session) = parse_session_number(input)?;
+
     let (input, proof_of_quota) = parse_const_size_bytes::<PROOF_OF_QUOTA_SIZE>(input)?;
     let proof_of_quota = proof_of_quota
         .try_into()
         .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
+
+    let (input, signing_key) = parse_const_size_bytes::<PUBLIC_KEY_LENGTH>(input)?;
+    let signing_key = Ed25519PublicKey::from_bytes(&signing_key)
+        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
+
     let (input, proof_of_selection) = parse_const_size_bytes::<PROOF_OF_SELECTION_SIZE>(input)?;
     let proof_of_selection = proof_of_selection
         .try_into()
@@ -82,6 +94,7 @@ fn parse_activity_proof(input: &[u8]) -> IResult<&[u8], ActivityProof> {
         ActivityProof {
             session,
             proof_of_quota,
+            signing_key,
             proof_of_selection,
         },
     ))
@@ -107,6 +120,7 @@ mod tests {
         let proof = ActivityProof {
             session: 10,
             proof_of_quota: new_proof_of_quota_unchecked(0),
+            signing_key: new_signing_key(0),
             proof_of_selection: new_proof_of_selection_unchecked(1),
         };
 
@@ -121,6 +135,7 @@ mod tests {
         let proof = ActivityProof {
             session: 10,
             proof_of_quota: new_proof_of_quota_unchecked(0),
+            signing_key: new_signing_key(0),
             proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let mut bytes = proof.to_metadata_bytes();
@@ -145,6 +160,7 @@ mod tests {
         let proof = ActivityProof {
             session: 10,
             proof_of_quota: new_proof_of_quota_unchecked(0),
+            signing_key: new_signing_key(0),
             proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let mut bytes = proof.to_metadata_bytes();
@@ -160,6 +176,7 @@ mod tests {
         let proof = ActivityProof {
             session: 10,
             proof_of_quota: new_proof_of_quota_unchecked(0),
+            signing_key: new_signing_key(0),
             proof_of_selection: new_proof_of_selection_unchecked(1),
         };
         let metadata = ActivityMetadata::Blend(Box::new(proof.clone()));
@@ -177,6 +194,10 @@ mod tests {
 
     fn new_proof_of_quota_unchecked(byte: u8) -> ProofOfQuota {
         VerifiedProofOfQuota::from_bytes_unchecked([byte; _]).into()
+    }
+
+    fn new_signing_key(byte: u8) -> Ed25519PublicKey {
+        ed25519_dalek::SigningKey::from_bytes(&[byte; _]).verifying_key()
     }
 
     fn new_proof_of_selection_unchecked(byte: u8) -> ProofOfSelection {
