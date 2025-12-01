@@ -36,7 +36,7 @@ impl ActivityProof {
         &self.token
     }
 
-    pub fn from_unverified<ProofsVerifier>(
+    pub fn verify_and_build<ProofsVerifier>(
         proof: &nomos_core::sdp::blend::ActivityProof,
         verifier: &ProofsVerifier,
         node_index: u64,

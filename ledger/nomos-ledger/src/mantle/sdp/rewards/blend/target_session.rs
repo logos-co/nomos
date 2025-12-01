@@ -97,7 +97,7 @@ where
             .proof_verifiers
             .iter()
             .find_map(|verifier| {
-                nomos_blend_message::reward::ActivityProof::from_unverified(
+                nomos_blend_message::reward::ActivityProof::verify_and_build(
                     proof,
                     verifier,
                     index,
