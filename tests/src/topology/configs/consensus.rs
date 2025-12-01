@@ -29,10 +29,24 @@ pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
 #[derive(Clone)]
 pub struct GeneralConsensusConfig {
     pub user_config: Config,
-    pub genesis_tx: GenesisTx,
+    genesis_tx: GenesisTx,
     pub utxos: Vec<Utxo>,
     pub blend_notes: Vec<ServiceNote>,
     pub da_notes: Vec<ServiceNote>,
+}
+
+impl GeneralConsensusConfig {
+    pub fn override_genesis_tx(&mut self, genesis_tx: GenesisTx) {
+        self.user_config.service.starting_state = StartingState::Genesis {
+            genesis_tx: genesis_tx.clone(),
+        };
+        self.genesis_tx = genesis_tx;
+    }
+
+    #[must_use]
+    pub const fn genesis_tx(&self) -> &GenesisTx {
+        &self.genesis_tx
+    }
 }
 
 #[must_use]

@@ -103,13 +103,13 @@ pub fn create_general_configs_with_blend_core_subset(
         })
         .collect();
     let ledger_tx = consensus_configs[0]
-        .genesis_tx
+        .genesis_tx()
         .mantle_tx()
         .ledger_tx
         .clone();
     let genesis_tx = create_genesis_tx_with_declarations(ledger_tx, providers);
     for c in &mut consensus_configs {
-        c.genesis_tx = genesis_tx.clone();
+        c.override_genesis_tx(genesis_tx.clone());
     }
 
     // Set Blend and DA keys in KMS of each node config.
