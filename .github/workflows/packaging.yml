@@ -102,6 +102,7 @@ jobs:
           args: --bin bundle-nomos-node --release --target ${{ matrix.platform.target_triple }}
 
       - name: Bundle
+        shell: bash
         run: |
           # Define version parameter for the binary
           PARAMETER="-v ${{ env.VERSION }}"
