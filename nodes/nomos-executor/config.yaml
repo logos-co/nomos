@@ -150,7 +150,7 @@ time:
       timeout: [ 5, 0 ]
       listening_interface: 0.0.0.0
 cryptarchia:
-  service: 
+  service:
     starting_state: !Genesis
       genesis_tx:
         mantle_tx:
