@@ -72,7 +72,6 @@ use crate::{
     },
 };
 
-pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
 pub const MANTLE_TOPIC: &str = "mantle";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;

@@ -455,7 +455,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         network: config.network_config,
         blend: config.blend_config.0,
         deployment: custom_deployment_config.clone(),
-        cryptarchia: config.consensus_config.user_config.clone(),
+        cryptarchia: config.consensus_config.user_config().clone(),
         da_network: DaNetworkConfig {
             backend: DaNetworkBackendSettings {
                 node_key: config.da_config.node_key,
@@ -558,7 +558,12 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {
-            known_keys: HashSet::from_iter([config.consensus_config.user_config.leader.leader.pk]),
+            known_keys: HashSet::from_iter([config
+                .consensus_config
+                .user_config()
+                .leader
+                .leader
+                .pk]),
         },
         key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {

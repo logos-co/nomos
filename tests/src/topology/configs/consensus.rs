@@ -27,8 +27,31 @@ use zksign::{PublicKey, SecretKey};
 pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
+pub struct ProviderInfo {
+    pub service_type: ServiceType,
+    pub provider_sk: ed25519_dalek::SigningKey,
+    pub zk_sk: SecretKey,
+    pub locator: Locator,
+    pub note: ServiceNote,
+}
+
+impl ProviderInfo {
+    #[must_use]
+    pub fn provider_id(&self) -> ProviderId {
+        ProviderId(self.provider_sk.verifying_key())
+    }
+
+    #[must_use]
+    pub fn zk_id(&self) -> PublicKey {
+        self.zk_sk.to_public_key()
+    }
+}
+
+/// General consensus configuration for a chosen participant, that later could
+/// be converted into a specific service or services configuration.
+#[derive(Clone)]
 pub struct GeneralConsensusConfig {
-    pub user_config: Config,
+    user_config: Config,
     genesis_tx: GenesisTx,
     pub utxos: Vec<Utxo>,
     pub blend_notes: Vec<ServiceNote>,
@@ -44,9 +67,52 @@ impl GeneralConsensusConfig {
     }
 
     #[must_use]
+    pub const fn user_config(&self) -> &Config {
+        &self.user_config
+    }
+
+    #[must_use]
     pub const fn genesis_tx(&self) -> &GenesisTx {
         &self.genesis_tx
     }
+}
+
+#[derive(Clone)]
+pub struct ServiceNote {
+    pub pk: PublicKey,
+    pub sk: SecretKey,
+    pub note: Note,
+    pub output_index: usize,
+}
+
+fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
+    // Create a genesis inscription op (similar to config.yaml)
+    let inscription = InscriptionOp {
+        channel_id: ChannelId::from([0; 32]),
+        inscription: vec![103, 101, 110, 101, 115, 105, 115], // "genesis" in bytes
+        parent: MsgId::root(),
+        signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
+    };
+
+    // Create ledger transaction with the utxos as outputs
+    let outputs: Vec<Note> = utxos.iter().map(|u| u.note).collect();
+    let ledger_tx = LedgerTx::new(vec![], outputs);
+
+    // Create the mantle transaction
+    let mantle_tx = MantleTx {
+        ops: vec![Op::ChannelInscribe(inscription)],
+        ledger_tx,
+        execution_gas_price: 0,
+        storage_gas_price: 0,
+    };
+    let signed_mantle_tx = SignedMantleTx {
+        mantle_tx,
+        ops_proofs: vec![OpProof::NoProof],
+        ledger_tx_proof: zksign::Signature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
+    };
+
+    // Wrap in GenesisTx
+    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
 }
 
 #[must_use]
@@ -108,14 +174,6 @@ pub fn create_consensus_configs(
             },
         })
         .collect()
-}
-
-#[derive(Clone)]
-pub struct ServiceNote {
-    pub pk: PublicKey,
-    pub sk: SecretKey,
-    pub note: Note,
-    pub output_index: usize,
 }
 
 fn create_utxos_for_leader_and_services(
@@ -189,57 +247,6 @@ fn create_utxos_for_leader_and_services(
     }
 
     utxos
-}
-
-fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
-    // Create a genesis inscription op (similar to config.yaml)
-    let inscription = InscriptionOp {
-        channel_id: ChannelId::from([0; 32]),
-        inscription: vec![103, 101, 110, 101, 115, 105, 115], // "genesis" in bytes
-        parent: MsgId::root(),
-        signer: Ed25519PublicKey::from_bytes(&[0; 32]).unwrap(),
-    };
-
-    // Create ledger transaction with the utxos as outputs
-    let outputs: Vec<Note> = utxos.iter().map(|u| u.note).collect();
-    let ledger_tx = LedgerTx::new(vec![], outputs);
-
-    // Create the mantle transaction
-    let mantle_tx = MantleTx {
-        ops: vec![Op::ChannelInscribe(inscription)],
-        ledger_tx,
-        execution_gas_price: 0,
-        storage_gas_price: 0,
-    };
-    let signed_mantle_tx = SignedMantleTx {
-        mantle_tx,
-        ops_proofs: vec![OpProof::NoProof],
-        ledger_tx_proof: zksign::Signature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
-    };
-
-    // Wrap in GenesisTx
-    GenesisTx::from_tx(signed_mantle_tx).expect("Invalid genesis transaction")
-}
-
-#[derive(Clone)]
-pub struct ProviderInfo {
-    pub service_type: ServiceType,
-    pub provider_sk: ed25519_dalek::SigningKey,
-    pub zk_sk: SecretKey,
-    pub locator: Locator,
-    pub note: ServiceNote,
-}
-
-impl ProviderInfo {
-    #[must_use]
-    pub fn provider_id(&self) -> ProviderId {
-        ProviderId(self.provider_sk.verifying_key())
-    }
-
-    #[must_use]
-    pub fn zk_id(&self) -> PublicKey {
-        self.zk_sk.to_public_key()
-    }
 }
 
 #[must_use]

@@ -371,7 +371,8 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         network: config.network_config,
         blend: config.blend_config.0,
         deployment: custom_deployment_config.clone(),
-        cryptarchia: config.consensus_config.user_config.clone(),
+
+        cryptarchia: config.consensus_config.user_config().clone(),
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {
                 validator_settings: DaNetworkBackendSettings {
@@ -481,7 +482,12 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
-            known_keys: HashSet::from_iter([config.consensus_config.user_config.leader.leader.pk]),
+            known_keys: HashSet::from_iter([config
+                .consensus_config
+                .user_config()
+                .leader
+                .leader
+                .pk]),
         },
         key_management: config.kms_config,
 
