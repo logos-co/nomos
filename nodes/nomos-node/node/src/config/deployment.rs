@@ -20,7 +20,11 @@ pub enum WellKnownDeployment {
 #[serde(untagged)]
 pub enum SerdeSettings {
     WellKnown(WellKnownDeployment),
-    Custom(Box<DeploymentSettings>),
+    Custom {
+        blend: Box<BlendDeploymentSettings>,
+        network: NetworkDeploymentSettings,
+        cryptarchia: CryptarchiaDeploymentSettings,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -63,21 +67,31 @@ impl From<SerdeSettings> for DeploymentSettings {
     fn from(value: SerdeSettings) -> Self {
         match value {
             SerdeSettings::WellKnown(well_known_deployment) => well_known_deployment.into(),
-            SerdeSettings::Custom(custom_deployment) => Self::new_custom(
-                custom_deployment.blend,
-                custom_deployment.network,
-                custom_deployment.cryptarchia,
-            ),
+            SerdeSettings::Custom {
+                blend,
+                cryptarchia,
+                network,
+            } => Self::new_custom(*blend, network, cryptarchia),
         }
     }
 }
 
 impl From<DeploymentSettings> for SerdeSettings {
-    fn from(value: DeploymentSettings) -> Self {
-        if let Some(well_known_deployment_name) = value.well_known {
-            Self::WellKnown(well_known_deployment_name)
-        } else {
-            Self::Custom(Box::new(value))
-        }
+    fn from(
+        DeploymentSettings {
+            blend,
+            cryptarchia,
+            network,
+            well_known,
+        }: DeploymentSettings,
+    ) -> Self {
+        well_known.map_or_else(
+            || Self::Custom {
+                blend: Box::new(blend),
+                cryptarchia,
+                network,
+            },
+            Self::WellKnown,
+        )
     }
 }
