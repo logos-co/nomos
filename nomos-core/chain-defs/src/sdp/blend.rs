@@ -162,7 +162,7 @@ mod tests {
             proof_of_quota: new_proof_of_quota_unchecked(0),
             proof_of_selection: new_proof_of_selection_unchecked(1),
         };
-        let metadata = ActivityMetadata::Blend(proof.clone());
+        let metadata = ActivityMetadata::Blend(Box::new(proof.clone()));
 
         let bytes = metadata.to_metadata_bytes();
         let decoded = ActivityMetadata::from_metadata_bytes(&bytes).unwrap();
@@ -172,7 +172,7 @@ mod tests {
         let ActivityMetadata::Blend(decoded_proof) = decoded else {
             panic!("Unexpected ActivityMetadata variant");
         };
-        assert_eq!(proof, decoded_proof);
+        assert_eq!(proof, *decoded_proof);
     }
 
     fn new_proof_of_quota_unchecked(byte: u8) -> ProofOfQuota {

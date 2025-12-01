@@ -231,10 +231,12 @@ impl LedgerState {
     }
 
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>, config: &Config) -> Self {
+        let cryptarchia_ledger = CryptarchiaLedger::from_utxos(utxos, Fr::ZERO);
+        let mantle_ledger = MantleLedger::new(config, cryptarchia_ledger.epoch_state());
         Self {
             block_number: 0,
-            cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos, Fr::ZERO),
-            mantle_ledger: MantleLedger::new(config),
+            cryptarchia_ledger,
+            mantle_ledger,
         }
     }
 
@@ -244,8 +246,12 @@ impl LedgerState {
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(&tx, epoch_nonce)?;
-        let mantle_ledger =
-            MantleLedger::from_genesis_tx(tx, config, cryptarchia_ledger.latest_utxos())?;
+        let mantle_ledger = MantleLedger::from_genesis_tx(
+            tx,
+            config,
+            cryptarchia_ledger.latest_utxos(),
+            cryptarchia_ledger.epoch_state(),
+        )?;
         Ok(Self {
             block_number: 0,
             cryptarchia_ledger,

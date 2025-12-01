@@ -83,7 +83,7 @@ pub enum SdpMessage {
         reply_channel: oneshot::Sender<Result<DeclarationId, DynError>>,
     },
     PostActivity {
-        metadata: ActivityMetadata, // DA/Blend specific metadata
+        metadata: Box<ActivityMetadata>, // DA/Blend specific metadata
     },
     PostWithdrawal {
         declaration_id: DeclarationId,
@@ -168,7 +168,7 @@ where
                     }
                 }
                 SdpMessage::PostActivity { metadata, .. } => {
-                    self.handle_post_activity(metadata, &wallet_adapter, &mempool_adapter)
+                    self.handle_post_activity(*metadata, &wallet_adapter, &mempool_adapter)
                         .await;
                 }
                 SdpMessage::PostDeclaration {
