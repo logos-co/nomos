@@ -200,6 +200,7 @@ mod core_to_core_tests {
             proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
         },
         proofs::{
+            merkle::MerkleTree,
             quota::{
                 self, VerifiedProofOfQuota,
                 inputs::prove::{
@@ -218,7 +219,7 @@ mod core_to_core_tests {
             },
         },
     };
-    use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
+    use nomos_blend_service::ProofsVerifier as _;
     use nomos_core::crypto::ZkHash;
     use zksign::SecretKey;
 

@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
 
-use groth16::Fr;
 use nomos_core::{
     block::BlockNumber,
     mantle::Utxo,
@@ -9,9 +8,12 @@ use nomos_core::{
 use rpds::{HashTrieMapSync, HashTrieSetSync};
 use zksign::PublicKey;
 
-use crate::mantle::sdp::{
-    SessionState,
-    rewards::{Error, distribute_rewards},
+use crate::{
+    EpochState,
+    mantle::sdp::{
+        SessionState,
+        rewards::{Error, distribute_rewards},
+    },
 };
 
 const ACTIVITY_THRESHOLD: u64 = 2;
@@ -183,7 +185,7 @@ impl super::Rewards for Rewards {
     fn update_session(
         &self,
         last_active: &SessionState,
-        _next_active_session_epoch_nonce: &Fr,
+        _next_session_first_epoch_state: &EpochState,
         _config: &ServiceParameters,
     ) -> (Self, Vec<Utxo>) {
         // Calculate activity threshold: θ = Ns / ACTIVITY_THRESHOLD
@@ -242,17 +244,20 @@ impl super::Rewards for Rewards {
             ),
         )
     }
+
+    fn update_epoch(&self, _epoch_state: &EpochState) -> Self {
+        self.clone()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use groth16::Field as _;
-    use nomos_core::{crypto::ZkHash, sdp::da};
+    use nomos_core::sdp::da;
 
     use super::*;
     use crate::mantle::sdp::rewards::{
         Rewards as _,
-        tests::{create_provider_id, create_test_session_state},
+        test_utils::{create_provider_id, create_test_session_state, dummy_epoch_state},
     };
 
     #[test]
@@ -340,7 +345,7 @@ mod tests {
         };
 
         let (_new_state, rewards) =
-            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&active_session, &dummy_epoch_state(), &config);
 
         // No activity proofs submitted, so no rewards
         assert_eq!(rewards.len(), 0);
@@ -413,7 +418,7 @@ mod tests {
         };
 
         let (_new_state, reward_utxos) =
-            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&active_session, &dummy_epoch_state(), &config);
 
         // Calculate expected rewards dynamically (works for any session_income)
         let session_income = 0; // Currently hardcoded in implementation
@@ -515,7 +520,7 @@ mod tests {
         };
 
         let (_new_state, reward_utxos) =
-            rewards_tracker.update_session(&current_session, &ZkHash::ZERO, &config);
+            rewards_tracker.update_session(&current_session, &dummy_epoch_state(), &config);
 
         // Calculate expected rewards dynamically
         let session_income = 0; // Currently hardcoded

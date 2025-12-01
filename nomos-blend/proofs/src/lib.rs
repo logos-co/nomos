@@ -3,6 +3,7 @@ pub use poq::CorePathAndSelectors;
 pub(crate) type ZkHash = groth16::Fr;
 pub(crate) type ZkHasher = poseidon2::Poseidon2Bn254Hasher;
 
+pub mod merkle;
 pub mod quota;
 pub mod selection;
 

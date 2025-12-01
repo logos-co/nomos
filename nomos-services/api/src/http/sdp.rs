@@ -47,7 +47,9 @@ where
     let relay = handle.relay().await?;
 
     relay
-        .send(nomos_sdp::SdpMessage::PostActivity { metadata })
+        .send(nomos_sdp::SdpMessage::PostActivity {
+            metadata: Box::new(metadata),
+        })
         .await
         .map_err(|(e, _)| e)?;
 

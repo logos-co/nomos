@@ -19,12 +19,15 @@ nomos-blend-crypto = { workspace = true }
 num-bigint         = { default-features = false, version = "0.4" }
 poq                = { workspace = true }
 poseidon2          = { workspace = true }
+rs-merkle-tree     = { default-features = false, version = "0.1", features = ["memory_store"] }
 serde              = { workspace = true }
 thiserror          = "1"
+zksign             = { workspace = true }
 
 [dev-dependencies]
 const-hex  = { default-features = false, version = "1.15.0" }
 nomos-core = { workspace = true }
+num-bigint = { default-features = false, version = "0.4" }
 
 [features]
 unsafe-test-functions = []

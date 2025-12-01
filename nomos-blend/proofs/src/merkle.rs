@@ -2,11 +2,12 @@ use core::fmt::{self, Debug, Formatter};
 use std::collections::HashMap;
 
 use groth16::{fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::{ZkHash, ZkHasher};
 use poq::{CORE_MERKLE_TREE_HEIGHT, CorePathAndSelectors};
 use rs_merkle_tree::{Node, stores::MemoryStore, tree::MerkleProof};
 use thiserror::Error;
 use zksign::PublicKey;
+
+use crate::{ZkHash, ZkHasher};
 
 const TOTAL_MERKLE_LEAVES: usize = 1 << CORE_MERKLE_TREE_HEIGHT;
 
@@ -220,9 +221,14 @@ mod tests {
     use core::iter::repeat_n;
 
     use groth16::{Field as _, fr_from_bytes_unchecked};
-    use nomos_blend::{
-        crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey},
-        proofs::quota::{
+    use nomos_blend_crypto::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
+    use num_bigint::BigUint;
+    use zksign::{PublicKey, SecretKey};
+
+    use crate::{
+        ZkHash,
+        merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES},
+        quota::{
             VerifiedProofOfQuota,
             inputs::prove::{
                 PrivateInputs, PublicInputs,
@@ -231,11 +237,6 @@ mod tests {
             },
         },
     };
-    use nomos_core::crypto::ZkHash;
-    use num_bigint::BigUint;
-    use zksign::{PublicKey, SecretKey};
-
-    use crate::merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES};
 
     #[test]
     fn single_key() {

@@ -248,7 +248,7 @@ pub struct ActiveMessage {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ActivityMetadata {
     DataAvailability(da::ActivityProof),
-    Blend(blend::ActivityProof),
+    Blend(Box<blend::ActivityProof>),
 }
 
 impl ActivityMetadata {
@@ -275,7 +275,7 @@ impl ActivityMetadata {
             }
             ACTIVE_METADATA_BLEND_TYPE => {
                 let proof_opt = blend::ActivityProof::from_metadata_bytes(bytes)?;
-                Ok(Self::Blend(proof_opt))
+                Ok(Self::Blend(Box::new(proof_opt)))
             }
             _ => Err(format!("Unknown metadata type: {metadata_type:#x}").into()),
         }

@@ -154,8 +154,11 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let blending_token =
-                    BlendingToken::new(verified_proof_of_quota, verified_proof_of_selection);
+                let blending_token = BlendingToken::new(
+                    verified_proof_of_quota,
+                    signing_key,
+                    verified_proof_of_selection,
+                );
                 Ok(DecapsulationOutput::Incompleted {
                     remaining_encapsulated_message: Box::new(EncapsulatedMessage::from_components(
                         *public_header,
@@ -169,8 +172,11 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 verified_proof_of_selection,
             } => {
                 let (payload_type, payload_body) = payload.try_into_components()?;
-                let blending_token =
-                    BlendingToken::new(verified_proof_of_quota, verified_proof_of_selection);
+                let blending_token = BlendingToken::new(
+                    verified_proof_of_quota,
+                    signing_key,
+                    verified_proof_of_selection,
+                );
                 Ok(DecapsulationOutput::Completed {
                     fully_decapsulated_message: (DecapsulatedMessage::new(
                         payload_type,
