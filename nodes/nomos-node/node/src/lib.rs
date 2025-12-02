@@ -64,7 +64,7 @@ use crate::{
     api::backend::AxumBackend,
     config::{
         blend::ServiceConfig as BlendConfig, cryptarchia::ServiceConfig as CryptarchiaConfig,
-        network::ServiceConfig as NetworkConfig,
+        network::ServiceConfig as NetworkConfig, time::ServiceConfig as TimeConfig,
     },
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
@@ -237,6 +237,18 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
+    let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
+        user: config.blend,
+        deployment: config.deployment.blend,
+    }
+    .into();
+
+    let time_service_config = TimeConfig {
+        user: config.time,
+        deployment: config.deployment.time,
+    }
+    .into_time_service_settings(&config.deployment.cryptarchia);
+
     let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
         user: config.cryptarchia,
         deployment: config.deployment.cryptarchia,
@@ -277,7 +289,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             cryptarchia: chain_service_config,
             chain_network: chain_network_config,
             cryptarchia_leader: chain_leader_config,
-            time: config.time,
+            time: time_service_config,
             storage: config.storage,
             system_sig: (),
             key_management: config.key_management,
