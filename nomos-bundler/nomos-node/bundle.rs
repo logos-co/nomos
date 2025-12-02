@@ -1,4 +1,4 @@
-use std::{env::set_var, fs::canonicalize};
+use std::{env::set_var, fs::canonicalize, path::PathBuf};
 
 use bundler::utils::{
     get_cargo_package_version, get_project_identifier, get_target_directory_for_current_profile,
@@ -46,6 +46,7 @@ fn build_package(version: String) {
     let crate_path = get_workspace_root().join(CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT);
     error!("Bundling package '{}'", crate_path.display());
     let resources_path = crate_path.join("resources");
+    let icons_path = resources_path.join("icons");
 
     // This simultaneously serves as input directory (where the binary is)
     // and output (where the bundle will be)
@@ -58,16 +59,22 @@ fn build_package(version: String) {
         project_target_directory.display()
     );
 
-    let ic1 = resources_path
-        .join("icons/icon.ico")
-        .to_string_lossy()
-        .to_string();
-    let ic2 = resources_path
-        .join("icons/512x512.png")
-        .to_string_lossy()
-        .to_string();
-    error!("Bundle icons: '{ic1}', '{ic2}'");
+    // Icons
+    let icon = icons_path.join("icon.ico").to_string_lossy().to_string();
+    let icon512 = icons_path.join("512x512.png").to_string_lossy().to_string();
+    error!("Using icon: '{icon}' and icon512: '{icon512}'");
 
+    // Windows settings
+    #[expect(
+        deprecated,
+        reason = "While using tauri-bundler<=3.0.0, we need to explicitly set Windows' icon. Otherwise, it'll use a default path in the repository root."
+    )]
+    let windows = WindowsSettings {
+        icon_path: PathBuf::from(&icon),
+        ..Default::default()
+    };
+
+    // Linux Settings
     // Any level of GZIP compression will make the binary building fail
     // TODO: Re-enable RPM compression when the issue is fixed
     let rpm_settings: RpmSettings = RpmSettings {
@@ -91,7 +98,7 @@ fn build_package(version: String) {
             identifier: Some(get_project_identifier(CRATE_NAME)),
             publisher: None,
             homepage: None,
-            icon: Some(vec![ic1, ic2]),
+            icon: Some(vec![icon, icon512]),
             resources: None,
             resources_map: None,
             copyright: None,
@@ -110,7 +117,7 @@ fn build_package(version: String) {
             dmg: DmgSettings::default(),
             macos: MacOsSettings::default(),
             updater: None,
-            windows: WindowsSettings::default(),
+            windows,
             ios: IosSettings::default(),
         })
         .binaries(vec![tauri_bundler::BundleBinary::new(
