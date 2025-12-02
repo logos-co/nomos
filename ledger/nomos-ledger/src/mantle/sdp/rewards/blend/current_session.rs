@@ -1,12 +1,10 @@
 use cryptarchia_engine::Epoch;
+use nomos_blend_crypto::merkle::MerkleTree;
 use nomos_blend_message::{
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::ProofsVerifier as ProofsVerifierTrait, reward::SessionRandomness,
 };
-use nomos_blend_proofs::{
-    merkle::MerkleTree,
-    quota::inputs::prove::public::{CoreInputs, LeaderInputs},
-};
+use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
 use nomos_core::{
     crypto::ZkHash,
     sdp::{ProviderId, SessionNumber},

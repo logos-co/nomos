@@ -3,8 +3,7 @@ use std::{hash::Hash, marker::PhantomData};
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
 use nomos_blend::{
-    crypto::keys::Ed25519PublicKey,
-    proofs::merkle::MerkleTree,
+    crypto::{keys::Ed25519PublicKey, merkle::MerkleTree},
     scheduling::membership::{Membership, Node},
 };
 use nomos_core::sdp::{ProviderId, ProviderInfo};
