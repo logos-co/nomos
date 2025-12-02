@@ -21,7 +21,7 @@ use crate::{
             Error,
             blend::{
                 current_session::{
-                    CurrentSessionState, CurrentSessionTracker, CurrentSessionTrackerFinalization,
+                    CurrentSessionState, CurrentSessionTracker, CurrentSessionTrackerOutput,
                 },
                 target_session::{TargetSessionState, TargetSessionTracker},
             },
@@ -195,12 +195,12 @@ impl Rewards {
     }
 
     fn from_current_session_tracker_finalization(
-        finalization: CurrentSessionTrackerFinalization,
+        finalization: CurrentSessionTrackerOutput,
         target_session_tracker: TargetSessionTracker,
         settings: RewardsParameters,
     ) -> Self {
         match finalization {
-            CurrentSessionTrackerFinalization::WithTargetSession {
+            CurrentSessionTrackerOutput::WithTargetSession {
                 target_session_state,
                 current_session_state,
                 current_session_tracker,
@@ -211,7 +211,7 @@ impl Rewards {
                 current_session_tracker,
                 settings,
             },
-            CurrentSessionTrackerFinalization::WithoutTargetSession(current_session_tracker) => {
+            CurrentSessionTrackerOutput::WithoutTargetSession(current_session_tracker) => {
                 Self::WithoutTargetSession {
                     settings,
                     current_session_tracker,

@@ -65,6 +65,13 @@ impl CurrentSessionTracker {
         }
     }
 
+    /// Finalizes the current session tracker.
+    ///
+    /// It returns [`CurrentSessionTrackerFinalization::WithTargetSession`] by
+    /// creating a [`TargetSessionState`] using the collected information,
+    /// if the network size of the new target session is not below the
+    /// minimum required. Otherwise, it returns
+    /// [`CurrentSessionTrackerFinalization::WithoutTargetSession`].
     #[expect(
         clippy::unused_self,
         reason = "TODO: Create proof verifiers using `self.leader_inputs`"
@@ -74,7 +81,7 @@ impl CurrentSessionTracker {
         last_active_session_state: &SessionState,
         next_session_first_epoch_state: &EpochState,
         settings: &RewardsParameters,
-    ) -> CurrentSessionTrackerFinalization {
+    ) -> CurrentSessionTrackerOutput {
         if last_active_session_state.declarations.size()
             < settings.minimum_network_size.get() as usize
         {
@@ -82,7 +89,7 @@ impl CurrentSessionTracker {
                 last_active_session_state.declarations.size(),
                 settings.minimum_network_size.get()
             );
-            return CurrentSessionTrackerFinalization::WithoutTargetSession(Self::new(
+            return CurrentSessionTrackerOutput::WithoutTargetSession(Self::new(
                 next_session_first_epoch_state,
                 settings,
             ));
@@ -96,7 +103,7 @@ impl CurrentSessionTracker {
             providers.size() as u64,
         ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
 
-        CurrentSessionTrackerFinalization::WithTargetSession {
+        CurrentSessionTrackerOutput::WithTargetSession {
             target_session_state: TargetSessionState::new(
                 last_active_session_state.session_n,
                 providers,
@@ -124,11 +131,17 @@ impl CurrentSessionTracker {
     }
 }
 
-pub enum CurrentSessionTrackerFinalization {
+/// Result of finalizing the [`CurrentSessionTracker`].
+pub enum CurrentSessionTrackerOutput {
+    /// Target session has been built with the information collected by
+    /// the current session tracker.
+    /// Also, the new current session state and tracker have been initialized.
     WithTargetSession {
         target_session_state: TargetSessionState,
         current_session_state: CurrentSessionState,
         current_session_tracker: CurrentSessionTracker,
     },
+    /// No target session has been built because the network size in the
+    /// session is below the minimum required.
     WithoutTargetSession(CurrentSessionTracker),
 }
