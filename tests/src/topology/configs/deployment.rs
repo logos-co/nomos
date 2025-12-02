@@ -17,6 +17,7 @@ use nomos_node::config::{
     },
     cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings,
     deployment::DeploymentSettings,
+    mempool::deployment::Settings as MempoolDeploymentSettings,
     network::deployment::Settings as NetworkDeploymentSettings,
     time::deployment::Settings as TimeDeploymentSettings,
 };
@@ -127,6 +128,9 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
         },
         TimeDeploymentSettings {
             slot_duration: Duration::from_secs(slot_duration_in_secs),
+        },
+        MempoolDeploymentSettings {
+            pubsub_topic: "mantle_e2e_tests".to_owned(),
         },
     )
 }

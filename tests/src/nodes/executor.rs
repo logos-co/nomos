@@ -48,7 +48,7 @@ use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_node::{
     RocksBackendSettings,
     api::{handlers::GetCommitmentsRequest, testing::handlers::HistoricSamplingRequest},
-    config::mempool::MempoolConfig,
+    config::mempool::serde::Config as MempoolConfig,
 };
 use nomos_sdp::SdpSettings;
 use nomos_tracing::logging::local::FileConfig;
@@ -368,6 +368,9 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         deployment: custom_deployment_config,
         time: config.time_config,
         cryptarchia: config.consensus_config.user_config().clone(),
+        mempool: MempoolConfig {
+            recovery_path: "./recovery/mempool.json".into(),
+        },
 
         da_network: DaNetworkConfig {
             backend: DaNetworkExecutorBackendSettings {
@@ -453,9 +456,6 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
                 retry_cooldown: Duration::from_secs(3),
                 retry_limit: 2,
             },
-        },
-        mempool: MempoolConfig {
-            pool_recovery_path: "./recovery/mempool.json".into(),
         },
         sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
