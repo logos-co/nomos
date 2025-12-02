@@ -87,7 +87,7 @@ impl MerkleTree {
     /// If the input vector is empty or if it is larger than the maximum number
     /// of leaves supported by this fixed-height Merkle tree, it returns an
     /// error.
-    pub fn new_from_ordered(keys: Vec<PublicKey>) -> Result<Self, Error> {
+    fn new_from_ordered(keys: Vec<PublicKey>) -> Result<Self, Error> {
         if keys.is_empty() {
             return Err(Error::EmptyKeySet);
         }
@@ -214,6 +214,14 @@ fn compute_selectors(
     }
 
     result
+}
+
+pub fn sort_nodes_and_build_merkle_tree<Node>(
+    nodes: &mut [Node],
+    key: impl Fn(&Node) -> PublicKey,
+) -> Result<MerkleTree, Error> {
+    nodes.sort_by_key(|node| key(node));
+    MerkleTree::new_from_ordered(nodes.iter().map(key).collect())
 }
 
 #[cfg(test)]

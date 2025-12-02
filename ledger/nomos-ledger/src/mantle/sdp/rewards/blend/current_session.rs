@@ -1,5 +1,5 @@
 use cryptarchia_engine::Epoch;
-use nomos_blend_crypto::merkle::MerkleTree;
+use nomos_blend_crypto::merkle::sort_nodes_and_build_merkle_tree;
 use nomos_blend_message::{
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::ProofsVerifier as ProofsVerifierTrait, reward::SessionRandomness,
@@ -137,26 +137,24 @@ impl CurrentSessionTracker {
             .values()
             .map(|declaration| (declaration.provider_id, declaration.zk_id))
             .collect::<Vec<_>>();
-        providers.sort_by_key(|(_, zk_id)| *zk_id);
 
-        let (providers, zk_ids) = providers.into_iter().enumerate().fold(
-            (HashTrieMapSync::new_sync(), Vec::new()),
-            |(mut provider_indices, mut zk_ids), (i, (provider_id, zk_id))| {
-                provider_indices.insert_mut(
+        let zk_root = sort_nodes_and_build_merkle_tree(&mut providers, |(_, zk_id)| *zk_id)
+            .expect("Should not fail to build merkle tree of core nodes' zk public keys")
+            .root();
+
+        let providers = providers
+            .into_iter()
+            .enumerate()
+            .map(|(i, (provider_id, zk_id))| {
+                (
                     provider_id,
                     (
                         zk_id,
                         u64::try_from(i).expect("provider index must fit in u64"),
                     ),
-                );
-                zk_ids.push(zk_id);
-                (provider_indices, zk_ids)
-            },
-        );
-
-        let zk_root = MerkleTree::new_from_ordered(zk_ids)
-            .expect("Should not fail to build merkle tree of core nodes' zk public keys")
-            .root();
+                )
+            })
+            .collect();
 
         (providers, zk_root)
     }
