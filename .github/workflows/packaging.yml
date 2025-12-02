@@ -58,12 +58,10 @@ jobs:
           #            arch: aarch64
           #            builder: macos-14
           #            target_triple: aarch64-apple-darwin
-          # `risc0` is not available for this platform yet.
           # - os: macos
           #   arch: amd64
           #   builder: macos-13
           #   target_triple: x86_64-apple-darwin
-          # `risc0` is not available for this platform yet.
           - os: windows
             arch: amd64
             builder: windows-2022
@@ -100,6 +98,16 @@ jobs:
         with:
           command: build
           args: --bin bundle-nomos-node --release --target ${{ matrix.platform.target_triple }}
+
+      - name: Debug
+        shell: bash
+        run: |
+          # Walk target directory to print out the files inside
+          if [ -d target ]; then
+            find target -maxdepth 5 -print | sort
+          else
+            echo "No target directory found"
+          fi
 
       - name: Bundle
         shell: bash
