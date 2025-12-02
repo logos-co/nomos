@@ -110,7 +110,7 @@ impl CurrentSessionTracker {
         ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
 
         let proof_verifiers = Self::create_proof_verifiers(
-            &self.leader_inputs,
+            self.leader_inputs.values().copied(),
             last_active_session_state.session_n,
             zk_root,
             core_quota,
@@ -164,14 +164,13 @@ impl CurrentSessionTracker {
     }
 
     fn create_proof_verifiers<ProofsVerifier: ProofsVerifierTrait>(
-        leader_inputs: &[LeaderInputs],
+        leader_inputs: impl Iterator<Item = LeaderInputs>,
         session: SessionNumber,
         zk_root: ZkHash,
         core_quota: u64,
     ) -> Vec<ProofsVerifier> {
         leader_inputs
-            .iter()
-            .map(|&leader| {
+            .map(|leader| {
                 ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
                     session,
                     core: CoreInputs {
