@@ -644,7 +644,7 @@ mod tests {
             ..
         } = &rewards_tracker
         {
-            assert_eq!(current_session_tracker.num_leader_inputs(), 1);
+            assert_eq!(current_session_tracker.epoch_count(), 1);
         } else {
             panic!("Should not be initialized yet")
         }
@@ -657,7 +657,7 @@ mod tests {
             ..
         } = &rewards_tracker
         {
-            assert_eq!(current_session_tracker.num_leader_inputs(), 2);
+            assert_eq!(current_session_tracker.epoch_count(), 2);
         } else {
             panic!("Should not be initialized yet")
         }
@@ -675,7 +675,7 @@ mod tests {
             ..
         } = &rewards_tracker
         {
-            assert_eq!(current_session_tracker.num_leader_inputs(), 1);
+            assert_eq!(current_session_tracker.epoch_count(), 1);
         } else {
             panic!("Should not be uninitialized");
         }

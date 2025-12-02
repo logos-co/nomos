@@ -40,32 +40,28 @@ impl CurrentSessionState {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CurrentSessionTracker {
-    /// The latest epoch seen in the current session.
-    latest_epoch: Epoch,
     /// Collecting leader inputs derived from epoch states seen in the current
     /// session. These will be used to create proof verifiers after the next
     /// session update.
-    leader_inputs: Vec<LeaderInputs>,
+    leader_inputs: HashTrieMapSync<Epoch, LeaderInputs>,
 }
 
 impl CurrentSessionTracker {
     pub fn new(first_epoch_state: &EpochState, settings: &RewardsParameters) -> Self {
         Self {
-            latest_epoch: first_epoch_state.epoch,
-            leader_inputs: vec![settings.leader_inputs(first_epoch_state)],
+            leader_inputs: std::iter::once((
+                first_epoch_state.epoch,
+                settings.leader_inputs(first_epoch_state),
+            ))
+            .collect(),
         }
     }
 
     pub fn collect_epoch(&self, epoch_state: &EpochState, settings: &RewardsParameters) -> Self {
-        if epoch_state.epoch > self.latest_epoch {
-            let mut leader_inputs = self.leader_inputs.clone();
-            leader_inputs.push(settings.leader_inputs(epoch_state));
-            Self {
-                latest_epoch: epoch_state.epoch,
-                leader_inputs,
-            }
-        } else {
-            self.clone()
+        Self {
+            leader_inputs: self
+                .leader_inputs
+                .insert(epoch_state.epoch, settings.leader_inputs(epoch_state)),
         }
     }
 
@@ -123,8 +119,8 @@ impl CurrentSessionTracker {
     }
 
     #[cfg(test)]
-    pub const fn num_leader_inputs(&self) -> usize {
-        self.leader_inputs.len()
+    pub fn epoch_count(&self) -> usize {
+        self.leader_inputs.size()
     }
 }
 
