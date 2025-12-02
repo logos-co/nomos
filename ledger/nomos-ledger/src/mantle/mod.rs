@@ -587,7 +587,7 @@ mod tests {
     // This test needs to be rewritten to use the new SDP ledger API which no longer
     // exposes get_declaration() or uses declaration_id() methods.
     // #[test]
-    // #[expect(clippy::too_many_lines, reason = "Test function.")]
+    // #[expect(clippy::, reason = "Test function.")]
     #[test]
     fn _test_sdp_withdraw_operation() {
         // This test has been disabled pending API updates

@@ -114,12 +114,18 @@ where
         match event {
             ConnectionEvent::OpenInbound(peer) => {
                 self.connected_peers.insert(peer);
+                let subnets: Vec<_> = self.membership.membership(&peer).into_iter().collect();
+                tracing::debug!("BALANCER: OpenInbound peer={peer}, subnets={subnets:?}");
+
                 for subnetwork in self.membership.membership(&peer) {
                     self.update_subnetwork_stats(subnetwork, 1, 0);
                 }
             }
             ConnectionEvent::OpenOutbound(peer) => {
                 self.connected_peers.insert(peer);
+                let subnets: Vec<_> = self.membership.membership(&peer).into_iter().collect();
+                tracing::debug!("BALANCER: OpenOutbound peer={peer}, subnets={subnets:?}");
+
                 for subnetwork in self.membership.membership(&peer) {
                     self.update_subnetwork_stats(subnetwork, 0, 1);
                 }
@@ -171,6 +177,31 @@ where
         } else {
             Poll::Pending
         }
+    }
+
+    fn refresh_subnet_attributions(&mut self) {
+        tracing::info!(
+            "BALANCER: Refreshing subnet attributions for {} connected peers",
+            self.connected_peers.len()
+        );
+        self.subnetwork_stats.clear();
+
+        // todo: this is a quick fix, rething to support large connected peers and
+        // membership changes
+        let connected_peers: Vec<_> = self.connected_peers.iter().copied().collect();
+
+        for peer_id in &connected_peers {
+            let subnets: Vec<_> = self.membership.membership(peer_id).into_iter().collect();
+            tracing::debug!("BALANCER: Re-attributing peer={peer_id}, subnets={subnets:?}");
+            for subnetwork_id in subnets {
+                self.update_subnetwork_stats(subnetwork_id, 0, 1);
+            }
+        }
+
+        tracing::debug!(
+            "BALANCER: Subnet stats after refresh: {:?}",
+            self.subnetwork_stats
+        );
     }
 
     fn stats(&self) -> Self::Stats {
