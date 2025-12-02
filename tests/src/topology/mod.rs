@@ -21,7 +21,7 @@ use nomos_core::{
     mantle::{GenesisTx as _, Note, NoteId},
     sdp::{Locator, ServiceType, SessionNumber},
 };
-use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings};
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
@@ -380,6 +380,23 @@ impl Topology {
         check.wait().await;
     }
 
+    pub async fn wait_da_network_ready(&self) {
+        let total_nodes = self.validators.len() + self.executors.len();
+
+        if total_nodes == 0 {
+            return;
+        }
+
+        let labels = self.node_labels();
+
+        let check = DANetworkReadiness {
+            topology: self,
+            labels: &labels,
+        };
+
+        check.wait().await;
+    }
+
     pub async fn wait_membership_ready(&self) {
         self.wait_membership_ready_for_session(SessionNumber::from(0u64))
             .await;
@@ -534,6 +551,63 @@ impl<'a> ReadinessCheck<'a> for NetworkReadiness<'a> {
     fn timeout_message(&self, data: Self::Data) -> String {
         let summary = build_timeout_summary(self.labels, data, self.expected_peer_counts);
         format!("timed out waiting for network readiness: {summary}")
+    }
+}
+
+struct DANetworkReadiness<'a> {
+    topology: &'a Topology,
+    labels: &'a [String],
+}
+
+#[async_trait::async_trait]
+impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
+    type Data = Vec<BalancerStats>;
+
+    async fn collect(&'a self) -> Self::Data {
+        let (validator_stats, executor_stats) = tokio::join!(
+            join_all(
+                self.topology
+                    .validators
+                    .iter()
+                    .map(Validator::balancer_stats)
+            ),
+            join_all(self.topology.executors.iter().map(Executor::balancer_stats))
+        );
+        validator_stats.into_iter().chain(executor_stats).collect()
+    }
+
+    fn is_ready(&self, data: &Self::Data) -> bool {
+        // Check that all nodes have at least one subnet with connections
+        data.iter().all(|stats| {
+            !stats.is_empty()
+                && stats
+                    .values()
+                    .any(|subnet_stats| subnet_stats.inbound > 0 || subnet_stats.outbound > 0)
+        })
+    }
+
+    fn timeout_message(&self, data: Self::Data) -> String {
+        let summary: Vec<String> = self
+            .labels
+            .iter()
+            .zip(data.iter())
+            .map(|(label, stats)| {
+                let connected_subnets = stats
+                    .values()
+                    .filter(|s| s.inbound > 0 || s.outbound > 0)
+                    .count();
+                format!(
+                    "{}: {}/{} subnets connected",
+                    label,
+                    connected_subnets,
+                    stats.len()
+                )
+            })
+            .collect();
+        format!(
+            "timed out waiting for DA network connections: [{}]",
+            summary.join(", ")
+        )
     }
 }
 

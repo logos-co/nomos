@@ -69,6 +69,7 @@ async fn disseminate_retrieve_reconstruct() {
 
     topology.wait_membership_ready().await;
     topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -141,6 +142,7 @@ async fn disseminate_from_non_membership() {
 
     topology.wait_membership_ready().await;
     topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -278,6 +280,7 @@ async fn disseminate_same_data() {
 
     topology.wait_membership_ready().await;
     topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
 
     for _ in 0..ITERATIONS {
         let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
