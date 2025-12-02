@@ -44,7 +44,7 @@ fn prepare_environment(architecture: &str) {
 /// Bundles the package
 fn build_package(version: String) {
     let crate_path = get_workspace_root().join(CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT);
-    info!("Bundling package '{}'", crate_path.display());
+    error!("Bundling package '{}'", crate_path.display());
     let resources_path = crate_path.join("resources");
 
     // This simultaneously serves as input directory (where the binary is)
@@ -53,10 +53,20 @@ fn build_package(version: String) {
     let project_target_directory =
         canonicalize(get_target_directory_for_current_profile(target_triple.as_str()).unwrap())
             .unwrap();
-    info!(
+    error!(
         "Bundle output directory: '{}'",
         project_target_directory.display()
     );
+
+    let ic1 = resources_path
+        .join("icons/icon.ico")
+        .to_string_lossy()
+        .to_string();
+    let ic2 = resources_path
+        .join("icons/512x512.png")
+        .to_string_lossy()
+        .to_string();
+    error!("Bundle icons: '{ic1}', '{ic2}'");
 
     // Any level of GZIP compression will make the binary building fail
     // TODO: Re-enable RPM compression when the issue is fixed
@@ -81,16 +91,7 @@ fn build_package(version: String) {
             identifier: Some(get_project_identifier(CRATE_NAME)),
             publisher: None,
             homepage: None,
-            icon: Some(vec![
-                resources_path
-                    .join("icons/icon.ico")
-                    .to_string_lossy()
-                    .to_string(),
-                resources_path
-                    .join("icons/512x512.png")
-                    .to_string_lossy()
-                    .to_string(),
-            ]),
+            icon: Some(vec![ic1, ic2]),
             resources: None,
             resources_map: None,
             copyright: None,
@@ -132,6 +133,7 @@ fn build_package(version: String) {
 
     if let Err(error) = tauri_bundler::bundle_project(&settings) {
         error!("Error while bundling the project: {error:?}");
+        std::process::exit(1);
     } else {
         info!("Package bundled successfully");
     }
