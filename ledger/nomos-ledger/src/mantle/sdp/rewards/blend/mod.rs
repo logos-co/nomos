@@ -114,7 +114,7 @@ impl super::Rewards for Rewards {
                 settings,
                 current_session_tracker,
             } => (
-                Self::from_current_session_tracker_finalization(
+                Self::from_current_session_tracker_output(
                     current_session_tracker.finalize(
                         last_active,
                         next_session_first_epoch_state,
@@ -139,7 +139,7 @@ impl super::Rewards for Rewards {
                 let (target_session_tracker, rewards) = target_session_tracker
                     .finalize(target_session_state.session_number(), session_income);
 
-                let new_state = Self::from_current_session_tracker_finalization(
+                let new_state = Self::from_current_session_tracker_output(
                     current_session_tracker.finalize(
                         last_active,
                         next_session_first_epoch_state,
@@ -194,12 +194,12 @@ impl Rewards {
         }
     }
 
-    fn from_current_session_tracker_finalization(
-        finalization: CurrentSessionTrackerOutput,
+    fn from_current_session_tracker_output(
+        current_session_output: CurrentSessionTrackerOutput,
         target_session_tracker: TargetSessionTracker,
         settings: RewardsParameters,
     ) -> Self {
-        match finalization {
+        match current_session_output {
             CurrentSessionTrackerOutput::WithTargetSession {
                 target_session_state,
                 current_session_state,
