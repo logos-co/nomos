@@ -103,6 +103,9 @@ jobs:
 
       - name: Bundle
         shell: bash
+        env:
+          RUST_LOG: tauri_bundler=debug
+          TAURI_BUNDLE_DEBUG: "1"
         run: |
           # Define version parameter for the binary
           VERSION="${{ env.VERSION }}"

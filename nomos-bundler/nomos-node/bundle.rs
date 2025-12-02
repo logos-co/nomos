@@ -139,6 +139,8 @@ fn build_package(version: String) {
     prepare_environment(arch);
 
     if let Err(error) = tauri_bundler::bundle_project(&settings) {
+        eprintln!("[bundle_nomos_node] bundler error: {error}");
+        eprintln!("[bundle_nomos_node] debug: {error:?}");
         error!("Error while bundling the project: {error:?}");
         std::process::exit(1);
     } else {
