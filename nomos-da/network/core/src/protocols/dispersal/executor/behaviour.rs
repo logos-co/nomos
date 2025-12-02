@@ -596,6 +596,9 @@ where
         // decide to disperse data via existing connection - in such case the
         // connection needs to already have a handler that is able to open streams.
         self.connected_peers.insert(peer, connection_id);
+        // FIXME: We need to update this connection somehow when membership is updated
+        // (on refresh signal) this is commented to see if the integration tests
+        // pass
         // if !self.membership.is_allowed(&peer) {
         //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
         // }
