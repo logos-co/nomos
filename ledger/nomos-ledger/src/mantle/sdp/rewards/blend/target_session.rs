@@ -166,15 +166,16 @@ impl TargetSessionTracker {
         session_number: SessionNumber,
         session_income: u64,
     ) -> (Self, Vec<Utxo>) {
+        if self.submitted_proofs.is_empty() {
+            return (Self::new(), vec![]);
+        }
+
         // Identify premium providers with the minimum Hamming distance
         let premium_providers = &self.min_hamming_distance.providers;
 
         // Calculate base reward
-        let base_reward = if self.submitted_proofs.is_empty() {
-            0
-        } else {
-            session_income / (self.submitted_proofs.size() as u64 + premium_providers.size() as u64)
-        };
+        let base_reward = session_income
+            / (self.submitted_proofs.size() as u64 + premium_providers.size() as u64);
 
         // Calculate reward for each provider
         let mut rewards = HashMap::new();
