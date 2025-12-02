@@ -62,14 +62,15 @@ async fn disseminate_retrieve_reconstruct() {
     const ITERATIONS: usize = 10;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
-    let executor = &topology.executors()[0];
-    let (channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
-    let num_samples = executor.config().da_sampling.sampling_settings.num_samples as usize;
-    let data = [1u8; 31 * ITERATIONS];
 
     topology.wait_membership_ready().await;
     topology.wait_network_ready().await;
     topology.wait_da_network_ready().await;
+
+    let executor = &topology.executors()[0];
+    let (channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
+    let num_samples = executor.config().da_sampling.sampling_settings.num_samples as usize;
+    let data = [1u8; 31 * ITERATIONS];
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -116,6 +117,10 @@ async fn disseminate_from_non_membership() {
     const ITERATIONS: usize = 10;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    topology.wait_membership_ready().await;
+    topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
+
     let membership_executor = &topology.executors()[0];
     let (channel_id, mut parent_msg_id) = setup_test_channel(membership_executor).await;
     let num_samples = membership_executor
@@ -139,10 +144,6 @@ async fn disseminate_from_non_membership() {
     let lone_executor = Executor::spawn(lone_executor_config).await;
 
     let data = [1u8; 31 * ITERATIONS];
-
-    topology.wait_membership_ready().await;
-    topology.wait_network_ready().await;
-    topology.wait_da_network_ready().await;
 
     for i in 0..ITERATIONS {
         let data_size = 31 * (i + 1);
@@ -271,16 +272,16 @@ async fn disseminate_same_data() {
     const ITERATIONS: usize = 10;
 
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
+    topology.wait_membership_ready().await;
+    topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
+
     let executor = &topology.executors()[0];
     let num_subnets = executor.config().da_network.backend.num_subnets as usize;
 
     let (test_channel_id, mut parent_msg_id) = setup_test_channel(executor).await;
 
     let data = [1u8; 31];
-
-    topology.wait_membership_ready().await;
-    topology.wait_network_ready().await;
-    topology.wait_da_network_ready().await;
 
     for _ in 0..ITERATIONS {
         let blob_id = disseminate_with_metadata(executor, test_channel_id, parent_msg_id, &data)
