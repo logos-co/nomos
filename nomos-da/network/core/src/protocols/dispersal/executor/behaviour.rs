@@ -596,9 +596,9 @@ where
         // decide to disperse data via existing connection - in such case the
         // connection needs to already have a handler that is able to open streams.
         self.connected_peers.insert(peer, connection_id);
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // if !self.membership.is_allowed(&peer) {
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .map(Either::Left)
