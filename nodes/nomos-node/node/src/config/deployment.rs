@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{
     blend::deployment::Settings as BlendDeploymentSettings,
     cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings,
+    mempool::deployment::Settings as MempoolDeploymentSettings,
     network::deployment::Settings as NetworkDeploymentSettings,
     time::deployment::Settings as TimeDeploymentSettings,
 };
@@ -26,6 +27,7 @@ pub enum SerdeSettings {
         network: NetworkDeploymentSettings,
         cryptarchia: CryptarchiaDeploymentSettings,
         time: TimeDeploymentSettings,
+        mempool: MempoolDeploymentSettings,
     },
 }
 
@@ -37,6 +39,7 @@ pub struct DeploymentSettings {
     pub network: NetworkDeploymentSettings,
     pub cryptarchia: CryptarchiaDeploymentSettings,
     pub time: TimeDeploymentSettings,
+    pub mempool: MempoolDeploymentSettings,
 }
 
 impl DeploymentSettings {
@@ -46,6 +49,7 @@ impl DeploymentSettings {
         network: NetworkDeploymentSettings,
         cryptarchia: CryptarchiaDeploymentSettings,
         time: TimeDeploymentSettings,
+        mempool: MempoolDeploymentSettings,
     ) -> Self {
         Self {
             well_known: None,
@@ -53,6 +57,7 @@ impl DeploymentSettings {
             network,
             cryptarchia,
             time,
+            mempool,
         }
     }
 }
@@ -64,6 +69,7 @@ impl From<WellKnownDeployment> for DeploymentSettings {
             cryptarchia: value.clone().into(),
             network: value.clone().into(),
             time: value.clone().into(),
+            mempool: value.clone().into(),
             well_known: Some(value),
         }
     }
@@ -78,7 +84,8 @@ impl From<SerdeSettings> for DeploymentSettings {
                 cryptarchia,
                 network,
                 time,
-            } => Self::new_custom(*blend, network, cryptarchia, time),
+                mempool,
+            } => Self::new_custom(*blend, network, cryptarchia, time, mempool),
         }
     }
 }
@@ -90,6 +97,7 @@ impl From<DeploymentSettings> for SerdeSettings {
             cryptarchia,
             network,
             time,
+            mempool,
             well_known,
         }: DeploymentSettings,
     ) -> Self {
@@ -99,6 +107,7 @@ impl From<DeploymentSettings> for SerdeSettings {
                 cryptarchia,
                 network,
                 time,
+                mempool,
             },
             Self::WellKnown,
         )

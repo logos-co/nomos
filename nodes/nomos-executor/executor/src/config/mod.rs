@@ -4,7 +4,7 @@ use nomos_node::{
     config::{
         BlendArgs, TimeArgs, blend::serde::Config as BlendConfig,
         cryptarchia::serde::Config as CryptarchiaConfig, deployment::DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+        mempool::serde::Config as MempoolConfig, network::serde::Config as NetworkConfig,
         time::serde::Config as TimeConfig, update_blend, update_cryptarchia_leader_consensus,
         update_network, update_time,
     },
@@ -26,6 +26,8 @@ pub struct Config {
     pub deployment: DeploymentSettings,
     pub cryptarchia: CryptarchiaConfig,
     pub time: TimeConfig,
+    pub mempool: MempoolConfig,
+
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
@@ -33,7 +35,6 @@ pub struct Config {
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
-    pub mempool: MempoolConfig,
     pub wallet: <WalletService as ServiceData>::Settings,
     pub key_management: <KeyManagementService as ServiceData>::Settings,
 
