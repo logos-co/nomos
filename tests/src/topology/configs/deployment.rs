@@ -22,13 +22,13 @@ use nomos_node::config::{
 };
 use nomos_utils::math::NonNegativeF64;
 
-use crate::topology::configs::time::{CONSENSUS_SLOT_TIME_VAR, DEFAULT_SLOT_TIME};
+use crate::topology::configs::time::{CONSENSUS_SLOT_TIME_VAR, DEFAULT_SLOT_TIME_IN_SECS};
 
 #[must_use]
 pub fn default_e2e_deployment_settings() -> DeploymentSettings {
     let slot_duration_in_secs = std::env::var(CONSENSUS_SLOT_TIME_VAR)
         .map(|s| s.parse::<u64>().unwrap())
-        .unwrap_or(DEFAULT_SLOT_TIME);
+        .unwrap_or(DEFAULT_SLOT_TIME_IN_SECS);
 
     DeploymentSettings::new_custom(
         BlendDeploymentSettings {

@@ -40,7 +40,6 @@ struct Args {
     http: HttpArgs,
     #[clap(flatten)]
     cryptarchia_leader: CryptarchiaLeaderArgs,
-    /// Overrides time config.
     #[clap(flatten)]
     time: TimeArgs,
 }

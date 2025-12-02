@@ -7,7 +7,7 @@ use nomos_node::config::time::serde::Config;
 use nomos_time::backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings};
 use time::OffsetDateTime;
 
-pub(crate) const DEFAULT_SLOT_TIME: u64 = 2;
+pub(crate) const DEFAULT_SLOT_TIME_IN_SECS: u64 = 2;
 pub(crate) const CONSENSUS_SLOT_TIME_VAR: &str = "CONSENSUS_SLOT_TIME";
 
 pub type GeneralTimeConfig = Config;
