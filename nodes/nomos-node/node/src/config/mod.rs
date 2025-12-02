@@ -375,12 +375,11 @@ pub fn update_time(
         slot_duration,
     } = *time_args;
     if let Some(start_time) = chain_start_time {
-        time.backend_settings.slot_config.chain_start_time =
-            time::OffsetDateTime::from_unix_timestamp(start_time)?;
+        time.slot_config.chain_start_time = time::OffsetDateTime::from_unix_timestamp(start_time)?;
     }
 
     if let Some(duration) = slot_duration {
-        time.backend_settings.slot_config.slot_duration = std::time::Duration::from_secs(duration);
+        time.slot_config.slot_duration = std::time::Duration::from_secs(duration);
     }
     Ok(())
 }

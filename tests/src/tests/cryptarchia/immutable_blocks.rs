@@ -18,7 +18,7 @@ async fn immutable_blocks_two_nodes() {
         .into_iter()
         .map(|c| {
             let mut config = create_validator_config(c);
-            config.time.backend_settings.slot_config.slot_duration = Duration::from_secs(3);
+            config.time.slot_config.slot_duration = Duration::from_secs(3);
             config
                 .cryptarchia
                 .service

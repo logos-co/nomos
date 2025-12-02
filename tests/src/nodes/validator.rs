@@ -535,22 +535,22 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         // TODO from
         time: TimeServiceSettings {
-            backend_settings: NtpTimeBackendSettings {
+            slot_config: SlotConfig {
+                slot_duration: config.time_config.slot_duration,
+                chain_start_time: config.time_config.chain_start_time,
+            },
+            epoch_config: custom_deployment_config.cryptarchia.epoch_config,
+            base_period_length: custom_deployment_config
+                .cryptarchia
+                .consensus_config
+                .base_period_length(),
+            backend: NtpTimeBackendSettings {
                 ntp_server: config.time_config.ntp_server,
                 ntp_client_settings: NTPClientSettings {
                     timeout: config.time_config.timeout,
                     listening_interface: config.time_config.interface,
                 },
                 update_interval: config.time_config.update_interval,
-                slot_config: SlotConfig {
-                    slot_duration: config.time_config.slot_duration,
-                    chain_start_time: config.time_config.chain_start_time,
-                },
-                epoch_config: custom_deployment_config.cryptarchia.epoch_config,
-                base_period_length: custom_deployment_config
-                    .cryptarchia
-                    .consensus_config
-                    .base_period_length(),
             },
         },
         mempool: MempoolConfig {

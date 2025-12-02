@@ -31,12 +31,7 @@ async fn happy_test(topology: &Topology) {
             .cryptarchia
             .consensus_config
             .active_slot_coeff
-        * config
-            .time
-            .backend_settings
-            .slot_config
-            .slot_duration
-            .as_secs() as f64
+        * config.time.slot_config.slot_duration.as_secs() as f64
         * TIMEOUT_MULTIPLIER)
         .floor() as u64;
     let timeout = adjust_timeout(Duration::from_secs(timeout));
