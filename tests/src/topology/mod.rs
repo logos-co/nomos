@@ -387,11 +387,27 @@ impl Topology {
             return;
         }
 
+        // Get num_subnets from first executor's config (all nodes have same num_subnets
+        // in tests)
+        let expected_subnets = if let Some(executor) = self.executors.first() {
+            executor.config().da_network.backend.num_subnets as usize
+        } else if let Some(validator) = self.validators.first() {
+            validator
+                .config()
+                .da_network
+                .backend
+                .subnets_settings
+                .num_of_subnets
+        } else {
+            return;
+        };
+
         let labels = self.node_labels();
 
         let check = DANetworkReadiness {
             topology: self,
             labels: &labels,
+            expected_subnets,
         };
 
         check.wait().await;
@@ -557,6 +573,7 @@ impl<'a> ReadinessCheck<'a> for NetworkReadiness<'a> {
 struct DANetworkReadiness<'a> {
     topology: &'a Topology,
     labels: &'a [String],
+    expected_subnets: usize,
 }
 
 #[async_trait::async_trait]
@@ -577,22 +594,15 @@ impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
     }
 
     fn is_ready(&self, data: &Self::Data) -> bool {
-        // Check that all nodes have sufficient subnet connections
-        // In tests, subnet_threshold = num_subnets, so all subnets must have
-        // connections
         data.iter().all(|stats| {
-            if stats.is_empty() {
-                return false;
-            }
-
             let connected_subnets = stats
                 .values()
                 .filter(|subnet_stats| subnet_stats.inbound > 0 || subnet_stats.outbound > 0)
                 .count();
 
-            // All subnets must have at least one connection
-            // (matches the subnet_threshold = num_subnets setting in tests)
-            connected_subnets == stats.len()
+            // Check that enough subnets are connected (matches subnet_threshold check in
+            // lib.rs)
+            connected_subnets >= self.expected_subnets
         })
     }
 
@@ -608,9 +618,7 @@ impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
                     .count();
                 format!(
                     "{}: {}/{} subnets connected",
-                    label,
-                    connected_subnets,
-                    stats.len()
+                    label, connected_subnets, self.expected_subnets
                 )
             })
             .collect();
