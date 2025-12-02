@@ -29,6 +29,8 @@ use crate::{
     },
 };
 
+const LOG_TARGET: &str = "ledger::mantle::rewards::blend";
+
 /// Tracks Blend rewards based on activity proofs submitted by providers.
 /// Activity proofs for the session `s-1` must be submitted during session `s`.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

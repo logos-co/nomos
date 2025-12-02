@@ -3,13 +3,14 @@ use nomos_blend_message::reward::SessionRandomness;
 use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
 use nomos_core::sdp::ProviderId;
 use rpds::HashTrieMapSync;
+use tracing::debug;
 use zksign::PublicKey;
 
 use crate::{
     EpochState,
     mantle::sdp::{
         SessionState,
-        rewards::blend::{RewardsParameters, target_session::TargetSessionState},
+        rewards::blend::{LOG_TARGET, RewardsParameters, target_session::TargetSessionState},
     },
 };
 
@@ -81,6 +82,10 @@ impl CurrentSessionTracker {
         if last_active_session_state.declarations.size()
             < settings.minimum_network_size.get() as usize
         {
+            debug!(target: LOG_TARGET, "Declaration count({}) is below minimum network size({}). Switching to WithoutTargetSession mode",
+                last_active_session_state.declarations.size(),
+                settings.minimum_network_size.get()
+            );
             return CurrentSessionTrackerFinalization::WithoutTargetSession(Self::new(
                 next_session_first_epoch_state,
                 settings,
