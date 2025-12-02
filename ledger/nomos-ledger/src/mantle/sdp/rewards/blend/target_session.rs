@@ -81,12 +81,12 @@ impl TargetSessionState {
             .get(provider_id)
             .ok_or_else(|| Error::UnknownProvider(Box::new(*provider_id)))?;
 
-        let proof = verify_activity_proof(proof);
+        let verified_proof = verify_activity_proof(proof);
 
-        let Some(hamming_distance) = self
-            .token_evaluation
-            .evaluate(proof.token(), current_session_state.session_randomness())
-        else {
+        let Some(hamming_distance) = self.token_evaluation.evaluate(
+            verified_proof.token(),
+            current_session_state.session_randomness(),
+        ) else {
             return Err(Error::InvalidProof);
         };
 
