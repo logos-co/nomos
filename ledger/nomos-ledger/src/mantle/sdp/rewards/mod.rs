@@ -73,8 +73,8 @@ pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    #[error("Target session does not exist")]
-    TargetSessionNotExist,
+    #[error("Target session is not set")]
+    TargetSessionNotSet,
     #[error("Invalid session: expected {expected}, got {got}")]
     InvalidSession {
         expected: SessionNumber,

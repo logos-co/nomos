@@ -63,7 +63,7 @@ impl super::Rewards for Rewards {
         match self {
             Self::WithoutTargetSession { .. } => {
                 // Reject all activity messages.
-                Err(Error::TargetSessionNotExist)
+                Err(Error::TargetSessionNotSet)
             }
             Self::WithTargetSession {
                 target_session_state,
@@ -581,7 +581,7 @@ mod tests {
                 config.session_duration,
             )
             .unwrap_err();
-        assert_eq!(err, Error::TargetSessionNotExist);
+        assert_eq!(err, Error::TargetSessionNotSet);
 
         // No reward should be calculated after session 1.
         let (_, rewards) = rewards_tracker.update_session(
