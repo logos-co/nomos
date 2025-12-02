@@ -230,6 +230,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use futures::stream;
     use tokio_stream::StreamExt as _;
 
