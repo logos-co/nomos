@@ -18,11 +18,18 @@ use nomos_node::config::{
     cryptarchia::deployment::Settings as CryptarchiaDeploymentSettings,
     deployment::DeploymentSettings,
     network::deployment::Settings as NetworkDeploymentSettings,
+    time::deployment::Settings as TimeDeploymentSettings,
 };
 use nomos_utils::math::NonNegativeF64;
 
+use crate::topology::configs::time::{CONSENSUS_SLOT_TIME_VAR, DEFAULT_SLOT_TIME};
+
 #[must_use]
 pub fn default_e2e_deployment_settings() -> DeploymentSettings {
+    let slot_duration_in_secs = std::env::var(CONSENSUS_SLOT_TIME_VAR)
+        .map(|s| s.parse::<u64>().unwrap())
+        .unwrap_or(DEFAULT_SLOT_TIME);
+
     DeploymentSettings::new_custom(
         BlendDeploymentSettings {
             common: BlendCommonSettings {
@@ -117,6 +124,9 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
                     timestamp: 0,
                 },
             },
+        },
+        TimeDeploymentSettings {
+            slot_duration: Duration::from_secs(slot_duration_in_secs),
         },
     )
 }
