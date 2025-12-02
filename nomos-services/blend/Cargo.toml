@@ -46,7 +46,6 @@ zksign                        = { workspace = true }
 libp2p            = { default-features = false, features = ["plaintext", "tcp", "yamux"], workspace = true }
 libp2p-swarm-test = { default-features = false, version = "0.5.0" }
 nomos-blend       = { features = ["unsafe-test-functions"], workspace = true }
-num-bigint        = { default-features = false, version = "0.4" }
 tempfile          = { workspace = true }
 test-log          = { default-features = false, version = "0.2.18", features = ["trace"] }
 
