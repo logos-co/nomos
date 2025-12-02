@@ -577,12 +577,22 @@ impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
     }
 
     fn is_ready(&self, data: &Self::Data) -> bool {
-        // Check that all nodes have at least one subnet with connections
+        // Check that all nodes have sufficient subnet connections
+        // In tests, subnet_threshold = num_subnets, so all subnets must have
+        // connections
         data.iter().all(|stats| {
-            !stats.is_empty()
-                && stats
-                    .values()
-                    .any(|subnet_stats| subnet_stats.inbound > 0 || subnet_stats.outbound > 0)
+            if stats.is_empty() {
+                return false;
+            }
+
+            let connected_subnets = stats
+                .values()
+                .filter(|subnet_stats| subnet_stats.inbound > 0 || subnet_stats.outbound > 0)
+                .count();
+
+            // All subnets must have at least one connection
+            // (matches the subnet_threshold = num_subnets setting in tests)
+            connected_subnets == stats.len()
         })
     }
 
