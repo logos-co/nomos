@@ -607,24 +607,33 @@ impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
     }
 
     fn timeout_message(&self, data: Self::Data) -> String {
-        let summary: Vec<String> = self
-            .labels
-            .iter()
-            .zip(data.iter())
-            .map(|(label, stats)| {
-                let connected_subnets = stats
-                    .values()
-                    .filter(|s| s.inbound > 0 || s.outbound > 0)
-                    .count();
-                format!(
-                    "{}: {}/{} subnets connected",
-                    label, connected_subnets, self.expected_subnets
-                )
-            })
-            .collect();
+        let mut details = Vec::new();
+
+        for (label, stats) in self.labels.iter().zip(data.iter()) {
+            let connected_subnets = stats
+                .values()
+                .filter(|s| s.inbound > 0 || s.outbound > 0)
+                .count();
+
+            let subnet_details: Vec<String> = stats
+                .iter()
+                .map(|(subnet_id, s)| {
+                    format!("subnet_{}: in={}, out={}", subnet_id, s.inbound, s.outbound)
+                })
+                .collect();
+
+            details.push(format!(
+                "{}: {}/{} subnets connected\n  Details: [{}]",
+                label,
+                connected_subnets,
+                self.expected_subnets,
+                subnet_details.join(", ")
+            ));
+        }
+
         format!(
-            "timed out waiting for DA network connections: [{}]",
-            summary.join(", ")
+            "timed out waiting for DA network connections:\n{}",
+            details.join("\n")
         )
     }
 }
