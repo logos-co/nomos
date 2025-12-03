@@ -124,7 +124,11 @@ jobs:
             echo "This workflow is on debug mode: the bundle command's `-v` parameter will be removed for debugging." 
             PARAMETER=""
           fi
-
+          
+          mkdir -p ./target/${{ matrix.platform.target_triple }}/release/resources
+          cp ./nodes/nomos-node/node/resources/icons/icon.ico target/x86_64-pc-windows-msvc/release/resources/icon.ico
+          cp ./nodes/nomos-node/node/resources/icons/512x512.png target/x86_64-pc-windows-msvc/release/resources/512x512.png
+  
           ./target/${{ matrix.platform.target_triple }}/release/bundle-nomos-node $PARAMETER
 
       - name: Upload RPM
