@@ -501,7 +501,7 @@ where
     ) -> Option<LongTask> {
         let Ok(stream) = network_adapter.listen_to_commitments_messages().await else {
             tracing::error!("Error subscribing to commitments stream");
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -510,7 +510,7 @@ where
             .await
             .is_err()
         {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         }
 
@@ -524,11 +524,11 @@ where
                     } = message
                         && received_blob_id == blob_id
                     {
-                        let _ = result_sender.send(Some(*commitments));
+                        drop(result_sender.send(Some(*commitments)));
                         return;
                     }
                 }
-                let _ = result_sender.send(None);
+                drop(result_sender.send(None));
             })
             .await;
         }
@@ -546,7 +546,7 @@ where
         result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
     ) -> Option<LongTask> {
         if let Ok(Some(commitments)) = storage_adapter.get_commitments(blob_id).await {
-            let _ = result_sender.send(Some(commitments));
+            drop(result_sender.send(Some(commitments)));
             return None;
         }
 
@@ -617,7 +617,7 @@ where
 
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -625,7 +625,7 @@ where
             .request_historic_sampling(block_id, blob_ids)
             .await
         {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             error_with_id!(
                 blob_id,
                 "Request historic sampling fallback failed: {error}"
@@ -651,7 +651,7 @@ where
                     Some((blob_shares, blob_commitments))
                 });
 
-                let _ = result_sender.send(result);
+                drop(result_sender.send(result));
             }
             .boxed(),
         )

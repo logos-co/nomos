@@ -71,7 +71,7 @@ impl AsRef<SigningKey> for UnsecuredEd25519Key {
 ///
 /// It is a secured variant of a [`Ed25519Key`] and used within the set of
 /// supported KMS keys.
-#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+#[derive(Deserialize, ZeroizeOnDrop, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "unsafe", derive(Serialize))]
 pub struct Ed25519Key(UnsecuredEd25519Key);
 
@@ -93,14 +93,7 @@ impl Debug for Ed25519Key {
     }
 }
 
-impl PartialEq for Ed25519Key {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for Ed25519Key {}
-
+#[cfg(feature = "unsafe")]
 impl From<UnsecuredEd25519Key> for Ed25519Key {
     fn from(value: UnsecuredEd25519Key) -> Self {
         Self(value)

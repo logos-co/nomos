@@ -9,7 +9,7 @@ use nomos_node::{
     generic_services::SdpService,
 };
 use overwatch::services::ServiceData;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::{
     ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
@@ -17,7 +17,8 @@ use crate::{
     KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
 };
 
-#[derive(Deserialize, Debug, Clone, Serialize)]
+#[derive(Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "testing", derive(serde::Serialize))]
 pub struct Config {
     #[cfg(feature = "tracing")]
     pub tracing: <nomos_node::Tracing<RuntimeServiceId> as ServiceData>::Settings,

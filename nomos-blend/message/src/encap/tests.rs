@@ -193,13 +193,13 @@ fn encapsulate_and_decapsulate() {
 #[should_panic(expected = "Payload too large")]
 fn payload_too_long() {
     let (inputs, _) = generate_inputs(1);
-    let _ = EncapsulatedMessageWithVerifiedPublicHeader::new(
+    drop(EncapsulatedMessageWithVerifiedPublicHeader::new(
         &inputs,
         PayloadType::Data,
         vec![0u8; MAX_PAYLOAD_BODY_SIZE + 1]
             .try_into()
             .expect("Payload too large"),
-    );
+    ));
 }
 
 #[test]

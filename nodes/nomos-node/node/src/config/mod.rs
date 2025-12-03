@@ -11,7 +11,7 @@ use nomos_tracing::logging::{gelf::GelfConfig, local::FileConfig};
 use nomos_tracing_service::{LoggerLayer, Tracing};
 use num_bigint::BigUint;
 use overwatch::services::ServiceData;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tracing::Level;
 
 use crate::{
@@ -200,7 +200,8 @@ pub struct DaArgs {
     start_da_at_boot: bool,
 }
 
-#[derive(Deserialize, Debug, Clone, Serialize)]
+#[derive(Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "testing", derive(serde::Serialize))]
 pub struct Config {
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: NetworkConfig,
