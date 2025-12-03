@@ -12,6 +12,10 @@ async fn test_historical_sampling_across_sessions() {
     let topology = Topology::spawn(TopologyConfig::validator_and_executor()).await;
     let executor = &topology.executors()[0];
 
+    topology.wait_membership_ready().await;
+    topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
+
     // Disseminate some blobs in session 0
     tokio::time::sleep(Duration::from_secs(15)).await;
     let blob_ids = disseminate_blobs_in_session_zero(executor).await;

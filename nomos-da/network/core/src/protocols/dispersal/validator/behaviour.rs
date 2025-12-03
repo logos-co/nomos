@@ -192,14 +192,15 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // FIXME:
         // Sampling or replication behaviour might open connection to a member peer.
         // During the lifetime of a connection the remote peer might decide to
         // disperse data via existing connection - in such case the connection
         // needs to already have a handler that accepts DA_DISPERSAL_PROTOCOL
         // messages.
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // if !self.membership.is_allowed(&peer) {
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,

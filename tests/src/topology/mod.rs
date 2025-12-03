@@ -21,7 +21,7 @@ use nomos_core::{
     mantle::{GenesisTx as _, Note, NoteId},
     sdp::{Locator, ServiceType, SessionNumber},
 };
-use nomos_da_network_core::swarm::DAConnectionPolicySettings;
+use nomos_da_network_core::swarm::{BalancerStats, DAConnectionPolicySettings};
 use nomos_da_network_service::MembershipResponse;
 use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
@@ -372,6 +372,39 @@ impl Topology {
         check.wait().await;
     }
 
+    pub async fn wait_da_network_ready(&self) {
+        let total_nodes = self.validators.len() + self.executors.len();
+
+        if total_nodes == 0 {
+            return;
+        }
+
+        // Get num_subnets from first executor's config (all nodes have same num_subnets
+        // in tests)
+        let expected_subnets = if let Some(executor) = self.executors.first() {
+            executor.config().da_network.backend.num_subnets as usize
+        } else if let Some(validator) = self.validators.first() {
+            validator
+                .config()
+                .da_network
+                .backend
+                .subnets_settings
+                .num_of_subnets
+        } else {
+            return;
+        };
+
+        let labels = self.node_labels();
+
+        let check = DANetworkReadiness {
+            topology: self,
+            labels: &labels,
+            expected_subnets,
+        };
+
+        check.wait().await;
+    }
+
     pub async fn wait_membership_ready(&self) {
         self.wait_membership_ready_for_session(SessionNumber::from(0u64))
             .await;
@@ -526,6 +559,74 @@ impl<'a> ReadinessCheck<'a> for NetworkReadiness<'a> {
     fn timeout_message(&self, data: Self::Data) -> String {
         let summary = build_timeout_summary(self.labels, data, self.expected_peer_counts);
         format!("timed out waiting for network readiness: {summary}")
+    }
+}
+
+struct DANetworkReadiness<'a> {
+    topology: &'a Topology,
+    labels: &'a [String],
+    expected_subnets: usize,
+}
+
+#[async_trait::async_trait]
+impl<'a> ReadinessCheck<'a> for DANetworkReadiness<'a> {
+    type Data = Vec<BalancerStats>;
+
+    async fn collect(&'a self) -> Self::Data {
+        let (validator_stats, executor_stats) = tokio::join!(
+            join_all(
+                self.topology
+                    .validators
+                    .iter()
+                    .map(Validator::balancer_stats)
+            ),
+            join_all(self.topology.executors.iter().map(Executor::balancer_stats))
+        );
+        validator_stats.into_iter().chain(executor_stats).collect()
+    }
+
+    fn is_ready(&self, data: &Self::Data) -> bool {
+        data.iter().all(|stats| {
+            let connected_subnets = stats
+                .values()
+                .filter(|subnet_stats| subnet_stats.inbound > 0 || subnet_stats.outbound > 0)
+                .count();
+
+            // Check that enough subnets are connected (matches subnet_threshold check in
+            // lib.rs)
+            connected_subnets >= self.expected_subnets
+        })
+    }
+
+    fn timeout_message(&self, data: Self::Data) -> String {
+        let mut details = Vec::new();
+
+        for (label, stats) in self.labels.iter().zip(data.iter()) {
+            let connected_subnets = stats
+                .values()
+                .filter(|s| s.inbound > 0 || s.outbound > 0)
+                .count();
+
+            let subnet_details: Vec<String> = stats
+                .iter()
+                .map(|(subnet_id, s)| {
+                    format!("subnet_{}: in={}, out={}", subnet_id, s.inbound, s.outbound)
+                })
+                .collect();
+
+            details.push(format!(
+                "{}: {}/{} subnets connected\n  Details: [{}]",
+                label,
+                connected_subnets,
+                self.expected_subnets,
+                subnet_details.join(", ")
+            ));
+        }
+
+        format!(
+            "timed out waiting for DA network connections:\n{}",
+            details.join("\n")
+        )
     }
 }
 

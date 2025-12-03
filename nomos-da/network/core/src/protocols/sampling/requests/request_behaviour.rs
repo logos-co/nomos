@@ -606,9 +606,10 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // FIXME:
+        // if !self.membership.is_allowed(&peer) {
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         self.stream_behaviour
             .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
             .map(Either::Left)
@@ -622,9 +623,10 @@ where
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // FIXME:
+        // if !self.membership.is_allowed(&peer) {
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         self.connections.register_connect(peer);
         self.try_peer_sample_share(peer);
         self.stream_behaviour

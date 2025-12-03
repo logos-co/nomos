@@ -95,7 +95,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
-        _subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        _subnet_refresh_sender: &broadcast::Sender<()>,
         _stats_sender: UnboundedSender<BalancerStats>,
         _opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
