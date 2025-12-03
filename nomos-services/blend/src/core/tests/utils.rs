@@ -38,6 +38,7 @@ use nomos_blend::{
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
+use nomos_sdp::SdpMessage;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
@@ -467,4 +468,9 @@ impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId> for MockKmsAdapter {
         _core_path_and_selectors: Box<CorePathAndSelectors>,
     ) -> Self::CorePoQGenerator {
     }
+}
+
+pub fn sdp_relay() -> (OutboundRelay<SdpMessage>, mpsc::Receiver<SdpMessage>) {
+    let (sender, receiver) = mpsc::channel(10);
+    (OutboundRelay::new(sender), receiver)
 }

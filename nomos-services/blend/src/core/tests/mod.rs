@@ -12,13 +12,10 @@ use nomos_blend::{
     },
 };
 use nomos_core::{codec::SerializeOp as _, crypto::ZkHash, sdp::ActivityMetadata};
-use nomos_sdp::SdpService;
 use nomos_time::SlotTick;
 use nomos_utils::blake_rng::BlakeRng;
-use overwatch::services::relay::OutboundRelay;
 use poq::CORE_MERKLE_TREE_HEIGHT;
 use rand::SeedableRng as _;
-use tokio::sync::mpsc;
 
 use crate::{
     core::{
@@ -26,13 +23,12 @@ use crate::{
         backends::BlendBackend,
         handle_incoming_blend_message, handle_session_event, handle_session_transition_expired,
         initialize, post_initialize, retire, run_event_loop,
-        sdp::{Adapter as _, SdpServiceAdapter},
         state::ServiceState,
         tests::utils::{
             MockKmsAdapter, MockProofsVerifier, NodeId, TestBlendBackend, TestBlendBackendEvent,
             TestNetworkAdapter, dummy_overwatch_resources, new_crypto_processor, new_membership,
             new_public_info, new_stream, reward_session_info, scheduler_session_info,
-            scheduler_settings, settings, timing_settings, wait_for_blend_backend_event,
+            scheduler_settings, sdp_relay, settings, timing_settings, wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
@@ -222,17 +218,14 @@ async fn test_handle_session_transition_expired() {
     );
     token_collector.collect(token.clone());
 
-    // Create SDP adapter.
-    let (sdp_relay_sender, mut sdp_relay_receiver) = mpsc::channel(10);
-    let sdp_adapter = SdpServiceAdapter::<SdpService<(), RuntimeServiceId>>::new(
-        OutboundRelay::new(sdp_relay_sender),
-    );
+    // Create SDP relay.
+    let (sdp_relay, mut sdp_relay_receiver) = sdp_relay();
 
     // Call `handle_session_transition_expired`.
-    handle_session_transition_expired::<_, NodeId, BlakeRng, MockProofsVerifier, _, _>(
+    handle_session_transition_expired::<_, NodeId, BlakeRng, MockProofsVerifier, _>(
         &mut backend,
         token_collector,
-        &sdp_adapter,
+        &sdp_relay,
     )
     .await;
 
@@ -295,10 +288,7 @@ async fn test_handle_session_event() {
         BlakeRng::from_entropy(),
     );
     let mut backend_event_receiver = backend.subscribe_to_events();
-    let (sdp_relay_sender, _sdp_relay_receiver) = mpsc::channel(10);
-    let sdp_adapter = SdpServiceAdapter::<SdpService<(), RuntimeServiceId>>::new(
-        OutboundRelay::new(sdp_relay_sender),
-    );
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Handle a NewSession event, expecting Transitioning output.
     let output = handle_session_event(
@@ -318,7 +308,7 @@ async fn test_handle_session_event() {
         token_collector,
         None,
         &mut backend,
-        &sdp_adapter,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::Transitioning {
@@ -360,7 +350,7 @@ async fn test_handle_session_event() {
         new_token_collector,
         Some(old_token_collector),
         &mut backend,
-        &sdp_adapter,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::TransitionCompleted {
@@ -403,7 +393,7 @@ async fn test_handle_session_event() {
         current_token_collector,
         None,
         &mut backend,
-        &sdp_adapter,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::Retiring {
@@ -459,10 +449,7 @@ async fn complete_old_session_after_main_loop_done() {
         .await
         .unwrap();
 
-    let (sdp_relay_sender, _sdp_relay_receiver) = mpsc::channel(10);
-    let sdp_adapter = SdpServiceAdapter::<SdpService<(), RuntimeServiceId>>::new(
-        OutboundRelay::new(sdp_relay_sender),
-    );
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Send the initial slot tick that the service will expect to receive
     // immediately.
@@ -539,7 +526,7 @@ async fn complete_old_session_after_main_loop_done() {
             &settings_cloned,
             &mut backend,
             &TestNetworkAdapter,
-            &sdp_adapter,
+            &sdp_relay,
             &mut epoch_handler,
             message_scheduler.into(),
             &mut rng,
@@ -557,7 +544,7 @@ async fn complete_old_session_after_main_loop_done() {
             &settings_cloned,
             backend,
             TestNetworkAdapter,
-            sdp_adapter,
+            sdp_relay,
             epoch_handler,
             old_session_message_scheduler,
             rng,

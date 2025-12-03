@@ -64,8 +64,8 @@ use crate::{
     api::backend::AxumBackend,
     config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
     generic_services::{
-        BlendSdpServiceAdapter, DaMembershipAdapter, DaMembershipStorageGeneric,
-        SdpMempoolAdapterGeneric, SdpService, SdpServiceAdapterGeneric,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
+        SdpServiceAdapterGeneric,
     },
 };
 
@@ -93,18 +93,12 @@ pub(crate) type DaSamplingAdapter = SamplingLibp2pAdapter<
     RuntimeServiceId,
 >;
 
-pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<
-    DaSamplingAdapter,
-    BlendSdpServiceAdapter<RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub(crate) type BlendCoreService =
+    generic_services::blend::BlendCoreService<DaSamplingAdapter, RuntimeServiceId>;
 pub(crate) type BlendEdgeService =
     generic_services::blend::BlendEdgeService<DaSamplingAdapter, RuntimeServiceId>;
-pub(crate) type BlendService = generic_services::blend::BlendService<
-    DaSamplingAdapter,
-    BlendSdpServiceAdapter<RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub(crate) type BlendService =
+    generic_services::blend::BlendService<DaSamplingAdapter, RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 pub(crate) type DaVerifierService = generic_services::DaVerifierService<

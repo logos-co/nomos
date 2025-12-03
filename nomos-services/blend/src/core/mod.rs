@@ -45,14 +45,22 @@ use nomos_blend::{
         stream::UninitializedFirstReadyStream,
     },
 };
-use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
+use nomos_core::{
+    codec::{DeserializeOp as _, SerializeOp as _},
+    sdp::ActivityMetadata,
+};
 use nomos_network::NetworkService;
+use nomos_sdp::SdpMessage;
 use nomos_time::{SlotTick, TimeService, TimeServiceMessage};
 use nomos_utils::blake_rng::BlakeRng;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
-    services::{AsServiceId, ServiceCore, ServiceData, relay::RelayError, state::StateUpdater},
+    services::{
+        AsServiceId, ServiceCore, ServiceData,
+        relay::{OutboundRelay, RelayError},
+        state::StateUpdater,
+    },
 };
 use rand::{RngCore, SeedableRng as _, seq::SliceRandom as _};
 use serde::{Deserialize, Serialize};
@@ -94,7 +102,6 @@ pub(super) mod service_components;
 
 mod processor;
 mod scheduler;
-pub mod sdp;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -114,7 +121,7 @@ pub struct BlendService<
     NodeId,
     Network,
     MembershipAdapter,
-    SdpAdapter,
+    SdpService,
     ProofsGenerator,
     ProofsVerifier,
     TimeBackend,
@@ -130,7 +137,7 @@ pub struct BlendService<
     _phantom: PhantomData<(
         Backend,
         MembershipAdapter,
-        SdpAdapter,
+        SdpService,
         ProofsGenerator,
         TimeBackend,
         ChainService,
@@ -143,7 +150,7 @@ impl<
     NodeId,
     Network,
     MembershipAdapter,
-    SdpAdapter,
+    SdpService,
     ProofsGenerator,
     ProofsVerifier,
     TimeBackend,
@@ -156,7 +163,7 @@ impl<
         NodeId,
         Network,
         MembershipAdapter,
-        SdpAdapter,
+        SdpService,
         ProofsGenerator,
         ProofsVerifier,
         TimeBackend,
@@ -185,7 +192,7 @@ impl<
     NodeId,
     Network,
     MembershipAdapter,
-    SdpAdapter,
+    SdpService,
     ProofsGenerator,
     ProofsVerifier,
     TimeBackend,
@@ -198,7 +205,7 @@ impl<
         NodeId,
         Network,
         MembershipAdapter,
-        SdpAdapter,
+        SdpService,
         ProofsGenerator,
         ProofsVerifier,
         TimeBackend,
@@ -214,15 +221,14 @@ where
     membership::ServiceMessage<MembershipAdapter>: Send + Sync + 'static,
     ProofsGenerator:
         CoreAndLeaderProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>> + Send,
-    SdpAdapter: sdp::Adapter + Send + Sync,
-    sdp::ServiceMessage<SdpAdapter>: 'static,
+    SdpService: ServiceData<Message = SdpMessage> + Send,
     ProofsVerifier: ProofsVerifierTrait + Clone + Send,
     TimeBackend: nomos_time::backends::TimeBackend + Send,
     ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
     PolInfoProvider: PolInfoProviderTrait<RuntimeServiceId, Stream: Send + Unpin + 'static> + Send,
     RuntimeServiceId: AsServiceId<NetworkService<Network::Backend, RuntimeServiceId>>
         + AsServiceId<<MembershipAdapter as membership::Adapter>::Service>
-        + AsServiceId<<SdpAdapter as sdp::Adapter>::Service>
+        + AsServiceId<SdpService>
         + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
         + AsServiceId<ChainService>
         + AsServiceId<PreloadKmsService<RuntimeServiceId>>
@@ -274,7 +280,7 @@ where
             NetworkService<_, _>,
             TimeService<_, _>,
             <MembershipAdapter as membership::Adapter>::Service,
-            <SdpAdapter as sdp::Adapter>::Service,
+            SdpService,
             PreloadKmsService<_>
         )
         .await?;
@@ -332,12 +338,10 @@ where
         .await
         .expect("Failed to get membership stream from membership service.");
 
-        let sdp_adapter = SdpAdapter::new(
-            overwatch_handle
-                .relay::<<SdpAdapter as sdp::Adapter>::Service>()
-                .await
-                .expect("Relay with SDP service should be available."),
-        );
+        let sdp_relay = overwatch_handle
+            .relay::<SdpService>()
+            .await
+            .expect("Relay with SDP service should be available.");
 
         // Initialize clock stream for epoch-related public PoQ inputs.
         let clock_stream = async {
@@ -419,7 +423,7 @@ where
             &blend_config,
             &mut backend,
             &network_adapter,
-            &sdp_adapter,
+            &sdp_relay,
             &mut epoch_handler,
             message_scheduler.into(),
             &mut rng,
@@ -441,7 +445,7 @@ where
             &blend_config,
             backend,
             network_adapter,
-            sdp_adapter,
+            sdp_relay,
             epoch_handler,
             old_session_message_scheduler,
             rng,
@@ -717,7 +721,6 @@ async fn run_event_loop<
     Backend,
     Rng,
     NetAdapter,
-    SdpAdapter,
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
@@ -737,7 +740,7 @@ async fn run_event_loop<
     blend_config: &BlendConfig<Backend::Settings>,
     backend: &mut Backend,
     network_adapter: &NetAdapter,
-    sdp_adapter: &SdpAdapter,
+    sdp_relay: &OutboundRelay<SdpMessage>,
     epoch_handler: &mut EpochHandler<ChainService, RuntimeServiceId>,
     mut message_scheduler: SessionMessageScheduler<
         Rng,
@@ -778,7 +781,6 @@ where
                                    + Sync
                                    + Unpin,
         > + Sync,
-    SdpAdapter: sdp::Adapter + Send + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
@@ -821,7 +823,7 @@ where
                 handle_new_secret_epoch_info(pol_info.poq_private_inputs, &mut crypto_processor);
             }
             Some(session_event) = remaining_session_stream.next() => {
-                match handle_session_event(session_event, blend_config, crypto_processor, message_scheduler, public_info, recovery_checkpoint, blending_token_collector, old_session_blending_token_collector, backend, sdp_adapter).await {
+                match handle_session_event(session_event, blend_config, crypto_processor, message_scheduler, public_info, recovery_checkpoint, blending_token_collector, old_session_blending_token_collector, backend, sdp_relay).await {
                     HandleSessionEventOutput::Transitioning { new_crypto_processor, old_crypto_processor, new_token_collector, old_token_collector, new_scheduler, old_scheduler, new_public_info, new_recovery_checkpoint } => {
                         crypto_processor = new_crypto_processor;
                         old_session_crypto_processor = Some(old_crypto_processor);
@@ -866,7 +868,6 @@ async fn retire<
     Backend,
     Rng,
     NetAdapter,
-    SdpAdapter,
     ChainService,
     ProofsGenerator,
     ProofsVerifier,
@@ -884,7 +885,7 @@ async fn retire<
     blend_config: &BlendConfig<Backend::Settings>,
     mut backend: Backend,
     network_adapter: NetAdapter,
-    sdp_adapter: SdpAdapter,
+    sdp_relay: OutboundRelay<SdpMessage>,
     mut epoch_handler: EpochHandler<ChainService, RuntimeServiceId>,
     mut message_scheduler: OldSessionMessageScheduler<
         Rng,
@@ -916,7 +917,6 @@ async fn retire<
                                    + Sync
                                    + Unpin,
         > + Sync,
-    SdpAdapter: sdp::Adapter + Sync,
     ChainService: ChainApi<RuntimeServiceId> + Sync,
     ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
@@ -934,7 +934,7 @@ async fn retire<
                 public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, public_info).await;
             }
             Some(SessionEvent::TransitionPeriodExpired) = remaining_session_stream.next() => {
-                handle_session_transition_expired(&mut backend, blending_token_collector, &sdp_adapter).await;
+                handle_session_transition_expired(&mut backend, blending_token_collector, &sdp_relay).await;
                 // Now the core service is no longer needed for the current (new) session,
                 // and the remaining session transition has been completed,
                 // so finishing the retirement process.
@@ -956,7 +956,6 @@ async fn handle_session_event<
     ProofsGenerator,
     ProofsVerifier,
     Backend,
-    SdpAdapter,
     Rng,
     BroadcastSettings,
     CorePoQGenerator,
@@ -980,7 +979,7 @@ async fn handle_session_event<
     current_session_blending_token_collector: SessionBlendingTokenCollector,
     old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
     backend: &mut Backend,
-    sdp_adapter: &SdpAdapter,
+    sdp_relay: &OutboundRelay<SdpMessage>,
 ) -> HandleSessionEventOutput<
     NodeId,
     Rng,
@@ -997,7 +996,6 @@ where
     ProofsVerifier: ProofsVerifierTrait,
     BroadcastSettings: Debug + Send + Sync + Unpin,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
-    SdpAdapter: sdp::Adapter + Sync,
 {
     match event {
         SessionEvent::NewSession(CoreSessionInfo {
@@ -1078,7 +1076,7 @@ where
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(old_token_collector) = old_session_blending_token_collector {
-                handle_session_transition_expired(backend, old_token_collector, sdp_adapter).await;
+                handle_session_transition_expired(backend, old_token_collector, sdp_relay).await;
             }
             HandleSessionEventOutput::TransitionCompleted {
                 current_crypto_processor: current_cryptographic_processor,
@@ -1092,25 +1090,17 @@ where
 }
 
 /// Handles [`SessionEvent::TransitionPeriodExpired`].
-async fn handle_session_transition_expired<
-    Backend,
-    NodeId,
-    Rng,
-    ProofsVerifier,
-    SdpAdapter,
-    RuntimeServiceId,
->(
+async fn handle_session_transition_expired<Backend, NodeId, Rng, ProofsVerifier, RuntimeServiceId>(
     backend: &mut Backend,
     blending_token_collector: OldSessionBlendingTokenCollector,
-    sdp_adapter: &SdpAdapter,
+    sdp_relay: &OutboundRelay<SdpMessage>,
 ) where
     Backend: BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>,
     NodeId: Eq + Hash + Clone + Send,
     ProofsVerifier: ProofsVerifierTrait,
-    SdpAdapter: sdp::Adapter + Sync,
 {
     if let Some(activity_proof) = blending_token_collector.compute_activity_proof() {
-        if let Err(e) = submit_activity_proof(activity_proof, sdp_adapter).await {
+        if let Err(e) = submit_activity_proof(activity_proof, sdp_relay).await {
             error!(target: LOG_TARGET, "Failed to submit activity proof for the old session: {e:?}");
         }
     } else {
@@ -1830,13 +1820,15 @@ fn handle_new_secret_epoch_info<NodeId, ProofsGenerator, ProofsVerifier, CorePoQ
 }
 
 /// Submits an activity proof to the SDP service.
-async fn submit_activity_proof<SdpAdapter>(
+async fn submit_activity_proof(
     proof: ActivityProof,
-    sdp_adapter: &SdpAdapter,
-) -> Result<(), RelayError>
-where
-    SdpAdapter: sdp::Adapter + Sync,
-{
+    sdp_relay: &OutboundRelay<SdpMessage>,
+) -> Result<(), RelayError> {
     info!(target: LOG_TARGET, "Submitting activity proof for the old session: {proof:?}");
-    sdp_adapter.post_activity((&proof).into()).await
+    sdp_relay
+        .send(SdpMessage::PostActivity {
+            metadata: ActivityMetadata::Blend(Box::new((&proof).into())),
+        })
+        .await
+        .map_err(|(e, _)| e)
 }

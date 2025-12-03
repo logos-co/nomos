@@ -29,9 +29,8 @@ use nomos_node::Tracing;
 use nomos_node::{
     BlobInfo, DaNetworkApiAdapter, NetworkBackend, NomosDaMembership, RocksBackend, SystemSig,
     generic_services::{
-        BlendSdpServiceAdapter, DaMembershipAdapter, DaMembershipStorageGeneric,
-        SamplingMempoolAdapter, SdpMempoolAdapterGeneric, SdpService, SdpServiceAdapterGeneric,
-        VerifierMempoolAdapter,
+        DaMembershipAdapter, DaMembershipStorageGeneric, SamplingMempoolAdapter,
+        SdpMempoolAdapterGeneric, SdpService, SdpServiceAdapterGeneric, VerifierMempoolAdapter,
     },
 };
 use nomos_time::backends::NtpTimeBackend;
@@ -45,18 +44,12 @@ type DaMembershipStorage = DaMembershipStorageGeneric<RuntimeServiceId>;
 
 pub(crate) type NetworkService = nomos_network::NetworkService<NetworkBackend, RuntimeServiceId>;
 
-pub(crate) type BlendCoreService = nomos_node::generic_services::blend::BlendCoreService<
-    DaNetworkAdapter,
-    BlendSdpServiceAdapter<RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub(crate) type BlendCoreService =
+    nomos_node::generic_services::blend::BlendCoreService<DaNetworkAdapter, RuntimeServiceId>;
 pub(crate) type BlendEdgeService =
     nomos_node::generic_services::blend::BlendEdgeService<DaNetworkAdapter, RuntimeServiceId>;
-pub(crate) type BlendService = nomos_node::generic_services::blend::BlendService<
-    DaNetworkAdapter,
-    BlendSdpServiceAdapter<RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub(crate) type BlendService =
+    nomos_node::generic_services::blend::BlendService<DaNetworkAdapter, RuntimeServiceId>;
 
 pub(crate) type BlockBroadcastService = broadcast_service::BlockBroadcastService<RuntimeServiceId>;
 
