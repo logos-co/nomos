@@ -548,10 +548,12 @@ pub mod tests {
     }
 
     fn full_ledger_state(cryptarchia_ledger: LedgerState, config: &Config) -> crate::LedgerState {
+        let mantle_ledger =
+            crate::mantle::LedgerState::new(config, cryptarchia_ledger.epoch_state());
         crate::LedgerState {
             block_number: 0,
             cryptarchia_ledger,
-            mantle_ledger: crate::mantle::LedgerState::new(config),
+            mantle_ledger,
         }
     }
 

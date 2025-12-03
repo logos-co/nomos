@@ -195,6 +195,7 @@ mod core_to_core_tests {
     use groth16::Field as _;
     use key_management_system_service::keys::UnsecuredEd25519Key;
     use nomos_blend::{
+        crypto::merkle::MerkleTree,
         message::crypto::{
             key_ext::Ed25519SecretKeyExt as _,
             proofs::{Error as VerifierError, PoQVerificationInputsMinusSigningKey},
@@ -218,7 +219,7 @@ mod core_to_core_tests {
             },
         },
     };
-    use nomos_blend_service::{ProofsVerifier as _, merkle::MerkleTree};
+    use nomos_blend_service::ProofsVerifier as _;
     use nomos_core::crypto::ZkHash;
     use zksign::SecretKey;
 

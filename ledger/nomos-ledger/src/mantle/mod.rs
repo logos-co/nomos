@@ -41,11 +41,14 @@ pub struct LedgerState {
 
 impl LedgerState {
     #[must_use]
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, epoch_state: &EpochState) -> Self {
         Self {
             channels: channel::Channels::new(),
             sdp: sdp::SdpLedger::new()
-                .with_blend_service(config.sdp_config.service_rewards_params.blend.clone())
+                .with_blend_service(
+                    config.sdp_config.service_rewards_params.blend.clone(),
+                    epoch_state,
+                )
                 .with_da_service(),
             leaders: leader::LeaderState::new(),
         }
@@ -55,11 +58,13 @@ impl LedgerState {
         tx: impl GenesisTx,
         config: &Config,
         utxo_tree: &UtxoTree,
+        epoch_state: &EpochState,
     ) -> Result<Self, Error> {
         let channels = channel::Channels::from_genesis(tx.genesis_inscription())?;
         let sdp = sdp::SdpLedger::from_genesis(
             &config.sdp_config,
             utxo_tree,
+            epoch_state,
             tx.hash(),
             tx.sdp_declarations(),
         )?;
@@ -123,9 +128,7 @@ impl LedgerState {
         config: &Config,
     ) -> Result<(Self, Vec<Utxo>), Error> {
         self.leaders = self.leaders.try_apply_header(epoch_state.epoch, voucher)?;
-        let (new_sdp, reward_utxos) = self
-            .sdp
-            .try_apply_header(&config.sdp_config, &epoch_state.nonce)?;
+        let (new_sdp, reward_utxos) = self.sdp.try_apply_header(&config.sdp_config, epoch_state)?;
         self.sdp = new_sdp;
         Ok((self, reward_utxos))
     }
@@ -260,7 +263,7 @@ mod tests {
     fn test_channel_blob_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new(&test_config);
+        let ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([1; 32]);
 
@@ -288,7 +291,7 @@ mod tests {
     fn test_channel_inscribe_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new(&test_config);
+        let ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([2; 32]);
 
@@ -316,7 +319,7 @@ mod tests {
     fn test_channel_set_keys_operation() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new(&test_config);
+        let ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([3; 32]);
 
@@ -346,7 +349,7 @@ mod tests {
     fn test_invalid_parent_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let mut ledger_state = LedgerState::new(&test_config);
+        let mut ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
 
@@ -425,7 +428,7 @@ mod tests {
     fn test_unauthorized_signer_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let mut ledger_state = LedgerState::new(&test_config);
+        let mut ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, verifying_key) = create_test_keys();
         let (unauthorized_signing_key, unauthorized_verifying_key) = create_test_keys_with_seed(3);
         let channel_id = ChannelId::from([6; 32]);
@@ -481,7 +484,7 @@ mod tests {
     fn test_empty_keys_error() {
         let cryptarchia_state = genesis_state(&[utxo()]);
         let test_config = config();
-        let ledger_state = LedgerState::new(&test_config);
+        let ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (signing_key, _) = create_test_keys();
         let channel_id = ChannelId::from([7; 32]);
 
@@ -511,7 +514,7 @@ mod tests {
         // Create channel 2 by posting an inscription
         // Change the keys for channel 1
         // Post another blob in channel 1
-        let ledger_state = LedgerState::new(&test_config);
+        let ledger_state = LedgerState::new(&test_config, cryptarchia_state.epoch_state());
         let (sk1, vk1) = create_test_keys_with_seed(1);
         let (sk2, vk2) = create_test_keys_with_seed(2);
         let (_, vk3) = create_test_keys_with_seed(3);

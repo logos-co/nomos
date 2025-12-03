@@ -1,7 +1,9 @@
 pub mod blend;
 pub mod da;
+#[cfg(test)]
+mod test_utils;
 
-use std::{collections::HashMap, num::NonZeroU64};
+use std::collections::HashMap;
 
 use groth16::{Fr, fr_from_bytes};
 use nomos_core::{
@@ -14,6 +16,7 @@ use thiserror::Error;
 use zksign::PublicKey;
 
 use super::SessionState;
+use crate::EpochState;
 
 pub type RewardAmount = u64;
 
@@ -48,20 +51,28 @@ pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
     ///
     /// # Arguments
     /// * `last_active` - The state of the session that just ended.
-    /// * `next_active_session_epoch_nonce` - The nonce of the epoch state
-    ///   corresponding to the 1st block of the session `last_active + 1`.
+    /// * `next_session_first_epoch_state` - The epoch state corresponding to
+    ///   the 1st block of the session `last_active + 1`.
     fn update_session(
         &self,
         last_active: &SessionState,
-        next_active_session_epoch_nonce: &Fr,
+        next_session_first_epoch_state: &EpochState,
         config: &ServiceParameters,
     ) -> (Self, Vec<Utxo>);
+
+    /// Update rewards state when a new epoch begins while the session remains
+    /// unchanged.
+    ///
+    /// If the epoch has already been processed previously, this method performs
+    /// no update and returns the current state unchanged.
+    #[must_use]
+    fn update_epoch(&self, epoch_state: &EpochState) -> Self;
 }
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    #[error("Rewards state is not initialized yet with a real session")]
-    Uninitialized,
+    #[error("Target session is not set")]
+    TargetSessionNotSet,
     #[error("Invalid session: expected {expected}, got {got}")]
     InvalidSession {
         expected: SessionNumber,
@@ -78,13 +89,6 @@ pub enum Error {
     InvalidProofType,
     #[error("Invalid proof")]
     InvalidProof,
-    #[error(
-        "The number of declarations ({num_declarations}) is less than the minimum network size ({minimum_network_size})"
-    )]
-    MinimumNetworkSizeNotSatisfied {
-        num_declarations: u64,
-        minimum_network_size: NonZeroU64,
-    },
     #[error("Unknown provider: {0:?}")]
     UnknownProvider(Box<ProviderId>),
 }
@@ -131,56 +135,4 @@ fn distribute_rewards(
             Utxo::new(tx_hash, output_index, Note::new(reward_amount, zk_id))
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use nomos_core::sdp::{Declaration, DeclarationId};
-    use num_bigint::BigUint;
-
-    use super::*;
-
-    pub fn create_test_session_state(
-        provider_ids: &[ProviderId],
-        service_type: ServiceType,
-        session_n: SessionNumber,
-    ) -> SessionState {
-        let mut declarations = rpds::RedBlackTreeMapSync::new_sync();
-        for (i, provider_id) in provider_ids.iter().enumerate() {
-            let declaration = Declaration {
-                service_type,
-                provider_id: *provider_id,
-                locked_note_id: Fr::from(i as u64).into(),
-                locators: vec![],
-                zk_id: PublicKey::new(BigUint::from(i as u64).into()),
-                created: 0,
-                active: 0,
-                withdrawn: None,
-                nonce: 0,
-            };
-            declarations = declarations.insert(DeclarationId([i as u8; 32]), declaration);
-        }
-        SessionState {
-            declarations,
-            session_n,
-        }
-    }
-
-    pub fn create_provider_id(byte: u8) -> ProviderId {
-        use ed25519_dalek::SigningKey;
-        let key_bytes = [byte; 32];
-        // Ensure the key is valid by using SigningKey
-        let signing_key = SigningKey::from_bytes(&key_bytes);
-        ProviderId(signing_key.verifying_key())
-    }
-
-    pub fn create_service_parameters() -> ServiceParameters {
-        ServiceParameters {
-            lock_period: 10,
-            inactivity_period: 20,
-            retention_period: 100,
-            timestamp: 0,
-            session_duration: 10,
-        }
-    }
 }

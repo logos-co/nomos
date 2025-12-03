@@ -2,7 +2,11 @@ use blake2::{Blake2b512, digest::Digest as _};
 use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
 
 pub mod keys;
+pub mod merkle;
 pub mod signatures;
+
+pub type ZkHash = groth16::Fr;
+pub type ZkHasher = poseidon2::Poseidon2Bn254Hasher;
 
 /// Generates random bytes of the constant size using [`BlakeRng`].
 #[must_use]

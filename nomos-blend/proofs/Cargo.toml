@@ -18,13 +18,13 @@ groth16            = { workspace = true }
 nomos-blend-crypto = { workspace = true }
 num-bigint         = { default-features = false, version = "0.4" }
 poq                = { workspace = true }
-poseidon2          = { workspace = true }
 serde              = { workspace = true }
 thiserror          = "1"
 
 [dev-dependencies]
 const-hex  = { default-features = false, version = "1.15.0" }
 nomos-core = { workspace = true }
+zksign     = { workspace = true }
 
 [features]
 unsafe-test-functions = []
