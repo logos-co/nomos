@@ -117,10 +117,11 @@ async fn main() -> Result<()> {
     )
     .map_err(|e| eyre!("Error encountered: {}", e))?;
 
-    let _ = app
-        .handle()
-        .start_service_sequence(get_services_to_start(&app).await?)
-        .await;
+    drop(
+        app.handle()
+            .start_service_sequence(get_services_to_start(&app).await?)
+            .await,
+    );
     app.wait_finished().await;
     Ok(())
 }

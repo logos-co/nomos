@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    let _ = app.handle().start_service_sequence(services_to_start).await;
+    drop(app.handle().start_service_sequence(services_to_start).await);
 
     app.wait_finished().await;
     Ok(())
