@@ -48,9 +48,10 @@ where
     }
 
     async fn post_activity(&self, opinions: Opinions) -> Result<(), SdpAdapterError> {
-        let metadata = Box::new(opinions.into());
         self.relay
-            .send(SdpMessage::PostActivity { metadata })
+            .send(SdpMessage::PostActivity {
+                metadata: opinions.into(),
+            })
             .await
             .map_err(|(e, _)| SdpAdapterError::Other(Box::new(e)))?;
 
