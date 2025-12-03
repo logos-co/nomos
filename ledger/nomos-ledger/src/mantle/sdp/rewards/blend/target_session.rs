@@ -1,7 +1,9 @@
 use std::{cmp::Ordering, collections::HashMap, iter::once};
 
-use nomos_blend_message::reward::{BlendingTokenEvaluation, HammingDistance};
-use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
+use nomos_blend_message::{
+    encap::ProofsVerifier as ProofsVerifierTrait,
+    reward::{BlendingTokenEvaluation, HammingDistance},
+};
 use nomos_core::{
     mantle::Utxo,
     sdp::{ProviderId, ServiceType, SessionNumber},
@@ -19,26 +21,30 @@ use crate::mantle::sdp::rewards::{
 /// calculated. The target session is `s-1` if `s` is the current session.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TargetSessionState {
+pub struct TargetSessionState<ProofsVerifier> {
     /// The target session number
     session_number: SessionNumber,
-    /// The providers in the target session
-    providers: HashTrieMapSync<ProviderId, PublicKey>,
+    /// The providers in the target session (their public keys and indices).
+    providers: HashTrieMapSync<ProviderId, (PublicKey, u64)>,
     /// Parameters for evaluating activity proofs in the target session
     token_evaluation: BlendingTokenEvaluation,
-    // TODO: Add proof verifiers
+    /// Verifiers for `PoQ` and `PoSel`.
+    /// These are created from epoch states collected in the target session.
+    proof_verifiers: Vec<ProofsVerifier>,
 }
 
-impl TargetSessionState {
+impl<ProofsVerifier> TargetSessionState<ProofsVerifier> {
     pub const fn new(
         session_number: SessionNumber,
-        providers: HashTrieMapSync<ProviderId, PublicKey>,
+        providers: HashTrieMapSync<ProviderId, (PublicKey, u64)>,
         token_evaluation: BlendingTokenEvaluation,
+        proof_verifiers: Vec<ProofsVerifier>,
     ) -> Self {
         Self {
             session_number,
             providers,
             token_evaluation,
+            proof_verifiers,
         }
     }
 
@@ -46,7 +52,7 @@ impl TargetSessionState {
         self.session_number
     }
 
-    pub fn providers(&self) -> impl Iterator<Item = (&ProviderId, &PublicKey)> {
+    pub fn providers(&self) -> impl Iterator<Item = (&ProviderId, &(PublicKey, u64))> {
         self.providers.iter()
     }
 
@@ -56,7 +62,12 @@ impl TargetSessionState {
             .try_into()
             .expect("number of providers must fit in u64")
     }
+}
 
+impl<ProofsVerifier> TargetSessionState<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait,
+{
     pub fn verify_proof(
         &self,
         provider_id: &ProviderId,
@@ -76,12 +87,25 @@ impl TargetSessionState {
             num_providers >= settings.minimum_network_size.get(),
             "number of providers must be >= minimum_network_size"
         );
-        let &zk_id = self
+        let &(zk_id, index) = self
             .providers
             .get(provider_id)
             .ok_or_else(|| Error::UnknownProvider(Box::new(*provider_id)))?;
 
-        let verified_proof = verify_activity_proof(proof);
+        // Try to verify the proof with each of the available verifiers
+        let verified_proof = self
+            .proof_verifiers
+            .iter()
+            .find_map(|verifier| {
+                nomos_blend_message::reward::ActivityProof::verify_and_build(
+                    proof,
+                    verifier,
+                    index,
+                    num_providers,
+                )
+                .ok()
+            })
+            .ok_or(Error::InvalidProof)?;
 
         let Some(hamming_distance) = self.token_evaluation.evaluate(
             verified_proof.token(),
@@ -92,25 +116,6 @@ impl TargetSessionState {
 
         Ok((zk_id, hamming_distance))
     }
-}
-
-fn verify_activity_proof(
-    proof: &nomos_core::sdp::blend::ActivityProof,
-) -> nomos_blend_message::reward::ActivityProof {
-    // TODO: Verify PoQ and PoSel by holding all epoch infos that
-    // spanned across the target session.
-    // For now, we just accept them without verification.
-    let verified_proof_of_quota =
-        VerifiedProofOfQuota::from_bytes_unchecked((&proof.proof_of_quota).into());
-    let verified_proof_of_selection =
-        VerifiedProofOfSelection::from_bytes_unchecked((&proof.proof_of_selection).into());
-    nomos_blend_message::reward::ActivityProof::new(
-        proof.session,
-        nomos_blend_message::reward::BlendingToken::new(
-            verified_proof_of_quota,
-            verified_proof_of_selection,
-        ),
-    )
 }
 
 /// Tracks activity proofs submitted for the target session whose rewards are

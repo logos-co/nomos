@@ -2,6 +2,7 @@ use blake2::{
     Blake2bVar,
     digest::{Update as _, VariableOutput as _},
 };
+use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 use nomos_core::codec::SerializeOp as _;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use crate::reward::session::SessionRandomness;
 /// A blending token consisting of a proof of quota and a proof of selection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BlendingToken {
+    signing_key: Ed25519PublicKey,
     proof_of_quota: VerifiedProofOfQuota,
     proof_of_selection: VerifiedProofOfSelection,
 }
@@ -18,10 +20,12 @@ pub struct BlendingToken {
 impl BlendingToken {
     #[must_use]
     pub const fn new(
+        signing_key: Ed25519PublicKey,
         proof_of_quota: VerifiedProofOfQuota,
         proof_of_selection: VerifiedProofOfSelection,
     ) -> Self {
         Self {
+            signing_key,
             proof_of_quota,
             proof_of_selection,
         }
@@ -42,6 +46,10 @@ impl BlendingToken {
         let session_randomness_hash = hash(&next_session_randomness, token_count_byte_len as usize);
 
         HammingDistance::new(&token_hash, &session_randomness_hash)
+    }
+
+    pub(crate) const fn signing_key(&self) -> &Ed25519PublicKey {
+        &self.signing_key
     }
 
     pub(crate) const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
@@ -139,12 +147,17 @@ mod tests {
 
     #[test]
     fn test_blending_token_hamming_distance() {
-        let token = blending_token(1, 2);
-        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 4.into());
+        let token = blending_token(1, 1, 2);
+        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 2.into());
     }
 
-    fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
+    fn blending_token(
+        signing_key: u8,
+        proof_of_quota: u8,
+        proof_of_selection: u8,
+    ) -> BlendingToken {
         BlendingToken {
+            signing_key: ed25519_dalek::SigningKey::from_bytes(&[signing_key; _]).verifying_key(),
             proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked(
                 [proof_of_quota; PROOF_OF_QUOTA_SIZE],
             ),

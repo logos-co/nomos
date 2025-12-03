@@ -1,7 +1,14 @@
 use cryptarchia_engine::Epoch;
-use nomos_blend_message::reward::SessionRandomness;
-use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
-use nomos_core::sdp::ProviderId;
+use nomos_blend_crypto::merkle::sort_nodes_and_build_merkle_tree;
+use nomos_blend_message::{
+    crypto::proofs::PoQVerificationInputsMinusSigningKey,
+    encap::ProofsVerifier as ProofsVerifierTrait, reward::SessionRandomness,
+};
+use nomos_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
+use nomos_core::{
+    crypto::ZkHash,
+    sdp::{ProviderId, SessionNumber},
+};
 use rpds::HashTrieMapSync;
 use tracing::debug;
 use zksign::PublicKey;
@@ -72,16 +79,15 @@ impl CurrentSessionTracker {
     /// if the network size of the new target session is not below the
     /// minimum required. Otherwise, it returns
     /// [`CurrentSessionTrackerOutput::WithoutTargetSession`].
-    #[expect(
-        clippy::unused_self,
-        reason = "TODO: Create proof verifiers using `self.leader_inputs`"
-    )]
-    pub fn finalize(
+    pub fn finalize<ProofsVerifier>(
         &self,
         last_active_session_state: &SessionState,
         next_session_first_epoch_state: &EpochState,
         settings: &RewardsParameters,
-    ) -> CurrentSessionTrackerOutput {
+    ) -> CurrentSessionTrackerOutput<ProofsVerifier>
+    where
+        ProofsVerifier: ProofsVerifierTrait,
+    {
         if last_active_session_state.declarations.size()
             < settings.minimum_network_size.get() as usize
         {
@@ -95,19 +101,25 @@ impl CurrentSessionTracker {
             ));
         }
 
-        let providers = Self::providers(last_active_session_state);
+        let (providers, zk_root) = Self::providers_and_zk_root(last_active_session_state);
 
-        // TODO: Create proof verifiers using `self.leader_inputs`.
-
-        let token_evaluation = settings.token_evaluation(
+        let (core_quota, token_evaluation) = settings.core_quota_and_token_evaluation(
             providers.size() as u64,
         ).expect("evaluation parameters shouldn't overflow. panicking since we can't process the new session");
+
+        let proof_verifiers = Self::create_proof_verifiers(
+            self.leader_inputs.values().copied(),
+            last_active_session_state.session_n,
+            zk_root,
+            core_quota,
+        );
 
         CurrentSessionTrackerOutput::WithTargetSession {
             target_session_state: TargetSessionState::new(
                 last_active_session_state.session_n,
                 providers,
                 token_evaluation,
+                proof_verifiers,
             ),
             current_session_state: CurrentSessionState::new(SessionRandomness::new(
                 last_active_session_state.session_n + 1,
@@ -117,11 +129,53 @@ impl CurrentSessionTracker {
         }
     }
 
-    fn providers(session_state: &SessionState) -> HashTrieMapSync<ProviderId, PublicKey> {
-        session_state
+    fn providers_and_zk_root(
+        session_state: &SessionState,
+    ) -> (HashTrieMapSync<ProviderId, (PublicKey, u64)>, ZkHash) {
+        let mut providers = session_state
             .declarations
             .values()
             .map(|declaration| (declaration.provider_id, declaration.zk_id))
+            .collect::<Vec<_>>();
+
+        let zk_root = sort_nodes_and_build_merkle_tree(&mut providers, |(_, zk_id)| *zk_id)
+            .expect("Should not fail to build merkle tree of core nodes' zk public keys")
+            .root();
+
+        let providers = providers
+            .into_iter()
+            .enumerate()
+            .map(|(i, (provider_id, zk_id))| {
+                (
+                    provider_id,
+                    (
+                        zk_id,
+                        u64::try_from(i).expect("provider index must fit in u64"),
+                    ),
+                )
+            })
+            .collect();
+
+        (providers, zk_root)
+    }
+
+    fn create_proof_verifiers<ProofsVerifier: ProofsVerifierTrait>(
+        leader_inputs: impl Iterator<Item = LeaderInputs>,
+        session: SessionNumber,
+        zk_root: ZkHash,
+        core_quota: u64,
+    ) -> Vec<ProofsVerifier> {
+        leader_inputs
+            .map(|leader| {
+                ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
+                    session,
+                    core: CoreInputs {
+                        zk_root,
+                        quota: core_quota,
+                    },
+                    leader,
+                })
+            })
             .collect()
     }
 
@@ -132,12 +186,12 @@ impl CurrentSessionTracker {
 }
 
 /// Result of finalizing the [`CurrentSessionTracker`].
-pub enum CurrentSessionTrackerOutput {
+pub enum CurrentSessionTrackerOutput<ProofsVerifier> {
     /// Target session has been built with the information collected by
     /// the current session tracker.
     /// Also, the new current session state and tracker have been initialized.
     WithTargetSession {
-        target_session_state: TargetSessionState,
+        target_session_state: TargetSessionState<ProofsVerifier>,
         current_session_state: CurrentSessionState,
         current_session_tracker: CurrentSessionTracker,
     },

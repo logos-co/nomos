@@ -17,6 +17,7 @@ cryptarchia-engine  = { workspace = true }
 ed25519             = { default-features = false, version = "2.2.3" }
 groth16             = { workspace = true }
 mmr                 = { features = ["serde"], workspace = true }
+nomos-blend-crypto  = { workspace = true }
 nomos-blend-message = { workspace = true }
 nomos-blend-proofs  = { workspace = true }
 nomos-core          = { workspace = true }

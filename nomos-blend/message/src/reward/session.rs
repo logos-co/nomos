@@ -186,29 +186,31 @@ mod tests {
 
     #[test]
     fn test_token_evaluation() {
-        let evaluation = BlendingTokenEvaluation::new(1000, 2).unwrap();
-        // token_count_bit_len = ceil(log2((1000*2) + 1)) = 11
+        let evaluation = BlendingTokenEvaluation::new(2000, 2).unwrap();
+        // token_count_bit_len = ceil(log2((2000*2) + 1)) = 12
         // token_count_byte_len = ceil(token_count_bit_len / 8) = 2
         assert_eq!(evaluation.token_count_byte_len, 2);
-        // token_count_bit_len - ceil(log2(2+1)) - 1 = 8
-        assert_eq!(evaluation.activity_threshold, 8.into());
+        // token_count_bit_len - ceil(log2(2+1)) - 1 = 9
+        assert_eq!(evaluation.activity_threshold, 9.into());
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
+                ed25519_dalek::SigningKey::from_bytes(&[0; _]).verifying_key(),
                 VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             ),
             SessionRandomness::from([0; 64]),
         );
-        assert_eq!(maybe_distance, None);
+        assert_eq!(maybe_distance, Some(8.into()));
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
+                ed25519_dalek::SigningKey::from_bytes(&[1; _]).verifying_key(),
                 VerifiedProofOfQuota::from_bytes_unchecked([1; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([1; _]),
             ),
             SessionRandomness::from([0; 64]),
         );
-        assert_eq!(maybe_distance, Some(5.into()));
+        assert_eq!(maybe_distance, None);
     }
 }
