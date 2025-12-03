@@ -62,14 +62,16 @@ pub use tx_service::{
 pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
-    config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
+    config::{
+        blend::ServiceConfig as BlendConfig, cryptarchia::ServiceConfig as CryptarchiaConfig,
+        network::ServiceConfig as NetworkConfig,
+    },
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
         SdpServiceAdapterGeneric,
     },
 };
 
-pub const CONSENSUS_TOPIC: &str = "/cryptarchia/proto";
 pub const MANTLE_TOPIC: &str = "mantle";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
@@ -235,9 +237,15 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
+    let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
+        user: config.cryptarchia,
+        deployment: config.deployment.cryptarchia,
+    }
+    .into_cryptarchia_services_settings(&config.deployment.blend);
+
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.clone().into(),
+        deployment: config.deployment.blend,
     }
     .into();
 
@@ -245,7 +253,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
         NomosServiceSettings {
             network: NetworkConfig {
                 user: config.network,
-                deployment: config.deployment.into(),
+                deployment: config.deployment.network,
             }
             .into(),
             blend: blend_config,
@@ -266,9 +274,9 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             da_network: config.da_network,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
-            cryptarchia: config.cryptarchia,
-            chain_network: config.chain_network,
-            cryptarchia_leader: config.cryptarchia_leader,
+            cryptarchia: chain_service_config,
+            chain_network: chain_network_config,
+            cryptarchia_leader: chain_leader_config,
             time: config.time,
             storage: config.storage,
             system_sig: (),

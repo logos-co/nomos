@@ -8,7 +8,8 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
     config::{
-        BlendArgs, blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig,
+        BlendArgs, blend::ServiceConfig as BlendConfig,
+        cryptarchia::ServiceConfig as CryptarchiaConfig, network::ServiceConfig as NetworkConfig,
     },
 };
 use nomos_sdp::SdpSettings;
@@ -69,9 +70,15 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
+        user: config.cryptarchia,
+        deployment: config.deployment.cryptarchia,
+    }
+    .into_cryptarchia_services_settings(&config.deployment.blend);
+
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.clone().into(),
+        deployment: config.deployment.blend,
     }
     .into();
 
@@ -79,7 +86,7 @@ async fn main() -> Result<()> {
         NomosExecutorServiceSettings {
             network: NetworkConfig {
                 user: config.network,
-                deployment: config.deployment.into(),
+                deployment: config.deployment.network,
             }
             .into(),
             blend: blend_config,
@@ -101,9 +108,9 @@ async fn main() -> Result<()> {
             da_network: config.da_network,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,
-            cryptarchia: config.cryptarchia,
-            chain_network: config.chain_network,
-            cryptarchia_leader: config.cryptarchia_leader,
+            cryptarchia: chain_service_config,
+            chain_network: chain_network_config,
+            cryptarchia_leader: chain_leader_config,
             time: config.time,
             storage: config.storage,
             system_sig: (),

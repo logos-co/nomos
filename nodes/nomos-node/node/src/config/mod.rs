@@ -15,17 +15,20 @@ use serde::Deserialize;
 use tracing::Level;
 
 use crate::{
-    ApiService, ChainNetworkService, CryptarchiaLeaderService, CryptarchiaService,
-    DaNetworkService, DaSamplingService, DaVerifierService, KeyManagementService, RuntimeServiceId,
-    StorageService, TimeService,
+    ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
+    KeyManagementService, RuntimeServiceId, StorageService, TimeService,
     config::{
-        blend::serde::Config as BlendConfig, deployment::Settings as DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+        blend::serde::Config as BlendConfig,
+        cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
+        deployment::DeploymentSettings,
+        mempool::MempoolConfig,
+        network::serde::Config as NetworkConfig,
     },
     generic_services::{SdpService, WalletService},
 };
 
 pub mod blend;
+pub mod cryptarchia;
 pub mod deployment;
 pub mod mempool;
 pub mod network;
@@ -203,18 +206,16 @@ pub struct DaArgs {
 #[derive(Deserialize, Debug, Clone)]
 #[cfg_attr(feature = "testing", derive(serde::Serialize))]
 pub struct Config {
-    pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
+    pub cryptarchia: CryptarchiaConfig,
+    pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub cryptarchia: <CryptarchiaService as ServiceData>::Settings,
-    pub chain_network: <ChainNetworkService as ServiceData>::Settings,
-    pub cryptarchia_leader: <CryptarchiaLeaderService as ServiceData>::Settings,
     pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub key_management: <KeyManagementService as ServiceData>::Settings,
@@ -239,7 +240,7 @@ impl Config {
         update_network(&mut self.network, network_args)?;
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
-        update_cryptarchia_leader_consensus(&mut self.cryptarchia_leader, cryptarchia_leader_args)?;
+        update_cryptarchia_leader_consensus(&mut self.cryptarchia.leader, cryptarchia_leader_args)?;
         Ok(self)
     }
 }
@@ -348,7 +349,7 @@ pub fn update_http(
 }
 
 pub fn update_cryptarchia_leader_consensus(
-    leader: &mut <CryptarchiaLeaderService as ServiceData>::Settings,
+    leader: &mut LeaderConfig,
     consensus_args: CryptarchiaLeaderArgs,
 ) -> Result<()> {
     let CryptarchiaLeaderArgs { secret_key } = consensus_args;
@@ -359,8 +360,8 @@ pub fn update_cryptarchia_leader_consensus(
     let sk = zksign::SecretKey::from(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?));
     let pk = sk.to_public_key();
 
-    leader.leader_config.sk = sk;
-    leader.leader_config.pk = pk;
+    leader.leader.sk = sk;
+    leader.leader.pk = pk;
 
     Ok(())
 }

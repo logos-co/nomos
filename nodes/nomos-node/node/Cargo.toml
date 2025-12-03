@@ -27,6 +27,7 @@ chain-network                 = { workspace = true, features = ["libp2p"] }
 chain-service                 = { workspace = true }
 clap                          = { default-features = false, features = ["derive", "env", "std"], version = "4" }
 color-eyre                    = { default-features = false, version = "0.6.0" }
+cryptarchia-engine            = { workspace = true }
 derivative                    = { version = "2", default-features = false }
 futures                       = { default-features = false, version = "0.3" }
 groth16                       = { workspace = true }
@@ -44,6 +45,7 @@ nomos-da-network-service      = { workspace = true }
 nomos-da-sampling             = { features = ["libp2p", "rocksdb-backend"], workspace = true }
 nomos-da-verifier             = { features = ["libp2p"], workspace = true }
 nomos-http-api-common         = { features = ["profiling"], workspace = true }
+nomos-ledger                  = { workspace = true }
 nomos-libp2p                  = { workspace = true }
 nomos-network                 = { workspace = true }
 nomos-sdp                     = { workspace = true }

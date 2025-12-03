@@ -125,6 +125,7 @@ async fn disseminate_from_non_membership() {
     let StartingState::Genesis { genesis_tx } = membership_executor
         .config()
         .cryptarchia
+        .service
         .starting_state
         .clone()
     else {
@@ -132,7 +133,9 @@ async fn disseminate_from_non_membership() {
     };
 
     let mut lone_general_config = create_general_configs(1).into_iter().next().unwrap();
-    lone_general_config.consensus_config.genesis_tx = genesis_tx;
+    lone_general_config
+        .consensus_config
+        .override_genesis_tx(genesis_tx);
     let lone_executor_config = create_executor_config(lone_general_config);
     let lone_executor = Executor::spawn(lone_executor_config).await;
 
