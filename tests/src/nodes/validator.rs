@@ -46,7 +46,7 @@ use nomos_node::{
         backend::AxumBackendSettings, handlers::GetCommitmentsRequest,
         testing::handlers::HistoricSamplingRequest,
     },
-    config::mempool::MempoolConfig,
+    config::mempool::serde::Config as MempoolConfig,
 };
 use nomos_sdp::SdpSettings;
 use nomos_tracing::logging::local::FileConfig;
@@ -452,6 +452,9 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         deployment: custom_deployment_config,
         time: config.time_config,
         cryptarchia: config.consensus_config.user_config().clone(),
+        mempool: MempoolConfig {
+            recovery_path: "./recovery/mempool.json".into(),
+        },
 
         da_network: DaNetworkConfig {
             backend: DaNetworkBackendSettings {
@@ -529,9 +532,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             db_path: "./db".into(),
             read_only: false,
             column_family: Some("blocks".into()),
-        },
-        mempool: MempoolConfig {
-            pool_recovery_path: "./recovery/mempool.json".into(),
         },
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {

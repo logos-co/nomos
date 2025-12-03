@@ -22,7 +22,7 @@ use crate::{
         blend::serde::Config as BlendConfig,
         cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
         deployment::DeploymentSettings,
-        mempool::MempoolConfig,
+        mempool::serde::Config as MempoolConfig,
         network::serde::Config as NetworkConfig,
         time::serde::Config as TimeConfig,
     },
@@ -213,6 +213,8 @@ pub struct Config {
     pub deployment: DeploymentSettings,
     pub cryptarchia: CryptarchiaConfig,
     pub time: TimeConfig,
+    pub mempool: MempoolConfig,
+
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
@@ -221,7 +223,6 @@ pub struct Config {
     pub http: <ApiService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub key_management: <KeyManagementService as ServiceData>::Settings,
-    pub mempool: MempoolConfig,
     pub wallet: <WalletService<CryptarchiaService, RuntimeServiceId> as ServiceData>::Settings,
 
     #[cfg(feature = "testing")]

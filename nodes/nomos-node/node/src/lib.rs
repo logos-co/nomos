@@ -64,7 +64,8 @@ use crate::{
     api::backend::AxumBackend,
     config::{
         blend::ServiceConfig as BlendConfig, cryptarchia::ServiceConfig as CryptarchiaConfig,
-        network::ServiceConfig as NetworkConfig, time::ServiceConfig as TimeConfig,
+        mempool::ServiceConfig as MempoolConfig, network::ServiceConfig as NetworkConfig,
+        time::ServiceConfig as TimeConfig,
     },
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
@@ -72,7 +73,6 @@ use crate::{
     },
 };
 
-pub const MANTLE_TOPIC: &str = "mantle";
 pub const DA_TOPIC: &str = "da";
 pub const MB16: usize = 1024 * 1024 * 16;
 
@@ -255,6 +255,12 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
     }
     .into();
 
+    let mempool_service_config = MempoolConfig {
+        user: config.mempool,
+        deployment: config.deployment.mempool,
+    }
+    .into();
+
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
             network: NetworkConfig {
@@ -269,14 +275,7 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            mempool: TxMempoolSettings {
-                pool: (),
-                network_adapter: AdapterSettings {
-                    topic: String::from(MANTLE_TOPIC),
-                    id: <SignedMantleTx as Transaction>::hash,
-                },
-                recovery_path: config.mempool.pool_recovery_path,
-            },
+            mempool: mempool_service_config,
             da_network: config.da_network,
             da_sampling: config.da_sampling,
             da_verifier: config.da_verifier,

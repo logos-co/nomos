@@ -188,7 +188,7 @@ storage:
   read_only: false
   column_family: blocks
 mempool:
-  pool_recovery_path: ./recovery/mempool.json
+  recovery_path: ./recovery/mempool.json
 membership:
   backend:
     session_sizes:

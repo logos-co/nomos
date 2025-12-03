@@ -1,21 +1,18 @@
 use clap::Parser;
 use color_eyre::eyre::{Result, eyre};
-use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
     NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
 };
 use nomos_node::{
-    CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
-    Transaction,
+    CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
         BlendArgs, TimeArgs, blend::ServiceConfig as BlendConfig,
-        cryptarchia::ServiceConfig as CryptarchiaConfig, network::ServiceConfig as NetworkConfig,
-        time::ServiceConfig as TimeConfig,
+        cryptarchia::ServiceConfig as CryptarchiaConfig, mempool::ServiceConfig as MempoolConfig,
+        network::ServiceConfig as NetworkConfig, time::ServiceConfig as TimeConfig,
     },
 };
 use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
-use tx_service::tx::settings::TxMempoolSettings;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -93,6 +90,12 @@ async fn main() -> Result<()> {
     }
     .into();
 
+    let mempool_service_config = MempoolConfig {
+        user: config.mempool,
+        deployment: config.deployment.mempool,
+    }
+    .into();
+
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: NetworkConfig {
@@ -107,14 +110,7 @@ async fn main() -> Result<()> {
             #[cfg(feature = "tracing")]
             tracing: config.tracing,
             http: config.http,
-            mempool: TxMempoolSettings {
-                pool: (),
-                network_adapter: MempoolAdapterSettings {
-                    topic: String::from(MANTLE_TOPIC),
-                    id: <SignedMantleTx as Transaction>::hash,
-                },
-                recovery_path: config.mempool.pool_recovery_path,
-            },
+            mempool: mempool_service_config,
             da_dispersal: config.da_dispersal,
             da_network: config.da_network,
             da_sampling: config.da_sampling,
