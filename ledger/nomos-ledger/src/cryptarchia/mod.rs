@@ -333,7 +333,7 @@ impl core::fmt::Debug for LedgerState {
 
 #[cfg(test)]
 pub mod tests {
-    use std::num::NonZero;
+    use std::num::{NonZero, NonZeroU64};
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
@@ -345,11 +345,16 @@ pub mod tests {
         },
         sdp::ServiceParameters,
     };
+    use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
     use rand::{RngCore as _, thread_rng};
 
     use super::*;
-    use crate::{Ledger, leader_proof::LeaderProof};
+    use crate::{
+        Ledger,
+        leader_proof::LeaderProof,
+        mantle::sdp::{ServiceRewardsParameters, rewards},
+    };
 
     type HeaderId = [u8; 32];
 
@@ -500,6 +505,14 @@ pub mod tests {
             },
             sdp_config: crate::mantle::sdp::Config {
                 service_params: std::sync::Arc::new(service_params),
+                service_rewards_params: ServiceRewardsParameters {
+                    blend: rewards::blend::RewardsParameters {
+                        rounds_per_session: NonZeroU64::new(10).unwrap(),
+                        message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                        num_blend_layers: NonZeroU64::new(3).unwrap(),
+                        minimum_network_size: NonZeroU64::new(1).unwrap(),
+                    },
+                },
                 min_stake: nomos_core::sdp::MinStake {
                     threshold: 1,
                     timestamp: 0,
@@ -534,18 +547,18 @@ pub mod tests {
         }
     }
 
-    fn full_ledger_state(cryptarchia_ledger: LedgerState) -> crate::LedgerState {
+    fn full_ledger_state(cryptarchia_ledger: LedgerState, config: &Config) -> crate::LedgerState {
         crate::LedgerState {
             block_number: 0,
             cryptarchia_ledger,
-            mantle_ledger: crate::mantle::LedgerState::default(),
+            mantle_ledger: crate::mantle::LedgerState::new(config),
         }
     }
 
-    fn ledger(utxos: &[Utxo]) -> (Ledger<HeaderId>, HeaderId) {
+    fn ledger(utxos: &[Utxo], config: Config) -> (Ledger<HeaderId>, HeaderId) {
         let genesis_state = genesis_state(utxos);
         (
-            Ledger::new([0; 32], full_ledger_state(genesis_state), config()),
+            Ledger::new([0; 32], full_ledger_state(genesis_state, &config), config),
             [0; 32],
         )
     }
@@ -563,14 +576,16 @@ pub mod tests {
         // manually
         let mut block_state = ledger.states[&id].clone().cryptarchia_ledger;
         block_state.utxos = block_state.utxos.insert(utxo_add.id(), utxo_add).0;
-        ledger.states.insert(id, full_ledger_state(block_state));
+        ledger
+            .states
+            .insert(id, full_ledger_state(block_state, &ledger.config));
         id
     }
 
     #[test]
     fn test_ledger_state_allow_leadership_utxo_reuse() {
         let utxo = utxo();
-        let (mut ledger, genesis) = ledger(&[utxo]);
+        let (mut ledger, genesis) = ledger(&[utxo], config());
 
         let h = update_ledger(&mut ledger, genesis, 1, utxo).unwrap();
 
@@ -581,7 +596,7 @@ pub mod tests {
     #[test]
     fn test_ledger_state_uncommited_utxo() {
         let utxo_1 = utxo();
-        let (mut ledger, genesis) = ledger(&[utxo()]);
+        let (mut ledger, genesis) = ledger(&[utxo()], config());
         assert!(matches!(
             update_ledger(&mut ledger, genesis, 1, utxo_1),
             Err(LedgerError::InvalidProof),
@@ -593,7 +608,7 @@ pub mod tests {
         let utxos = std::iter::repeat_with(utxo).take(4).collect::<Vec<_>>();
         let utxo_4 = utxo();
         let utxo_5 = utxo();
-        let (mut ledger, genesis) = ledger(&utxos);
+        let (mut ledger, genesis) = ledger(&utxos, config());
 
         // An epoch will be 10 slots long, with stake distribution snapshot taken at the
         // start of the epoch and nonce snapshot before slot 7
@@ -644,7 +659,7 @@ pub mod tests {
         let utxo_1 = utxo();
         let utxo = utxo();
 
-        let (mut ledger, genesis) = ledger(&[utxo]);
+        let (mut ledger, genesis) = ledger(&[utxo], config());
 
         // EPOCH 0
         // mint a new utxo to be used for leader elections in upcoming epochs
@@ -674,7 +689,7 @@ pub mod tests {
     #[test]
     fn test_update_epoch_state_with_outdated_slot_error() {
         let utxo = utxo();
-        let (ledger, genesis) = ledger(&[utxo]);
+        let (ledger, genesis) = ledger(&[utxo], config());
 
         let ledger_state = ledger.state(&genesis).unwrap().clone();
         let ledger_config = ledger.config();
@@ -701,7 +716,7 @@ pub mod tests {
     #[test]
     fn test_invalid_aged_root_rejected() {
         let utxo = utxo();
-        let (ledger, genesis) = ledger(&[utxo]);
+        let (ledger, genesis) = ledger(&[utxo], config());
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
         let proof = DummyProof {
@@ -725,7 +740,7 @@ pub mod tests {
     #[test]
     fn test_invalid_latest_root_rejected() {
         let utxo = utxo();
-        let (ledger, genesis) = ledger(&[utxo]);
+        let (ledger, genesis) = ledger(&[utxo], config());
         let ledger_state = ledger.state(&genesis).unwrap().clone().cryptarchia_ledger;
         let slot = Slot::genesis() + 1;
         let proof = DummyProof {

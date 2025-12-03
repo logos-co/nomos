@@ -4,7 +4,7 @@ use blake2::{
 };
 use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 use nomos_core::codec::SerializeOp as _;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::reward::session::SessionRandomness;
 
@@ -30,18 +30,18 @@ impl BlendingToken {
     /// Computes the Hamming distance between this blending token and the next
     /// session randomness.
     #[must_use]
-    pub(crate) fn hamming_distance(
+    pub fn hamming_distance(
         &self,
         token_count_byte_len: u64,
         next_session_randomness: SessionRandomness,
-    ) -> u64 {
+    ) -> HammingDistance {
         let token = self
             .to_bytes()
             .expect("BlendingToken should be serializable");
         let token_hash = hash(&token, token_count_byte_len as usize);
         let session_randomness_hash = hash(&next_session_randomness, token_count_byte_len as usize);
 
-        hamming_distance(&token_hash, &session_randomness_hash)
+        HammingDistance::new(&token_hash, &session_randomness_hash)
     }
 
     pub(crate) const fn proof_of_quota(&self) -> &VerifiedProofOfQuota {
@@ -67,16 +67,32 @@ fn hash(input: &[u8], output_size: usize) -> Vec<u8> {
     output
 }
 
-/// Computes the Hamming distance between two byte slices.
-/// (i.e. the number of differing bits)
-///
-/// If the slices have different lengths, the extra bytes in the longer slice
-/// are silently ignored.
-fn hamming_distance(a: &[u8], b: &[u8]) -> u64 {
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| u64::from((x ^ y).count_ones()))
-        .sum()
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct HammingDistance(u64);
+
+impl HammingDistance {
+    pub const MAX: Self = Self(u64::MAX);
+
+    /// Computes the Hamming distance between two byte slices.
+    /// (i.e. the number of differing bits)
+    ///
+    /// If the slices have different lengths, the extra bytes in the longer
+    /// slice are silently ignored.
+    #[must_use]
+    pub fn new(a: &[u8], b: &[u8]) -> Self {
+        Self(
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| u64::from((x ^ y).count_ones()))
+                .sum(),
+        )
+    }
+}
+
+impl From<u64> for HammingDistance {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 #[cfg(test)]
@@ -88,18 +104,18 @@ mod tests {
     #[test]
     fn test_hamming_distance() {
         assert_eq!(
-            hamming_distance(&[0b1010_1010, 0b1100_1100], &[0b1010_1010, 0b1100_1100]),
-            0
+            HammingDistance::new(&[0b1010_1010, 0b1100_1100], &[0b1010_1010, 0b1100_1100]),
+            0.into(),
         );
         assert_eq!(
-            hamming_distance(&[0b1010_1010, 0b1100_1100], &[0b0101_0101, 0b0011_0011]),
-            16
+            HammingDistance::new(&[0b1010_1010, 0b1100_1100], &[0b0101_0101, 0b0011_0011]),
+            16.into()
         );
         assert_eq!(
-            hamming_distance(&[0b1111_1111, 0b1111_1111], &[0b0000_0000]),
-            8
+            HammingDistance::new(&[0b1111_1111, 0b1111_1111], &[0b0000_0000]),
+            8.into()
         );
-        assert_eq!(hamming_distance(&[], &[]), 0);
+        assert_eq!(HammingDistance::new(&[], &[]), 0.into());
     }
 
     #[test]
@@ -124,7 +140,7 @@ mod tests {
     #[test]
     fn test_blending_token_hamming_distance() {
         let token = blending_token(1, 2);
-        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 4);
+        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 4.into());
     }
 
     fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {

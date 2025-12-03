@@ -1,83 +1,20 @@
 use std::collections::{BTreeMap, HashMap};
 
-use groth16::{Fr, fr_from_bytes};
+use groth16::Fr;
 use nomos_core::{
     block::BlockNumber,
-    crypto::{ZkDigest, ZkHasher},
-    mantle::{Note, TxHash, Utxo},
-    sdp::{ActivityMetadata, ProviderId, ServiceParameters, ServiceType, SessionNumber},
+    mantle::Utxo,
+    sdp::{ActivityMetadata, ProviderId, ServiceParameters, ServiceType},
 };
 use rpds::{HashTrieMapSync, HashTrieSetSync};
-use thiserror::Error;
 use zksign::PublicKey;
 
-use super::SessionState;
+use crate::mantle::sdp::{
+    SessionState,
+    rewards::{Error, distribute_rewards},
+};
 
-pub type RewardAmount = u64;
 const ACTIVITY_THRESHOLD: u64 = 2;
-
-/// Generic trait for service-specific reward calculation.
-///
-/// Each service can implement its own rewards logic by implementing this trait.
-/// The rewards object is updated with active messages and session transitions,
-/// and can calculate expected rewards for each provider based on the service's
-/// internal logic.
-pub trait Rewards: Clone + PartialEq + Eq + Send + Sync + std::fmt::Debug {
-    /// Update rewards state when an active message is received.
-    ///
-    /// Called when a provider submits an active message with metadata
-    /// (e.g., activity proofs containing opinions about other providers).
-    fn update_active(
-        &self,
-        declaration_id: ProviderId,
-        metadata: &ActivityMetadata,
-        block_number: BlockNumber,
-    ) -> Result<Self, Error>;
-
-    /// Update rewards state when sessions transition and calculate rewards to
-    /// distribute.
-    ///
-    /// Called during session boundaries when active, `past_session`, and
-    /// forming sessions are updated. Returns a map of `ProviderId` to
-    /// reward amounts for providers eligible for rewards in this session
-    /// transition.
-    ///
-    /// The internal calculation logic is opaque to the SDP ledger and
-    /// determined by the service-specific implementation.
-    fn update_session(
-        &self,
-        last_active: &SessionState,
-        config: &ServiceParameters,
-    ) -> (Self, Vec<Utxo>);
-}
-
-/// No-op rewards implementation that doesn't track or distribute any rewards.
-///
-/// This is used as a placeholder for services that don't implement rewards yet.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NoopRewards;
-
-impl Rewards for NoopRewards {
-    fn update_active(
-        &self,
-        _declaration_id: ProviderId,
-        _metadata: &ActivityMetadata,
-        _block_number: BlockNumber,
-    ) -> Result<Self, Error> {
-        // No-op: this implementation doesn't track rewards
-        Ok(self.clone())
-    }
-
-    fn update_session(
-        &self,
-        _last_active: &SessionState,
-        _config: &ServiceParameters,
-    ) -> (Self, Vec<Utxo>) {
-        // No rewards to distribute
-        (self.clone(), Vec::new())
-    }
-}
 
 /// Data Availability rewards implementation based on opinion-based peer
 /// evaluation.
@@ -88,7 +25,7 @@ impl Rewards for NoopRewards {
 /// threshold.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DaRewards {
+pub struct Rewards {
     current_opinions: HashTrieMapSync<PublicKey, usize>,
     past_opinions: HashTrieMapSync<PublicKey, usize>,
     recorded_messages: HashTrieSetSync<ProviderId>, // avoid processing duplicate opinions
@@ -100,14 +37,14 @@ pub struct DaRewards {
     prev_session: SessionState,
 }
 
-impl Default for DaRewards {
+impl Default for Rewards {
     fn default() -> Self {
         Self::new() // Default to 2 (same as previous ACTIVITY_THRESHOLD constant)
     }
 }
 
-impl DaRewards {
-    /// Create a new `DaRewards` instance with the specified opinion threshold
+impl Rewards {
+    /// Create a new [`Rewards`] instance with the specified opinion threshold
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -160,7 +97,7 @@ impl DaRewards {
     }
 }
 
-impl Rewards for DaRewards {
+impl super::Rewards for Rewards {
     fn update_active(
         &self,
         provider_id: ProviderId,
@@ -246,6 +183,7 @@ impl Rewards for DaRewards {
     fn update_session(
         &self,
         last_active: &SessionState,
+        _next_active_session_epoch_nonce: &Fr,
         _config: &ServiceParameters,
     ) -> (Self, Vec<Utxo>) {
         // Calculate activity threshold: θ = Ns / ACTIVITY_THRESHOLD
@@ -306,138 +244,47 @@ impl Rewards for DaRewards {
     }
 }
 
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum Error {
-    #[error("Invalid session: expected {expected}, got {got}")]
-    InvalidSession {
-        expected: SessionNumber,
-        got: SessionNumber,
-    },
-    #[error("Invalid opinion length: expected {expected}, got {got}")]
-    InvalidOpinionLength { expected: usize, got: usize },
-    #[error("Duplicate active message for session {session}, provider {provider_id:?}")]
-    DuplicateActiveMessage {
-        session: SessionNumber,
-        provider_id: Box<ProviderId>,
-    },
-    #[error("Invalid proof type")]
-    InvalidProofType,
-}
-
-/// Creates a deterministic transaction hash for reward distribution.
-///
-/// The hash is computed from a version constant, session number, and service
-/// type, ensuring all nodes produce identical transaction hashes for reward
-/// notes.
-fn create_reward_tx_hash(session_n: SessionNumber, service_type: ServiceType) -> TxHash {
-    let mut hasher = ZkHasher::default();
-    let session_fr = Fr::from(session_n);
-    let service_type_fr = fr_from_bytes(service_type.as_ref().as_bytes())
-        .expect("Valid service type fr representation");
-    <ZkHasher as ZkDigest>::update(&mut hasher, &service_type_fr);
-    <ZkHasher as ZkDigest>::update(&mut hasher, &session_fr);
-
-    TxHash(hasher.finalize())
-}
-
-/// Distributes rewards as UTXOs, sorted by `zk_id` for determinism.
-///
-/// Creates reward notes that are:
-/// - Deterministic: Sorted by `zk_id` in ascending order
-/// - One note per `zk_id`
-/// - Filters out 0-value rewards
-fn distribute_rewards(
-    rewards: HashMap<PublicKey, RewardAmount>,
-    session_n: SessionNumber,
-    service_type: ServiceType,
-) -> Vec<Utxo> {
-    let mut sorted_rewards: Vec<(PublicKey, RewardAmount)> = rewards
-        .into_iter()
-        .filter(|(_, amount)| *amount > 0)
-        .collect();
-    sorted_rewards.sort_by_key(|(zk_id, _)| *zk_id);
-
-    let tx_hash = create_reward_tx_hash(session_n, service_type);
-
-    sorted_rewards
-        .into_iter()
-        .enumerate()
-        .map(|(output_index, (zk_id, reward_amount))| {
-            Utxo::new(tx_hash, output_index, Note::new(reward_amount, zk_id))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use nomos_core::sdp::{Declaration, DeclarationId, da::ActivityProof};
-    use num_bigint::BigUint;
+    use groth16::Field as _;
+    use nomos_core::{crypto::ZkHash, sdp::da};
 
     use super::*;
-
-    fn create_test_session_state(
-        provider_ids: &[ProviderId],
-        session_n: SessionNumber,
-    ) -> SessionState {
-        let mut declarations = rpds::RedBlackTreeMapSync::new_sync();
-        for (i, provider_id) in provider_ids.iter().enumerate() {
-            let declaration = Declaration {
-                service_type: ServiceType::DataAvailability,
-                provider_id: *provider_id,
-                locked_note_id: Fr::from(i as u64).into(),
-                locators: vec![],
-                zk_id: PublicKey::new(BigUint::from(i as u64).into()),
-                created: 0,
-                active: 0,
-                withdrawn: None,
-                nonce: 0,
-            };
-            declarations = declarations.insert(DeclarationId([i as u8; 32]), declaration);
-        }
-        SessionState {
-            declarations,
-            session_n,
-        }
-    }
-
-    pub fn create_provider_id(byte: u8) -> ProviderId {
-        use ed25519_dalek::SigningKey;
-        let key_bytes = [byte; 32];
-        // Ensure the key is valid by using SigningKey
-        let signing_key = SigningKey::from_bytes(&key_bytes);
-        ProviderId(signing_key.verifying_key())
-    }
+    use crate::mantle::sdp::rewards::{
+        Rewards as _,
+        tests::{create_provider_id, create_test_session_state},
+    };
 
     #[test]
     fn test_calculate_opinion_vector_length() {
         // 0 nodes: 0 bytes
-        assert_eq!(DaRewards::calculate_opinion_vector_length(0), 0);
+        assert_eq!(Rewards::calculate_opinion_vector_length(0), 0);
 
         // 1-2 nodes: need 2 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(1), 1);
-        assert_eq!(DaRewards::calculate_opinion_vector_length(2), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(1), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(2), 1);
 
         // 3-4 nodes: need 3 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(3), 1);
-        assert_eq!(DaRewards::calculate_opinion_vector_length(4), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(3), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(4), 1);
 
         // 5-8 nodes: need 4 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(8), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(8), 1);
 
         // 9-16 nodes: need 5 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(16), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(16), 1);
 
         // 17-32 nodes: need 6 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(32), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(32), 1);
 
         // 33-64 nodes: need 7 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(64), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(64), 1);
 
         // 65-128 nodes: need 8 bits -> 1 byte
-        assert_eq!(DaRewards::calculate_opinion_vector_length(128), 1);
+        assert_eq!(Rewards::calculate_opinion_vector_length(128), 1);
 
         // 129-256 nodes: need 9 bits -> 2 bytes
-        assert_eq!(DaRewards::calculate_opinion_vector_length(256), 2);
+        assert_eq!(Rewards::calculate_opinion_vector_length(256), 2);
     }
 
     #[test]
@@ -445,22 +292,22 @@ mod tests {
         let opinions = vec![0b1011_0100, 0b0000_0011];
 
         // First byte: bits 0-7
-        assert!(!DaRewards::get_opinion_bit(&opinions, 0)); // 0
-        assert!(!DaRewards::get_opinion_bit(&opinions, 1)); // 0
-        assert!(DaRewards::get_opinion_bit(&opinions, 2)); // 1
-        assert!(!DaRewards::get_opinion_bit(&opinions, 3)); // 0
-        assert!(DaRewards::get_opinion_bit(&opinions, 4)); // 1
-        assert!(DaRewards::get_opinion_bit(&opinions, 5)); // 1
-        assert!(!DaRewards::get_opinion_bit(&opinions, 6)); // 0
-        assert!(DaRewards::get_opinion_bit(&opinions, 7)); // 1
+        assert!(!Rewards::get_opinion_bit(&opinions, 0)); // 0
+        assert!(!Rewards::get_opinion_bit(&opinions, 1)); // 0
+        assert!(Rewards::get_opinion_bit(&opinions, 2)); // 1
+        assert!(!Rewards::get_opinion_bit(&opinions, 3)); // 0
+        assert!(Rewards::get_opinion_bit(&opinions, 4)); // 1
+        assert!(Rewards::get_opinion_bit(&opinions, 5)); // 1
+        assert!(!Rewards::get_opinion_bit(&opinions, 6)); // 0
+        assert!(Rewards::get_opinion_bit(&opinions, 7)); // 1
 
         // Second byte: bits 8-15
-        assert!(DaRewards::get_opinion_bit(&opinions, 8)); // 1
-        assert!(DaRewards::get_opinion_bit(&opinions, 9)); // 1
-        assert!(!DaRewards::get_opinion_bit(&opinions, 10)); // 0
+        assert!(Rewards::get_opinion_bit(&opinions, 8)); // 1
+        assert!(Rewards::get_opinion_bit(&opinions, 9)); // 1
+        assert!(!Rewards::get_opinion_bit(&opinions, 10)); // 0
 
         // Out of bounds
-        assert!(!DaRewards::get_opinion_bit(&opinions, 100));
+        assert!(!Rewards::get_opinion_bit(&opinions, 100));
     }
 
     #[test]
@@ -469,10 +316,11 @@ mod tests {
         let provider2 = create_provider_id(2);
 
         // Create active session with providers
-        let active_session = create_test_session_state(&[provider1, provider2], 1);
+        let active_session =
+            create_test_session_state(&[provider1, provider2], ServiceType::DataAvailability, 1);
 
         // Initialize rewards tracker with the active session
-        let rewards_tracker = DaRewards {
+        let rewards_tracker = Rewards {
             current_opinions: HashTrieMapSync::new_sync(),
             past_opinions: HashTrieMapSync::new_sync(),
             recorded_messages: HashTrieSetSync::new_sync(),
@@ -491,7 +339,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, rewards) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, rewards) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // No activity proofs submitted, so no rewards
         assert_eq!(rewards.len(), 0);
@@ -507,10 +356,11 @@ mod tests {
         let provider4 = create_provider_id(4);
 
         let providers = vec![provider1, provider2, provider3, provider4];
-        let active_session = create_test_session_state(&providers, 1);
+        let active_session =
+            create_test_session_state(&providers, ServiceType::DataAvailability, 1);
 
         // Initialize rewards tracker with the active session
-        let mut rewards_tracker = DaRewards {
+        let mut rewards_tracker = Rewards {
             current_opinions: HashTrieMapSync::new_sync(),
             past_opinions: HashTrieMapSync::new_sync(),
             recorded_messages: HashTrieSetSync::new_sync(),
@@ -525,7 +375,7 @@ mod tests {
         let create_all_positive = || vec![0b0000_1111u8]; // All 4 providers positive
 
         // Provider 1 submits: positive about all
-        let proof1 = ActivityProof {
+        let proof1 = da::ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: create_all_positive(),
@@ -535,7 +385,7 @@ mod tests {
             .unwrap();
 
         // Provider 2 submits: positive about first 3 (bits 0, 1, 2)
-        let proof2 = ActivityProof {
+        let proof2 = da::ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: vec![0b0000_0111u8],
@@ -545,7 +395,7 @@ mod tests {
             .unwrap();
 
         // Provider 3 submits: positive about all
-        let proof3 = ActivityProof {
+        let proof3 = da::ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![],
             current_session_opinions: create_all_positive(),
@@ -562,7 +412,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, reward_utxos) = rewards_tracker.update_session(&active_session, &config);
+        let (_new_state, reward_utxos) =
+            rewards_tracker.update_session(&active_session, &ZkHash::ZERO, &config);
 
         // Calculate expected rewards dynamically (works for any session_income)
         let session_income = 0; // Currently hardcoded in implementation
@@ -612,8 +463,10 @@ mod tests {
         let provider2 = create_provider_id(2);
 
         // Set up sessions: provider1 in both, provider2 only in current
-        let current_session = create_test_session_state(&[provider1, provider2], 1);
-        let prev_session = create_test_session_state(&[provider1], 0);
+        let current_session =
+            create_test_session_state(&[provider1, provider2], ServiceType::DataAvailability, 1);
+        let prev_session =
+            create_test_session_state(&[provider1], ServiceType::DataAvailability, 0);
 
         // Extract zk_ids for verification
         let current_zk_ids: Vec<PublicKey> = current_session
@@ -625,7 +478,7 @@ mod tests {
         let provider2_zk_id = current_zk_ids[1];
 
         // Initialize rewards tracker with both sessions
-        let mut rewards_tracker = DaRewards {
+        let mut rewards_tracker = Rewards {
             current_opinions: HashTrieMapSync::new_sync(),
             past_opinions: HashTrieMapSync::new_sync(),
             recorded_messages: HashTrieSetSync::new_sync(),
@@ -634,7 +487,7 @@ mod tests {
         };
 
         // Provider 1 submits opinions for current session
-        let proof1 = ActivityProof {
+        let proof1 = da::ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![0b0000_0001u8], // Positive about provider1 in prev
             current_session_opinions: vec![0b0000_0011u8],  // Positive about both in current
@@ -644,7 +497,7 @@ mod tests {
             .unwrap();
 
         // Provider 2 submits opinions for current session only
-        let proof2 = ActivityProof {
+        let proof2 = da::ActivityProof {
             current_session: 1,
             previous_session_opinions: vec![0b0000_0001u8], // Positive about provider1 in prev
             current_session_opinions: vec![0b0000_0011u8],  // Positive about both in current
@@ -661,7 +514,8 @@ mod tests {
             session_duration: 10,
         };
 
-        let (_new_state, reward_utxos) = rewards_tracker.update_session(&current_session, &config);
+        let (_new_state, reward_utxos) =
+            rewards_tracker.update_session(&current_session, &ZkHash::ZERO, &config);
 
         // Calculate expected rewards dynamically
         let session_income = 0; // Currently hardcoded

@@ -268,7 +268,18 @@ impl Wallet {
 
 #[cfg(test)]
 mod tests {
-    use nomos_core::mantle::{Note, TxHash, gas::MainnetGasConstants as Gas};
+    use std::{
+        num::{NonZero, NonZeroU64},
+        sync::Arc,
+    };
+
+    use cryptarchia_engine::EpochConfig;
+    use nomos_core::{
+        mantle::{Note, TxHash, gas::MainnetGasConstants as Gas},
+        sdp::{MinStake, ServiceParameters, ServiceType},
+    };
+    use nomos_ledger::mantle::sdp::{ServiceRewardsParameters, rewards};
+    use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
 
     use super::*;
@@ -288,11 +299,14 @@ mod tests {
 
         let genesis = HeaderId::from([0; 32]);
 
-        let ledger = LedgerState::from_utxos([
-            Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
-            Utxo::new(tx_hash(0), 1, Note::new(20, bob)),
-            Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
-        ]);
+        let ledger = LedgerState::from_utxos(
+            [
+                Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
+                Utxo::new(tx_hash(0), 1, Note::new(20, bob)),
+                Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
+            ],
+            &ledger_config(),
+        );
 
         let wallet = Wallet::from_lib([], genesis, &ledger);
         assert_eq!(wallet.balance(genesis, alice).unwrap(), None);
@@ -318,7 +332,7 @@ mod tests {
 
         let genesis = HeaderId::from([0; 32]);
 
-        let genesis_ledger = LedgerState::from_utxos([]);
+        let genesis_ledger = LedgerState::from_utxos([], &ledger_config());
 
         let mut wallet = Wallet::from_lib([alice, bob], genesis, &genesis_ledger);
 
@@ -369,7 +383,7 @@ mod tests {
 
         let wallet_state = WalletState::from_ledger(
             &HashSet::from_iter([alice]),
-            &LedgerState::from_utxos([alice_utxo]),
+            &LedgerState::from_utxos([alice_utxo], &ledger_config()),
         );
 
         let tx_builder = MantleTxBuilder::new()
@@ -405,12 +419,15 @@ mod tests {
 
         let wallet_state = WalletState::from_ledger(
             &HashSet::from_iter([alice]),
-            &LedgerState::from_utxos([
-                Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
-                Utxo::new(tx_hash(0), 1, Note::new(100, alice)),
-                Utxo::new(tx_hash(0), 2, Note::new(100, alice)),
-                Utxo::new(tx_hash(0), 3, Note::new(100, alice)),
-            ]),
+            &LedgerState::from_utxos(
+                [
+                    Utxo::new(tx_hash(0), 0, Note::new(100, alice)),
+                    Utxo::new(tx_hash(0), 1, Note::new(100, alice)),
+                    Utxo::new(tx_hash(0), 2, Note::new(100, alice)),
+                    Utxo::new(tx_hash(0), 3, Note::new(100, alice)),
+                ],
+                &ledger_config(),
+            ),
         );
 
         let tx_builder = MantleTxBuilder::new()
@@ -430,8 +447,10 @@ mod tests {
     fn test_fund_tx_zero_funds() {
         let alice = pk(1);
 
-        let wallet_state =
-            WalletState::from_ledger(&HashSet::from_iter([alice]), &LedgerState::from_utxos([]));
+        let wallet_state = WalletState::from_ledger(
+            &HashSet::from_iter([alice]),
+            &LedgerState::from_utxos([], &ledger_config()),
+        );
 
         let tx_builder = MantleTxBuilder::new()
             .set_execution_gas_price(1)
@@ -452,7 +471,10 @@ mod tests {
 
         let wallet_state = WalletState::from_ledger(
             &HashSet::from_iter([alice, bob]),
-            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(1_000_000, bob))]),
+            &LedgerState::from_utxos(
+                [Utxo::new(tx_hash(0), 0, Note::new(1_000_000, bob))],
+                &ledger_config(),
+            ),
         );
 
         let tx_builder = MantleTxBuilder::new()
@@ -494,7 +516,10 @@ mod tests {
         // note
         let wallet_state = WalletState::from_ledger(
             &HashSet::from_iter([alice]),
-            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(2884, alice))]),
+            &LedgerState::from_utxos(
+                [Utxo::new(tx_hash(0), 0, Note::new(2884, alice))],
+                &ledger_config(),
+            ),
         );
 
         let funded_tx_wo_change = wallet_state
@@ -521,7 +546,10 @@ mod tests {
             // note
             let wallet_state = WalletState::from_ledger(
                 &HashSet::from_iter([alice]),
-                &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(value, alice))]),
+                &LedgerState::from_utxos(
+                    [Utxo::new(tx_hash(0), 0, Note::new(value, alice))],
+                    &ledger_config(),
+                ),
             );
 
             let fund_attempt = wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice]);
@@ -535,7 +563,10 @@ mod tests {
         // We can fund the tx if the note value exceeds gas cost with change note
         let wallet_state = WalletState::from_ledger(
             &HashSet::from_iter([alice]),
-            &LedgerState::from_utxos([Utxo::new(tx_hash(0), 0, Note::new(2925, alice))]),
+            &LedgerState::from_utxos(
+                [Utxo::new(tx_hash(0), 0, Note::new(2925, alice))],
+                &ledger_config(),
+            ),
         );
 
         let funded_tx_wo_change = wallet_state
@@ -548,5 +579,59 @@ mod tests {
             funded_tx_wo_change.ledger_tx.outputs,
             vec![Note::new(1, alice)]
         );
+    }
+
+    #[must_use]
+    fn ledger_config() -> nomos_ledger::Config {
+        nomos_ledger::Config {
+            epoch_config: EpochConfig {
+                epoch_stake_distribution_stabilization: NonZero::new(1).unwrap(),
+                epoch_period_nonce_buffer: NonZero::new(1).unwrap(),
+                epoch_period_nonce_stabilization: NonZero::new(1).unwrap(),
+            },
+            consensus_config: cryptarchia_engine::Config {
+                security_param: NonZero::new(1).unwrap(),
+                active_slot_coeff: 1.0,
+            },
+            sdp_config: nomos_ledger::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 10,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                service_rewards_params: ServiceRewardsParameters {
+                    blend: rewards::blend::RewardsParameters {
+                        rounds_per_session: NonZeroU64::new(10).unwrap(),
+                        message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                        num_blend_layers: NonZeroU64::new(3).unwrap(),
+                        minimum_network_size: NonZeroU64::new(1).unwrap(),
+                    },
+                },
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
+            },
+        }
     }
 }

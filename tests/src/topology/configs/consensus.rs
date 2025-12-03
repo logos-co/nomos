@@ -1,4 +1,7 @@
-use std::{num::NonZero, sync::Arc};
+use std::{
+    num::{NonZero, NonZeroU64},
+    sync::Arc,
+};
 
 use chain_leader::LeaderConfig;
 use cryptarchia_engine::EpochConfig;
@@ -16,7 +19,9 @@ use nomos_core::{
     },
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType},
 };
+use nomos_ledger::mantle::sdp::{ServiceRewardsParameters, rewards};
 use nomos_node::{SignedMantleTx, Transaction as _};
+use nomos_utils::math::NonNegativeF64;
 use num_bigint::BigUint;
 use zksign::{PublicKey, SecretKey};
 
@@ -166,6 +171,14 @@ pub fn create_consensus_configs(
                 ]
                 .into(),
             ),
+            service_rewards_params: ServiceRewardsParameters {
+                blend: rewards::blend::RewardsParameters {
+                    rounds_per_session: NonZeroU64::new(1000).unwrap(),
+                    message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                    num_blend_layers: NonZeroU64::new(3).unwrap(),
+                    minimum_network_size: NonZeroU64::new(1).unwrap(),
+                },
+            },
             min_stake: nomos_core::sdp::MinStake {
                 threshold: 1,
                 timestamp: 0,
