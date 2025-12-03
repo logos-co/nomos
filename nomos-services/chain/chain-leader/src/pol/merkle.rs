@@ -5,7 +5,50 @@ use nomos_core::crypto::{ZkDigest, ZkHasher};
 use crate::pol::SlotSecret;
 
 pub struct MerklePolCache {
-    pub upper_merkle_pol: MerklePol,
+    pub cached_tree: Vec<Vec<Fr>>,
+    pub lower_merkle_pol: MerklePol,
+    pub cache_depth: usize,
+    pub tree_depth: usize,
+}
+
+impl MerklePolCache {
+    pub fn new(seed: Fr, tree_depth: usize, cache_depth: usize) -> Self {
+        let sub_tree_depth = tree_depth - cache_depth;
+        // TODO: parallelize?
+        let numer_of_trees = 2usize.pow(sub_tree_depth as u32);
+        let total_leaves = 2usize.pow(tree_depth as u32);
+        let seed_jump = total_leaves / numer_of_trees;
+        let seeds: Vec<Fr> =
+            std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed]))).collect();
+        let mut trees = seeds
+            .chunks(seed_jump)
+            .map(|leafs| MerklePol::from_leafs(leafs.iter().copied(), sub_tree_depth));
+        let first_tree = trees.next().expect("At least one tree should be generated");
+        let lower_tree_roots: Vec<Fr> = std::iter::once(first_tree.slot_secret_root.clone())
+            .chain(trees.map(|merkle_pol| merkle_pol.slot_secret_root))
+            .collect();
+        let mut cached_tree: Vec<Vec<Fr>> =
+            std::iter::successors(Some(lower_tree_roots), |roots| {
+                if roots.len() <= 1 {
+                    return None;
+                }
+                Some(
+                    roots
+                        .chunks(2)
+                        .map(|pair| <[Fr; 2]>::try_from(pair).unwrap())
+                        .map(|pair| <ZkHasher as ZkDigest>::compress(&pair))
+                        .collect(),
+                )
+            })
+            .collect();
+        cached_tree.reverse();
+        Self {
+            cached_tree,
+            lower_merkle_pol: first_tree,
+            cache_depth,
+            tree_depth,
+        }
+    }
 }
 
 pub struct MerklePol {
@@ -19,12 +62,15 @@ impl MerklePol {
     pub fn new(seed: Fr, tree_depth: usize) -> Self {
         let mut hashed_leafs =
             std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])));
+        Self::from_leafs(hashed_leafs, tree_depth)
+    }
 
+    pub fn from_leafs(mut leafs: impl Iterator<Item = Fr>, tree_depth: usize) -> Self {
         let mut mmr = MerkleMountainRange::<SlotSecret, ZkHasher>::new(tree_depth as u8);
         let mut merkle_proof: Vec<Fr> = Vec::new();
 
         for i in 1usize..=2usize.pow(tree_depth as u32) {
-            let hash = hashed_leafs.next().unwrap();
+            let hash = leafs.next().unwrap();
             if i.is_power_of_two() {
                 let mut proof_element = hash;
                 if i != 1 {
@@ -93,7 +139,7 @@ impl MerklePol {
 mod test {
     use groth16::fr_from_bytes;
     use nomos_core::crypto::{ZkDigest, ZkHasher};
-    use rand::Rng;
+    use rand::Rng as _;
 
     use crate::pol::merkle::MerklePol;
 
@@ -133,10 +179,5 @@ mod test {
             }
         }
         assert_eq!(merkle_proof_root, merkle_pol.slot_secret_root);
-    }
-
-    #[test]
-    fn power() {
-        assert!(1usize.is_power_of_two())
     }
 }
