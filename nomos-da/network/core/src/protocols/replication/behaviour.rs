@@ -577,7 +577,7 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        /// FIXME: same as in dispersal protocol
+        // FIXME: same as in dispersal protocol
         // if !self.is_neighbour(&peer_id) {
         //     trace!("refusing connection to {peer_id}");
         //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
