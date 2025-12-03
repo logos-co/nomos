@@ -2,7 +2,8 @@ use clap::Parser;
 use color_eyre::eyre::{Result, eyre};
 use nomos_core::mantle::SignedMantleTx;
 use nomos_executor::{
-    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId, config::Config as ExecutorConfig,
+    NomosExecutor, NomosExecutorServiceSettings, RuntimeServiceId,
+    config::{Config as ExecutorConfig, da::ServiceConfig as DaConfig},
 };
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
@@ -69,17 +70,27 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let node_deployment: nomos_node::config::deployment::Settings =
+        config.deployment.clone().into();
+
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.blend,
-        deployment: config.deployment.clone().into(),
+        deployment: node_deployment.clone().into(),
     }
     .into();
+
+    let (da_network_config, da_verifier_config, da_sampling_config, da_dispersal_config) =
+        DaConfig {
+            user: config.da,
+            deployment: config.deployment.clone().into(),
+        }
+        .into();
 
     let app = OverwatchRunner::<NomosExecutor>::run(
         NomosExecutorServiceSettings {
             network: NetworkConfig {
                 user: config.network,
-                deployment: config.deployment.into(),
+                deployment: node_deployment.clone().into(),
             }
             .into(),
             blend: blend_config,
@@ -97,10 +108,10 @@ async fn main() -> Result<()> {
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },
-            da_dispersal: config.da_dispersal,
-            da_network: config.da_network,
-            da_sampling: config.da_sampling,
-            da_verifier: config.da_verifier,
+            da_dispersal: da_dispersal_config,
+            da_network: da_network_config,
+            da_sampling: da_sampling_config,
+            da_verifier: da_verifier_config,
             cryptarchia: config.cryptarchia,
             chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,

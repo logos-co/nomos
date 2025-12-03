@@ -100,7 +100,6 @@ where
     <DaShare as Share>::SharesCommitments:
         Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
     VerifierNetwork: nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId>,
-    VerifierNetwork::Settings: Clone,
     ShareVerifier: VerifierBackend + CoreDaVerifier<DaShare = DaShare>,
     <ShareVerifier as VerifierBackend>::Settings: Clone,
     <ShareVerifier as CoreDaVerifier>::Error: Error,

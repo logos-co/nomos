@@ -62,7 +62,10 @@ pub use tx_service::{
 pub use crate::config::{Config, CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs};
 use crate::{
     api::backend::AxumBackend,
-    config::{blend::ServiceConfig as BlendConfig, network::ServiceConfig as NetworkConfig},
+    config::{
+        blend::ServiceConfig as BlendConfig, da::ServiceConfig as DaConfig,
+        network::ServiceConfig as NetworkConfig,
+    },
     generic_services::{
         DaMembershipAdapter, DaMembershipStorageGeneric, SdpMempoolAdapterGeneric, SdpService,
         SdpServiceAdapterGeneric,
@@ -241,6 +244,12 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
     }
     .into();
 
+    let (da_network_config, da_verifier_config, da_sampling_config) = DaConfig {
+        user: config.da,
+        deployment: config.deployment.clone().into(),
+    }
+    .into();
+
     let app = OverwatchRunner::<Nomos>::run(
         NomosServiceSettings {
             network: NetworkConfig {
@@ -263,9 +272,9 @@ pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId
                 },
                 recovery_path: config.mempool.pool_recovery_path,
             },
-            da_network: config.da_network,
-            da_sampling: config.da_sampling,
-            da_verifier: config.da_verifier,
+            da_network: da_network_config,
+            da_sampling: da_sampling_config,
+            da_verifier: da_verifier_config,
             cryptarchia: config.cryptarchia,
             chain_network: config.chain_network,
             cryptarchia_leader: config.cryptarchia_leader,

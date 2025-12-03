@@ -1,4 +1,4 @@
-use std::{fmt::Debug, hash::Hash, marker::PhantomData, path::PathBuf};
+use std::{hash::Hash, marker::PhantomData};
 
 use futures::try_join;
 use nomos_core::{da::blob::Share, mantle::SignedMantleTx};
@@ -9,7 +9,6 @@ use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
-use serde::{Deserialize, Serialize};
 
 use crate::storage::DaStorageAdapter;
 
@@ -32,7 +31,6 @@ where
 {
     type Backend = RocksBackend;
     type Share = B;
-    type Settings = RocksAdapterSettings;
     type Tx = SignedMantleTx;
 
     async fn new(
@@ -134,9 +132,4 @@ where
             .transpose()
             .map_err(DynError::from)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RocksAdapterSettings {
-    pub blob_storage_directory: PathBuf,
 }

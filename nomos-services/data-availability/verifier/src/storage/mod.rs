@@ -10,7 +10,6 @@ use overwatch::{
 #[async_trait::async_trait]
 pub trait DaStorageAdapter<RuntimeServiceId> {
     type Backend: StorageBackend + Send + Sync + 'static;
-    type Settings: Clone;
     type Share: Share + Clone;
     type Tx;
 

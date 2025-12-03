@@ -15,7 +15,10 @@ use tests::{
     },
     nodes::validator::{Validator, create_validator_config},
     secret_key_to_peer_id,
-    topology::{Topology, TopologyConfig, configs::create_general_configs},
+    topology::{
+        Topology, TopologyConfig,
+        configs::{create_general_configs, deployment::get_e2e_custom_settings},
+    },
 };
 
 #[tokio::test]
@@ -161,7 +164,7 @@ async fn test_get_shares() {
 
     let executor = &topology.executors()[0];
     let (channel_id, parent_msg_id) = setup_test_channel(executor).await;
-    let num_subnets = executor.config().da_network.backend.num_subnets as usize;
+    let num_subnets = get_e2e_custom_settings().da.validator.common.num_subnets;
 
     let data = [1u8; 31];
     let blob_id = disseminate_with_metadata(executor, channel_id, parent_msg_id, &data)

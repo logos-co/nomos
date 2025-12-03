@@ -94,7 +94,6 @@ pub struct GenericDaVerifierService<
     TxVerifier: TxVerifierBackend,
     TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
-    Network::Settings: Clone,
     MempoolAdapter: DaMempoolAdapter,
     Storage: DaStorageAdapter<RuntimeServiceId>,
 {
@@ -128,7 +127,6 @@ where
     Network: NetworkAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
         + Send
         + 'static,
-    Network::Settings: Clone,
     MempoolAdapter:
         DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     Storage: DaStorageAdapter<RuntimeServiceId, Share = ShareVerifier::DaShare, Tx = TxVerifier::Tx>
@@ -224,17 +222,10 @@ where
     TxVerifier: TxVerifierBackend,
     TxVerifier::Settings: Clone,
     Network: NetworkAdapter<RuntimeServiceId>,
-    Network::Settings: Clone,
     DaStorage: DaStorageAdapter<RuntimeServiceId>,
-    DaStorage::Settings: Clone,
     MempoolAdapter: DaMempoolAdapter,
 {
-    type Settings = DaVerifierServiceSettings<
-        ShareVerifier::Settings,
-        TxVerifier::Settings,
-        Network::Settings,
-        DaStorage::Settings,
-    >;
+    type Settings = DaVerifierServiceSettings<ShareVerifier::Settings, TxVerifier::Settings>;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = DaVerifierMsg<
@@ -274,7 +265,6 @@ where
         + Sync
         + 'static,
     Network::Membership: MembershipHandler + Clone,
-    Network::Settings: Clone + Send + Sync + 'static,
     Network::Storage: MembershipStorageAdapter<
             <Network::Membership as MembershipHandler>::Id,
             <Network::Membership as MembershipHandler>::NetworkId,
@@ -286,7 +276,6 @@ where
         + Send
         + Sync
         + 'static,
-    DaStorage::Settings: Clone + Send + Sync + 'static,
     MempoolAdapter:
         DaMempoolAdapter<Tx = <TxVerifier as TxVerifierBackend>::Tx> + Send + Sync + 'static,
     RuntimeServiceId: Debug
@@ -345,7 +334,6 @@ where
         } = self;
 
         let DaVerifierServiceSettings {
-            network_adapter_settings,
             mempool_trigger_settings,
             ..
         } = service_resources_handle
@@ -357,7 +345,7 @@ where
             .overwatch_handle
             .relay::<NetworkService<_, _, _, _, _, _, _>>()
             .await?;
-        let network_adapter = Network::new(network_adapter_settings, network_relay).await;
+        let network_adapter = Network::new(network_relay).await;
         let mut share_stream = network_adapter.share_stream().await;
         let mut tx_stream = network_adapter.tx_stream().await;
 
@@ -486,15 +474,8 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DaVerifierServiceSettings<
-    ShareVerifierSettings,
-    TxVerifierSettings,
-    NetworkSettings,
-    StorageSettings,
-> {
+pub struct DaVerifierServiceSettings<ShareVerifierSettings, TxVerifierSettings> {
     pub share_verifier_settings: ShareVerifierSettings,
     pub tx_verifier_settings: TxVerifierSettings,
-    pub network_adapter_settings: NetworkSettings,
-    pub storage_adapter_settings: StorageSettings,
     pub mempool_trigger_settings: MempoolPublishTriggerConfig,
 }

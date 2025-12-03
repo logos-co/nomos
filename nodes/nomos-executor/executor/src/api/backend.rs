@@ -250,10 +250,8 @@ where
     <DaVerifierBackend as CoreDaVerifier>::Error: Error,
     DaVerifierNetwork:
         nomos_da_verifier::network::NetworkAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    DaVerifierNetwork::Settings: Clone,
     DaVerifierStorage:
         nomos_da_verifier::storage::DaStorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
-    DaVerifierStorage::Settings: Clone,
     DaMembershipAdapter: MembershipAdapter + Send + Sync + 'static,
     DaMembershipStorage: MembershipStorageAdapter<PeerId, SubnetworkId> + Send + Sync + 'static,
     DaStorageConverter: da::DaConverter<DaStorageBackend, Share = DaShare, Tx = SignedMantleTx>
