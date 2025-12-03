@@ -117,6 +117,19 @@ jobs:
             echo "No target directory found"
           fi
 
+      - name: Debug WiX
+        shell: bash
+        run: |
+          # Find and print the first main.wxs file in target/, if it exists
+          MAIN_WXS=$(find target -type f -name main.wxs | head -n 1)
+  
+          if [ -n "$MAIN_WXS" ]; then
+            echo "----- Found main.wxs at: $MAIN_WXS -----"
+            cat "$MAIN_WXS"
+          else
+            echo "No main.wxs file found under target/"
+          fi
+
       - name: Bundle
         shell: bash
         working-directory: target/${{ matrix.platform.target_triple }}/release
