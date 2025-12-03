@@ -290,15 +290,16 @@ impl<M> ReplicationBehaviour<M>
 where
     M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
 {
+    // FIXME: reenable when handling of incoming connection is fixed
     /// Check if some peer membership lies in at least a single subnetwork that
     /// the local peer is a member too.
-    fn is_neighbour(&self, peer_id: &PeerId) -> bool {
-        self.membership
-            .membership(&self.local_peer_id)
-            .intersection(&self.membership.membership(peer_id))
-            .count()
-            > 0
-    }
+    // fn is_neighbour(&self, peer_id: &PeerId) -> bool {
+    //     self.membership
+    //         .membership(&self.local_peer_id)
+    //         .intersection(&self.membership.membership(peer_id))
+    //         .count()
+    //         > 0
+    // }
 
     fn no_loopback_member_peers_of(&self, subnetwork: SubnetworkId) -> HashSet<PeerId> {
         let mut peers = self.membership.members_of(&subnetwork);
