@@ -300,7 +300,6 @@ where
     //         .count()
     //         > 0
     // }
-
     fn no_loopback_member_peers_of(&self, subnetwork: SubnetworkId) -> HashSet<PeerId> {
         let mut peers = self.membership.members_of(&subnetwork);
         // no loopback
