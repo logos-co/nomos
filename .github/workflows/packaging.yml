@@ -72,9 +72,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
-#      - name: Install Rust
-#        uses: actions-rust-lang/setup-rust-toolchain@v1
-
       - name: Add the target toolchain
         run: rustup target add ${{ matrix.platform.target_triple }}
 
@@ -122,6 +119,7 @@ jobs:
 
       - name: Bundle
         shell: bash
+        working-directory: target/${{ matrix.platform.target_triple }}/release
         env:
           RUST_LOG: tauri_bundler=debug
           TAURI_BUNDLE_DEBUG: "1"
@@ -136,7 +134,7 @@ jobs:
             PARAMETER=""
           fi
   
-          ./target/${{ matrix.platform.target_triple }}/release/bundle-nomos-node $PARAMETER
+          bundle-nomos-node $PARAMETER
 
       - name: Upload RPM
         if: matrix.platform.os == 'linux'
