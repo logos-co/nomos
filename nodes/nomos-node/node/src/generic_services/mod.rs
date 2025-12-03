@@ -128,7 +128,7 @@ pub type WalletService<Cryptarchia, RuntimeServiceId> = nomos_wallet::WalletServ
 
 pub type CryptarchiaLeaderService<Cryptarchia, Wallet, SamplingAdapter, RuntimeServiceId> =
     CryptarchiaLeader<
-        BlendService<SamplingAdapter, RuntimeServiceId>,
+        BlendService<SamplingAdapter, BlendSdpServiceAdapter<RuntimeServiceId>, RuntimeServiceId>,
         MempoolBackend<RuntimeServiceId>,
         MempoolAdapter<RuntimeServiceId>,
         SamplingMempoolAdapter<RuntimeServiceId>,
@@ -161,6 +161,9 @@ pub type SdpService<RuntimeServiceId> =
 
 pub type SdpServiceAdapterGeneric<RuntimeServiceId> =
     SdpServiceAdapter<SdpMempoolAdapterGeneric<RuntimeServiceId>, RuntimeServiceId>;
+
+pub type BlendSdpServiceAdapter<RuntimeServiceId> =
+    nomos_blend_service::core::sdp::SdpServiceAdapter<SdpService<RuntimeServiceId>>;
 
 pub type DaMembershipStorageGeneric<RuntimeServiceId> =
     RocksAdapter<RocksBackend, RuntimeServiceId>;

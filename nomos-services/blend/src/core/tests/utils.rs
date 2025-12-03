@@ -319,20 +319,25 @@ pub fn new_crypto_processor<CorePoQGenerator>(
     .expect("crypto processor must be created successfully")
 }
 
-pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicInfo<NodeId> {
+pub fn new_public_info<BackendSettings>(
+    session: u64,
+    membership: Membership<NodeId>,
+    settings: &BlendConfig<BackendSettings>,
+) -> PublicInfo<NodeId> {
+    let core_quota = settings.session_quota(membership.size());
     PublicInfo {
         session: SessionInfo {
             session_number: session,
             membership,
             core_public_inputs: CoreInputs {
                 zk_root: ZkHash::ZERO,
-                quota: 10,
+                quota: core_quota,
             },
         },
         epoch: LeaderInputs {
             pol_ledger_aged: ZkHash::ZERO,
             pol_epoch_nonce: ZkHash::ZERO,
-            message_quota: 10,
+            message_quota: settings.crypto.num_blend_layers.get(),
             total_stake: 10,
         },
     }

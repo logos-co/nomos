@@ -35,12 +35,13 @@ mod proofs;
 
 pub type BlendMembershipAdapter<RuntimeServiceId> =
     Adapter<BlockBroadcastService<RuntimeServiceId>, PeerId>;
-pub type BlendCoreService<SamplingAdapter, RuntimeServiceId> =
+pub type BlendCoreService<SamplingAdapter, SdpAdapter, RuntimeServiceId> =
     nomos_blend_service::core::BlendService<
         nomos_blend_service::core::backends::libp2p::Libp2pBlendBackend,
         PeerId,
         nomos_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
         BlendMembershipAdapter<RuntimeServiceId>,
+        SdpAdapter,
         CoreProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>>,
         BlendProofsVerifier,
         NtpTimeBackend,
@@ -59,11 +60,12 @@ pub type BlendEdgeService<SamplingAdapter, RuntimeServiceId> = nomos_blend_servi
         PolInfoProvider<SamplingAdapter>,
         RuntimeServiceId
     >;
-pub type BlendService<SamplingAdapter, RuntimeServiceId> = nomos_blend_service::BlendService<
-    BlendCoreService<SamplingAdapter, RuntimeServiceId>,
-    BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
-    RuntimeServiceId,
->;
+pub type BlendService<SamplingAdapter, SdpAdapter, RuntimeServiceId> =
+    nomos_blend_service::BlendService<
+        BlendCoreService<SamplingAdapter, SdpAdapter, RuntimeServiceId>,
+        BlendEdgeService<SamplingAdapter, RuntimeServiceId>,
+        RuntimeServiceId,
+    >;
 
 /// The provider of a stream of winning `PoL` epoch slots for the Blend service,
 /// without introducing a cyclic dependency from Blend service to chain service.
