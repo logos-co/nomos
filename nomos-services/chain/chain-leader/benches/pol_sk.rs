@@ -1,4 +1,4 @@
-use chain_leader::pol::{SlotSecret, merkle::MerklePol, pol_sk_generator};
+use chain_leader::pol::{SlotSecret, merkle::MerklePolSubtree, pol_sk_generator};
 use cryptarchia_engine::Slot;
 use divan::{Bencher, black_box, counter::ItemsCount};
 use groth16::{Fr, fr_from_bytes};
@@ -36,7 +36,7 @@ fn precompute_mmr(bencher: Bencher) {
             let seed: Fr = fr_from_bytes(b"1987").unwrap();
             seed
         })
-        .bench_values(|seed| black_box(MerklePol::new(seed, 25)));
+        .bench_values(|seed| black_box(MerklePolSubtree::new(seed, 25)));
 }
 
 // #[divan::bench(sample_count = 1, sample_size = 1)]

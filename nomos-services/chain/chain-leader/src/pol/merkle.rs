@@ -4,44 +4,40 @@ use nomos_core::crypto::{ZkDigest, ZkHasher};
 
 use crate::pol::SlotSecret;
 
+pub type CachedTree = Vec<Vec<Fr>>;
+
 pub struct MerklePolCache {
-    pub cached_tree: Vec<Vec<Fr>>,
-    pub lower_merkle_pol: MerklePol,
+    pub cached_tree: CachedTree,
+    pub lower_merkle_pol: MerklePolSubtree,
     pub cache_depth: usize,
     pub tree_depth: usize,
 }
 
 impl MerklePolCache {
+    #[must_use]
     pub fn new(seed: Fr, tree_depth: usize, cache_depth: usize) -> Self {
         let sub_tree_depth = tree_depth - cache_depth;
         // TODO: parallelize?
         let numer_of_trees = 2usize.pow(sub_tree_depth as u32);
         let total_leaves = 2usize.pow(tree_depth as u32);
         let seed_jump = total_leaves / numer_of_trees;
+        // we have to pre-cache the leaves so we can parallelize the subtree computation
         let seeds: Vec<Fr> =
             std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed]))).collect();
+        // We could use rayong here to compute the subtrees in parallel
         let mut trees = seeds
             .chunks(seed_jump)
-            .map(|leafs| MerklePol::from_leafs(leafs.iter().copied(), sub_tree_depth));
+            .map(|leafs| MerklePolSubtree::from_leafs(leafs.iter().copied(), sub_tree_depth));
+        // we just keep the first tree because after we have computed the root secret,
+        // we will compute a subtree at a time for each slot secret path
         let first_tree = trees.next().expect("At least one tree should be generated");
-        let lower_tree_roots: Vec<Fr> = std::iter::once(first_tree.slot_secret_root.clone())
+        let lower_tree_roots: Vec<Fr> = std::iter::once(first_tree.slot_secret_root)
             .chain(trees.map(|merkle_pol| merkle_pol.slot_secret_root))
             .collect();
-        let mut cached_tree: Vec<Vec<Fr>> =
-            std::iter::successors(Some(lower_tree_roots), |roots| {
-                if roots.len() <= 1 {
-                    return None;
-                }
-                Some(
-                    roots
-                        .chunks(2)
-                        .map(|pair| <[Fr; 2]>::try_from(pair).unwrap())
-                        .map(|pair| <ZkHasher as ZkDigest>::compress(&pair))
-                        .collect(),
-                )
-            })
-            .collect();
-        cached_tree.reverse();
+
+        // compute the root slot secret
+        let cached_tree = Self::compute_cached_tree_from_roots(lower_tree_roots);
+
         Self {
             cached_tree,
             lower_merkle_pol: first_tree,
@@ -49,18 +45,43 @@ impl MerklePolCache {
             tree_depth,
         }
     }
+
+    #[must_use]
+    pub fn root_slot_secret(&self) -> Fr {
+        // this should always be there
+        self.cached_tree[0][0]
+    }
+
+    fn compute_cached_tree_from_roots(tree_leafs: Vec<Fr>) -> Vec<Vec<Fr>> {
+        let mut cached_tree: Vec<Vec<Fr>> = std::iter::successors(Some(tree_leafs), |roots| {
+            if roots.len() <= 1 {
+                return None;
+            }
+            Some(
+                roots
+                    .chunks(2)
+                    .map(|pair| <[Fr; 2]>::try_from(pair).unwrap())
+                    .map(|pair| <ZkHasher as ZkDigest>::compress(&pair))
+                    .collect(),
+            )
+        })
+        .collect();
+        cached_tree.reverse();
+        cached_tree
+    }
 }
 
-pub struct MerklePol {
+pub struct MerklePolSubtree {
     slot_secret_root: Fr,
     merkle_proof: Vec<Fr>,
     current_index: u64,
     tree_depth: usize,
 }
 
-impl MerklePol {
+impl MerklePolSubtree {
+    #[must_use]
     pub fn new(seed: Fr, tree_depth: usize) -> Self {
-        let mut hashed_leafs =
+        let hashed_leafs =
             std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])));
         Self::from_leafs(hashed_leafs, tree_depth)
     }
@@ -141,11 +162,11 @@ mod test {
     use nomos_core::crypto::{ZkDigest, ZkHasher};
     use rand::Rng as _;
 
-    use crate::pol::merkle::MerklePol;
+    use crate::pol::merkle::MerklePolSubtree;
 
     #[test]
     fn new_roots_are_consistent() {
-        let merkle_pol = MerklePol::new(fr_from_bytes(b"1987").unwrap(), 8);
+        let merkle_pol = MerklePolSubtree::new(fr_from_bytes(b"1987").unwrap(), 8);
         assert_eq!(merkle_pol.merkle_proof.len(), 9);
         let merkle_proof_root = merkle_pol
             .merkle_proof
@@ -158,7 +179,7 @@ mod test {
 
     #[test]
     fn derive_next_proof() {
-        let mut merkle_pol = MerklePol::new(fr_from_bytes(b"1987").unwrap(), 8);
+        let mut merkle_pol = MerklePolSubtree::new(fr_from_bytes(b"1987").unwrap(), 8);
         let mut rng = rand::thread_rng();
         for _ in 0..rng.gen_range(2..250) {
             merkle_pol = merkle_pol.next_merkle();

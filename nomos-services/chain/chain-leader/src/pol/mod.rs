@@ -1,11 +1,6 @@
 pub mod merkle;
 
-use std::sync::LazyLock;
-
-use cryptarchia_engine::Slot;
-use groth16::{Fr, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::{ZkDigest, ZkHash, ZkHasher};
-use rs_merkle_tree::stores::MemoryStore;
+use groth16::Fr;
 use zeroize::Zeroize;
 
 #[derive(Zeroize, Copy, Clone)]
