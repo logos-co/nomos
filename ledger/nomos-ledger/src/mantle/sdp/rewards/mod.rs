@@ -51,8 +51,6 @@ pub trait Rewards: Clone + PartialEq + Send + Sync + std::fmt::Debug {
     ///
     /// # Arguments
     /// * `last_active` - The state of the session that just ended.
-    /// * `next_active_session_epoch_nonce` - The nonce of the epoch state
-    ///   corresponding to the 1st block of the session `last_active + 1`.
     /// * `next_session_first_epoch_state` - The epoch state corresponding to
     ///   the 1st block of the session `last_active + 1`.
     fn update_session(

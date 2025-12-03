@@ -74,11 +74,11 @@ impl CurrentSessionTracker {
 
     /// Finalizes the current session tracker.
     ///
-    /// It returns [`CurrentSessionTrackerFinalization::WithTargetSession`] by
+    /// It returns [`CurrentSessionTrackerOutput::WithTargetSession`] by
     /// creating a [`TargetSessionState`] using the collected information,
     /// if the network size of the new target session is not below the
     /// minimum required. Otherwise, it returns
-    /// [`CurrentSessionTrackerFinalization::WithoutTargetSession`].
+    /// [`CurrentSessionTrackerOutput::WithoutTargetSession`].
     pub fn finalize<ProofsVerifier>(
         &self,
         last_active_session_state: &SessionState,
