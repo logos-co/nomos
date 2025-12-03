@@ -25,8 +25,8 @@ impl ServiceConfig {
                 slot_duration: self.deployment.slot_duration,
                 chain_start_time: self.user.chain_start_time,
             },
-            epoch_config: cryptarchia_deployment.ledger.epoch_config,
-            base_period_length: cryptarchia_deployment.ledger.base_period_length(),
+            epoch_config: cryptarchia_deployment.epoch_config,
+            base_period_length: cryptarchia_deployment.consensus_config.base_period_length(),
             backend: self.user.backend,
         }
     }

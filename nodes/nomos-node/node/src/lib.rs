@@ -237,12 +237,6 @@ pub struct Nomos {
 }
 
 pub fn run_node_from_config(config: Config) -> Result<Overwatch<RuntimeServiceId>, DynError> {
-    let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
-        user: config.blend,
-        deployment: config.deployment.blend,
-    }
-    .into();
-
     let time_service_config = TimeConfig {
         user: config.time,
         deployment: config.deployment.time,
