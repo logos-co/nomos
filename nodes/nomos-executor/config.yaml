@@ -135,20 +135,13 @@ http:
     address: 127.0.0.1:8722
     cors_origins: [ ]
 time:
-  backend_settings:
-    slot_config:
-      slot_duration: "2.0"
-      chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
-    epoch_config:
-      epoch_stake_distribution_stabilization: 3
-      epoch_period_nonce_buffer: 3
-      epoch_period_nonce_stabilization: 4
-    base_period_length: 11
+  chain_start_time: [ 2025, 41, 9, 38, 29, 993653000, 0, 0, 0 ]
+  backend:
     update_interval: [ 16, 0 ]
     ntp_server: pool.ntp.org
     ntp_client_settings:
       timeout: [ 5, 0 ]
-      listening_interface: 0.0.0.0
+      listening_interface: 0.0.0.0   
 cryptarchia:
   service:
     starting_state: !Genesis

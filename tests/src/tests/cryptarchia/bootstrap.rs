@@ -115,7 +115,7 @@ async fn test_ibd_behind_nodes() {
     // after the behind node finishes IBD.
     // So, calculate an acceptable height margin for safe comparison.
     let height_margin = acceptable_height_margin(
-        general_configs.first().unwrap().time_config.slot_duration,
+        config.deployment.time.slot_duration,
         config
             .deployment
             .cryptarchia

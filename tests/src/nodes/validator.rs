@@ -9,7 +9,6 @@ use std::{
 use broadcast_service::BlockInfo;
 use chain_service::CryptarchiaInfo;
 use common_http_client::CommonHttpClient;
-use cryptarchia_engine::time::SlotConfig;
 use futures::Stream;
 use kzgrs_backend::common::share::{DaLightShare, DaShare, DaSharesCommitments};
 use nomos_core::{
@@ -50,10 +49,6 @@ use nomos_node::{
     config::mempool::MempoolConfig,
 };
 use nomos_sdp::SdpSettings;
-use nomos_time::{
-    TimeServiceSettings,
-    backends::{NtpTimeBackendSettings, ntp::async_client::NTPClientSettings},
-};
 use nomos_tracing::logging::local::FileConfig;
 use nomos_tracing_service::LoggerLayer;
 use nomos_utils::{math::NonNegativeF64, net::get_available_tcp_port};
@@ -454,8 +449,10 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
     Config {
         network: config.network_config,
         blend: config.blend_config.0,
-        deployment: custom_deployment_config.clone(),
+        deployment: custom_deployment_config,
+        time: config.time_config,
         cryptarchia: config.consensus_config.user_config().clone(),
+
         da_network: DaNetworkConfig {
             backend: DaNetworkBackendSettings {
                 node_key: config.da_config.node_key,
@@ -532,26 +529,6 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
             db_path: "./db".into(),
             read_only: false,
             column_family: Some("blocks".into()),
-        },
-        // TODO from
-        time: TimeServiceSettings {
-            backend_settings: NtpTimeBackendSettings {
-                ntp_server: config.time_config.ntp_server,
-                ntp_client_settings: NTPClientSettings {
-                    timeout: config.time_config.timeout,
-                    listening_interface: config.time_config.interface,
-                },
-                update_interval: config.time_config.update_interval,
-                slot_config: SlotConfig {
-                    slot_duration: config.time_config.slot_duration,
-                    chain_start_time: config.time_config.chain_start_time,
-                },
-                epoch_config: custom_deployment_config.cryptarchia.epoch_config,
-                base_period_length: custom_deployment_config
-                    .cryptarchia
-                    .consensus_config
-                    .base_period_length(),
-            },
         },
         mempool: MempoolConfig {
             pool_recovery_path: "./recovery/mempool.json".into(),

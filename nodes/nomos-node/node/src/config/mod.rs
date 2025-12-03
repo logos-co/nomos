@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use ::time::OffsetDateTime;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -16,13 +17,14 @@ use tracing::Level;
 
 use crate::{
     ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
-    KeyManagementService, RuntimeServiceId, StorageService, TimeService,
+    KeyManagementService, RuntimeServiceId, StorageService,
     config::{
         blend::serde::Config as BlendConfig,
         cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
         deployment::DeploymentSettings,
         mempool::MempoolConfig,
         network::serde::Config as NetworkConfig,
+        time::serde::Config as TimeConfig,
     },
     generic_services::{SdpService, WalletService},
 };
@@ -32,6 +34,7 @@ pub mod cryptarchia;
 pub mod deployment;
 pub mod mempool;
 pub mod network;
+pub mod time;
 
 #[cfg(test)]
 mod tests;
@@ -61,6 +64,8 @@ pub struct CliArgs {
     cryptarchia_leader: CryptarchiaLeaderArgs,
     #[clap(flatten)]
     da: DaArgs,
+    #[clap(flatten)]
+    time: TimeArgs,
 }
 
 impl CliArgs {
@@ -192,9 +197,6 @@ pub struct CryptarchiaLeaderArgs {
 pub struct TimeArgs {
     #[clap(long = "consensus-chain-start", env = "CONSENSUS_CHAIN_START")]
     chain_start_time: Option<i64>,
-
-    #[clap(long = "consensus-slot-duration", env = "CONSENSUS_SLOT_DURATION")]
-    slot_duration: Option<u64>,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -210,13 +212,13 @@ pub struct Config {
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
     pub cryptarchia: CryptarchiaConfig,
+    pub time: TimeConfig,
     pub tracing: <Tracing<RuntimeServiceId> as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub key_management: <KeyManagementService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
@@ -234,6 +236,7 @@ impl Config {
             network: network_args,
             blend: blend_args,
             cryptarchia_leader: cryptarchia_leader_args,
+            time: time_args,
             ..
         } = args;
         update_tracing(&mut self.tracing, log_args)?;
@@ -241,6 +244,7 @@ impl Config {
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_leader_consensus(&mut self.cryptarchia.leader, cryptarchia_leader_args)?;
+        update_time(&mut self.time, &time_args)?;
         Ok(self)
     }
 }
@@ -366,21 +370,11 @@ pub fn update_cryptarchia_leader_consensus(
     Ok(())
 }
 
-pub fn update_time(
-    time: &mut <TimeService as ServiceData>::Settings,
-    time_args: &TimeArgs,
-) -> Result<()> {
-    let TimeArgs {
-        chain_start_time,
-        slot_duration,
-    } = *time_args;
+pub fn update_time(time: &mut TimeConfig, time_args: &TimeArgs) -> Result<()> {
+    let TimeArgs { chain_start_time } = time_args;
     if let Some(start_time) = chain_start_time {
-        time.backend_settings.slot_config.chain_start_time =
-            time::OffsetDateTime::from_unix_timestamp(start_time)?;
+        time.chain_start_time = OffsetDateTime::from_unix_timestamp(*start_time)?;
     }
 
-    if let Some(duration) = slot_duration {
-        time.backend_settings.slot_config.slot_duration = std::time::Duration::from_secs(duration);
-    }
     Ok(())
 }

@@ -8,8 +8,9 @@ use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, MANTLE_TOPIC, MempoolAdapterSettings, NetworkArgs,
     Transaction,
     config::{
-        BlendArgs, blend::ServiceConfig as BlendConfig,
+        BlendArgs, TimeArgs, blend::ServiceConfig as BlendConfig,
         cryptarchia::ServiceConfig as CryptarchiaConfig, network::ServiceConfig as NetworkConfig,
+        time::ServiceConfig as TimeConfig,
     },
 };
 use nomos_sdp::SdpSettings;
@@ -39,6 +40,8 @@ struct Args {
     http: HttpArgs,
     #[clap(flatten)]
     cryptarchia_leader: CryptarchiaLeaderArgs,
+    #[clap(flatten)]
+    time: TimeArgs,
 }
 
 #[tokio::main]
@@ -50,6 +53,7 @@ async fn main() -> Result<()> {
         network: network_args,
         blend: blend_args,
         cryptarchia_leader: cryptarchia_args,
+        time: time_args,
         check_config_only,
     } = Args::parse();
     let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
@@ -59,6 +63,7 @@ async fn main() -> Result<()> {
             blend_args,
             http_args,
             cryptarchia_args,
+            &time_args,
         )?;
 
     #[expect(
@@ -69,6 +74,12 @@ async fn main() -> Result<()> {
         println!("Config file is valid! ✅");
         return Ok(());
     }
+
+    let time_service_config = TimeConfig {
+        user: config.time,
+        deployment: config.deployment.time,
+    }
+    .into_time_service_settings(&config.deployment.cryptarchia);
 
     let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
         user: config.cryptarchia,
@@ -111,7 +122,7 @@ async fn main() -> Result<()> {
             cryptarchia: chain_service_config,
             chain_network: chain_network_config,
             cryptarchia_leader: chain_leader_config,
-            time: config.time,
+            time: time_service_config,
             storage: config.storage,
             system_sig: (),
             sdp: SdpSettings { declaration: None },

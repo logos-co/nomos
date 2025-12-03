@@ -2,10 +2,11 @@ use color_eyre::eyre::Result;
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        BlendArgs, blend::serde::Config as BlendConfig,
+        BlendArgs, TimeArgs, blend::serde::Config as BlendConfig,
         cryptarchia::serde::Config as CryptarchiaConfig, deployment::DeploymentSettings,
-        mempool::MempoolConfig, network::serde::Config as NetworkConfig, update_blend,
-        update_cryptarchia_leader_consensus, update_network,
+        mempool::MempoolConfig, network::serde::Config as NetworkConfig,
+        time::serde::Config as TimeConfig, update_blend, update_cryptarchia_leader_consensus,
+        update_network, update_time,
     },
     generic_services::SdpService,
 };
@@ -14,7 +15,7 @@ use serde::Deserialize;
 
 use crate::{
     ApiService, DaDispersalService, DaNetworkService, DaSamplingService, DaVerifierService,
-    KeyManagementService, RuntimeServiceId, StorageService, TimeService, WalletService,
+    KeyManagementService, RuntimeServiceId, StorageService, WalletService,
 };
 
 #[derive(Deserialize, Debug, Clone)]
@@ -24,13 +25,13 @@ pub struct Config {
     pub blend: BlendConfig,
     pub deployment: DeploymentSettings,
     pub cryptarchia: CryptarchiaConfig,
+    pub time: TimeConfig,
     pub da_dispersal: <DaDispersalService as ServiceData>::Settings,
     pub da_network: <DaNetworkService as ServiceData>::Settings,
     pub sdp: <SdpService<RuntimeServiceId> as ServiceData>::Settings,
     pub da_verifier: <DaVerifierService as ServiceData>::Settings,
     pub da_sampling: <DaSamplingService as ServiceData>::Settings,
     pub http: <ApiService as ServiceData>::Settings,
-    pub time: <TimeService as ServiceData>::Settings,
     pub storage: <StorageService as ServiceData>::Settings,
     pub mempool: MempoolConfig,
     pub wallet: <WalletService as ServiceData>::Settings,
@@ -58,6 +59,7 @@ impl Config {
         blend_args: BlendArgs,
         http_args: HttpArgs,
         cryptarchia_leader_args: CryptarchiaLeaderArgs,
+        time_args: &TimeArgs,
     ) -> Result<Self> {
         #[cfg(feature = "tracing")]
         nomos_node::config::update_tracing(&mut self.tracing, log_args)?;
@@ -65,6 +67,7 @@ impl Config {
         update_blend(&mut self.blend, blend_args)?;
         update_http(&mut self.http, http_args)?;
         update_cryptarchia_leader_consensus(&mut self.cryptarchia.leader, cryptarchia_leader_args)?;
+        update_time(&mut self.time, time_args)?;
         Ok(self)
     }
 }
