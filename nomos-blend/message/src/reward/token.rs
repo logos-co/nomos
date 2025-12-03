@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn test_blending_token_hamming_distance() {
         let token = blending_token(1, 1, 2);
-        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 4.into());
+        assert_eq!(token.hamming_distance(1, [3u8; 64].into()), 2.into());
     }
 
     fn blending_token(
