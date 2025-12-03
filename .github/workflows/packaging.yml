@@ -99,12 +99,20 @@ jobs:
           command: build
           args: --bin bundle-nomos-node --release --target ${{ matrix.platform.target_triple }}
 
-      - name: Debug
+      - name: Pre
         shell: bash
         run: |
-          # Walk target directory to print out the files inside
+          mkdir -p ./target/${{ matrix.platform.target_triple }}/release/resources
+          cp ./nodes/nomos-node/node/resources/icons/icon.ico target/x86_64-pc-windows-msvc/release/resources/icon.ico
+          cp ./nodes/nomos-node/node/resources/icons/512x512.png target/x86_64-pc-windows-msvc/release/resources/512x512.png
+
+      - name: Debug
+        shell: bash
+        working-directory: target/${{ matrix.platform.target_triple }}/release
+        run: |
+          # Walk target directory to print out the files inside, skipping dot-directories
           if [ -d target ]; then
-            find target -maxdepth 5 -print | sort
+            find target -path '*/.*' -prune -o -maxdepth 5 -print | sort
           else
             echo "No target directory found"
           fi
@@ -124,10 +132,6 @@ jobs:
             echo "This workflow is on debug mode: the bundle command's `-v` parameter will be removed for debugging." 
             PARAMETER=""
           fi
-          
-          mkdir -p ./target/${{ matrix.platform.target_triple }}/release/resources
-          cp ./nodes/nomos-node/node/resources/icons/icon.ico target/x86_64-pc-windows-msvc/release/resources/icon.ico
-          cp ./nodes/nomos-node/node/resources/icons/512x512.png target/x86_64-pc-windows-msvc/release/resources/512x512.png
   
           ./target/${{ matrix.platform.target_triple }}/release/bundle-nomos-node $PARAMETER
 
