@@ -598,7 +598,7 @@ where
         self.connected_peers.insert(peer, connection_id);
         // FIXME: We need to update this connection when membership is updated
         // (on refresh signal). This is commented to see if the integration tests
-        // pass, and to confirm the reason
+        // pass, and to confirm the
         // if !self.membership.is_allowed(&peer) {
         //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
         // }

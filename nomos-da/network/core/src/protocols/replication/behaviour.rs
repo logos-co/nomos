@@ -577,10 +577,11 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if !self.is_neighbour(&peer_id) {
-            trace!("refusing connection to {peer_id}");
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        /// FIXME: same as in dispersal protocol
+        // if !self.is_neighbour(&peer_id) {
+        //     trace!("refusing connection to {peer_id}");
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         trace!("{}, Connected to {peer_id}", self.local_peer_id);
         self.connected.insert(peer_id);
         self.stream_behaviour
