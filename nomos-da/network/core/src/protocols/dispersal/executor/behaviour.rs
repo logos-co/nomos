@@ -545,7 +545,12 @@ where
                     );
                     None
                 }
-                Err(error) => Some(DispersalExecutorEvent::DispersalError { error }),
+                Err(error) => {
+                    if let Some(peer_id) = error.peer_id() {
+                        self.pending_peer_open_stream_requests.remove(peer_id);
+                    }
+                    Some(DispersalExecutorEvent::DispersalError { error })
+                }
             }
         } else {
             None

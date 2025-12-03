@@ -77,8 +77,8 @@ impl Drop for NomosNode {
         if self.runtime.is_null() {
             eprintln!("Attempted to drop a null tokio runtime pointer. This is a bug");
         }
-        let _ = unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) };
-        let _ = unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) };
+        drop(unsafe { Box::from_raw(self.overwatch.cast::<NomosOverwatch>()) });
+        drop(unsafe { Box::from_raw(self.runtime.cast::<Runtime>()) });
     }
 }
 

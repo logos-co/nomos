@@ -292,7 +292,7 @@ mod tests {
     fn duplicate_remote_node() {
         let nodes = vec![node(1, 1), node(1, 2)];
         let local_key = key(99);
-        let _ = Membership::new(&nodes, &local_key);
+        drop(Membership::new(&nodes, &local_key));
     }
 
     fn key(seed: u8) -> Ed25519PublicKey {
