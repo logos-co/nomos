@@ -46,18 +46,18 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          #          - os: linux
-          #            arch: amd64
-          #            builder: ubuntu-24.04
-          #            target_triple: x86_64-unknown-linux-gnu
-          #          - os: linux
-          #            arch: i686
-          #            builder: ubuntu-24.04
-          #            target_triple: i686-unknown-linux-gnu
-          #          - os: macos
-          #            arch: aarch64
-          #            builder: macos-14
-          #            target_triple: aarch64-apple-darwin
+          - os: linux
+            arch: amd64
+            builder: ubuntu-24.04
+            target_triple: x86_64-unknown-linux-gnu
+          # - os: linux
+          #   arch: i686
+          #   builder: ubuntu-24.04
+          #   target_triple: i686-unknown-linux-gnu
+          # - os: macos
+          #   arch: aarch64
+          #   builder: macos-14
+          #   target_triple: aarch64-apple-darwin
           # - os: macos
           #   arch: amd64
           #   builder: macos-13
@@ -72,8 +72,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
-      - run: rustup target add ${{ matrix.platform.target_triple }}
-        name: Install Rust toolchain
+#      - name: Install Rust
+#        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Add the target toolchain
+        run: rustup target add ${{ matrix.platform.target_triple }}
 
       - name: Install dependencies
         uses: ./.github/actions/install-bundling-dependencies
@@ -103,16 +106,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p ./target/${{ matrix.platform.target_triple }}/release/resources
-          cp ./nodes/nomos-node/node/resources/icons/icon.ico target/x86_64-pc-windows-msvc/release/resources/icon.ico
-          cp ./nodes/nomos-node/node/resources/icons/512x512.png target/x86_64-pc-windows-msvc/release/resources/512x512.png
+          cp ./nodes/nomos-node/node/resources/icons/icon.ico target/${{ matrix.platform.target_triple }}/release/resources/icon.ico
+          cp ./nodes/nomos-node/node/resources/icons/512x512.png target/${{ matrix.platform.target_triple }}/release/resources/512x512.png
 
       - name: Debug
         shell: bash
-        working-directory: target/${{ matrix.platform.target_triple }}/release
         run: |
           # Walk target directory to print out the files inside, skipping dot-directories
-          if [ -d target ]; then
-            find target -path '*/.*' -prune -o -maxdepth 5 -print | sort
+          DIR=target/${{ matrix.platform.target_triple }}/release
+          if [ -d "$DIR" ]; then
+            find "$DIR" -path '*/.*' -prune -o -maxdepth 5 -print | sort
           else
             echo "No target directory found"
           fi
