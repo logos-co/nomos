@@ -155,8 +155,8 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 verified_proof_of_selection,
             } => {
                 let blending_token = BlendingToken::new(
-                    verified_proof_of_quota,
                     signing_key,
+                    verified_proof_of_quota,
                     verified_proof_of_selection,
                 );
                 Ok(DecapsulationOutput::Incompleted {
@@ -173,8 +173,8 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
             } => {
                 let (payload_type, payload_body) = payload.try_into_components()?;
                 let blending_token = BlendingToken::new(
-                    verified_proof_of_quota,
                     signing_key,
+                    verified_proof_of_quota,
                     verified_proof_of_selection,
                 );
                 Ok(DecapsulationOutput::Completed {

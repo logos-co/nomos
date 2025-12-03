@@ -195,8 +195,8 @@ mod tests {
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
-                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 ed25519_dalek::SigningKey::from_bytes(&[0; _]).verifying_key(),
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             ),
             SessionRandomness::from([0; 64]),
@@ -205,8 +205,8 @@ mod tests {
 
         let maybe_distance = evaluation.evaluate(
             &BlendingToken::new(
-                VerifiedProofOfQuota::from_bytes_unchecked([1; _]),
                 ed25519_dalek::SigningKey::from_bytes(&[1; _]).verifying_key(),
+                VerifiedProofOfQuota::from_bytes_unchecked([1; _]),
                 VerifiedProofOfSelection::from_bytes_unchecked([1; _]),
             ),
             SessionRandomness::from([0; 64]),

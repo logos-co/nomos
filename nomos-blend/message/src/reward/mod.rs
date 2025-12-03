@@ -133,9 +133,9 @@ mod tests {
         let total_core_quota = core_quota.checked_mul(num_core_nodes).unwrap();
         let mut i = 0;
         for _ in 0..(total_core_quota.checked_sub(1).unwrap()) {
-            let proof: u8 = i.try_into().unwrap();
             let signing_key: u8 = i.try_into().unwrap();
-            let token = blending_token(proof, signing_key, proof);
+            let proof: u8 = i.try_into().unwrap();
+            let token = blending_token(signing_key, proof, proof);
             tokens.collect(token.clone());
             assert!(tokens.tokens().contains(&token));
             i += 1;
@@ -149,9 +149,9 @@ mod tests {
         // Insert one more tokens.
         // Now,`total_core_quota` tokens have been collected.
         // So, we can expect that always one of them can be picked as an activity proof.
-        let proof: u8 = i.try_into().unwrap();
         let signing_key: u8 = i.try_into().unwrap();
-        let token = blending_token(proof, signing_key, proof);
+        let proof: u8 = i.try_into().unwrap();
+        let token = blending_token(signing_key, proof, proof);
         tokens.collect(token.clone());
         assert!(tokens.tokens().contains(&token));
 
@@ -162,13 +162,13 @@ mod tests {
     }
 
     fn blending_token(
-        proof_of_quota: u8,
         signing_key: u8,
+        proof_of_quota: u8,
         proof_of_selection: u8,
     ) -> BlendingToken {
         BlendingToken::new(
-            VerifiedProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
             ed25519_dalek::SigningKey::from_bytes(&[signing_key; _]).verifying_key(),
+            VerifiedProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
             VerifiedProofOfSelection::from_bytes_unchecked(
                 [proof_of_selection; PROOF_OF_SELECTION_SIZE],
             ),

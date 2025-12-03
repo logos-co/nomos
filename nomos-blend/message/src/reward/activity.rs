@@ -58,7 +58,7 @@ impl ActivityProof {
 
         Ok(Self::new(
             proof.session,
-            BlendingToken::new(proof_of_quota, proof.signing_key, proof_of_selection),
+            BlendingToken::new(proof.signing_key, proof_of_quota, proof_of_selection),
         ))
     }
 }
@@ -85,8 +85,8 @@ impl From<&ActivityProof> for nomos_core::sdp::blend::ActivityProof {
     fn from(proof: &ActivityProof) -> Self {
         Self {
             session: proof.session_number,
-            proof_of_quota: (*proof.token.proof_of_quota()).into(),
             signing_key: *proof.token.signing_key(),
+            proof_of_quota: (*proof.token.proof_of_quota()).into(),
             proof_of_selection: (*proof.token.proof_of_selection()).into(),
         }
     }
