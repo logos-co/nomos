@@ -71,52 +71,50 @@ pub fn default_e2e_deployment_settings() -> DeploymentSettings {
         },
         CryptarchiaDeploymentSettings {
             gossipsub_protocol: "/integration/nomos/cryptarchia/proto/1.0.0".to_owned(),
-            ledger: nomos_ledger::Config {
-                epoch_config: cryptarchia_engine::EpochConfig {
-                    epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
-                    epoch_period_nonce_buffer: NonZero::new(3).unwrap(),
-                    epoch_period_nonce_stabilization: NonZero::new(4).unwrap(),
-                },
-                consensus_config: cryptarchia_engine::Config {
-                    // a block should be produced (on average) every slot
-                    active_slot_coeff: 0.9,
-                    // by setting the slot coeff to 1, we also increase the probability of multiple
-                    // blocks (forks) being produced in the same slot (epoch).
-                    // Setting the security parameter to some value > 1 ensures
-                    // nodes have some time to sync before deciding on the
-                    // longest chain.
-                    security_param: NonZero::new(10).unwrap(),
-                },
-                sdp_config: nomos_ledger::mantle::sdp::Config {
-                    service_params: Arc::new(
-                        [
-                            (
-                                ServiceType::BlendNetwork,
-                                ServiceParameters {
-                                    lock_period: 10,
-                                    inactivity_period: 20,
-                                    retention_period: 100,
-                                    timestamp: 0,
-                                    session_duration: 1000,
-                                },
-                            ),
-                            (
-                                ServiceType::DataAvailability,
-                                ServiceParameters {
-                                    lock_period: 10,
-                                    inactivity_period: 20,
-                                    retention_period: 100,
-                                    timestamp: 0,
-                                    session_duration: 1000,
-                                },
-                            ),
-                        ]
-                        .into(),
-                    ),
-                    min_stake: nomos_core::sdp::MinStake {
-                        threshold: 1,
-                        timestamp: 0,
-                    },
+            consensus_config: cryptarchia_engine::Config {
+                // a block should be produced (on average) every slot
+                active_slot_coeff: 0.9,
+                // by setting the slot coeff to 1, we also increase the probability of multiple
+                // blocks (forks) being produced in the same slot (epoch).
+                // Setting the security parameter to some value > 1 ensures
+                // nodes have some time to sync before deciding on the
+                // longest chain.
+                security_param: NonZero::new(10).unwrap(),
+            },
+            epoch_config: cryptarchia_engine::EpochConfig {
+                epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
+                epoch_period_nonce_buffer: NonZero::new(3).unwrap(),
+                epoch_period_nonce_stabilization: NonZero::new(4).unwrap(),
+            },
+            sdp_config: nomos_node::config::cryptarchia::deployment::SdpConfig {
+                service_params: Arc::new(
+                    [
+                        (
+                            ServiceType::BlendNetwork,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 21_600,
+                            },
+                        ),
+                        (
+                            ServiceType::DataAvailability,
+                            ServiceParameters {
+                                lock_period: 10,
+                                inactivity_period: 20,
+                                retention_period: 100,
+                                timestamp: 0,
+                                session_duration: 1000,
+                            },
+                        ),
+                    ]
+                    .into(),
+                ),
+                min_stake: nomos_core::sdp::MinStake {
+                    threshold: 1,
+                    timestamp: 0,
                 },
             },
         },

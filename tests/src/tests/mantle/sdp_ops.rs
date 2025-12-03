@@ -54,13 +54,7 @@ async fn sdp_ops_e2e() {
     let inclusion_timeout = Duration::from_secs(30);
     let state_timeout = Duration::from_secs(45);
 
-    let sdp_config = validator
-        .config()
-        .deployment
-        .cryptarchia
-        .ledger
-        .sdp_config
-        .clone();
+    let sdp_config = validator.config().deployment.cryptarchia.sdp_config.clone();
 
     let validator_url = validator.url();
     let client = CommonHttpClient::new(None);

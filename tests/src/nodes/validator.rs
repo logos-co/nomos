@@ -546,10 +546,10 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
                     slot_duration: config.time_config.slot_duration,
                     chain_start_time: config.time_config.chain_start_time,
                 },
-                epoch_config: custom_deployment_config.cryptarchia.ledger.epoch_config,
+                epoch_config: custom_deployment_config.cryptarchia.epoch_config,
                 base_period_length: custom_deployment_config
                     .cryptarchia
-                    .ledger
+                    .consensus_config
                     .base_period_length(),
             },
         },

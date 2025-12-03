@@ -21,7 +21,6 @@ async fn happy_test(topology: &Topology) {
     let security_param = config
         .deployment
         .cryptarchia
-        .ledger
         .consensus_config
         .security_param;
     let n_blocks = security_param.get() * CHAIN_LENGTH_MULTIPLIER;
@@ -30,7 +29,6 @@ async fn happy_test(topology: &Topology) {
         / config
             .deployment
             .cryptarchia
-            .ledger
             .consensus_config
             .active_slot_coeff
         * config

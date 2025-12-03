@@ -136,7 +136,7 @@ where
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LedgerState {
     block_number: BlockNumber,
     cryptarchia_ledger: CryptarchiaLedger,
@@ -176,9 +176,11 @@ impl LedgerState {
         let mut cryptarchia_ledger = self
             .cryptarchia_ledger
             .try_apply_header::<LeaderProof, Id>(slot, proof, config)?;
-        let (mantle_ledger, reward_utxos) =
-            self.mantle_ledger
-                .try_apply_header(config.epoch(slot), voucher, config)?;
+        let (mantle_ledger, reward_utxos) = self.mantle_ledger.try_apply_header(
+            cryptarchia_ledger.epoch_state(),
+            voucher,
+            config,
+        )?;
 
         // Insert reward UTXOs into the cryptarchia ledger
         for utxo in reward_utxos {
@@ -228,11 +230,13 @@ impl LedgerState {
         Ok(self)
     }
 
-    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>) -> Self {
+    pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>, config: &Config) -> Self {
+        let cryptarchia_ledger = CryptarchiaLedger::from_utxos(utxos, Fr::ZERO);
+        let mantle_ledger = MantleLedger::new(config, cryptarchia_ledger.epoch_state());
         Self {
             block_number: 0,
-            cryptarchia_ledger: CryptarchiaLedger::from_utxos(utxos, Fr::ZERO),
-            mantle_ledger: MantleLedger::default(),
+            cryptarchia_ledger,
+            mantle_ledger,
         }
     }
 
@@ -242,8 +246,12 @@ impl LedgerState {
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
         let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(&tx, epoch_nonce)?;
-        let mantle_ledger =
-            MantleLedger::from_genesis_tx(tx, config, cryptarchia_ledger.latest_utxos())?;
+        let mantle_ledger = MantleLedger::from_genesis_tx(
+            tx,
+            config,
+            cryptarchia_ledger.latest_utxos(),
+            cryptarchia_ledger.epoch_state(),
+        )?;
         Ok(Self {
             block_number: 0,
             cryptarchia_ledger,
@@ -334,9 +342,10 @@ mod tests {
     }
 
     pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
+        let config = config();
         let utxo = utxo();
-        let genesis_state = LedgerState::from_utxos([utxo]);
-        let ledger = Ledger::new([0; 32], genesis_state, config());
+        let genesis_state = LedgerState::from_utxos([utxo], &config);
+        let ledger = Ledger::new([0; 32], genesis_state, config);
         (ledger, [0; 32], utxo)
     }
 

@@ -27,7 +27,6 @@ async fn immutable_blocks_two_nodes() {
             config
                 .deployment
                 .cryptarchia
-                .ledger
                 .consensus_config
                 .security_param = NonZero::new(5).unwrap();
             config

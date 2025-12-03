@@ -119,7 +119,6 @@ async fn test_ibd_behind_nodes() {
         config
             .deployment
             .cryptarchia
-            .ledger
             .consensus_config
             .active_slot_coeff,
         height_check_timestamp.elapsed(),

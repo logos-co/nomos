@@ -1,8 +1,12 @@
 use chain_network::network::adapters::libp2p::LibP2pAdapterSettings;
 use nomos_blend_service::core::network::libp2p::Libp2pBroadcastSettings;
+use nomos_ledger::mantle::sdp::{ServiceRewardsParameters, rewards::blend::RewardsParameters};
 use nomos_libp2p::PeerId;
 
-use crate::config::cryptarchia::{deployment::Settings as DeploymentSettings, serde::Config};
+use crate::config::{
+    blend::deployment::Settings as BlendDeploymentSettings,
+    cryptarchia::{deployment::Settings as DeploymentSettings, serde::Config},
+};
 
 pub mod deployment;
 pub mod serde;
@@ -12,34 +16,57 @@ pub struct ServiceConfig {
     pub deployment: DeploymentSettings,
 }
 
-impl From<ServiceConfig>
-    for (
+impl ServiceConfig {
+    #[must_use]
+    pub fn into_cryptarchia_services_settings(
+        self,
+        blend_deployment: &BlendDeploymentSettings,
+    ) -> (
         chain_service::CryptarchiaSettings,
         chain_network::ChainNetworkSettings<PeerId, LibP2pAdapterSettings>,
         chain_leader::LeaderSettings<(), Libp2pBroadcastSettings>,
-    )
-{
-    fn from(value: ServiceConfig) -> Self {
+    ) {
+        let ledger_config = nomos_ledger::Config {
+            consensus_config: self.deployment.consensus_config,
+            epoch_config: self.deployment.epoch_config,
+            sdp_config: nomos_ledger::mantle::sdp::Config {
+                min_stake: self.deployment.sdp_config.min_stake,
+                service_params: self.deployment.sdp_config.service_params,
+                service_rewards_params: ServiceRewardsParameters {
+                    blend: RewardsParameters {
+                        message_frequency_per_round: blend_deployment
+                            .core
+                            .scheduler
+                            .cover
+                            .message_frequency_per_round,
+                        minimum_network_size: blend_deployment.common.minimum_network_size,
+                        num_blend_layers: blend_deployment.common.num_blend_layers,
+                        rounds_per_session: blend_deployment.common.timing.rounds_per_session,
+                    },
+                },
+            },
+        };
+
         let chain_service_settings = chain_service::CryptarchiaSettings {
-            bootstrap: value.user.service.bootstrap,
-            config: value.deployment.ledger.clone(),
-            recovery_file: value.user.service.recovery_file,
-            starting_state: value.user.service.starting_state,
+            bootstrap: self.user.service.bootstrap,
+            config: ledger_config.clone(),
+            recovery_file: self.user.service.recovery_file,
+            starting_state: self.user.service.starting_state,
         };
         let chain_network_settings = chain_network::ChainNetworkSettings {
-            bootstrap: value.user.network.bootstrap,
-            config: value.deployment.ledger.clone(),
+            bootstrap: self.user.network.bootstrap,
+            config: ledger_config.clone(),
             network_adapter_settings: LibP2pAdapterSettings {
-                topic: value.deployment.gossipsub_protocol.clone(),
+                topic: self.deployment.gossipsub_protocol.clone(),
             },
-            sync: value.user.network.sync,
+            sync: self.user.network.sync,
         };
         let chain_leader_settings = chain_leader::LeaderSettings {
             blend_broadcast_settings: Libp2pBroadcastSettings {
-                topic: value.deployment.gossipsub_protocol,
+                topic: self.deployment.gossipsub_protocol,
             },
-            config: value.deployment.ledger,
-            leader_config: value.user.leader.leader,
+            config: ledger_config,
+            leader_config: self.user.leader.leader,
             transaction_selector_settings: (),
         };
         (
