@@ -14,6 +14,7 @@ async fn test_historical_sampling_across_sessions() {
 
     topology.wait_membership_ready().await;
     topology.wait_network_ready().await;
+    topology.wait_da_network_ready().await;
 
     // Disseminate some blobs in session 0
     tokio::time::sleep(Duration::from_secs(15)).await;
