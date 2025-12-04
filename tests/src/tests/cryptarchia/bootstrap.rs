@@ -43,7 +43,7 @@ async fn test_ibd_behind_nodes() {
     let initial_peer_ids: HashSet<PeerId> = general_configs
         .iter()
         .take(n_initial_validators)
-        .map(|config| secret_key_to_peer_id(config.network_config.backend.inner.node_key.clone()))
+        .map(|config| secret_key_to_peer_id(config.network_config.backend.swarm.node_key.clone()))
         .collect();
 
     let minimum_height = 10;

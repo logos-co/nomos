@@ -300,18 +300,18 @@ pub fn update_network(network: &mut NetworkConfig, network_args: NetworkArgs) ->
     } = network_args;
 
     if let Some(IpAddr::V4(h)) = host {
-        network.backend.inner.host = h;
+        network.backend.swarm.host = h;
     } else if host.is_some() {
         return Err(eyre!("Unsupported ip version"));
     }
 
     if let Some(port) = port {
-        network.backend.inner.port = port as u16;
+        network.backend.swarm.port = port as u16;
     }
 
     if let Some(node_key) = node_key {
         let mut key_bytes = hex::decode(node_key)?;
-        network.backend.inner.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
+        network.backend.swarm.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
     }
 
     if let Some(peers) = initial_peers {

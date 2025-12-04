@@ -14,7 +14,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendSettings {
-    pub inner: SwarmConfig,
+    pub swarm: SwarmConfig,
     // Initial peers to connect to
     #[serde(default)]
     pub initial_peers: Vec<Multiaddr>,
