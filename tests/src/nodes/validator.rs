@@ -535,12 +535,7 @@ pub fn create_validator_config(config: GeneralConfig) -> Config {
         },
         sdp: SdpSettings { declaration: None },
         wallet: WalletServiceSettings {
-            known_keys: HashSet::from_iter([config
-                .consensus_config
-                .user_config()
-                .leader
-                .leader
-                .pk]),
+            known_keys: HashSet::from_iter([config.consensus_config.user_config().leader.pk]),
         },
         key_management: config.kms_config,
         testing_http: nomos_api::ApiServiceSettings {
