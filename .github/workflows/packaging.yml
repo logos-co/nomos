@@ -134,7 +134,7 @@ jobs:
         shell: bash
         working-directory: target/${{ matrix.platform.target_triple }}/release
         env:
-          RUST_LOG: tauri_bundler=debug
+          RUST_LOG: debug
           TAURI_BUNDLE_DEBUG: "1"
         run: |
           # Define version parameter for the binary
@@ -146,8 +146,14 @@ jobs:
             echo "This workflow is on debug mode: the bundle command's `-v` parameter will be removed for debugging." 
             PARAMETER=""
           fi
+          
+          if [ "${{ matrix.platform.os }}" = "windows" ]; then
+            EXTENSION=".exe"
+          else
+            EXTENSION=""
+          fi
   
-          bundle-nomos-node $PARAMETER
+          "./bundle-nomos-node$EXTENSION" $PARAMETER
 
       - name: Upload RPM
         if: matrix.platform.os == 'linux'
