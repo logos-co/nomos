@@ -7,13 +7,15 @@ tracing:
   level: DEBUG
 network:
   backend:
-    host: 0.0.0.0
-    port: 3000
-    node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
+    inner:
+      host: 0.0.0.0
+      port: 3000
+      node_key: ea1e1dcc31612bd20987f017f0ca435cd2a59a4bd9fd6e14883b4803ae3b803d
     initial_peers: [ ]
 blend:
-  non_ephemeral_signing_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
-  recovery_path_prefix: ./recovery/blend
+  common:
+    non_ephemeral_signing_key: 32e4b52b78e0e8273f31e2ae0826d09b0348d4c66824af4f51ec4ef338082211
+    recovery_path_prefix: ./recovery/blend
   core:
     backend:
       listening_address: /ip4/127.0.0.1/udp/3001/quic-v1
@@ -62,9 +64,6 @@ da_network:
   membership:
     replication_factor: 2
     subnetwork_size: 2
-    addressbook:
-      12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir: /ip4/127.0.0.1/udp/8717/quic-v1/p2p/12D3KooWA5LkQcuefjUBTktxCXUQ4rx4PcqRY1tgbSpV9eZDHWir
-      12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh: /ip4/127.0.0.1/udp/8716/quic-v1/p2p/12D3KooWKD62Q1nAAMHeV2Cx3rNNMzjgHkTT2edFMzHZ5ur7sGnh
   api_adapter_settings:
     api_port: 8722
     is_secure: false
@@ -73,15 +72,8 @@ da_network:
     nanos: 0
   subnet_threshold: 2048
   min_session_members: 2
-da_indexer:
-  storage:
-    blob_storage_directory: ./
 da_verifier:
   share_verifier_settings:
-    sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
-    index:
-      - 1
-      - 0
     global_params_path: ./tests/kzgrs/kzgrs_test_params
     domain_size: 2
   tx_verifier_settings: null
@@ -95,10 +87,6 @@ da_verifier:
     prune_interval: [ 5, 0 ]
 da_sampling:
   share_verifier_settings:
-    sk: 67cee9fdc9c5160671b40da60b17153558496a12fb57804c1e64ef51f5a29dca
-    index:
-      - 1
-      - 0
     global_params_path: ./tests/kzgrs/kzgrs_test_params
     domain_size: 2
   sampling_settings:
@@ -110,9 +98,6 @@ da_sampling:
     blobs_validity_duration:
       secs: 18446744073709551615
       nanos: 0
-  network_adapter_settings: null
-  storage_adapter_settings:
-    blob_storage_directory: ./
   commitments_wait_duration:
     secs: 2
     nanos: 0
@@ -189,11 +174,6 @@ storage:
   column_family: blocks
 mempool:
   recovery_path: ./recovery/mempool.json
-membership:
-  backend:
-    session_sizes:
-      DA: 4320  # DataAvailability - 4320 blocks per session
-    session_zero_providers: { }
 sdp:
 wallet:
   known_keys:

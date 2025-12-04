@@ -61,6 +61,7 @@ overwatch                     = { workspace = true }
 pol                           = { workspace = true }
 poq                           = { workspace = true }
 serde                         = { workspace = true }
+serde_ignored                 = { workspace = true }
 serde_json                    = { workspace = true }
 serde_with                    = { default-features = false, version = "3.14.0" }
 serde_yaml                    = { workspace = true }

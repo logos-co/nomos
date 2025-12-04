@@ -49,9 +49,7 @@ impl<BackendSettings> FileBackendSettings for BlendConfig<BackendSettings> {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SchedulerSettings {
-    #[serde(flatten)]
     pub cover: CoverTrafficSettings,
-    #[serde(flatten)]
     pub delayer: MessageDelayerSettings,
 }
 

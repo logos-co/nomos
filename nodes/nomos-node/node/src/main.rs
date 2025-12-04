@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use clap::Parser as _;
 use color_eyre::eyre::{Result, eyre};
 use nomos_node::{Config, config::CliArgs, get_services_to_start, run_node_from_config};
@@ -9,9 +11,13 @@ async fn main() -> Result<()> {
     let must_blend_service_group_start = cli_args.must_blend_service_group_start();
     let must_da_service_group_start = cli_args.must_da_service_group_start();
 
-    let config =
-        serde_yaml::from_reader::<_, Config>(std::fs::File::open(cli_args.config_path())?)?
-            .update_from_args(cli_args)?;
+    let config = serde_ignored::deserialize::<_, _, Config>(
+        serde_yaml::Deserializer::from_reader(File::open(cli_args.config_path())?),
+        |path| {
+            eprintln!("Warning: Ignored unknown configuration field: {path}");
+        },
+    )?
+    .update_from_args(cli_args)?;
 
     #[expect(
         clippy::non_ascii_literal,

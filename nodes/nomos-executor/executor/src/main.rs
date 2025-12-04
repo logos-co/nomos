@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use clap::Parser;
 use color_eyre::eyre::{Result, eyre};
 use nomos_executor::{
@@ -53,15 +55,20 @@ async fn main() -> Result<()> {
         time: time_args,
         check_config_only,
     } = Args::parse();
-    let config = serde_yaml::from_reader::<_, ExecutorConfig>(std::fs::File::open(config)?)?
-        .update_from_args(
-            log_args,
-            network_args,
-            blend_args,
-            http_args,
-            cryptarchia_args,
-            &time_args,
-        )?;
+    let config = serde_ignored::deserialize::<_, _, ExecutorConfig>(
+        serde_yaml::Deserializer::from_reader(File::open(config)?),
+        |path| {
+            eprintln!("Warning: Ignored unknown configuration field: {path}");
+        },
+    )?
+    .update_from_args(
+        log_args,
+        network_args,
+        blend_args,
+        http_args,
+        cryptarchia_args,
+        &time_args,
+    )?;
 
     #[expect(
         clippy::non_ascii_literal,
