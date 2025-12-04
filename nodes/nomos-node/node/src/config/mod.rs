@@ -4,6 +4,7 @@ use std::{
 };
 
 use ::time::OffsetDateTime;
+use chain_leader::LeaderConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -19,12 +20,9 @@ use crate::{
     ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
     KeyManagementService, RuntimeServiceId, StorageService,
     config::{
-        blend::serde::Config as BlendConfig,
-        cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
-        deployment::DeploymentSettings,
-        mempool::serde::Config as MempoolConfig,
-        network::serde::Config as NetworkConfig,
-        time::serde::Config as TimeConfig,
+        blend::serde::Config as BlendConfig, cryptarchia::serde::Config as CryptarchiaConfig,
+        deployment::DeploymentSettings, mempool::serde::Config as MempoolConfig,
+        network::serde::Config as NetworkConfig, time::serde::Config as TimeConfig,
     },
     generic_services::{SdpService, WalletService},
 };
@@ -365,8 +363,8 @@ pub fn update_cryptarchia_leader_consensus(
     let sk = zksign::SecretKey::from(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?));
     let pk = sk.to_public_key();
 
-    leader.leader.sk = sk;
-    leader.leader.pk = pk;
+    leader.sk = sk;
+    leader.pk = pk;
 
     Ok(())
 }

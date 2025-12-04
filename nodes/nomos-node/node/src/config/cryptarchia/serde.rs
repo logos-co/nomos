@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chain_leader::LeaderConfig;
 use chain_network::SyncConfig;
 use chain_service::StartingState;
 use nomos_libp2p::PeerId;
@@ -23,10 +24,4 @@ pub struct ServiceConfig {
 pub struct NetworkConfig {
     pub bootstrap: chain_network::BootstrapConfig<PeerId>,
     pub sync: SyncConfig,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct LeaderConfig {
-    #[serde(flatten)]
-    pub leader: chain_leader::LeaderConfig,
 }
