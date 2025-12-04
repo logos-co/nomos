@@ -67,6 +67,7 @@ serde_with                    = { default-features = false, version = "3.14.0" }
 serde_yaml                    = { workspace = true }
 services-utils                = { workspace = true }
 subnetworks-assignations      = { workspace = true }
+thiserror                     = { workspace = true }
 tokio                         = "1"
 tokio-stream                  = { default-features = false, version = "0.1" }
 tracing                       = { workspace = true }

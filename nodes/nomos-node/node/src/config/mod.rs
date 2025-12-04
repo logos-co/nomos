@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use chain_leader::LeaderConfig;
 use ::time::OffsetDateTime;
+use chain_leader::LeaderConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -376,4 +376,38 @@ pub fn update_time(time: &mut TimeConfig, time_args: &TimeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigDeserializationError<Config> {
+    #[error("Unrecognized fields in config: {fields:?}")]
+    UnrecognizedFields { fields: Vec<String>, config: Config },
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    SerdeError(#[from] serde_yaml::Error),
+}
+
+pub fn deserialize_config_at_path<Config>(
+    config_path: &Path,
+) -> Result<Config, ConfigDeserializationError<Config>>
+where
+    Config: for<'de> Deserialize<'de>,
+{
+    let mut ignored_fields = Vec::new();
+    let config = serde_ignored::deserialize::<_, _, Config>(
+        serde_yaml::Deserializer::from_reader(std::fs::File::open(config_path)?),
+        |path| {
+            ignored_fields.push(path.to_string());
+        },
+    )?;
+
+    if ignored_fields.is_empty() {
+        Ok(config)
+    } else {
+        Err(ConfigDeserializationError::UnrecognizedFields {
+            fields: ignored_fields,
+            config,
+        })
+    }
 }
