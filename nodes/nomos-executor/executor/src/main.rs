@@ -1,5 +1,3 @@
-use std::fs::File;
-
 use clap::Parser;
 use color_eyre::eyre::{Result, eyre};
 use nomos_executor::{
@@ -8,13 +6,15 @@ use nomos_executor::{
 use nomos_node::{
     CryptarchiaLeaderArgs, HttpArgs, LogArgs, NetworkArgs,
     config::{
-        BlendArgs, TimeArgs, blend::ServiceConfig as BlendConfig,
-        cryptarchia::ServiceConfig as CryptarchiaConfig, mempool::ServiceConfig as MempoolConfig,
-        network::ServiceConfig as NetworkConfig, time::ServiceConfig as TimeConfig,
+        BlendArgs, ConfigDeserializationError, TimeArgs, blend::ServiceConfig as BlendConfig,
+        cryptarchia::ServiceConfig as CryptarchiaConfig, deserialize_config_at_path,
+        mempool::ServiceConfig as MempoolConfig, network::ServiceConfig as NetworkConfig,
+        time::ServiceConfig as TimeConfig,
     },
 };
 use nomos_sdp::SdpSettings;
 use overwatch::overwatch::{Error as OverwatchError, Overwatch, OverwatchRunner};
+use tracing::warn;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -44,6 +44,7 @@ struct Args {
 }
 
 #[tokio::main]
+#[expect(clippy::too_many_lines, reason = "Main function for executor binary.")]
 async fn main() -> Result<()> {
     let Args {
         config,
@@ -55,13 +56,33 @@ async fn main() -> Result<()> {
         time: time_args,
         check_config_only,
     } = Args::parse();
-    let config = serde_ignored::deserialize::<_, _, ExecutorConfig>(
-        serde_yaml::Deserializer::from_reader(File::open(config)?),
-        |path| {
-            eprintln!("Warning: Ignored unknown configuration field: {path}");
-        },
-    )?
-    .update_from_args(
+
+    let config = match (
+        deserialize_config_at_path::<ExecutorConfig>(&config),
+        check_config_only,
+    ) {
+        (Ok(_), true) => {
+            #[expect(
+                clippy::non_ascii_literal,
+                reason = "Use of green checkmark for better UX."
+            )]
+            {
+                println!("Config file is valid! ✅");
+            };
+            return Ok(());
+        }
+        (Ok(config), false) => Ok(config),
+        (Err(ConfigDeserializationError::UnrecognizedFields { config, fields }), true) => {
+            Err(ConfigDeserializationError::UnrecognizedFields { config, fields })
+        }
+        (Err(ConfigDeserializationError::UnrecognizedFields { config, fields }), false) => {
+            warn!(
+                "The following unrecognized fields were found in the config file: {fields:?}. They won't have any effects on the node."
+            );
+            Ok(config)
+        }
+        (Err(e), _) => Err(e),
+    }?.update_from_args(
         log_args,
         network_args,
         blend_args,
@@ -69,15 +90,6 @@ async fn main() -> Result<()> {
         cryptarchia_args,
         &time_args,
     )?;
-
-    #[expect(
-        clippy::non_ascii_literal,
-        reason = "Use of green checkmark for better UX."
-    )]
-    if check_config_only {
-        println!("Config file is valid! ✅");
-        return Ok(());
-    }
 
     let time_service_config = TimeConfig {
         user: config.time,
