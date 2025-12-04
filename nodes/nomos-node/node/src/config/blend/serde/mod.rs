@@ -15,7 +15,6 @@ pub mod edge;
 /// deployment and that users have to specify when starting up the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(flatten)]
     pub common: CommonConfig,
     pub core: CoreConfig,
     pub edge: EdgeConfig,

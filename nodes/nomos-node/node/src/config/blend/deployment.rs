@@ -13,7 +13,6 @@ use crate::config::deployment::WellKnownDeployment;
 /// Deployment-specific Blend settings.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
-    #[serde(flatten)]
     pub common: CommonSettings,
     pub core: CoreSettings,
 }

@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ::time::OffsetDateTime;
 use chain_leader::LeaderConfig;
+use ::time::OffsetDateTime;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;

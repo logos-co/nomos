@@ -14,7 +14,6 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendSettings {
-    #[serde(flatten)]
     pub inner: SwarmConfig,
     // Initial peers to connect to
     #[serde(default)]
