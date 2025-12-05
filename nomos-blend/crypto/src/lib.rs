@@ -18,7 +18,7 @@ pub fn random_sized_bytes<const SIZE: usize>() -> [u8; SIZE] {
 }
 
 /// Generates pseudo-random bytes of the constant size
-/// using [`BlakeRng`] cipher with a key derived from the input key.
+/// using [`BlakeRng`] which is seeded with a hash of the domain and key.
 #[must_use]
 pub fn pseudo_random_sized_bytes<const SIZE: usize>(domain: &[u8], key: &[u8]) -> [u8; SIZE] {
     let mut buf = [0u8; SIZE];
@@ -27,7 +27,7 @@ pub fn pseudo_random_sized_bytes<const SIZE: usize>(domain: &[u8], key: &[u8]) -
 }
 
 /// Generates pseudo-random bytes of the given size
-/// using [`BlakeRng`] cipher with a key derived from the input key.
+/// using [`BlakeRng`] which is seeded with a hash of the domain and key.
 #[must_use]
 pub fn pseudo_random_bytes(domain: &[u8], key: &[u8], size: usize) -> Vec<u8> {
     let mut buf = vec![0u8; size];
@@ -35,11 +35,14 @@ pub fn pseudo_random_bytes(domain: &[u8], key: &[u8], size: usize) -> Vec<u8> {
     buf
 }
 
+/// Writes pseudo-random bytes to the given buffer,
+/// using [`BlakeRng`] which is seeded with a hash of the domain and key.
 fn blake_random_bytes(buf: &mut [u8], domain: &[u8], key: &[u8]) {
     let mut cipher = BlakeRng::from_seed(blake2b512(&[domain, key]).into());
     cipher.fill_bytes(buf);
 }
 
+/// Computes the BLAKE2b-512 hash of the concatenated inputs.
 #[must_use]
 pub fn blake2b512(inputs: &[&[u8]]) -> [u8; 64] {
     let mut hasher = Blake2b512::new();
