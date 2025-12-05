@@ -38,7 +38,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
   bundle:
-    name: "Bundling for ${{ matrix.platform.arch }}-${{ matrix.platform.os }}"
+    name: "Bundling for ${{ matrix.platform.os-display }} (${{ matrix.platform.arch }})"
     needs: setup
     env:
       VERSION: ${{ needs.setup.outputs.version }}
@@ -47,22 +47,22 @@ jobs:
       matrix:
         platform:
           - os: linux
+            os-display: Linux
             arch: x86_64
             builder: ubuntu-24.04
             target_triple: x86_64-unknown-linux-gnu
           - os: linux
+            os-display: Linux
             arch: i686
             builder: ubuntu-24.04
             target_triple: i686-unknown-linux-gnu
           - os: macos
+            os-display: MacOS
             arch: aarch64
             builder: macos-14
             target_triple: aarch64-apple-darwin
-          - os: macos
-            arch: x86_64
-            builder: macos-13
-            target_triple: x86_64-apple-darwin
           - os: windows
+            os-display: Windows
             arch: x86_64
             builder: windows-2022
             target_triple: x86_64-pc-windows-msvc
@@ -121,6 +121,11 @@ jobs:
           fi
   
           "target/${{ matrix.platform.target_triple }}/release/bundle-nomos-node$EXTENSION" $PARAMETER
+
+      - name: Debug
+        shell: bash
+        run: |
+          find target/${{ matrix.platform.target_triple }}/release/bundle -type f | sort || true
 
       - name: Upload RPM (${{ matrix.platform.arch }})
         if: matrix.platform.os == 'linux'
@@ -234,10 +239,6 @@ jobs:
             extension-display: AppImage
           - os: macos
             arch: aarch64
-            extension: dmg
-            extension-display: DMG
-          - os: macos
-            arch: x86_64
             extension: dmg
             extension-display: DMG
           - os: windows
