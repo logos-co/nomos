@@ -47,9 +47,8 @@ jobs:
       - name: Run `cargo deny`
         uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # Version 2.0.11
         with:
-          # All is set in the config file
-          arguments:
-          command-arguments: "--locked --hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings"
+          arguments: "--locked"
+          command-arguments: "--hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings"
 
   features:
     name: Check packages feature combinations
@@ -80,7 +79,7 @@ jobs:
       - name: Run cargo-hack
         env:
           RUSTFLAGS: -D warnings
-        run: cargo hack --locked --feature-powerset --no-dev-deps check
+        run: cargo hack --feature-powerset --no-dev-deps check
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
