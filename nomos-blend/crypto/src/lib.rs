@@ -1,6 +1,7 @@
 use blake2::{Blake2b512, digest::Digest as _};
 use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
 
+pub mod cipher;
 pub mod keys;
 pub mod merkle;
 pub mod signatures;
