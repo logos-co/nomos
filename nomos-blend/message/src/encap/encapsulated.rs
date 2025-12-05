@@ -141,12 +141,12 @@ impl EncapsulatedPart {
             is_last,
         );
 
-        // Encrypt the payload.
-        let payload = self.payload.encapsulate(&mut shared_key.cipher());
+        // Encapsulate the payload.
+        let encapsulated_payload = self.payload.encapsulate(&mut shared_key.cipher());
 
         Self {
             private_header,
-            payload,
+            payload: encapsulated_payload,
         }
     }
 
@@ -169,17 +169,17 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let payload = self.payload.decapsulate(&mut key.cipher());
+                let decapsulated_payload = self.payload.decapsulate(&mut key.cipher());
                 verify_intermediate_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
-                    &payload,
+                    &decapsulated_payload,
                     verifier,
                 )?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
                         private_header: encapsulated_private_header,
-                        payload,
+                        payload: decapsulated_payload,
                     },
                     public_header: Box::new(public_header),
                     verified_proof_of_selection,
@@ -190,14 +190,14 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let payload = self.payload.decapsulate(&mut key.cipher());
+                let decapsulated_payload = self.payload.decapsulate(&mut key.cipher());
                 verify_last_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
-                    &payload,
+                    &decapsulated_payload,
                 )?;
                 Ok(PartDecapsulationOutput::Completed {
-                    payload: payload.try_deserialize()?,
+                    payload: decapsulated_payload.try_deserialize()?,
                     verified_proof_of_selection,
                 })
             }
