@@ -1,11 +1,12 @@
-use std::{env::set_var, fs::canonicalize, path::PathBuf};
+use std::{env::set_var, path::PathBuf};
 
 use bundler::utils::{
     get_cargo_package_version, get_project_identifier, get_target_directory_for_current_profile,
     get_workspace_root,
 };
 use clap::Parser;
-use log::{error, info};
+use dunce::canonicalize;
+use log::{debug, error, info};
 use tauri_bundler::{
     AppImageSettings, DebianSettings, DmgSettings, IosSettings, MacOsSettings, RpmSettings,
     WindowsSettings,
@@ -44,17 +45,19 @@ fn prepare_environment(architecture: &str) {
 /// Bundles the package
 fn build_package(version: String) {
     let crate_path = get_workspace_root().join(CRATE_PATH_RELATIVE_TO_WORKSPACE_ROOT);
-    error!("Bundling package '{}'", crate_path.display());
+    info!("Bundling package '{}'", crate_path.display());
     let resources_path = crate_path.join("resources");
     let icons_path = resources_path.join("icons");
 
     // This simultaneously serves as input directory (where the binary is)
     // and output (where the bundle will be)
-    let target_triple = target_triple().expect("Could not determine target triple");
-    let project_target_directory =
-        canonicalize(get_target_directory_for_current_profile(target_triple.as_str()).unwrap())
-            .unwrap();
-    error!(
+    let target_triple = target_triple().expect("Could not determine the target triple.");
+    let project_target_directory = canonicalize(
+        get_target_directory_for_current_profile(target_triple.as_str())
+            .expect("Could not determine the target directory."),
+    )
+    .expect("Could not canonicalize the target directory path.");
+    debug!(
         "Bundle output directory: '{}'",
         project_target_directory.display()
     );
@@ -62,7 +65,7 @@ fn build_package(version: String) {
     // Icons
     let icon = icons_path.join("icon.ico").to_string_lossy().to_string();
     let icon512 = icons_path.join("512x512.png").to_string_lossy().to_string();
-    error!("Using icon: '{icon}' and icon512: '{icon512}'");
+    debug!("Using icon: '{icon}' and icon512: '{icon512}'");
 
     // Windows settings
     #[expect(
@@ -139,8 +142,6 @@ fn build_package(version: String) {
     prepare_environment(arch);
 
     if let Err(error) = tauri_bundler::bundle_project(&settings) {
-        eprintln!("[bundle_nomos_node] bundler error: {error}");
-        eprintln!("[bundle_nomos_node] debug: {error:?}");
         error!("Error while bundling the project: {error:?}");
         std::process::exit(1);
     } else {
