@@ -51,13 +51,27 @@ Nomos uses zero-knowledge circuits for various cryptographic operations. To set 
 
 Run the setup script to download and install the latest nomos-circuits release:
 
+#### Nix
+
 ```bash
 ./scripts/setup-nomos-circuits.sh
 ```
 
-This will install circuits to `~/.nomos-circuits/` by default.
+#### Windows
+
+```powershell
+.\scripts\setup-nomos-circuits.ps1
+```
+
+This will install circuits to `~/.nomos-circuits/` (`Nix`) or `$env:USERPROFILE\.nomos-circuits` (`Windows`) by default.
+
+Also make sure that Visual Studio build tools with LLVM (or other LLVM with clang) are installed with the 
+`LIBCLANG_PATH` environment variable specified and pointing to the 64-bit `libclang.dll` folder, for example
+`setx LIBCLANG_PATH "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin"`
 
 ### Custom Installation
+
+#### Nix
 
 You can specify a custom version or installation directory:
 
@@ -75,9 +89,26 @@ If you use a custom directory, you'll need to set the `NOMOS_CIRCUITS` environme
 export NOMOS_CIRCUITS=/opt/circuits
 ```
 
+#### Windows
+
+```powershell
+# Install a specific version
+.\scripts\setup-nomos-circuits.ps1 v0.3.0
+
+# Install to a custom directory
+.\scripts\setup-nomos-circuits.ps1 v0.2.0 $env:USERPROFILE\circuits
+```
+
+If you use a custom directory, you'll need to set the `NOMOS_CIRCUITS` environment variable:
+
+```powershell
+$env:NOMOS_CIRCUITS="$env:USERPROFILE\circuits"
+```
+
 ### macOS Users
 
-Since we don't yet have code-signing implemented on macOS, the setup script automatically removes quarantine attributes from downloaded binaries. This allows the binaries to run without manual authorization through System Settings.
+Since we don't yet have code-signing implemented on macOS, the setup script automatically removes quarantine attributes 
+from downloaded binaries. This allows the binaries to run without manual authorization through System Settings.
 
 ### Verifying Installation
 
@@ -148,9 +179,9 @@ nomos/
 
 ## Development Workflow
 
-### Docker
+### Building the Image
 
-#### Building the Image
+#### Docker
 
 To build the Nomos Docker image, run:
 
@@ -158,7 +189,17 @@ To build the Nomos Docker image, run:
 docker build -t nomos .
 ```
 
-#### Running a Nomos Node
+#### Command line
+
+To build the Nomos command line executable, run:
+
+```bash
+cargo build --release
+```
+
+### Running a Nomos Node
+
+#### Docker
 
 To run a docker container with the Nomos node you need to mount both `config.yml` and `global_params_path` specified in
 the configuration.
@@ -173,8 +214,32 @@ kzgrs file and then run the docker container with the appropriate config and glo
 ```bash
 cargo test --package kzgrs-backend write_random_kzgrs_params_to_file -- --ignored
 
-docker run -v "$(pwd)/nodes/nomos-node/config.yaml:/etc/nomos/config.yml" -v "$(pwd)/nomos-da/kzgrs-backend/kzgrs_test_params:/app/tests/kzgrs/kzgrs_test_params" nomos /etc/nomos/config.yml
+docker run -v "$(pwd)/nodes/nomos-node/config.yaml:/etc/nomos/config.yml" \
+  -v "$(pwd)/nomos-da/kzgrs-backend/kzgrs_test_params:/app/tests/kzgrs/kzgrs_test_params" \
+  nomos /etc/nomos/config.yml
 
+```
+
+#### Command line
+
+To use an example configuration located at `nodes/nomos-node/config.yaml`, first run the test that generates the random
+kzgrs file (`kzgrs_test_params`), leave it in `./tests/kzgrs/kzgrs_test_params` or place it in a convenient location:
+
+```bash
+cargo test --package kzgrs-backend write_random_kzgrs_params_to_file -- --ignored
+```
+
+To run the Nomos node directly from the command line, edit the `global_params_path:` key in `/path/to/config.yaml` to 
+point to the kzgrs file (`kzgrs_test_params`) and run with:
+
+```bash
+cargo run --package nomos-node -- /path/to/config.yaml
+```
+
+or copy the executable and run the binary directly:
+
+```bash
+./nomos-node /path/to/config.yaml
 ```
 
 ## Running Tests

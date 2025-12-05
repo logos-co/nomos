@@ -600,7 +600,7 @@ where
 
         let app = app.layer(cors_layer.clone());
 
-        #[cfg(feature = "profiling")]
+        #[cfg(all(feature = "profiling", not(windows)))]
         let app = {
             let pprof_routes = nomos_http_api_common::pprof::create_pprof_router()
                 .layer(TraceLayer::new_for_http())
