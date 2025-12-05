@@ -2,7 +2,7 @@ use core::fmt::Debug;
 use std::sync::LazyLock;
 
 use groth16::{fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_blend_crypto::{blake2b512, pseudo_random_sized_bytes};
+use nomos_blend_crypto::pseudo_random_sized_bytes;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -44,11 +44,9 @@ impl ProofOfSelection {
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
-        let selection_randomness_blake_hash =
-            blake2b512(&[&DOMAIN_SEPARATION_TAG[..], &selection_randomness_bytes[..]]);
         let pseudo_random_output: u64 = {
             let pseudo_random_output_bytes =
-                pseudo_random_sized_bytes::<8>(&selection_randomness_blake_hash);
+                pseudo_random_sized_bytes::<8>(&DOMAIN_SEPARATION_TAG, &selection_randomness_bytes);
             let pseudo_random_biguint = BigUint::from_bytes_le(&pseudo_random_output_bytes[..]);
             pseudo_random_biguint
                 .try_into()

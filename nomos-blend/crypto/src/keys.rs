@@ -85,8 +85,8 @@ impl SharedKey {
     }
 
     #[must_use]
-    pub fn cipher(&self) -> Cipher {
-        Cipher::new(&self.0)
+    pub fn cipher(&self, domain: &[u8]) -> Cipher {
+        Cipher::new(domain, &self.0)
     }
 }
 
