@@ -47,8 +47,7 @@ jobs:
       - name: Run `cargo deny`
         uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # Version 2.0.11
         with:
-          # All is set in the config file
-          arguments:
+          arguments: "--locked"
           command-arguments: "--hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings"
 
   features:
@@ -130,7 +129,7 @@ jobs:
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: clippy
-          args: --all --all-targets --all-features
+          args: --locked --all --all-targets --all-features
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
@@ -164,20 +163,20 @@ jobs:
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
-          args: -p nomos-node nodes/nomos-node/config.yaml --check-config
+          args: --locked -p nomos-node nodes/nomos-node/config.yaml --check-config
 
       - name: Run the executor binary to check the config file validity
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: run
-          args: -p nomos-executor nodes/nomos-executor/config.yaml --check-config
+          args: --locked -p nomos-executor nodes/nomos-executor/config.yaml --check-config
 
       # This includes testing feature needed for tests
       - name: Build binaries with all features
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
         with:
           command: build
-          args: --all-features
+          args: --locked --all-features
 
       - name: Cargo test
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
@@ -187,7 +186,7 @@ jobs:
         with:
           command: test
           # We don't test benches as they take 6h+, leading to a timeout
-          args: --all --lib --bins --tests --examples --all-features
+          args: --locked --all --lib --bins --tests --examples --all-features
 
       - name: Upload integration tests results
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
