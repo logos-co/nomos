@@ -171,13 +171,13 @@ jobs:
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.exe
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/nsis/nomos-node_${{ env.VERSION }}_x64-setup.msi"
+          path: "target/${{ matrix.platform.target_triple }}/release/bundle/nsis/nomos-node_${{ env.VERSION }}_x64-setup.exe"
           if-no-files-found: error
 
   create-release:
     name: "Create release"
     # Only run this job for tags or manual trigger, not for PRs
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    # if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     needs:
       - setup
       - bundle
