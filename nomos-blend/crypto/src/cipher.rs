@@ -14,8 +14,8 @@ pub struct Cipher(BlakeRng);
 
 impl Cipher {
     #[must_use]
-    pub(crate) fn new(seed: &[u8]) -> Self {
-        Self(BlakeRng::from_seed(blake2b512(&[seed]).into()))
+    pub(crate) fn new(domain: &[u8], seed: &[u8]) -> Self {
+        Self(BlakeRng::from_seed(blake2b512(&[domain, seed]).into()))
     }
 
     /// Encrypts data in-place by XOR operation with a pseudo-random bytes.
@@ -75,23 +75,25 @@ impl AdvancedCipher {
 mod tests {
     use super::*;
 
+    const TEST_DOMAIN: &[u8] = b"test-domain";
+
     #[test]
     fn cipher_deterministic_pseudo_random_bytes() {
         let seed = b"test-seed";
         let length = 64;
 
-        let mut cipher = Cipher::new(seed);
+        let mut cipher = Cipher::new(TEST_DOMAIN, seed);
         let bytes1 = cipher.next_pseudo_random_bytes(length);
         assert_eq!(bytes1.len(), length);
         let bytes2 = cipher.next_pseudo_random_bytes(length);
         assert_eq!(bytes2.len(), length);
         assert_ne!(bytes1, bytes2);
 
-        let mut cipher = Cipher::new(seed);
+        let mut cipher = Cipher::new(TEST_DOMAIN, seed);
         assert_eq!(cipher.next_pseudo_random_bytes(length), bytes1);
         assert_eq!(cipher.next_pseudo_random_bytes(length), bytes2);
 
-        let mut cipher = Cipher::new(b"different-seed");
+        let mut cipher = Cipher::new(TEST_DOMAIN, b"different-seed");
         assert_ne!(cipher.next_pseudo_random_bytes(length), bytes1);
         assert_ne!(cipher.next_pseudo_random_bytes(length), bytes2);
     }
@@ -102,11 +104,11 @@ mod tests {
         let mut data1 = b"hello".to_vec();
         let mut data2 = b"world".to_vec();
 
-        let mut cipher = Cipher::new(seed);
+        let mut cipher = Cipher::new(TEST_DOMAIN, seed);
         cipher.encrypt(&mut data1);
         cipher.encrypt(&mut data2);
 
-        let mut cipher = Cipher::new(seed);
+        let mut cipher = Cipher::new(TEST_DOMAIN, seed);
         cipher.decrypt(&mut data1);
         assert_eq!(&data1, b"hello");
         cipher.decrypt(&mut data2);
@@ -118,11 +120,11 @@ mod tests {
         let mut data1 = b"hello".to_vec();
         let mut data2 = b"world".to_vec();
 
-        let mut cipher = Cipher::new(b"test-seed");
+        let mut cipher = Cipher::new(TEST_DOMAIN, b"test-seed");
         cipher.encrypt(&mut data1);
         cipher.encrypt(&mut data2);
 
-        let mut cipher = Cipher::new(b"different-seed");
+        let mut cipher = Cipher::new(TEST_DOMAIN, b"different-seed");
         cipher.decrypt(&mut data1);
         assert_ne!(&data1, b"hello");
         cipher.decrypt(&mut data2);
@@ -137,13 +139,13 @@ mod tests {
         let mut data2 = b"world".to_vec();
 
         // Advance by 1 block before encrypting data1
-        let advanced_cipher = Cipher::new(seed).advance(1);
+        let advanced_cipher = Cipher::new(TEST_DOMAIN, seed).advance(1);
         let mut cipher = advanced_cipher.encrypt(&mut data1);
         cipher.encrypt(&mut data2);
 
         // Decrypting in the same order, but without advancing.
         // The first decrypt will consume the dummy bytes skipped during encryption.
-        let mut cipher = Cipher::new(seed);
+        let mut cipher = Cipher::new(TEST_DOMAIN, seed);
         cipher.decrypt(&mut dummy);
         cipher.decrypt(&mut data1);
         assert_eq!(&data1, b"hello");
@@ -156,7 +158,7 @@ mod tests {
         let plain1 = b"hello".to_vec();
         let plain2 = b"world".to_vec();
 
-        let mut cipher = Cipher::new(b"test-seed");
+        let mut cipher = Cipher::new(TEST_DOMAIN, b"test-seed");
         let encrypted1 = encrypt(&plain1, &mut cipher);
         let encrypted2 = encrypt(&plain2, &mut cipher);
 
@@ -184,11 +186,11 @@ mod tests {
         let seed2 = b"seed2";
 
         // First, encrypt `plain2` with the `seed2`.
-        let mut cipher2 = Cipher::new(seed2);
+        let mut cipher2 = Cipher::new(TEST_DOMAIN, seed2);
         let encrypted2 = encrypt(&plain2, &mut cipher2);
 
         // Second, encrypt `plain1` and `encrypted2` with the `seed1`.
-        let mut cipher1 = Cipher::new(seed1);
+        let mut cipher1 = Cipher::new(TEST_DOMAIN, seed1);
         let encrypted1 = encrypt(&plain1, &mut cipher1);
         let double_encrypted2 = encrypt(&encrypted2, &mut cipher1);
 
@@ -197,7 +199,7 @@ mod tests {
 
         // Now, someone who knows `seed1` can recover `plain1` and `encrypted2`
         // (not `plain2`). This is the intended use case.
-        let mut cipher1 = Cipher::new(seed1);
+        let mut cipher1 = Cipher::new(TEST_DOMAIN, seed1);
         let recovered_plain1 = decrypt(&encrypted1, &mut cipher1);
         assert_eq!(recovered_plain1, plain1);
         let recovered_encrypted2 = decrypt(&double_encrypted2, &mut cipher1);
