@@ -1,6 +1,7 @@
 use core::{num::NonZeroUsize, time::Duration};
 use std::collections::HashSet;
 
+use chain_leader::LeaderConfig;
 use chain_network::{IbdConfig, OrphanConfig, SyncConfig};
 use chain_service::{OfflineGracePeriodConfig, StartingState};
 use ed25519_dalek::ed25519::signature::SignerMut as _;
@@ -19,7 +20,7 @@ use nomos_core::{
 };
 use nomos_node::{
     SignedMantleTx, Transaction as _,
-    config::cryptarchia::serde::{Config, LeaderConfig, NetworkConfig, ServiceConfig},
+    config::cryptarchia::serde::{Config, NetworkConfig, ServiceConfig},
 };
 use num_bigint::BigUint;
 use zksign::{PublicKey, SecretKey};
@@ -140,9 +141,7 @@ pub fn create_consensus_configs(
             genesis_tx: genesis_tx.clone(),
             utxos: utxos.clone(),
             user_config: Config {
-                leader: LeaderConfig {
-                    leader: chain_leader::LeaderConfig { pk, sk },
-                },
+                leader: LeaderConfig { pk, sk },
                 network: NetworkConfig {
                     bootstrap: chain_network::BootstrapConfig {
                         ibd: IbdConfig {
