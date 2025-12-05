@@ -19,8 +19,14 @@ const DOMAIN_SEPARATION_TAG: [u8; 9] = *b"BlendNode";
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Index mismatch. Expected {expected}, provided {provided}.")]
-    IndexMismatch { expected: u64, provided: u64 },
+    #[error("Index mismatch. Expected {expected:?}, provided {provided}.")]
+    IndexMismatch {
+        // `Some` if the provided index is less than the membership size, `None` otherwise, since
+        // we skip computing the expected index if the provided one would fail regardless of the
+        // calculated value because it's too large.
+        expected: Option<u64>,
+        provided: u64,
+    },
     #[error("Overflow when verifying PoSel.")]
     Overflow,
     #[error("Key nullifier mismatch. Expected {expected}, provided {provided}.")]
@@ -29,6 +35,8 @@ pub enum Error {
     InvalidInput(Box<dyn core::error::Error>),
     #[error("Proof of Selection verification failed.")]
     Verification,
+    #[error("Empty membership.")]
+    EmptyMembershipSet,
 }
 
 /// A Proof of Selection as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df81d6bb3febd62b598138>.
@@ -42,6 +50,9 @@ impl ProofOfSelection {
     /// Returns the index the Proof of Selection refers to, for the provided
     /// membership size.
     pub fn expected_index(&self, membership_size: usize) -> Result<usize, Error> {
+        if membership_size == 0 {
+            return Err(Error::EmptyMembershipSet);
+        }
         // Condition 1: https://www.notion.so/nomos-tech/Blend-Protocol-215261aa09df81ae8857d71066a80084?source=copy_link#215261aa09df819991e6f9455ff7ec92
         let selection_randomness_bytes = fr_to_bytes(&self.selection_randomness);
         let pseudo_random_output: u64 = {
@@ -65,10 +76,16 @@ impl ProofOfSelection {
             total_membership_size,
         }: &VerifyInputs,
     ) -> Result<VerifiedProofOfSelection, Error> {
+        if expected_node_index >= total_membership_size {
+            return Err(Error::IndexMismatch {
+                expected: None,
+                provided: *expected_node_index,
+            });
+        }
         let final_index = self.expected_index(*total_membership_size as usize)?;
         if final_index != *expected_node_index as usize {
             return Err(Error::IndexMismatch {
-                expected: final_index as u64,
+                expected: Some(final_index as u64),
                 provided: *expected_node_index,
             });
         }
