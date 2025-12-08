@@ -124,7 +124,7 @@ jobs:
       - name: Flatten Linux bundles
         if: matrix.platform.os == 'linux'
         run: |
-          mv target/${{ matrix.platform.target_triple }}/release/bundle/rpm/nomos-node-${{ env.VERSION }}-1.x86_64.rpm nomos-node-${{ env.VERSION }}-${{ matrix.platform.arch }}.rpm
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/rpm/nomos-node-${{ env.VERSION }}-1.x86_64.rpm nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.rpm
           mv target/${{ matrix.platform.target_triple }}/release/bundle/deb/nomos-node_${{ env.VERSION }}_amd64.deb nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.deb
           mv target/${{ matrix.platform.target_triple }}/release/bundle/appimage/nomos-node_${{ env.VERSION }}_amd64.AppImage nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.AppImage
 
