@@ -267,6 +267,7 @@ jobs:
         with:
           name: ${{ env.BINARY_NAME }}
           path: ${{ env.DOWNLOAD_DIRECTORY }}
+          merge-multiple: 'true'
 
       - name: Upload ${{ matrix.platform.extension-display }} (${{ matrix.platform.arch }})
         uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
