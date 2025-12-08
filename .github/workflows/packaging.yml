@@ -260,11 +260,13 @@ jobs:
     env:
       UPLOAD_URL: ${{ needs.create-release.outputs.upload_url }}
       BINARY_NAME: nomos_node-${{ needs.setup.outputs.version }}-${{ matrix.platform.arch }}.${{ matrix.platform.extension }}
+      DOWNLOAD_DIRECTORY: artifacts
     steps:
       - name: Download Artifact
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # Version 4.2.1
         with:
           name: ${{ env.BINARY_NAME }}
+          path: ${{ env.DOWNLOAD_DIRECTORY }}
 
       - name: Upload ${{ matrix.platform.extension-display }} (${{ matrix.platform.arch }})
         uses: actions/upload-release-asset@ef2adfe8cb8ebfa540930c452c576b3819990faa  # Version 1.0.2
@@ -272,6 +274,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ env.UPLOAD_URL }}
-          asset_path: ${{ env.BINARY_NAME }}
+          asset_path: ${{ env.DOWNLOAD_DIRECTORY }}/${{ env.BINARY_NAME }}
           asset_name: ${{ env.BINARY_NAME }}
           asset_content_type: application/octet-stream
