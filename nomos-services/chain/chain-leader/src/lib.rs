@@ -648,7 +648,7 @@ where
         // TODO: use PoL signing key
         let dummy_signing_key = SigningKey::from_bytes(&[0u8; 32]);
 
-        let block = Block::create(parent, slot, proof, txs, None, &dummy_signing_key)?;
+        let block = Block::create(parent, slot, proof, txs, &dummy_signing_key)?;
 
         info!(
             "proposed block with id {:?} containing {} transactions ({} removed)",
