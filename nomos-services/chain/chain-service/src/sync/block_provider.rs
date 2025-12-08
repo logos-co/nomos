@@ -823,7 +823,6 @@ mod tests {
                 slot,
                 self.proof.clone(),
                 vec![],
-                None,
                 &dummy_signing_key,
             )
             .ok()
