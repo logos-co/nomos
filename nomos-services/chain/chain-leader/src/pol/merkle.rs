@@ -1,8 +1,7 @@
-use cryptarchia_engine::Slot;
 use groth16::Fr;
 use mmr::{MerkleMountainRange, Root};
 use nomos_core::crypto::{ZkDigest, ZkHasher};
-use rayon::iter::{IntoParallelIterator as _, ParallelIterator as _};
+use rayon::iter::{IntoParallelIterator as _, ParallelExtend as _, ParallelIterator as _};
 
 use crate::pol::SlotSecret;
 
@@ -13,14 +12,14 @@ pub struct MerklePolCache {
     pub lower_merkle_pol: MerklePolSubtree,
     pub cache_depth: usize,
     pub tree_depth: usize,
-    pub current_slot: Slot,
+    pub current_index: usize,
 }
 
 impl MerklePolCache {
     #[must_use]
     pub fn new(seed: Fr, tree_depth: usize, cache_depth: usize) -> Self {
         let sub_tree_depth = tree_depth - cache_depth;
-        let numer_of_trees = 2usize.pow(sub_tree_depth as u32);
+        let numer_of_trees = 2usize.pow(cache_depth as u32);
         let total_leaves = 2usize.pow(tree_depth as u32);
         let seed_jump = total_leaves / numer_of_trees;
         // we have to pre-cache the leaves so we can parallelize the subtree computation
@@ -47,7 +46,7 @@ impl MerklePolCache {
             lower_merkle_pol: first_tree,
             cache_depth,
             tree_depth,
-            current_slot: Slot::new(0),
+            current_index: 0,
         }
     }
 
@@ -81,14 +80,14 @@ impl MerklePolCache {
     }
 
     pub fn next_slot(&mut self) {
-        self.current_slot = Slot::new(self.current_slot.into_inner() + 1);
+        self.current_index += 1;
         self.lower_merkle_pol = self.lower_merkle_pol.next_merkle();
     }
 
     #[must_use]
     pub fn get_merkle_path(&self) -> Vec<Fr> {
         let mut path = Vec::new();
-        let mut current_index = self.current_slot.into_inner() as usize;
+        let mut current_index = self.current_index;
 
         for level in (0..self.tree_depth).rev() {
             let sibling_index = if current_index.is_multiple_of(2) {
