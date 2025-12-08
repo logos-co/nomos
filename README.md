@@ -49,7 +49,8 @@ Nomos uses zero-knowledge circuits for various cryptographic operations. To set 
 
 ### Quick Setup (Recommended)
 
-Run the setup script to download and install the latest nomos-circuits release:
+Run the setup script to download and install the latest nomos-circuits release, which will install circuits to 
+`~/.nomos-circuits/` (`Nix`) or `$env:USERPROFILE\.nomos-circuits` (`Windows`) by default.:
 
 #### Nix
 
@@ -62,8 +63,6 @@ Run the setup script to download and install the latest nomos-circuits release:
 ```powershell
 .\scripts\setup-nomos-circuits.ps1
 ```
-
-This will install circuits to `~/.nomos-circuits/` (`Nix`) or `$env:USERPROFILE\.nomos-circuits` (`Windows`) by default.
 
 Also make sure that Visual Studio build tools with LLVM (or other LLVM with clang) are installed with the 
 `LIBCLANG_PATH` environment variable specified and pointing to the 64-bit `libclang.dll` folder, for example
