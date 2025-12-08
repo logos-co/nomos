@@ -121,17 +121,19 @@ jobs:
   
           "target/${{ matrix.platform.target_triple }}/release/bundle-nomos-node$EXTENSION" $PARAMETER
 
-      - name: Debug
-        shell: bash
+      - name: Flatten Linux bundles
+        if: matrix.platform.os == 'linux'
         run: |
-          find target/${{ matrix.platform.target_triple }}/release/bundle -type f | sort || true
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/rpm/nomos-node-${{ env.VERSION }}-1.x86_64.rpm nomos-node-${{ env.VERSION }}-${{ matrix.platform.arch }}.rpm
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/deb/nomos-node_${{ env.VERSION }}_amd64.deb nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.deb
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/appimage/nomos-node_${{ env.VERSION }}_amd64.AppImage nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.AppImage
 
       - name: Upload RPM (${{ matrix.platform.arch }})
         if: matrix.platform.os == 'linux'
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.rpm
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/rpm/nomos-node-${{ env.VERSION }}-1.x86_64.rpm"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.rpm
           if-no-files-found: error
 
       - name: Upload DEB (${{ matrix.platform.arch }})
@@ -139,7 +141,7 @@ jobs:
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.deb
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/deb/nomos-node_${{ env.VERSION }}_amd64.deb"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.deb
           if-no-files-found: error
 
       - name: Upload AppImage (${{ matrix.platform.arch }})
@@ -147,23 +149,34 @@ jobs:
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.AppImage
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/appimage/nomos-node_${{ env.VERSION }}_amd64.AppImage"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.AppImage
           if-no-files-found: error
+
+      - name: Flatten MacOS bundles
+        if: matrix.platform.os == 'macos'
+        run: |
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/dmg/nomos-node_${{ env.VERSION }}_${{ matrix.platform.arch }}.dmg nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.dmg
 
       - name: Upload DMG (${{ matrix.platform.arch }})
         if: matrix.platform.os == 'macos'
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.dmg
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/dmg/nomos-node_${{ env.VERSION }}_${{ matrix.platform.arch }}.dmg"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.dmg
           if-no-files-found: error
+
+      - name: Flatten Windows bundles
+        if: matrix.platform.os == 'windows'
+        run: |
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/msi/nomos-node_${{ env.VERSION }}_x64_en-US.msi nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.msi
+          mv target/${{ matrix.platform.target_triple }}/release/bundle/nsis/nomos-node_${{ env.VERSION }}_x64-setup.exe nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.exe
 
       - name: Upload MSI (${{ matrix.platform.arch }})
         if: matrix.platform.os == 'windows'
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.msi
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/msi/nomos-node_${{ env.VERSION }}_x64_en-US.msi"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.msi
           if-no-files-found: error
 
       - name: Upload EXE (${{ matrix.platform.arch }})
@@ -171,7 +184,7 @@ jobs:
         uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
         with:
           name: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.exe
-          path: "target/${{ matrix.platform.target_triple }}/release/bundle/nsis/nomos-node_${{ env.VERSION }}_x64-setup.exe"
+          path: nomos_node-${{ env.VERSION }}-${{ matrix.platform.arch }}.exe
           if-no-files-found: error
 
   create-release:
