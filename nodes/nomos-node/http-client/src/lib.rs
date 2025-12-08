@@ -17,6 +17,8 @@ use serde::{Serialize, de::DeserializeOwned};
 pub enum Error {
     #[error("Internal server error: {0}")]
     Server(String),
+    #[error("Failed to execute request: {0}")]
+    Client(String),
     #[error(transparent)]
     Request(#[from] reqwest::Error),
     #[error(transparent)]
@@ -71,12 +73,19 @@ impl CommonHttpClient {
         self.execute_request::<Res>(request).await
     }
 
-    pub async fn get<Req, Res>(&self, request_url: Url, request_body: &Req) -> Result<Res, Error>
+    pub async fn get<Req, Res>(
+        &self,
+        request_url: Url,
+        request_body: Option<&Req>,
+    ) -> Result<Res, Error>
     where
         Req: Serialize + ?Sized + Send + Sync,
         Res: DeserializeOwned + Send + Sync,
     {
-        let request = self.client.get(request_url).json(request_body);
+        let mut request = self.client.get(request_url);
+        if let Some(request_body) = request_body {
+            request = request.json(request_body);
+        }
         self.execute_request::<Res>(request).await
     }
 
@@ -143,7 +152,7 @@ impl CommonHttpClient {
         let request: DASharesCommitmentsRequest<S> = DASharesCommitmentsRequest { blob_id };
         let path = DA_GET_STORAGE_SHARES_COMMITMENTS.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
-        self.get(request_url, &request).await
+        self.get(request_url, Some(&request)).await
     }
 
     /// Get blob by blob id and column index
@@ -162,7 +171,7 @@ impl CommonHttpClient {
         let request: DaSamplingRequest<S> = DaSamplingRequest { blob_id, share_idx };
         let path = DA_GET_LIGHT_SHARE.trim_start_matches('/');
         let request_url = base_url.join(path).map_err(Error::Url)?;
-        self.get(request_url, &request).await
+        self.get(request_url, Some(&request)).await
     }
 
     pub async fn get_shares<B>(
