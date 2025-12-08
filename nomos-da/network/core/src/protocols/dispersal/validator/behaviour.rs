@@ -165,8 +165,7 @@ impl<Membership: MembershipHandler> DispersalValidatorBehaviour<Membership> {
 impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> NetworkBehaviour
     for DispersalValidatorBehaviour<M>
 {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = DispersalEvent;
 
     fn handle_established_inbound_connection(
@@ -176,8 +175,12 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(

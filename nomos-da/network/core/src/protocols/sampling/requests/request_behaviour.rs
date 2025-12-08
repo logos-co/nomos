@@ -592,8 +592,7 @@ where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = SamplingEvent;
 
     fn handle_established_inbound_connection(
@@ -607,8 +606,12 @@ where
         // outbound streams for sampling requests, and peer selection is based on
         // membership at sampling time (in `pick_subnetwork_peer`). Connection-level
         // filtering would fail on session change when membership changes.
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(

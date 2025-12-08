@@ -395,9 +395,7 @@ where
             |error| {
                 // I/O errors are expected when the receiver drops the stream (e.g. non-neighbour
                 // filtering). Other errors indicate serialization bugs and should panic.
-                if error.kind() == std::io::ErrorKind::Other {
-                    panic!("Message should always be serializable.\nMessage: '{message:?}'\nError: {error:?}");
-                }
+                assert!(error.kind() != std::io::ErrorKind::Other, "Message should always be serializable.\nMessage: '{message:?}'\nError: {error:?}");
                 ReplicationError::Io { peer_id, error }
             },
         )?;
@@ -415,13 +413,12 @@ where
     {
         match self.incoming_tasks.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok((peer_id, message, read_half)))) => {
-                // For Share messages, only accept from neighbours (peers in the same subnetwork).
-                // TX messages are accepted from any connected peer to allow broad propagation.
-                // Receiving Share from non-neighbour indicates sender misbehavior.
+                // For Share messages, only accept from neighbours (peers in the same
+                // subnetwork). TX messages are accepted from any connected peer
+                // to allow broad propagation. Receiving Share from
+                // non-neighbour indicates sender misbehavior.
                 if matches!(message, ReplicationRequest::Share(_)) && !self.is_neighbour(&peer_id) {
-                    trace!(
-                        "Dropping Share replication from non-neighbour peer {peer_id}",
-                    );
+                    trace!("Dropping Share replication from non-neighbour peer {peer_id}",);
                     // Close stream by removing write half and dropping read half
                     self.outbound_streams.remove(&peer_id);
                     drop(read_half);
@@ -589,8 +586,7 @@ impl<M> NetworkBehaviour for ReplicationBehaviour<M>
 where
     M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId> + 'static,
 {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = ReplicationEvent;
 
     fn handle_established_inbound_connection(
@@ -605,8 +601,12 @@ where
         // immutable and can't be updated on session change when membership changes.
         trace!("{}, Connected to {peer_id}", self.local_peer_id);
         self.connected.insert(peer_id);
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer_id, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer_id,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(

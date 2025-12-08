@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 cached                   = { workspace = true }
-either                   = { default-features = false, version = "1.13.0" }
 fixed                    = { default-features = false, features = ["serde-str"], version = "1" }
 futures                  = { default-features = false, version = "0.3" }
 indexmap                 = { default-features = false, features = ["std"], version = "2.2" }

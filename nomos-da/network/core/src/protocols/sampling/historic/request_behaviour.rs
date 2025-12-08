@@ -645,8 +645,7 @@ where
         MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + Clone + Send + Sync + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + Send + Sync + 'static,
 {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = HistoricSamplingEvent;
 
     fn handle_established_inbound_connection(
@@ -658,8 +657,12 @@ where
     ) -> Result<THandler<Self>, ConnectionDenied> {
         let _ = self.connection_broadcast_sender.send(peer);
 
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(

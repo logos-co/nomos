@@ -183,8 +183,7 @@ impl ResponseSamplingBehaviour {
 }
 
 impl NetworkBehaviour for ResponseSamplingBehaviour {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = SamplingEvent;
 
     fn handle_established_inbound_connection(
@@ -194,8 +193,12 @@ impl NetworkBehaviour for ResponseSamplingBehaviour {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(

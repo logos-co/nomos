@@ -577,8 +577,7 @@ where
     Membership: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static,
     Addressbook: AddressBookHandler<Id = PeerId> + 'static,
 {
-    type ConnectionHandler =
-        <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
+    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = DispersalExecutorEvent;
 
     fn handle_established_inbound_connection(
@@ -593,8 +592,12 @@ where
         // at dispersal time (in `disperse_request`). Connection-level filtering would
         // cause race conditions on session change.
         self.connected_peers.insert(peer, connection_id);
-        self.stream_behaviour
-            .handle_established_inbound_connection(connection_id, peer, local_addr, remote_addr)
+        self.stream_behaviour.handle_established_inbound_connection(
+            connection_id,
+            peer,
+            local_addr,
+            remote_addr,
+        )
     }
 
     fn handle_established_outbound_connection(
