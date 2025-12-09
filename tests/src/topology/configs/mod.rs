@@ -96,7 +96,7 @@ pub fn create_general_configs_with_blend_core_subset(
         .take(n_blend_core_nodes)
         .map(|(i, (blend_conf, secret_zk_key))| ProviderInfo {
             service_type: ServiceType::BlendNetwork,
-            provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
+            provider_sk: blend_conf.non_ephemeral_signing_key.clone().into(),
             zk_sk: secret_zk_key.clone(),
             locator: Locator(blend_conf.core.backend.listening_address.clone()),
             note: consensus_configs[0].blend_notes[i].clone(),
@@ -119,10 +119,9 @@ pub fn create_general_configs_with_blend_core_subset(
             keys: [
                 (
                     key_id_for_preload_backend(
-                        &Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone())
-                            .into(),
+                        &Ed25519Key::from(blend_conf.non_ephemeral_signing_key.clone()).into(),
                     ),
-                    Ed25519Key::from(blend_conf.common.non_ephemeral_signing_key.clone()).into(),
+                    Ed25519Key::from(blend_conf.non_ephemeral_signing_key.clone()).into(),
                 ),
                 (
                     blend_conf.core.zk.secret_key_kms_id.clone(),
