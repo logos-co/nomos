@@ -1,10 +1,10 @@
 use groth16::Fr;
+use key_management_system_keys::keys::ZkPublicKey;
 use nomos_core::{
     crypto::ZkHash,
     sdp::{Declaration, DeclarationId, ProviderId, ServiceParameters, ServiceType, SessionNumber},
 };
 use num_bigint::BigUint;
-use zksign::PublicKey;
 
 use crate::{EpochState, UtxoTree, mantle::sdp::SessionState};
 
@@ -20,7 +20,7 @@ pub fn create_test_session_state(
             provider_id: *provider_id,
             locked_note_id: Fr::from(i as u64).into(),
             locators: vec![],
-            zk_id: PublicKey::new(BigUint::from(i as u64).into()),
+            zk_id: ZkPublicKey::new(BigUint::from(i as u64).into()),
             created: 0,
             active: 0,
             withdrawn: None,

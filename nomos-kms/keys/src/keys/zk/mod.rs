@@ -3,6 +3,7 @@ use core::fmt::{self, Debug, Formatter};
 use groth16::Fr;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
+use zksign::ZkSignError;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
@@ -28,8 +29,20 @@ impl ZkKey {
         Self(UnsecuredZkKey::new(secret_key))
     }
 
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self(UnsecuredZkKey::zero())
+    }
+
     pub(crate) const fn as_fr(&self) -> &Fr {
         self.0.as_fr()
+    }
+
+    pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, ZkSignError> {
+        UnsecuredZkKey::multi_sign(
+            &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
+            data,
+        )
     }
 }
 

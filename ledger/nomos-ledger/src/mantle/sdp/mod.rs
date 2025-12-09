@@ -4,6 +4,7 @@ pub mod rewards;
 use std::collections::HashMap;
 
 use ed25519::{Signature as Ed25519Sig, signature::Verifier as _};
+use key_management_system_keys::keys::{ZkPublicKey, ZkSignature};
 use locked_notes::LockedNotes;
 use nomos_blend_message::crypto::proofs::RealProofsVerifier;
 use nomos_core::{
@@ -18,7 +19,6 @@ use nomos_core::{
     },
 };
 use rewards::{Error as RewardsError, Rewards};
-use zksign::PublicKey;
 
 use crate::{
     EpochState, UtxoTree,
@@ -65,7 +65,7 @@ impl Service {
         active: &SDPActiveOp,
         block_number: BlockNumber,
         locked_notes: &LockedNotes,
-        sig: &zksign::Signature,
+        sig: &ZkSignature,
         tx_hash: TxHash,
     ) -> Result<(), Error> {
         match self {
@@ -83,7 +83,7 @@ impl Service {
         withdraw: &SDPWithdrawOp,
         block_number: BlockNumber,
         locked_notes: &mut LockedNotes,
-        sig: &zksign::Signature,
+        sig: &ZkSignature,
         tx_hash: TxHash,
         config: &ServiceParameters,
     ) -> Result<(), Error> {
@@ -291,7 +291,7 @@ impl<R: Rewards> ServiceState<R> {
         active: &SDPActiveOp,
         block_number: BlockNumber,
         locked_notes: &LockedNotes,
-        sig: &zksign::Signature,
+        sig: &ZkSignature,
         tx_hash: TxHash,
     ) -> Result<(), Error> {
         let Some(declaration) = self.declarations.get_mut(&active.declaration_id) else {
@@ -308,7 +308,7 @@ impl<R: Rewards> ServiceState<R> {
                 declaration.locked_note_id,
             )))?;
 
-        if !PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !ZkPublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
 
@@ -327,7 +327,7 @@ impl<R: Rewards> ServiceState<R> {
         withdraw: &SDPWithdrawOp,
         block_number: BlockNumber,
         locked_notes: &mut LockedNotes,
-        sig: &zksign::Signature,
+        sig: &ZkSignature,
         tx_hash: TxHash,
         config: &ServiceParameters,
     ) -> Result<(), Error> {
@@ -344,7 +344,7 @@ impl<R: Rewards> ServiceState<R> {
 
         let note = locked_notes.unlock(declaration.service_type, &declaration.locked_note_id)?;
 
-        if !PublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
+        if !ZkPublicKey::verify_multi(&[note.pk, declaration.zk_id], &tx_hash.0, sig) {
             return Err(Error::InvalidSignature);
         }
         self.declarations = self.declarations.remove(&withdraw.declaration_id);
@@ -499,12 +499,12 @@ impl SdpLedger {
         mut self,
         op: &SDPDeclareOp,
         note: Note,
-        zk_sig: &zksign::Signature,
+        zk_sig: &ZkSignature,
         ed25519_sig: &Ed25519Sig,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
-        if !PublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
+        if !ZkPublicKey::verify_multi(&[note.pk, op.zk_id], &tx_hash.0, zk_sig) {
             return Err(Error::InvalidSignature);
         }
         op.provider_id
@@ -532,7 +532,7 @@ impl SdpLedger {
     pub fn apply_active_msg(
         mut self,
         op: &SDPActiveOp,
-        zksig: &zksign::Signature,
+        zksig: &ZkSignature,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
@@ -551,7 +551,7 @@ impl SdpLedger {
     pub fn apply_withdrawn_msg(
         mut self,
         op: &SDPWithdrawOp,
-        zksig: &zksign::Signature,
+        zksig: &ZkSignature,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
@@ -675,6 +675,7 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::{Field as _, Fr};
+    use key_management_system_keys::keys::UnsecuredZkKey;
     use nomos_core::crypto::ZkHash;
     use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
@@ -722,8 +723,8 @@ mod tests {
         }
     }
 
-    fn create_zk_key(sk: u64) -> zksign::SecretKey {
-        zksign::SecretKey::from(BigUint::from(sk))
+    fn create_zk_key(sk: u64) -> UnsecuredZkKey {
+        UnsecuredZkKey::from(BigUint::from(sk))
     }
 
     fn create_signing_key() -> SigningKey {
@@ -773,13 +774,13 @@ mod tests {
     fn apply_declare_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPDeclareOp,
-        zk_sk: &zksign::SecretKey,
+        zk_sk: &UnsecuredZkKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let (note_sk, utxo) = utxo_with_sk();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
+        let zk_sig = UnsecuredZkKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
 
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
@@ -790,12 +791,12 @@ mod tests {
     fn apply_withdraw_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPWithdrawOp,
-        note_sk: zksign::SecretKey,
-        zk_key: zksign::SecretKey,
+        note_sk: UnsecuredZkKey,
+        zk_key: UnsecuredZkKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let tx_hash = TxHash(Fr::from(1u8));
-        let zk_sig = zksign::SecretKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
+        let zk_sig = UnsecuredZkKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
 
         sdp_ledger.apply_withdrawn_msg(op, &zk_sig, tx_hash, config)
     }
@@ -1407,7 +1408,7 @@ mod tests {
         };
 
         let tx_hash = TxHash(Fr::from(2u8));
-        let zk_sig = zksign::SecretKey::multi_sign(&[sk, zk_key_2], &tx_hash.0).unwrap();
+        let zk_sig = UnsecuredZkKey::multi_sign(&[sk, zk_key_2], &tx_hash.0).unwrap();
 
         sdp_ledger = sdp_ledger
             .apply_active_msg(&active_op, &zk_sig, tx_hash, &config)

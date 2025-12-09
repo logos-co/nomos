@@ -1,11 +1,11 @@
 use std::convert::Infallible;
 
 use ed25519_dalek::{Signer as _, SigningKey};
+use key_management_system_keys::keys::ZkKey;
 use nomos_core::{
     mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
 };
-use zksign::PublicKey;
 
 use crate::adapters::wallet::SdpWalletAdapter;
 
@@ -24,7 +24,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
     ) -> Result<SignedMantleTx, Self::Error> {
         // todo: this is for mock, we need signing key in production
         let signing_key = SigningKey::from_bytes(&[0u8; 32]);
-        let zk_key = zksign::SecretKey::zero();
+        let zk_key = ZkKey::zero();
 
         let declare_op = Op::SDPDeclare(*declaration);
         let mantle_tx = tx_builder.push_op(declare_op).build();
@@ -39,7 +39,7 @@ impl SdpWalletAdapter for MockWalletAdapter {
                 zk_sig,
                 ed25519_sig,
             }],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            ZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .expect("Transaction with valid signature should be valid"))
     }

@@ -125,7 +125,6 @@ mod tests {
     };
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
-    use zksign::SecretKey;
 
     use super::*;
 
@@ -251,9 +250,7 @@ mod tests {
                 ),
                 (
                     "test2".into(),
-                    Key::Zk(ZkKey::new(SecretKey::from(BigUint::from_bytes_le(
-                        &[1u8; 32],
-                    )))),
+                    ZkKey::new(BigUint::from_bytes_le(&[1u8; 32]).into()).into(),
                 ),
             ]
             .into(),
