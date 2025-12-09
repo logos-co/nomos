@@ -41,7 +41,6 @@ serde_with                 = { version = "3.14.0", default-features = false, fea
 strum                      = { version = "0.27", features = ["derive"] }
 thiserror                  = "1.0"
 tracing                    = { workspace = true }
-zksign                     = { workspace = true }
 
 [dev-dependencies]
 rand       = { workspace = true }

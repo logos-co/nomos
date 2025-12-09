@@ -25,4 +25,3 @@ tokio                      = { default-features = false, version = "1" }
 tokio-stream               = { default-features = false, version = "0.1" }
 tracing                    = { workspace = true }
 tx-service                 = { workspace = true }
-zksign                     = { workspace = true }

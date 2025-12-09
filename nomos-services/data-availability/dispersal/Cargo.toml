@@ -34,4 +34,3 @@ thiserror                  = { workspace = true }
 tokio                      = "1"
 tokio-stream               = { default-features = false, version = "0.1.15" }
 tracing                    = { workspace = true }
-zksign                     = { workspace = true }

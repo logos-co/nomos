@@ -1753,7 +1753,6 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -4719,7 +4718,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -5972,7 +5970,6 @@ dependencies = [
  "thiserror 1.0.69",
  "x25519-dalek",
  "zeroize",
- "zksign",
 ]
 
 [[package]]
@@ -6102,7 +6099,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6166,7 +6162,6 @@ dependencies = [
  "strum",
  "thiserror 1.0.69",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6194,7 +6189,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6240,7 +6234,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber 0.3.22",
- "zksign",
 ]
 
 [[package]]
@@ -6387,7 +6380,6 @@ dependencies = [
  "tokio",
  "tower_governor",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6412,7 +6404,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "utxotree",
- "zksign",
 ]
 
 [[package]]
@@ -6531,7 +6522,6 @@ dependencies = [
  "tx-service",
  "utoipa",
  "utoipa-swagger-ui",
- "zksign",
 ]
 
 [[package]]
@@ -6550,7 +6540,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -6680,7 +6669,6 @@ dependencies = [
  "tokio",
  "tracing",
  "wallet",
- "zksign",
 ]
 
 [[package]]
@@ -10097,7 +10085,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -11173,7 +11160,6 @@ dependencies = [
  "rpds",
  "thiserror 2.0.17",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -11186,7 +11172,6 @@ dependencies = [
  "nomos-core",
  "nomos-http-api-common",
  "url",
- "zksign",
 ]
 
 [[package]]

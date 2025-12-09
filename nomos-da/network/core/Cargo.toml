@@ -47,4 +47,3 @@ nomos-utils                = { workspace = true }
 rstest                     = { default-features = false, version = "0.25" }
 tokio                      = { default-features = false, version = "1" }
 tracing-subscriber         = { default-features = false, features = ["env-filter", "fmt", "std"], version = "0.3" }
-zksign                     = { workspace = true }

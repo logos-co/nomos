@@ -19,4 +19,3 @@ key-management-system-keys = { workspace = true }
 nomos-core                 = { workspace = true }
 nomos-http-api-common      = { workspace = true }
 url                        = "2.5.7"
-zksign                     = { workspace = true }

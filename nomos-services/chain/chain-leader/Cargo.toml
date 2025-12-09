@@ -34,7 +34,6 @@ tokio                      = { default-features = false, version = "1" }
 tracing                    = { workspace = true }
 tracing-futures            = { default-features = false, version = "0.2" }
 tx-service                 = { workspace = true }
-zksign                     = { workspace = true }
 
 [features]
 default      = []
