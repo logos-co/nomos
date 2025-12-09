@@ -55,6 +55,12 @@ impl PublicKey {
     }
 }
 
+impl AsRef<Fr> for PublicKey {
+    fn as_ref(&self) -> &Fr {
+        &self.0
+    }
+}
+
 trait ZkSignVerifierInputsExt: Sized {
     fn try_from_pks(msg: Groth16Input, pks: &[PublicKey]) -> Result<Self, ZkSignError>;
 }

@@ -11161,6 +11161,7 @@ name = "wallet"
 version = "0.1.0"
 dependencies = [
  "cryptarchia-engine",
+ "key-management-system-keys",
  "nomos-core",
  "nomos-ledger",
  "nomos-utils",

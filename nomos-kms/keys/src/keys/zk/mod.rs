@@ -38,11 +38,20 @@ impl ZkKey {
         self.0.as_fr()
     }
 
+    pub fn sign_payload(&self, data: &Fr) -> Result<Signature, ZkSignError> {
+        self.0.sign(data)
+    }
+
     pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, ZkSignError> {
         UnsecuredZkKey::multi_sign(
             &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
             data,
         )
+    }
+
+    #[must_use]
+    pub fn to_public_key(&self) -> PublicKey {
+        self.0.to_public_key()
     }
 }
 
