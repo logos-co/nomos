@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::reward::session::SessionRandomness;
 
 /// A blending token consisting of a proof of quota and a proof of selection.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlendingToken {
     signing_key: Ed25519PublicKey,
     proof_of_quota: VerifiedProofOfQuota,

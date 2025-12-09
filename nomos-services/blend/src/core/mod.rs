@@ -25,8 +25,8 @@ use nomos_blend::{
             validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
         reward::{
-            self, ActivityProof, BlendingTokenCollector, OldSessionBlendingTokenCollector,
-            SessionBlendingTokenCollector,
+            self, ActivityProof, BlendingToken, BlendingTokenCollector,
+            OldSessionBlendingTokenCollector, SessionBlendingTokenCollector,
         },
     },
     proofs::quota::inputs::prove::{
@@ -504,6 +504,7 @@ async fn initialize<
         ProofsVerifier,
     >,
     SessionBlendingTokenCollector,
+    Option<OldSessionBlendingTokenCollector>,
     ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
     SchedulerWrapper<
         BlakeRng,
@@ -629,16 +630,6 @@ where
     )
     .expect("The initial membership should satisfy the core node condition");
 
-    let blending_token_collector = SessionBlendingTokenCollector::new(
-            &reward::SessionInfo::new(
-                current_membership_info.public.session,
-                &pol_epoch_nonce,
-                current_membership_info.public.membership.size() as u64,
-                current_membership_info.public.poq_core_public_inputs.quota,
-            )
-            .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
-        );
-
     // Initialize the current session state. If the session matches the stored one,
     // retrieves the tracked consumed core quota. Else, fallback to `0`.
     let current_recovery_checkpoint = if let Some(saved_state) = last_saved_state.take()
@@ -648,7 +639,20 @@ where
         saved_state
     } else {
         tracing::debug!(target: LOG_TARGET, "No recovery state found for session {:?}. Initializing a new one.", current_membership_info.public.session);
-        ServiceState::with_session(current_membership_info.public.session, state_updater)
+        ServiceState::with_session(
+            current_membership_info.public.session,
+            SessionBlendingTokenCollector::new(
+                &reward::SessionInfo::new(
+                    current_membership_info.public.session,
+                    &pol_epoch_nonce,
+                    current_membership_info.public.membership.size() as u64,
+                    current_membership_info.public.poq_core_public_inputs.quota,
+                )
+                .expect("Reward session info must be created successfully. Panicking since the service cannot continue with this session")
+            ),
+            None,
+            state_updater,
+        )
     };
 
     let message_scheduler = SchedulerWrapper::new_with_initial_messages(
@@ -687,7 +691,12 @@ where
         remaining_clock_stream,
         current_public_info,
         crypto_processor,
-        blending_token_collector,
+        current_recovery_checkpoint
+            .blending_token_collector()
+            .clone(),
+        current_recovery_checkpoint
+            .old_session_blending_token_collector()
+            .cloned(),
         current_recovery_checkpoint,
         message_scheduler,
         backend,
@@ -749,6 +758,7 @@ async fn run_event_loop<
     >,
     rng: &mut Rng,
     mut blending_token_collector: SessionBlendingTokenCollector,
+    mut old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
 
     mut crypto_processor: CoreCryptographicProcessor<
         NodeId,
@@ -794,7 +804,6 @@ where
     let mut old_session_message_scheduler: Option<
         OldSessionMessageScheduler<Rng, ProcessedMessage<NetAdapter::BroadcastSettings>>,
     > = None;
-    let mut old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector> = None;
 
     loop {
         tokio::select! {
@@ -834,7 +843,7 @@ where
                         public_info = new_public_info;
                         recovery_checkpoint = new_recovery_checkpoint;
                     },
-                    HandleSessionEventOutput::TransitionCompleted { current_crypto_processor, current_scheduler, current_token_collector, current_public_info, current_recovery_checkpoint } => {
+                    HandleSessionEventOutput::TransitionCompleted { current_crypto_processor, current_scheduler, current_token_collector, current_public_info, new_recovery_checkpoint } => {
                         crypto_processor = current_crypto_processor;
                         old_session_crypto_processor = None;
                         message_scheduler = current_scheduler;
@@ -842,7 +851,7 @@ where
                         blending_token_collector = current_token_collector;
                         old_session_blending_token_collector = None;
                         public_info = current_public_info;
-                        recovery_checkpoint = current_recovery_checkpoint;
+                        recovery_checkpoint = new_recovery_checkpoint;
                     },
                     HandleSessionEventOutput::Retiring { old_crypto_processor, old_scheduler, old_token_collector, old_public_info, old_recovery_checkpoint } => {
                         tracing::info!(target: LOG_TARGET, "Exiting from the main event loop");
@@ -994,7 +1003,7 @@ where
     Rng: rand::Rng + Clone + Unpin,
     ProofsGenerator: CoreAndLeaderProofsGenerator<CorePoQGenerator>,
     ProofsVerifier: ProofsVerifierTrait,
-    BroadcastSettings: Debug + Send + Sync + Unpin,
+    BroadcastSettings: Debug + Clone + Send + Sync + Unpin,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
 {
     match event {
@@ -1065,25 +1074,39 @@ where
                 old_crypto_processor: current_cryptographic_processor,
                 new_scheduler,
                 old_scheduler,
-                new_token_collector: new_session_blending_token_collector,
-                old_token_collector: old_session_blending_token_collector,
+                new_token_collector: new_session_blending_token_collector.clone(),
+                old_token_collector: old_session_blending_token_collector.clone(),
                 new_public_info,
                 // No need to store the new state, since if the node crashes before the first
                 // release round of the new session, we will ignore the old state as it belongs to
                 // an old session and create a new one anyway.
-                new_recovery_checkpoint: ServiceState::with_session(new_session, state_updater),
+                new_recovery_checkpoint: ServiceState::with_session(
+                    new_session,
+                    new_session_blending_token_collector,
+                    Some(old_session_blending_token_collector),
+                    state_updater,
+                ),
             }
         }
         SessionEvent::TransitionPeriodExpired => {
             if let Some(old_token_collector) = old_session_blending_token_collector {
                 handle_session_transition_expired(backend, old_token_collector, sdp_relay).await;
             }
+
+            let mut state_updater = current_recovery_checkpoint.start_updating();
+            if state_updater
+                .update_old_session_blending_token_collector(None)
+                .is_err()
+            {
+                tracing::error!(target: LOG_TARGET, "Failed to clear old session blending token collector in the state updater");
+            }
+
             HandleSessionEventOutput::TransitionCompleted {
                 current_crypto_processor: current_cryptographic_processor,
                 current_scheduler,
                 current_token_collector: current_session_blending_token_collector,
                 current_public_info,
-                current_recovery_checkpoint,
+                new_recovery_checkpoint: state_updater.commit_changes(),
             }
         }
     }
@@ -1149,7 +1172,7 @@ enum HandleSessionEventOutput<
         >,
         current_token_collector: SessionBlendingTokenCollector,
         current_public_info: PublicInfo<NodeId>,
-        current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
+        new_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
     },
     Retiring {
         old_crypto_processor:
@@ -1262,6 +1285,8 @@ where
     for blending_token in collected_blending_tokens {
         blending_token_collector.collect(blending_token);
     }
+    state_updater.update_blending_token_collector(blending_token_collector.clone());
+
     // We treat a partially or fully decapsulated message as a processed message,
     // and we schedule for its release at the next release round.
     scheduler.schedule_processed_message(processed_message.clone());
@@ -1319,7 +1344,7 @@ where
     match cryptographic_processor
         .decapsulate_message_recursive(validated_encapsulated_message.clone())
     {
-        Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+        Ok(output) => schedule_decapsulated_incoming_message_from_current_session(
             output,
             scheduler,
             blending_token_collector,
@@ -1341,7 +1366,7 @@ where
             };
             match old_crypto_processor.decapsulate_message_recursive(validated_encapsulated_message)
             {
-                Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+                Ok(output) => schedule_decapsulated_incoming_message_from_old_session(
                     output,
                     old_session_scheduler,
                     old_session_blending_token_collector,
@@ -1385,7 +1410,7 @@ where
     ProofsVerifier: ProofsVerifierTrait,
 {
     match cryptographic_processor.decapsulate_message_recursive(validated_encapsulated_message) {
-        Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+        Ok(output) => schedule_decapsulated_incoming_message_from_old_session(
             output,
             scheduler,
             blending_token_collector,
@@ -1398,16 +1423,13 @@ where
     }
 }
 
-/// Schedules a decapsulated incoming message using a message scheduler,
-/// and collects the blending tokens obtained from the decapsulation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "TODO: Address this at some point."
-)]
-fn schedule_decapsulated_incoming_message_and_collect_tokens<BroadcastSettings, BackendSettings>(
+/// Schedules a decapsulated incoming message received from the current session
+/// using a message scheduler, and collects the blending tokens obtained from
+/// the decapsulation.
+fn schedule_decapsulated_incoming_message_from_current_session<BroadcastSettings, BackendSettings>(
     multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
     scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
-    blending_token_collector: &mut impl BlendingTokenCollector,
+    blending_token_collector: &mut SessionBlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
 ) -> ServiceState<BackendSettings, BroadcastSettings>
 where
@@ -1416,20 +1438,79 @@ where
 {
     let mut state_updater = current_recovery_checkpoint.start_updating();
 
-    let (collected_blending_tokens, decapsulated_message_type) =
-        multi_layer_decapsulation_output.into_components();
-    tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", collected_blending_tokens.len());
+    let blending_tokens = schedule_decapsulated_incoming_message(
+        multi_layer_decapsulation_output,
+        scheduler,
+        &mut state_updater,
+    );
 
-    for collected_blending_token in collected_blending_tokens {
-        blending_token_collector.collect(collected_blending_token);
+    for blending_token in blending_tokens {
+        blending_token_collector.collect(blending_token);
     }
+    if state_updater.update_blending_token_collector(blending_token_collector.clone()) == Err(()) {
+        tracing::warn!(target: LOG_TARGET, "Failed to update blending token collector in the state updater");
+    }
+    state_updater.commit_changes()
+}
+
+/// Schedules a decapsulated incoming message received from the old session
+/// using a message scheduler, and collects the blending tokens obtained from
+/// the decapsulation.
+fn schedule_decapsulated_incoming_message_from_old_session<BroadcastSettings, BackendSettings>(
+    multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
+    scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
+    blending_token_collector: &mut OldSessionBlendingTokenCollector,
+    current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
+) -> ServiceState<BackendSettings, BroadcastSettings>
+where
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
+    BackendSettings: Clone,
+{
+    let mut state_updater = current_recovery_checkpoint.start_updating();
+
+    let blending_tokens = schedule_decapsulated_incoming_message(
+        multi_layer_decapsulation_output,
+        scheduler,
+        &mut state_updater,
+    );
+
+    for blending_token in blending_tokens {
+        blending_token_collector.collect(blending_token);
+    }
+    if state_updater
+        .update_old_session_blending_token_collector(Some(blending_token_collector.clone()))
+        == Err(())
+    {
+        tracing::warn!(target: LOG_TARGET, "Failed to update the old session blending token collector in the state updater");
+    }
+    state_updater.commit_changes()
+}
+
+/// Schedules a decapsulated incoming message using a message scheduler,
+/// and returns the blending tokens obtained from the decapsulation.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "TODO: Address this at some point."
+)]
+fn schedule_decapsulated_incoming_message<BroadcastSettings, BackendSettings>(
+    multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
+    scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
+    state_updater: &mut ServiceStateUpdater<BackendSettings, BroadcastSettings>,
+) -> Vec<BlendingToken>
+where
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
+    BackendSettings: Clone,
+{
+    let (blending_tokens, decapsulated_message_type) =
+        multi_layer_decapsulation_output.into_components();
+    tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", blending_tokens.len());
 
     match decapsulated_message_type {
         DecapsulatedMessageType::Completed(fully_decapsulated_message) => {
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
                     tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
-                    state_updater.into_inner()
+                    blending_tokens
                 }
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
@@ -1444,10 +1525,10 @@ where
                         {
                             tracing::warn!(target: LOG_TARGET, "The same processed message was already added to the recovery state. Ignoring the new one...");
                         }
-                        state_updater.commit_changes()
+                        blending_tokens
                     } else {
                         tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
-                        state_updater.into_inner()
+                        blending_tokens
                     }
                 }
             }
@@ -1461,7 +1542,7 @@ where
                 Ok(()),
                 "There should not be another copy of the same processed encapsulated message: {remaining_encapsulated_message:?}"
             );
-            state_updater.commit_changes()
+            blending_tokens
         }
     }
 }

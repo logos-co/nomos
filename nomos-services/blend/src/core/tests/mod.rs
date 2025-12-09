@@ -358,7 +358,7 @@ async fn test_handle_session_event() {
         current_scheduler,
         current_token_collector,
         current_public_info,
-        current_recovery_checkpoint,
+        new_recovery_checkpoint,
     } = output
     else {
         panic!("expected TransitionCompleted output");

@@ -1,7 +1,10 @@
 mod serde {
     use std::collections::HashSet;
 
-    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::{
+        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        reward::{OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
+    };
     use serde::{Deserialize, Serialize};
 
     use crate::{
@@ -21,6 +24,8 @@ mod serde {
         ))]
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
         unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
+        blending_token_collector: SessionBlendingTokenCollector,
+        old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
     }
 
     impl<BroadcastSettings> SerializableServiceState<BroadcastSettings> {
@@ -38,6 +43,8 @@ mod serde {
                 self.spent_core_quota,
                 self.unsent_processed_messages,
                 self.unsent_data_messages,
+                self.blending_token_collector,
+                self.old_session_blending_token_collector,
                 state_updater,
             )
         }
@@ -52,6 +59,8 @@ mod serde {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
+                blending_token_collector,
+                old_session_blending_token_collector,
                 _,
             ) = value.into_components();
             Self {
@@ -59,6 +68,8 @@ mod serde {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
+                blending_token_collector,
+                old_session_blending_token_collector,
             }
         }
     }
@@ -72,7 +83,10 @@ mod service {
     };
     use std::collections::HashSet;
 
-    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::{
+        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        reward::{OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
+    };
 
     use crate::{
         core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
@@ -89,6 +103,8 @@ mod service {
         spent_core_quota: u64,
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
         unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
+        blending_token_collector: SessionBlendingTokenCollector,
+        old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
         state_updater: overwatch::services::state::StateUpdater<
             Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
         >,
@@ -104,6 +120,11 @@ mod service {
                 .field("spent_core_quota", &self.spent_core_quota)
                 .field("unsent_processed_messages", &self.unsent_processed_messages)
                 .field("unsent_data_messages", &self.unsent_data_messages)
+                .field("blending_token_collector", &self.blending_token_collector)
+                .field(
+                    "old_session_blending_token_collector",
+                    &self.old_session_blending_token_collector,
+                )
                 .finish_non_exhaustive()
         }
     }
@@ -114,6 +135,8 @@ mod service {
             spent_core_quota: u64,
             unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
             unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
+            blending_token_collector: SessionBlendingTokenCollector,
+            old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -123,22 +146,34 @@ mod service {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
+                blending_token_collector,
+                old_session_blending_token_collector,
                 state_updater,
             }
         }
 
-        /// Create a new instance with the provided session, and empty state for
-        /// the rest.
+        /// Create a new instance with the provided session and blending token
+        /// collectors, initializing all other fields as empty.
         ///
         /// This is typically used on session rotations or when no previous
         /// state was recovered.
         pub fn with_session(
             session: u64,
+            blending_token_collector: SessionBlendingTokenCollector,
+            old_session_blending_token_collector: Option<OldSessionBlendingTokenCollector>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
         ) -> Self {
-            Self::new(session, 0, HashSet::new(), HashSet::new(), state_updater)
+            Self::new(
+                session,
+                0,
+                HashSet::new(),
+                HashSet::new(),
+                blending_token_collector,
+                old_session_blending_token_collector,
+                state_updater,
+            )
         }
 
         /// Consume `self` to return a [`StateUpdater`], which can be used to
@@ -174,6 +209,8 @@ mod service {
             u64,
             HashSet<ProcessedMessage<BroadcastSettings>>,
             HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
+            SessionBlendingTokenCollector,
+            Option<OldSessionBlendingTokenCollector>,
             overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
@@ -183,6 +220,8 @@ mod service {
                 self.spent_core_quota,
                 self.unsent_processed_messages,
                 self.unsent_data_messages,
+                self.blending_token_collector,
+                self.old_session_blending_token_collector,
                 self.state_updater,
             )
         }
@@ -193,6 +232,40 @@ mod service {
             Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
         > {
             &self.state_updater
+        }
+
+        pub(super) fn update_blending_token_collector(
+            &mut self,
+            collector: SessionBlendingTokenCollector,
+        ) -> Result<(), ()> {
+            if collector.session_number() != self.last_seen_session {
+                return Err(());
+            }
+            self.blending_token_collector = collector;
+            Ok(())
+        }
+
+        pub const fn blending_token_collector(&self) -> &SessionBlendingTokenCollector {
+            &self.blending_token_collector
+        }
+
+        pub(super) fn update_old_session_blending_token_collector(
+            &mut self,
+            collector: Option<OldSessionBlendingTokenCollector>,
+        ) -> Result<(), ()> {
+            if let Some(ref collector) = collector {
+                if collector.session_number().saturating_add(1) != self.last_seen_session {
+                    return Err(());
+                }
+            }
+            self.old_session_blending_token_collector = collector;
+            Ok(())
+        }
+
+        pub const fn old_session_blending_token_collector(
+            &self,
+        ) -> Option<&OldSessionBlendingTokenCollector> {
+            self.old_session_blending_token_collector.as_ref()
         }
     }
 
@@ -263,7 +336,10 @@ pub use self::state_updater::StateUpdater;
 mod state_updater {
     use core::hash::Hash;
 
-    use nomos_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
+    use nomos_blend::message::{
+        encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        reward::{OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
+    };
 
     use crate::{core::state::service::ServiceState, message::ProcessedMessage};
 
@@ -307,6 +383,23 @@ mod state_updater {
             self,
         ) -> ServiceState<BackendSettings, BroadcastSettings> {
             self.inner
+        }
+
+        pub fn update_blending_token_collector(
+            &mut self,
+            collector: SessionBlendingTokenCollector,
+        ) -> Result<(), ()> {
+            self.changed = true;
+            self.inner.update_blending_token_collector(collector)
+        }
+
+        pub fn update_old_session_blending_token_collector(
+            &mut self,
+            collector: Option<OldSessionBlendingTokenCollector>,
+        ) -> Result<(), ()> {
+            self.changed = true;
+            self.inner
+                .update_old_session_blending_token_collector(collector)
         }
     }
 

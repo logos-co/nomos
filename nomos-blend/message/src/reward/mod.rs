@@ -2,10 +2,14 @@ mod activity;
 mod session;
 mod token;
 
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    fmt::{self, Debug, Formatter},
+};
 
 pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
+use serde::{Deserialize, Serialize};
 pub use session::SessionInfo;
 pub use token::{BlendingToken, HammingDistance};
 
@@ -18,10 +22,21 @@ pub trait BlendingTokenCollector {
 }
 
 /// Holds blending tokens collected during a single session.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SessionBlendingTokenCollector {
     session_number: SessionNumber,
     token_evaluation: BlendingTokenEvaluation,
     tokens: HashSet<BlendingToken>,
+}
+
+impl Debug for SessionBlendingTokenCollector {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionBlendingTokenCollector")
+            .field("session_number", &self.session_number)
+            .field("token_evaluation", &self.token_evaluation)
+            .field("tokens", &self.tokens.len())
+            .finish()
+    }
 }
 
 impl SessionBlendingTokenCollector {
@@ -47,6 +62,11 @@ impl SessionBlendingTokenCollector {
         (new_collector, old_collector)
     }
 
+    #[must_use]
+    pub const fn session_number(&self) -> SessionNumber {
+        self.session_number
+    }
+
     #[cfg(test)]
     #[must_use]
     const fn tokens(&self) -> &HashSet<BlendingToken> {
@@ -61,6 +81,7 @@ impl BlendingTokenCollector for SessionBlendingTokenCollector {
 }
 
 /// Holds blending tokens collected during the old session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OldSessionBlendingTokenCollector {
     collector: SessionBlendingTokenCollector,
     next_session_randomness: SessionRandomness,
@@ -90,6 +111,11 @@ impl OldSessionBlendingTokenCollector {
             })
             .min_by_key(|(_, distance)| *distance)
             .map(|(token, _)| ActivityProof::new(self.collector.session_number, token))
+    }
+
+    #[must_use]
+    pub const fn session_number(&self) -> SessionNumber {
+        self.collector.session_number
     }
 
     #[cfg(test)]
