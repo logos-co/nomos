@@ -1,16 +1,17 @@
 use core::fmt::{self, Debug, Formatter};
-use std::sync::LazyLock;
 
-use groth16::{Field as _, Fr, fr_from_bytes_unchecked};
-use serde::{Deserialize, Serialize};
-use subtle::ConstantTimeEq as _;
+use groth16::Fr;
+use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
 mod private;
+pub use self::private::SecretKey as UnsecuredZkKey;
 mod public;
+pub use self::public::PublicKey;
 mod signature;
+pub use self::signature::Signature;
 
 /// An hardened ZK secret key that only exposes methods to retrieve public
 /// information.
@@ -23,8 +24,12 @@ pub struct ZkKey(UnsecuredZkKey);
 
 impl ZkKey {
     #[must_use]
-    pub const fn new(secret_key: SecretKey) -> Self {
-        Self(UnsecuredZkKey(secret_key))
+    pub const fn new(secret_key: Fr) -> Self {
+        Self(UnsecuredZkKey::new(secret_key))
+    }
+
+    pub(crate) const fn as_fr(&self) -> &Fr {
+        self.0.as_fr()
     }
 }
 
@@ -46,8 +51,8 @@ impl From<UnsecuredZkKey> for ZkKey {
     }
 }
 
-impl From<SecretKey> for ZkKey {
-    fn from(value: SecretKey) -> Self {
+impl From<Fr> for ZkKey {
+    fn from(value: Fr) -> Self {
         Self(UnsecuredZkKey::from(value))
     }
 }
@@ -60,23 +65,20 @@ impl SecuredKey for ZkKey {
     type Error = KeyError;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.as_ref().sign(payload)?)
+        Ok(self.0.sign(payload)?)
     }
 
     fn sign_multiple(
         keys: &[&Self],
         payload: &Self::Payload,
     ) -> Result<Self::Signature, Self::Error> {
-        Ok(SecretKey::multi_sign(
-            &keys
-                .iter()
-                .map(|key| key.0.as_ref().clone())
-                .collect::<Vec<_>>(),
+        Ok(UnsecuredZkKey::multi_sign(
+            &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
             payload,
         )?)
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
-        self.0.as_ref().to_public_key()
+        self.0.to_public_key()
     }
 }

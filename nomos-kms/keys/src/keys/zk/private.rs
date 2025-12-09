@@ -1,11 +1,14 @@
 use std::sync::LazyLock;
 
-use groth16::{Fr, fr_from_bytes_unchecked};
+use groth16::{Field as _, Fr, fr_from_bytes_unchecked};
+use num_bigint::BigUint;
+use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
-use zksign::ZkSignError;
+use zksign::{ZkSignError, ZkSignPrivateKeysData, ZkSignWitnessInputs};
 
-use crate::keys::zk::signature::Signature;
+use crate::keys::zk::{public::PublicKey, signature::Signature};
 
 static NOMOS_KDF: LazyLock<Fr> = LazyLock::new(|| fr_from_bytes_unchecked(b"NOMOS_KDF"));
 
@@ -15,9 +18,9 @@ static NOMOS_KDF: LazyLock<Fr> = LazyLock::new(|| fr_from_bytes_unchecked(b"NOMO
 /// possible to go through the KMS roundtrip of executing operators.
 #[derive(ZeroizeOnDrop, Clone, Debug, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct UnsecuredZkKey(#[serde(with = "groth16::serde::serde_fr")] Fr);
+pub struct SecretKey(#[serde(with = "groth16::serde::serde_fr")] Fr);
 
-impl UnsecuredZkKey {
+impl SecretKey {
     #[must_use]
     pub const fn zero() -> Self {
         Self(Fr::ZERO)
@@ -45,7 +48,7 @@ impl UnsecuredZkKey {
 
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
-        PublicKey(<Poseidon2Bn254Hasher as Digest>::compress(&[
+        PublicKey::new(<Poseidon2Bn254Hasher as Digest>::compress(&[
             *NOMOS_KDF, self.0,
         ]))
     }
@@ -55,40 +58,21 @@ impl UnsecuredZkKey {
     }
 
     pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, ZkSignError> {
-        let sk_inputs = ZkSignPrivateKeysData::try_from(keys)?;
+        let sk_inputs = try_from_secret_keys(keys)?;
         let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(sk_inputs, *data);
 
-        let (signature, _) = prove(&inputs).expect("Signature should succeed");
-        Ok(Signature(signature))
+        let (signature, _) = zksign::prove(&inputs).expect("Signature should succeed");
+        Ok(Signature::new(signature))
     }
 }
 
-impl PartialEq for UnsecuredZkKey {
+impl PartialEq for SecretKey {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_fr().0.0.ct_eq(&other.0.as_fr().0.0).into()
+        self.0.0.0.ct_eq(&other.0.0.0).into()
     }
 }
 
-impl Eq for UnsecuredZkKey {}
-
-impl From<SecretKey> for UnsecuredZkKey {
-    fn from(value: SecretKey) -> Self {
-        Self(value)
-    }
-}
-
-impl From<UnsecuredZkKey> for SecretKey {
-    fn from(value: UnsecuredZkKey) -> Self {
-        value.0.clone()
-    }
-}
-
-/// Return a reference to the inner secret key.
-impl AsRef<SecretKey> for UnsecuredZkKey {
-    fn as_ref(&self) -> &SecretKey {
-        &self.0
-    }
-}
+impl Eq for SecretKey {}
 
 impl From<Fr> for SecretKey {
     fn from(key: Fr) -> Self {
@@ -106,4 +90,16 @@ impl From<SecretKey> for Fr {
     fn from(secret: SecretKey) -> Self {
         secret.0
     }
+}
+
+fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkSignError> {
+    let len = keys.len();
+    if len > 32 {
+        return Err(ZkSignError::TooManyKeys(len));
+    }
+    let mut buff: [Fr; 32] = [Fr::ZERO; 32];
+    for (i, sk) in keys.iter().enumerate() {
+        buff[i] = sk.clone().into_inner();
+    }
+    Ok(buff.into())
 }
