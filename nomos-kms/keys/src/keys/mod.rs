@@ -10,7 +10,7 @@ use zeroize::ZeroizeOnDrop;
 
 pub use crate::keys::{
     ed25519::{Ed25519Key, KEY_SIZE as ED25519_SECRET_KEY_SIZE, UnsecuredEd25519Key},
-    zk::ZkKey,
+    zk::{PublicKey as ZkPublicKey, Signature as ZkSignature, UnsecuredZkKey, ZkKey},
 };
 
 /// Entity that gathers all keys provided by the KMS crate.

@@ -9,6 +9,7 @@ use channel::{
     inscribe::InscriptionOp,
     set_keys::SetKeysOp,
 };
+use key_management_system_keys::keys::ZkSignature;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{
@@ -55,9 +56,9 @@ pub enum Op {
 pub enum OpProof {
     NoProof,
     Ed25519Sig(#[serde(with = "ed25519_serde::sig_hex")] ed25519::Signature),
-    ZkSig(zksign::Signature),
+    ZkSig(ZkSignature),
     ZkAndEd25519Sigs {
-        zk_sig: zksign::Signature,
+        zk_sig: ZkSignature,
         #[serde(with = "ed25519_serde::sig_hex")]
         ed25519_sig: ed25519::Signature,
     },

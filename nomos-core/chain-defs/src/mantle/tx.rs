@@ -5,6 +5,7 @@ use groth16::{
     Fr, GROTH16_SAFE_BYTES_SIZE, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes,
     serde::serde_fr,
 };
+use key_management_system_keys::keys::ZkSignature;
 use num_bigint::BigUint;
 use poseidon2::{Digest, ZkHash};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -218,7 +219,7 @@ pub struct SignedMantleTx {
     pub mantle_tx: MantleTx,
     // TODO: make this more efficient
     pub ops_proofs: Vec<OpProof>,
-    pub ledger_tx_proof: zksign::Signature,
+    pub ledger_tx_proof: ZkSignature,
 }
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
@@ -254,7 +255,7 @@ impl SignedMantleTx {
     pub fn new(
         mantle_tx: MantleTx,
         ops_proofs: Vec<OpProof>,
-        ledger_tx_proof: zksign::Signature,
+        ledger_tx_proof: ZkSignature,
     ) -> Result<Self, VerificationError> {
         let tx = Self {
             mantle_tx,
@@ -272,7 +273,7 @@ impl SignedMantleTx {
     pub const fn new_unverified(
         mantle_tx: MantleTx,
         ops_proofs: Vec<OpProof>,
-        ledger_tx_proof: zksign::Signature,
+        ledger_tx_proof: ZkSignature,
     ) -> Self {
         Self {
             mantle_tx,
@@ -352,7 +353,7 @@ impl AuthenticatedMantleTx for SignedMantleTx {
         &self.mantle_tx
     }
 
-    fn ledger_tx_proof(&self) -> &zksign::Signature {
+    fn ledger_tx_proof(&self) -> &ZkSignature {
         &self.ledger_tx_proof
     }
 
@@ -388,7 +389,7 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
         struct SignedMantleTxHelper {
             mantle_tx: MantleTx,
             ops_proofs: Vec<OpProof>,
-            ledger_tx_proof: zksign::Signature,
+            ledger_tx_proof: ZkSignature,
         }
 
         let helper = SignedMantleTxHelper::deserialize(deserializer)?;
@@ -401,6 +402,7 @@ impl<'de> Deserialize<'de> for SignedMantleTx {
 mod tests {
     use ed25519::signature::Signer as _;
     use ed25519_dalek::SigningKey;
+    use key_management_system_keys::keys::UnsecuredZkKey;
 
     use super::*;
     use crate::mantle::{
@@ -451,7 +453,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(result.is_ok());
@@ -470,7 +472,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(result.is_ok());
@@ -482,8 +484,7 @@ mod tests {
         let inscribe_op = create_test_inscribe_op(&signing_key);
         let mantle_tx = create_test_mantle_tx(vec![Op::ChannelInscribe(inscribe_op)]);
 
-        let ledger_tx_proof =
-            zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
+        let ledger_tx_proof = UnsecuredZkKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
         let result = SignedMantleTx::new(mantle_tx, vec![], ledger_tx_proof);
 
         assert!(matches!(
@@ -509,7 +510,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(matches!(
@@ -532,7 +533,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(matches!(
@@ -549,8 +550,8 @@ mod tests {
 
         // Use wrong proof type
         let tx_hash = mantle_tx.hash();
-        let zk_sig = OpProof::ZkSig(zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap());
-        let ledger_tx_proof = zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
+        let zk_sig = OpProof::ZkSig(UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap());
+        let ledger_tx_proof = UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
         let result = SignedMantleTx::new(mantle_tx, vec![zk_sig], ledger_tx_proof);
 
         assert!(matches!(
@@ -570,8 +571,8 @@ mod tests {
 
         // Use wrong proof type
         let tx_hash = mantle_tx.hash();
-        let zk_sig = OpProof::ZkSig(zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap());
-        let ledger_tx_proof = zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
+        let zk_sig = OpProof::ZkSig(UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap());
+        let ledger_tx_proof = UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
         let result = SignedMantleTx::new(mantle_tx, vec![zk_sig], ledger_tx_proof);
 
         assert!(matches!(
@@ -603,7 +604,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(sig1), OpProof::Ed25519Sig(sig2)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(result.is_ok());
@@ -630,7 +631,7 @@ mod tests {
         let result = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(sig1), OpProof::Ed25519Sig(sig2)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
 
         assert!(matches!(
@@ -651,7 +652,7 @@ mod tests {
         let signed_tx = SignedMantleTx::new(
             mantle_tx,
             vec![OpProof::Ed25519Sig(signature)],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         )
         .unwrap();
 
@@ -669,8 +670,7 @@ mod tests {
         let blob_op = create_test_blob_op(&signing_key);
         let mantle_tx = create_test_mantle_tx(vec![Op::ChannelBlob(blob_op)]);
 
-        let ledger_tx_proof =
-            zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
+        let ledger_tx_proof = UnsecuredZkKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap();
         let helper = SignedMantleTx {
             mantle_tx,
             ops_proofs: vec![],
@@ -701,7 +701,7 @@ mod tests {
         let helper = SignedMantleTx {
             mantle_tx,
             ops_proofs: vec![OpProof::Ed25519Sig(wrong_signature)],
-            ledger_tx_proof: zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            ledger_tx_proof: UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         };
 
         let serialized = serde_json::to_string(&helper).unwrap();
@@ -721,7 +721,7 @@ mod tests {
         let signature = signing_key.sign(&tx_hash.as_signing_bytes());
 
         // Test too few proofs
-        let ledger_tx_proof = zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
+        let ledger_tx_proof = UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap();
         let result = SignedMantleTx::new(mantle_tx.clone(), vec![], ledger_tx_proof);
         assert!(matches!(
             result,
@@ -738,7 +738,7 @@ mod tests {
                 OpProof::Ed25519Sig(signature),
                 OpProof::Ed25519Sig(signature),
             ],
-            zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+            UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
         );
         assert!(matches!(
             result,

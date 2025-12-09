@@ -145,8 +145,8 @@ impl<'de> Deserialize<'de> for GenesisTx {
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::VerifyingKey;
+    use key_management_system_keys::keys::{UnsecuredZkKey, ZkPublicKey};
     use num_bigint::BigUint;
-    use zksign::PublicKey;
 
     use super::*;
     use crate::{
@@ -174,7 +174,7 @@ mod tests {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locked_note_id: utxo_to_use.id(),
-            zk_id: PublicKey::new(BigUint::from(zk_id_value).into()),
+            zk_id: ZkPublicKey::new(BigUint::from(zk_id_value).into()),
             provider_id: ProviderId(verifying_key),
             locators: [].into(),
         }
@@ -194,7 +194,7 @@ mod tests {
 
     // Helper function to create a test note
     fn create_test_note(value: Value) -> Note {
-        Note::new(value, PublicKey::from(BigUint::from(123u64)))
+        Note::new(value, ZkPublicKey::from(BigUint::from(123u64)))
     }
 
     // Helper function to create a basic signed transaction
@@ -210,7 +210,7 @@ mod tests {
         SignedMantleTx {
             mantle_tx: mantle_tx.clone(),
             ops_proofs,
-            ledger_tx_proof: zksign::SecretKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
+            ledger_tx_proof: UnsecuredZkKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         }
     }
 
