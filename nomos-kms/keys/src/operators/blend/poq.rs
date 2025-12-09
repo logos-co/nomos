@@ -56,7 +56,7 @@ impl SecureKeyOperator for PoQOperator {
             self.key_index,
             ProofOfCoreQuotaInputs {
                 core_path_and_selectors: self.core_path_and_selectors,
-                core_sk: *key.as_fr(),
+                core_sk: *key.as_ref().as_fr(),
             },
         );
         let public_inputs = self.public_inputs;

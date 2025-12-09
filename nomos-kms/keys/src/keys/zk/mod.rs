@@ -1,26 +1,30 @@
 use core::fmt::{self, Debug, Formatter};
+use std::sync::LazyLock;
 
-use groth16::Fr;
-use serde::Deserialize;
+use groth16::{Field as _, Fr, fr_from_bytes_unchecked};
+use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
-use zksign::{PublicKey, SecretKey, Signature};
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 
-#[derive(Deserialize, ZeroizeOnDrop, Clone)]
+mod private;
+mod public;
+mod signature;
+
+/// An hardened ZK secret key that only exposes methods to retrieve public
+/// information.
+///
+/// It is a secured variant of a [`UnsecuredZkKey`] and used within the set of
+/// supported KMS keys.
+#[derive(Deserialize, ZeroizeOnDrop, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "unsafe", derive(serde::Serialize))]
-pub struct ZkKey(SecretKey);
+pub struct ZkKey(UnsecuredZkKey);
 
 impl ZkKey {
     #[must_use]
     pub const fn new(secret_key: SecretKey) -> Self {
-        Self(secret_key)
-    }
-
-    #[must_use]
-    pub(crate) const fn as_fr(&self) -> &Fr {
-        self.0.as_fr()
+        Self(UnsecuredZkKey(secret_key))
     }
 }
 
@@ -35,13 +39,18 @@ impl Debug for ZkKey {
     }
 }
 
-impl PartialEq for ZkKey {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.as_fr().0.0.ct_eq(&other.as_fr().0.0).into()
+#[cfg(feature = "unsafe")]
+impl From<UnsecuredZkKey> for ZkKey {
+    fn from(value: UnsecuredZkKey) -> Self {
+        Self(value)
     }
 }
 
-impl Eq for ZkKey {}
+impl From<SecretKey> for ZkKey {
+    fn from(value: SecretKey) -> Self {
+        Self(UnsecuredZkKey::from(value))
+    }
+}
 
 #[async_trait::async_trait]
 impl SecuredKey for ZkKey {
@@ -51,7 +60,7 @@ impl SecuredKey for ZkKey {
     type Error = KeyError;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.sign(payload)?)
+        Ok(self.0.as_ref().sign(payload)?)
     }
 
     fn sign_multiple(
@@ -59,12 +68,15 @@ impl SecuredKey for ZkKey {
         payload: &Self::Payload,
     ) -> Result<Self::Signature, Self::Error> {
         Ok(SecretKey::multi_sign(
-            &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
+            &keys
+                .iter()
+                .map(|key| key.0.as_ref().clone())
+                .collect::<Vec<_>>(),
             payload,
         )?)
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
-        self.0.to_public_key()
+        self.0.as_ref().to_public_key()
     }
 }
