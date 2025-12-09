@@ -75,7 +75,7 @@ impl From<UnsecuredZkKey> for ZkKey {
 
 impl From<Fr> for ZkKey {
     fn from(value: Fr) -> Self {
-        Self(UnsecuredZkKey::from(value))
+        Self(UnsecuredZkKey::new(value))
     }
 }
 

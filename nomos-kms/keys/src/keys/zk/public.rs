@@ -1,5 +1,4 @@
 use groth16::{Field as _, Fr, Groth16Input};
-use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zksign::{ZkSignError, ZkSignVerifierInputs};
@@ -32,15 +31,8 @@ impl PublicKey {
     }
 
     #[must_use]
-    pub fn verify(&self, data: &Fr, signature: &Signature) -> bool {
-        let mut pks = [const { Self::zero() }; 32];
-        pks[0] = *self;
-        Self::verify_multi(&pks, data, signature)
-    }
-
-    #[must_use]
     pub fn verify_multi(pks: &[Self], data: &Fr, signature: &Signature) -> bool {
-        let inputs = match ZkSignVerifierInputs::try_from_pks((*data).into(), pks) {
+        let inputs = match try_from_pks((*data).into(), pks) {
             Ok(inputs) => inputs,
             Err(e) => {
                 error!("Error building verifier inputs: {e:?}");
@@ -55,55 +47,19 @@ impl PublicKey {
     }
 }
 
-impl AsRef<Fr> for PublicKey {
-    fn as_ref(&self) -> &Fr {
-        &self.0
+fn try_from_pks(msg: Groth16Input, pks: &[PublicKey]) -> Result<ZkSignVerifierInputs, ZkSignError> {
+    if pks.len() > 32 {
+        return Err(ZkSignError::TooManyKeys(pks.len()));
     }
-}
 
-trait ZkSignVerifierInputsExt: Sized {
-    fn try_from_pks(msg: Groth16Input, pks: &[PublicKey]) -> Result<Self, ZkSignError>;
-}
+    // pks are padded with the pk corresponding to the zero SecretKey.
+    let zero_pk = Groth16Input::from(SecretKey::zero().to_public_key().into_inner());
+    let mut public_keys = [zero_pk; 32];
 
-impl ZkSignVerifierInputsExt for ZkSignVerifierInputs {
-    fn try_from_pks(msg: Groth16Input, pks: &[PublicKey]) -> Result<Self, ZkSignError> {
-        if pks.len() > 32 {
-            return Err(ZkSignError::TooManyKeys(pks.len()));
-        }
-
-        // pks are padded with the pk corresponding to the zero SecretKey.
-        let zero_pk = Groth16Input::from(SecretKey::from(Fr::ZERO).to_public_key().into_inner());
-        let mut public_keys = [zero_pk; 32];
-
-        for (i, pk) in pks.iter().enumerate() {
-            assert!(i < 32, "ZkSign supports signing with at most 32 keys");
-            public_keys[i] = Groth16Input::from(pk.into_inner());
-        }
-
-        Ok(Self { public_keys, msg })
+    for (i, pk) in pks.iter().enumerate() {
+        assert!(i < 32, "ZkSign supports signing with at most 32 keys");
+        public_keys[i] = Groth16Input::from(pk.into_inner());
     }
-}
 
-impl From<SecretKey> for PublicKey {
-    fn from(secret: SecretKey) -> Self {
-        secret.to_public_key()
-    }
-}
-
-impl From<Fr> for PublicKey {
-    fn from(key: Fr) -> Self {
-        Self::new(key)
-    }
-}
-
-impl From<BigUint> for PublicKey {
-    fn from(value: BigUint) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<PublicKey> for Fr {
-    fn from(public: PublicKey) -> Self {
-        public.0
-    }
+    Ok(ZkSignVerifierInputs { public_keys, msg })
 }

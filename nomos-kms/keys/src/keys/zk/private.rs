@@ -74,24 +74,6 @@ impl PartialEq for SecretKey {
 
 impl Eq for SecretKey {}
 
-impl From<Fr> for SecretKey {
-    fn from(key: Fr) -> Self {
-        Self::new(key)
-    }
-}
-
-impl From<BigUint> for SecretKey {
-    fn from(value: BigUint) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<SecretKey> for Fr {
-    fn from(secret: SecretKey) -> Self {
-        secret.0
-    }
-}
-
 fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkSignError> {
     let len = keys.len();
     if len > 32 {

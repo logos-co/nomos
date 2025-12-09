@@ -260,7 +260,7 @@ mod core_to_core_tests {
             }
         };
         let secret_inputs = keys.map(|(sk, pk)| {
-            let proof = merkle_tree.get_proof_for_key(pk.as_ref()).unwrap();
+            let proof = merkle_tree.get_proof_for_key(pk.as_fr()).unwrap();
             ProofOfCoreQuotaInputs {
                 core_sk: sk.into_inner(),
                 core_path_and_selectors: proof,
