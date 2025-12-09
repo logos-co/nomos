@@ -1,5 +1,6 @@
 use ed25519::Signature;
 use ed25519_dalek::{Signer as _, ed25519};
+use key_management_system_service::keys::{UnsecuredZkKey, ZkPublicKey, ZkSignature};
 use nomos_core::{
     mantle::{
         MantleTx, NoteId, SignedMantleTx, Transaction as _,
@@ -18,14 +19,14 @@ use nomos_core::{
         WithdrawMessage, da,
     },
 };
-use zksign::{PublicKey, SecretKey};
 
-fn empty_ledger_signature(tx_hash: &TxHash) -> zksign::Signature {
-    SecretKey::multi_sign(&[], tx_hash.as_ref()).expect("multi-sign with empty key set works")
+fn empty_ledger_signature(tx_hash: &TxHash) -> ZkSignature {
+    UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).expect("multi-sign with empty key set works")
 }
 
-fn prove_zk_signature(tx_hash: &TxHash, keys: &[SecretKey]) -> zksign::Signature {
-    SecretKey::multi_sign(keys, tx_hash.as_ref()).expect("zk signature generation should succeed")
+fn prove_zk_signature(tx_hash: &TxHash, keys: &[UnsecuredZkKey]) -> ZkSignature {
+    UnsecuredZkKey::multi_sign(keys, tx_hash.as_ref())
+        .expect("zk signature generation should succeed")
 }
 
 #[must_use]
@@ -145,10 +146,10 @@ pub fn create_sdp_declare_tx(
     provider_signing_key: &ed25519_dalek::SigningKey,
     service_type: ServiceType,
     locators: Vec<nomos_core::sdp::Locator>,
-    zk_id: PublicKey,
-    zk_sk: &SecretKey,
+    zk_id: ZkPublicKey,
+    zk_sk: &UnsecuredZkKey,
     locked_note_id: NoteId,
-    note_sk: &SecretKey,
+    note_sk: &UnsecuredZkKey,
 ) -> (SignedMantleTx, DeclarationMessage) {
     let provider_pk_bytes = provider_signing_key.verifying_key().to_bytes();
     let provider_id = nomos_core::sdp::ProviderId::try_from(provider_pk_bytes)
@@ -193,8 +194,8 @@ pub fn create_sdp_declare_tx(
 #[must_use]
 pub fn create_sdp_active_tx(
     active: &ActiveMessage,
-    zk_sk: &SecretKey,
-    note_sk: &SecretKey,
+    zk_sk: &UnsecuredZkKey,
+    note_sk: &UnsecuredZkKey,
 ) -> SignedMantleTx {
     let mantle_tx = MantleTx {
         ops: vec![Op::SDPActive(active.clone())],
@@ -216,8 +217,8 @@ pub fn create_sdp_active_tx(
 #[must_use]
 pub fn create_sdp_withdraw_tx(
     withdraw: WithdrawMessage,
-    zk_sk: &SecretKey,
-    note_sk: &SecretKey,
+    zk_sk: &UnsecuredZkKey,
+    note_sk: &UnsecuredZkKey,
 ) -> SignedMantleTx {
     let mantle_tx = MantleTx {
         ops: vec![Op::SDPWithdraw(withdraw)],

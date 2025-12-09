@@ -1,4 +1,3 @@
-use crate::mempool::MempoolAdapter as _;
 mod blend;
 mod leadership;
 mod mempool;
@@ -11,6 +10,7 @@ use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
 use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, future, stream};
+use key_management_system_keys::keys::UnsecuredZkKey;
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::{Block, Error as BlockError, MAX_TRANSACTIONS},
@@ -43,11 +43,11 @@ use tx_service::{
     network::NetworkAdapter as MempoolNetworkAdapter,
     storage::MempoolStorageAdapter,
 };
-use zksign::SecretKey;
 
 use crate::{
     blend::BlendAdapter,
     leadership::{Leader, WinningPoLSlotNotifier},
+    mempool::MempoolAdapter as _,
     relays::CryptarchiaConsensusRelays,
 };
 
@@ -86,7 +86,7 @@ pub enum LeaderMsg {
     /// * a new consumer subscribes -> the latest value that was sent to all the
     ///   other consumers, if any
     WinningPolEpochSlotStreamSubscribe {
-        sender: oneshot::Sender<watch::Receiver<Option<(LeaderPrivate, SecretKey, Epoch)>>>,
+        sender: oneshot::Sender<watch::Receiver<Option<(LeaderPrivate, UnsecuredZkKey, Epoch)>>>,
     },
 }
 
@@ -138,7 +138,7 @@ pub struct CryptarchiaLeader<
     Wallet: nomos_wallet::api::WalletServiceData,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    winning_pol_epoch_slots_sender: watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
+    winning_pol_epoch_slots_sender: watch::Sender<Option<(LeaderPrivate, UnsecuredZkKey, Epoch)>>,
 }
 
 impl<
@@ -679,7 +679,7 @@ where
 
 fn handle_inbound_message(
     msg: LeaderMsg,
-    winning_pol_epoch_slots_sender: &watch::Sender<Option<(LeaderPrivate, SecretKey, Epoch)>>,
+    winning_pol_epoch_slots_sender: &watch::Sender<Option<(LeaderPrivate, UnsecuredZkKey, Epoch)>>,
 ) {
     let LeaderMsg::WinningPolEpochSlotStreamSubscribe { sender } = msg;
 

@@ -125,7 +125,7 @@ pub fn create_general_configs_with_blend_core_subset(
                 ),
                 (
                     blend_conf.core.zk.secret_key_kms_id.clone(),
-                    ZkKey::new(zk_secret_key.clone()).into(),
+                    ZkKey::new(zk_secret_key.clone().into_inner()).into(),
                 ),
             ]
             .into(),

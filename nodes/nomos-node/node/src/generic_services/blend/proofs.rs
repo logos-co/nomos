@@ -193,7 +193,7 @@ impl ProofsVerifier for BlendProofsVerifier {
 mod core_to_core_tests {
     use futures::future::ready;
     use groth16::Field as _;
-    use key_management_system_service::keys::UnsecuredEd25519Key;
+    use key_management_system_service::keys::{UnsecuredEd25519Key, UnsecuredZkKey};
     use nomos_blend::{
         crypto::merkle::MerkleTree,
         message::crypto::{
@@ -221,7 +221,6 @@ mod core_to_core_tests {
     };
     use nomos_blend_service::ProofsVerifier as _;
     use nomos_core::crypto::ZkHash;
-    use zksign::SecretKey;
 
     use crate::generic_services::blend::{BlendProofsVerifier, CoreProofsGenerator};
 
@@ -233,14 +232,15 @@ mod core_to_core_tests {
     fn generate_inputs<const INPUTS: usize>(core_quota: u64) -> PoQInputs<INPUTS> {
         let keys: [_; INPUTS] = (1..=INPUTS as u64)
             .map(|i| {
-                let sk = SecretKey::new(ZkHash::from(i));
+                let sk = UnsecuredZkKey::new(ZkHash::from(i));
                 let pk = sk.to_public_key();
                 (sk, pk)
             })
             .collect::<Vec<_>>()
             .try_into()
             .unwrap();
-        let merkle_tree = MerkleTree::new(keys.clone().map(|(_, pk)| pk).to_vec()).unwrap();
+        let merkle_tree =
+            MerkleTree::new(keys.clone().map(|(_, pk)| pk.into_inner()).to_vec()).unwrap();
         let public_inputs = {
             let core_inputs = CoreInputs {
                 quota: core_quota,
@@ -260,7 +260,7 @@ mod core_to_core_tests {
             }
         };
         let secret_inputs = keys.map(|(sk, pk)| {
-            let proof = merkle_tree.get_proof_for_key(&pk).unwrap();
+            let proof = merkle_tree.get_proof_for_key(pk.as_ref()).unwrap();
             ProofOfCoreQuotaInputs {
                 core_sk: sk.into_inner(),
                 core_path_and_selectors: proof,

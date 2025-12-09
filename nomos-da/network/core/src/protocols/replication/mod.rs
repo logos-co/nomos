@@ -12,6 +12,7 @@ mod test {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use futures::StreamExt as _;
+    use key_management_system_keys::keys::UnsecuredZkKey;
     use kzgrs_backend::testutils;
     use libp2p::{
         PeerId, Swarm,
@@ -375,7 +376,7 @@ mod test {
                 let unique_signed_tx = SignedMantleTx::new(
                     unique_mantle_tx,
                     vec![OpProof::Ed25519Sig(signature)],
-                    zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+                    UnsecuredZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
                 )
                 .expect("Transaction with valid proofs should be valid");
 

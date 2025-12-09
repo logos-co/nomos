@@ -15,7 +15,7 @@ use configs::{
 use futures::future::join_all;
 use key_management_system_service::{
     backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, ZkKey},
+    keys::{Ed25519Key, UnsecuredZkKey, ZkKey},
 };
 use nomos_core::{
     mantle::{GenesisTx as _, Note, NoteId},
@@ -27,7 +27,6 @@ use nomos_network::backends::libp2p::Libp2pInfo;
 use nomos_utils::net::get_available_udp_port;
 use rand::{Rng as _, thread_rng};
 use tokio::time::{sleep, timeout};
-use zksign::SecretKey;
 
 use crate::{
     adjust_timeout,
@@ -129,7 +128,7 @@ impl TopologyConfig {
 #[derive(Clone)]
 pub struct GenesisNoteSpec {
     pub note: Note,
-    pub note_sk: SecretKey,
+    pub note_sk: UnsecuredZkKey,
 }
 
 #[derive(Clone)]
@@ -786,7 +785,7 @@ pub fn create_kms_configs(
                     ),
                     (
                         blend_conf.core.zk.secret_key_kms_id.clone(),
-                        ZkKey::new(zk_secret_key.clone()).into(),
+                        ZkKey::new(zk_secret_key.clone().into_inner()).into(),
                     ),
                     (
                         key_id_for_preload_backend(
@@ -796,9 +795,9 @@ pub fn create_kms_configs(
                     ),
                     (
                         key_id_for_preload_backend(
-                            &ZkKey::new(da_conf.secret_zk_key.clone()).into(),
+                            &ZkKey::new(da_conf.secret_zk_key.clone().into_inner()).into(),
                         ),
-                        ZkKey::new(da_conf.secret_zk_key.clone()).into(),
+                        ZkKey::new(da_conf.secret_zk_key.clone().into_inner()).into(),
                     ),
                 ]
                 .into(),

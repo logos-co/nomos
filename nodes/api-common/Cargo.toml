@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 axum = { default-features = false, features = ["http1", "http2", "json", "query", "tokio"], version = "0.7.5" }
 governor = { default-features = false, version = "0.6" }
+key-management-system-keys = { workspace = true }
 nomos-core = { workspace = true }
 pprof = { default-features = false, features = [
   "criterion",

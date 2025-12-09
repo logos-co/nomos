@@ -2,6 +2,7 @@ use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
 use ed25519_dalek::SigningKey;
+use key_management_system_service::keys::UnsecuredZkKey;
 use nomos_core::{
     mantle::{Note, NoteId, Transaction as _},
     sdp::{ActiveMessage, Declaration, Locator, ServiceType, SessionNumber, WithdrawMessage},
@@ -18,7 +19,6 @@ use tests::{
     topology::{GenesisNoteSpec, Topology, TopologyConfig},
 };
 use tokio::time::{sleep, timeout};
-use zksign::SecretKey;
 
 /// High-level SDP flow covered by this E2E:
 /// - submit a `Declare` transaction backed by an unused genesis note and wait
@@ -30,7 +30,7 @@ use zksign::SecretKey;
 #[tokio::test]
 #[serial]
 async fn sdp_ops_e2e() {
-    let note_sk = SecretKey::from(BigUint::from(42u64));
+    let note_sk = UnsecuredZkKey::from(BigUint::from(42u64));
     let spare_note = Note::new(1, note_sk.to_public_key());
     let topology_config =
         TopologyConfig::validator_and_executor().with_extra_genesis_note(GenesisNoteSpec {
@@ -74,7 +74,7 @@ async fn sdp_ops_e2e() {
     );
 
     let provider_signing_key = SigningKey::from_bytes(&[7u8; 32]);
-    let provider_zk_key = SecretKey::from(BigUint::from(7u64));
+    let provider_zk_key = UnsecuredZkKey::from(BigUint::from(7u64));
     let zk_id = provider_zk_key.to_public_key();
     let locator = Locator(
         "/ip4/127.0.0.1/tcp/9100"
