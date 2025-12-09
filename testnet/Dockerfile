@@ -28,7 +28,7 @@ RUN chmod +x scripts/setup-nomos-circuits.sh && \
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 
-RUN cargo build --release --all-features
+RUN cargo build --locked --release --all-features
 
 # ===========================
 # NODE IMAGE
