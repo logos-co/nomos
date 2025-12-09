@@ -22,9 +22,9 @@ serde              = { workspace = true }
 thiserror          = "1"
 
 [dev-dependencies]
-const-hex  = { default-features = false, version = "1.15.0" }
-nomos-core = { workspace = true }
-zksign     = { workspace = true }
+const-hex                  = { default-features = false, version = "1.15.0" }
+key-management-system-keys = { workspace = true }
+nomos-core                 = { workspace = true }
 
 [features]
 unsafe-test-functions = []

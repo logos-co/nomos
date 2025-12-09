@@ -6030,13 +6030,13 @@ dependencies = [
  "const-hex",
  "generic-array 1.3.5",
  "groth16",
+ "key-management-system-keys",
  "nomos-blend-crypto",
  "nomos-core",
  "num-bigint",
  "poq",
  "serde",
  "thiserror 1.0.69",
- "zksign",
 ]
 
 [[package]]
