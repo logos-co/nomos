@@ -1,5 +1,5 @@
+use cryptarchia_engine::Slot;
 use groth16::Fr;
-use mmr::{MerkleMountainRange, Root};
 use nomos_core::crypto::{ZkDigest, ZkHasher};
 use rayon::iter::{IntoParallelIterator as _, ParallelExtend as _, ParallelIterator as _};
 
@@ -7,18 +7,18 @@ use crate::pol::SlotSecret;
 
 pub type CachedTree = Vec<Vec<Fr>>;
 
+#[derive(Clone)]
 pub struct MerklePolCache {
     pub cached_tree: CachedTree,
     pub lower_merkle_pol: MerklePolSubtree,
-    pub cache_depth: usize,
     pub tree_depth: usize,
-    pub current_index: usize,
+    pub current_index: u64,
+    pub starting_slot: Slot,
 }
 
 impl MerklePolCache {
     #[must_use]
-    pub fn new(seed: Fr, tree_depth: usize, cache_depth: usize) -> Self {
-        let sub_tree_depth = tree_depth - cache_depth;
+    pub fn new(seed: Fr, starting_slot: Slot, tree_depth: usize, cache_depth: usize) -> Self {
         let numer_of_trees = 2usize.pow(cache_depth as u32);
         let total_leaves = 2usize.pow(tree_depth as u32);
         let seed_jump = total_leaves / numer_of_trees;
@@ -26,26 +26,27 @@ impl MerklePolCache {
         let seeds: Vec<Fr> = Self::leaves_from_seed(seed).take(total_leaves).collect();
         // we just recompute the first tree because after we have computed the root
         // secret, we will compute a subtree at a time for each slot secret path
-        let first_tree =
-            MerklePolSubtree::from_leafs(seeds.iter().take(seed_jump).copied(), sub_tree_depth);
+        let first_tree = MerklePolSubtree::from_leafs(seeds.iter().take(seed_jump).copied());
         // to parallelize the computation of the lower tree roots,
         // we need to pre-cache the slices of the leaves to use par-iter
         let seeds_chunks: Vec<&[Fr]> = seeds.chunks(seed_jump).skip(1).collect();
         let mut lower_tree_roots = Vec::with_capacity(numer_of_trees);
-        lower_tree_roots.push(first_tree.slot_secret_root);
-        lower_tree_roots.par_extend(seeds_chunks.into_par_iter().map(|leafs| {
-            MerklePolSubtree::from_leafs(leafs.iter().copied(), sub_tree_depth).slot_secret_root
-        }));
+        lower_tree_roots.push(first_tree.secret_root());
+        lower_tree_roots.par_extend(
+            seeds_chunks
+                .into_par_iter()
+                .map(|leafs| MerklePolSubtree::from_leafs(leafs.iter().copied()).secret_root()),
+        );
         lower_tree_roots.reverse();
 
         // compute the root slot secret
-        let cached_tree = Self::compute_cached_tree_from_leafs(lower_tree_roots);
+        let cached_tree = compute_cached_tree_from_leafs(lower_tree_roots);
 
         Self {
             cached_tree,
             lower_merkle_pol: first_tree,
-            cache_depth,
             tree_depth,
+            starting_slot,
             current_index: 0,
         }
     }
@@ -55,142 +56,108 @@ impl MerklePolCache {
     }
 
     #[must_use]
-    pub fn root_slot_secret(&self) -> Fr {
+    pub fn root_slot_secret(&self) -> SlotSecret {
         // this should always be there
-        self.cached_tree[0][0]
-    }
-
-    fn compute_cached_tree_from_leafs(tree_leafs: Vec<Fr>) -> Vec<Vec<Fr>> {
-        let mut cached_tree: Vec<Vec<Fr>> = std::iter::successors(Some(tree_leafs), |leafs| {
-            if leafs.len() <= 1 {
-                return None;
-            }
-            let roots_chunks: Vec<&[Fr]> = leafs.chunks(2).collect();
-            Some(
-                roots_chunks
-                    .into_par_iter()
-                    .map(|pair| <[Fr; 2]>::try_from(pair).unwrap())
-                    .map(|pair| <ZkHasher as ZkDigest>::compress(&pair))
-                    .collect(),
-            )
-        })
-        .collect();
-        cached_tree.reverse();
-        cached_tree
-    }
-
-    pub fn next_slot(&mut self) {
-        self.current_index += 1;
-        self.lower_merkle_pol = self.lower_merkle_pol.next_merkle();
+        self.cached_tree[0][0].into()
     }
 
     #[must_use]
-    pub fn get_merkle_path(&self) -> Vec<Fr> {
-        let mut path = Vec::new();
-        let mut current_index = self.current_index;
+    pub fn current_slot(&self) -> Slot {
+        self.starting_slot + self.current_index
+    }
 
-        for level in (0..self.tree_depth).rev() {
-            let sibling_index = if current_index.is_multiple_of(2) {
-                current_index + 1
-            } else {
-                current_index - 1
-            };
+    #[must_use]
+    pub const fn cache_depth(&self) -> usize {
+        self.cached_tree.len()
+    }
 
-            if sibling_index < self.cached_tree[level].len() {
-                path.push(self.cached_tree[level][sibling_index]);
-            }
-
-            current_index /= 2;
-        }
-        path.reverse();
-        path.extend(self.lower_merkle_pol.merkle_proof.iter().copied());
-        path
+    #[must_use]
+    pub fn merkle_path_for_index(&self, index: usize) -> Vec<Fr> {
+        let mut cached_path = get_merkle_path(&self.cached_tree, index, self.cached_tree.len());
+        // TODO: chose the proper tree depending the index
+        let current_path = self.lower_merkle_pol.merkle_path_for_index(index);
+        cached_path.extend(current_path);
+        cached_path
     }
 }
 
+#[derive(Clone)]
 pub struct MerklePolSubtree {
-    slot_secret_root: Fr,
-    merkle_proof: Vec<Fr>,
-    current_index: u64,
-    tree_depth: usize,
+    merkle_tree: CachedTree,
 }
 
 impl MerklePolSubtree {
     #[must_use]
     pub fn new(seed: Fr, tree_depth: usize) -> Self {
         let hashed_leafs =
-            std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])));
-        Self::from_leafs(hashed_leafs, tree_depth)
+            std::iter::successors(Some(seed), |seed| Some(ZkHasher::digest(&[*seed])))
+                .take(2usize.pow(tree_depth as u32));
+        Self::from_leafs(hashed_leafs)
     }
 
-    pub fn from_leafs(mut leafs: impl Iterator<Item = Fr>, tree_depth: usize) -> Self {
-        let mut mmr = MerkleMountainRange::<SlotSecret, ZkHasher>::new(tree_depth as u8);
-        let mut merkle_proof: Vec<Fr> = Vec::new();
-
-        for i in 1usize..=2usize.pow(tree_depth as u32) {
-            let hash = leafs.next().unwrap();
-            if i.is_power_of_two() {
-                let mut proof_element = hash;
-                if i != 1 {
-                    let roots = mmr
-                        .roots()
-                        .iter()
-                        .map(Root::root)
-                        .take(mmr.roots().iter().count() - 1);
-                    proof_element = roots.fold(proof_element, |acc, root| {
-                        <ZkHasher as ZkDigest>::compress(&[root, acc])
-                    });
-                }
-                merkle_proof.push(proof_element);
-            }
-            mmr = mmr.push(hash.into());
-        }
-
-        let slot_secret_root = mmr.roots().peek().unwrap().root();
-
-        Self {
-            slot_secret_root,
-            merkle_proof,
-            current_index: 0,
-            tree_depth,
-        }
+    pub fn from_leafs(leafs: impl Iterator<Item = Fr>) -> Self {
+        let merkle_tree = compute_cached_tree_from_leafs(leafs.collect());
+        Self { merkle_tree }
     }
 
     #[must_use]
-    pub fn next_merkle(&mut self) -> Self {
-        assert_ne!(
-            self.current_index + 1,
-            2usize.pow(self.tree_depth as u32) as u64
-        );
-
-        let index = self.current_index as usize;
-        let depth_right_tree = 64 - ((index + 1) ^ index).leading_zeros() - 1;
-        let right_tree = Self::new(
-            ZkHasher::digest(&[self.merkle_proof[0]]),
-            depth_right_tree as usize,
-        );
-
-        let mut new_proof = right_tree.merkle_proof;
-        let mut node = self.merkle_proof[0];
-        for i in 0..self.tree_depth {
-            if i == depth_right_tree as usize {
-                new_proof.push(node);
-            } else if i > (depth_right_tree as usize) {
-                new_proof.push(self.merkle_proof[i + 1]);
-            } else if (index >> i) & 1 == 1 {
-                node = <ZkHasher as ZkDigest>::compress(&[self.merkle_proof[i + 1], node]);
-            } else {
-                node = <ZkHasher as ZkDigest>::compress(&[node, self.merkle_proof[i + 1]]);
-            }
-        }
-
-        Self {
-            slot_secret_root: self.slot_secret_root,
-            merkle_proof: new_proof,
-            current_index: self.current_index + 1,
-            tree_depth: self.tree_depth,
-        }
+    pub fn merkle_path_for_index(&self, index: usize) -> Vec<Fr> {
+        get_merkle_path(&self.merkle_tree, index, self.depth())
     }
+
+    #[must_use]
+    pub const fn depth(&self) -> usize {
+        self.merkle_tree.len()
+    }
+
+    #[must_use]
+    pub fn secret_root(&self) -> Fr {
+        self.merkle_tree[0][0]
+    }
+}
+
+fn compute_cached_tree_from_leafs(tree_leafs: Vec<Fr>) -> Vec<Vec<Fr>> {
+    let mut cached_tree: Vec<Vec<Fr>> = std::iter::successors(Some(tree_leafs), |leafs| {
+        if leafs.len() <= 1 {
+            return None;
+        }
+        let roots_chunks: Vec<&[Fr]> = leafs.chunks(2).collect();
+        Some(
+            roots_chunks
+                .into_par_iter()
+                .map(|pair| <[Fr; 2]>::try_from(pair).unwrap())
+                .map(|pair| <ZkHasher as ZkDigest>::compress(&pair))
+                .collect(),
+        )
+    })
+    .collect();
+    cached_tree.reverse();
+    cached_tree
+}
+
+#[must_use]
+pub fn get_merkle_path(
+    cached_tree: &CachedTree,
+    mut current_index: usize,
+    tree_depth: usize,
+) -> Vec<Fr> {
+    let mut path = Vec::new();
+
+    for level in (0..tree_depth).rev() {
+        let sibling_index = if current_index.is_multiple_of(2) {
+            current_index + 1
+        } else {
+            current_index - 1
+        };
+
+        if sibling_index < cached_tree[level].len() {
+            path.push(cached_tree[level][sibling_index]);
+        }
+
+        current_index /= 2;
+    }
+    path.reverse();
+    path
 }
 
 #[cfg(test)]

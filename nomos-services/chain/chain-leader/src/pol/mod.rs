@@ -18,5 +18,4 @@ impl From<Fr> for SlotSecret {
     }
 }
 
-const MAX_TREE_DEPTH: u8 = 25;
-const TREE_LEAF_COUNT: usize = 2 << MAX_TREE_DEPTH;
+pub const MAX_TREE_DEPTH: u8 = 25;
