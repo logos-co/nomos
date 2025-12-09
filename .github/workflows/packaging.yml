@@ -52,11 +52,6 @@ jobs:
             arch: x86_64
             builder: ubuntu-24.04
             target_triple: x86_64-unknown-linux-gnu
-          - os: linux
-            os-display: Linux
-            arch: i686
-            builder: ubuntu-24.04
-            target_triple: i686-unknown-linux-gnu
           - os: macos
             os-display: MacOS
             arch: aarch64
@@ -243,18 +238,6 @@ jobs:
             extension-display: RPM
           - os: linux
             arch: x86_64
-            extension: AppImage
-            extension-display: AppImage
-          - os: linux
-            arch: i686
-            extension: deb
-            extension-display: DEB
-          - os: linux
-            arch: i686
-            extension: rpm
-            extension-display: RPM
-          - os: linux
-            arch: i686
             extension: AppImage
             extension-display: AppImage
           - os: macos
