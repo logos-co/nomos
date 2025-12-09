@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, PayloadType,
-    crypto::key_ext::Ed25519SecretKeyExt as _,
+    crypto::{domains, key_ext::Ed25519SecretKeyExt as _},
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
@@ -142,7 +142,9 @@ impl EncapsulatedPart {
         );
 
         // Encapsulate the payload.
-        let encapsulated_payload = self.payload.encapsulate(&mut shared_key.cipher());
+        let encapsulated_payload = self
+            .payload
+            .encapsulate(&mut shared_key.cipher(domains::PAYLOAD));
 
         Self {
             private_header,
@@ -169,7 +171,8 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let decapsulated_payload = self.payload.decapsulate(&mut key.cipher());
+                let decapsulated_payload =
+                    self.payload.decapsulate(&mut key.cipher(domains::PAYLOAD));
                 verify_intermediate_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
@@ -190,7 +193,8 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let decapsulated_payload = self.payload.decapsulate(&mut key.cipher());
+                let decapsulated_payload =
+                    self.payload.decapsulate(&mut key.cipher(domains::PAYLOAD));
                 verify_last_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
@@ -300,7 +304,7 @@ impl EncapsulatedPrivateHeader {
                             header.encapsulate_with_advanced_cipher(
                                 input
                                     .ephemeral_encryption_key()
-                                    .cipher()
+                                    .cipher(domains::HEADER)
                                     .advance(blocks_to_advance),
                             );
                             blocks_to_advance += 1;
@@ -339,7 +343,7 @@ impl EncapsulatedPrivateHeader {
         }));
 
         // Encrypt all blending headers
-        let mut cipher = shared_key.cipher();
+        let mut cipher = shared_key.cipher(domains::HEADER);
         self.0.iter_mut().for_each(|header| {
             header.encapsulate(&mut cipher);
         });
@@ -357,7 +361,7 @@ impl EncapsulatedPrivateHeader {
         Verifier: ProofsVerifier,
     {
         // Decrypt all blending headers
-        let mut cipher = key.cipher();
+        let mut cipher = key.cipher(domains::HEADER);
         self.0.iter_mut().for_each(|header| {
             header.decapsulate(&mut cipher);
         });
@@ -391,7 +395,8 @@ impl EncapsulatedPrivateHeader {
         let mut last_blending_header =
             EncapsulatedBlendingHeader::initialize(&BlendingHeader::pseudo_random(key.as_slice()));
         let num_layers = self.0.len();
-        last_blending_header.encapsulate_with_advanced_cipher(key.cipher().advance(num_layers));
+        last_blending_header
+            .encapsulate_with_advanced_cipher(key.cipher(domains::HEADER).advance(num_layers));
         self.replace_last(last_blending_header);
 
         if is_last {
