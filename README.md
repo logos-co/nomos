@@ -50,9 +50,9 @@ Nomos uses zero-knowledge circuits for various cryptographic operations. To set 
 ### Quick Setup (Recommended)
 
 Run the setup script to download and install the latest nomos-circuits release, which will install circuits to 
-`~/.nomos-circuits/` (`Nix`) or `$env:USERPROFILE\.nomos-circuits` (`Windows`) by default.:
+`~/.nomos-circuits/` (`Linux`) or `$env:USERPROFILE\.nomos-circuits` (`Windows`) by default.:
 
-#### Nix
+#### Linux
 
 ```bash
 ./scripts/setup-nomos-circuits.sh
@@ -70,7 +70,7 @@ Also make sure that Visual Studio build tools with LLVM (or other LLVM with clan
 
 ### Custom Installation
 
-#### Nix
+#### Linux
 
 You can specify a custom version or installation directory:
 
@@ -177,6 +177,10 @@ nomos/
 ```
 
 ## Development Workflow
+
+### Feature exclusions
+
+Currently the `"profiling"` feature is not supported in Windows builds.
 
 ### Building the Image
 

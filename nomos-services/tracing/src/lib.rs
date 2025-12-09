@@ -30,7 +30,7 @@ use tracing_subscriber::{
     filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
 
-#[cfg(all(feature = "profiling", not(windows)))]
+#[cfg(feature = "profiling")]
 mod console;
 
 pub struct Tracing<RuntimeServiceId> {
@@ -249,7 +249,7 @@ where
             let mut layers: Vec<Box<dyn tracing_subscriber::Layer<_> + Send + Sync>> = vec![];
 
             let level_filter = {
-                #[cfg(all(feature = "profiling", not(windows)))]
+                #[cfg(feature = "profiling")]
                 {
                     if let ConsoleLayer::Console(console_config) = &config.console {
                         if let Some(console_layer) = console::create_console_layer(console_config) {
@@ -264,7 +264,7 @@ where
                 }
 
                 // Fallback for Windows or when profiling feature is disabled:
-                #[cfg(not(all(feature = "profiling", not(windows))))]
+                #[cfg(not(feature = "profiling"))]
                 {
                     LevelFilter::from(config.level)
                 }
