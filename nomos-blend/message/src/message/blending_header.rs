@@ -10,7 +10,7 @@ use nomos_blend_proofs::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::key_ext::Ed25519SecretKeyExt as _;
+use crate::crypto::{domains, key_ext::Ed25519SecretKeyExt as _};
 
 /// A blending header that is fully decapsulated.
 /// This must be encapsulated when being sent to the blend network.
@@ -29,10 +29,22 @@ impl BlendingHeader {
     /// Each field in the header is filled with pseudo-random bytes derived from
     /// the key concatenated with a unique byte (1, 2, 3, or 4).
     pub fn pseudo_random(key: &[u8]) -> Self {
-        let r1 = pseudo_random_sized_bytes::<ED25519_PUBLIC_KEY_SIZE>(&concat(key, &[1]));
-        let r2 = pseudo_random_sized_bytes::<PROOF_OF_QUOTA_SIZE>(&concat(key, &[2]));
-        let r3 = pseudo_random_sized_bytes::<ED25519_SIGNATURE_SIZE>(&concat(key, &[3]));
-        let r4 = pseudo_random_sized_bytes::<PROOF_OF_SELECTION_SIZE>(&concat(key, &[4]));
+        let r1 = pseudo_random_sized_bytes::<ED25519_PUBLIC_KEY_SIZE>(
+            domains::INITIALIZATION,
+            &concat(key, &[1]),
+        );
+        let r2 = pseudo_random_sized_bytes::<PROOF_OF_QUOTA_SIZE>(
+            domains::INITIALIZATION,
+            &concat(key, &[2]),
+        );
+        let r3 = pseudo_random_sized_bytes::<ED25519_SIGNATURE_SIZE>(
+            domains::INITIALIZATION,
+            &concat(key, &[3]),
+        );
+        let r4 = pseudo_random_sized_bytes::<PROOF_OF_SELECTION_SIZE>(
+            domains::INITIALIZATION,
+            &concat(key, &[4]),
+        );
         Self {
             // Unlike the spec, derive a private key from random bytes
             // and then derive the public key from it

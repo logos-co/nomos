@@ -1,6 +1,7 @@
 use itertools::Itertools as _;
 use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_crypto::{
+    cipher::{AdvancedCipher, Cipher},
     keys::{Ed25519PublicKey, SharedKey},
     signatures::Signature,
 };
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, PayloadType,
-    crypto::key_ext::Ed25519SecretKeyExt as _,
+    crypto::{domains, key_ext::Ed25519SecretKeyExt as _},
     encap::{
         ProofsVerifier,
         decapsulated::{PartDecapsulationOutput, PrivateHeaderDecapsulationOutput},
@@ -140,12 +141,14 @@ impl EncapsulatedPart {
             is_last,
         );
 
-        // Encrypt the payload.
-        let payload = self.payload.encapsulate(shared_key);
+        // Encapsulate the payload.
+        let encapsulated_payload = self
+            .payload
+            .encapsulate(&mut shared_key.cipher(domains::PAYLOAD));
 
         Self {
             private_header,
-            payload,
+            payload: encapsulated_payload,
         }
     }
 
@@ -168,17 +171,18 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let payload = self.payload.decapsulate(key);
+                let decapsulated_payload =
+                    self.payload.decapsulate(&mut key.cipher(domains::PAYLOAD));
                 verify_intermediate_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
-                    &payload,
+                    &decapsulated_payload,
                     verifier,
                 )?;
                 Ok(PartDecapsulationOutput::Incompleted {
                     encapsulated_part: Self {
                         private_header: encapsulated_private_header,
-                        payload,
+                        payload: decapsulated_payload,
                     },
                     public_header: Box::new(public_header),
                     verified_proof_of_selection,
@@ -189,14 +193,15 @@ impl EncapsulatedPart {
                 public_header,
                 verified_proof_of_selection,
             } => {
-                let payload = self.payload.decapsulate(key);
+                let decapsulated_payload =
+                    self.payload.decapsulate(&mut key.cipher(domains::PAYLOAD));
                 verify_last_reconstructed_public_header(
                     &public_header,
                     &encapsulated_private_header,
-                    &payload,
+                    &decapsulated_payload,
                 )?;
                 Ok(PartDecapsulationOutput::Completed {
-                    payload: payload.try_deserialize()?,
+                    payload: decapsulated_payload.try_deserialize()?,
                     verified_proof_of_selection,
                 })
             }
@@ -271,26 +276,38 @@ impl EncapsulatedPrivateHeader {
         // so that the corresponding signatures can be verified later.
         // Plus, encapsulate the last `inputs.len()` blending headers.
         //
-        // BlendingHeaders[0]:       random
-        // BlendingHeaders[1]: inputs[1](inputs[0](pseudo_random(inputs[1])))
-        // BlendingHeaders[2]:           inputs[0](pseudo_random(inputs[0])
+        // Example: for 2 inputs,
+        // BlendingHeaders[0]: Enc(inputs[1], 2, Enc(inputs[0], 1, RND(inputs[1], 0)))
+        // BlendingHeaders[1]:                   Enc(inputs[0], 2, RND(inputs[0], 0))
+        //
+        // Notation:
+        // - RND(seed, n): The `n+1`-th pseudo-random bytes generated from `seed`
+        // - Enc(key, n, data): Encrypt `data` by XOR-ing with `RND(key, n)`
         Self(
             inputs
                 .iter()
                 .map(EncapsulationInput::ephemeral_encryption_key)
+                .enumerate()
                 .rev()
-                .map(|rng_key| {
+                .map(|(input_index, rng_key)| {
                     let mut header = EncapsulatedBlendingHeader::initialize(
                         &BlendingHeader::pseudo_random(rng_key.as_slice()),
                     );
                     // Encapsulate the blending header with the shared key of each input
                     // until the shared key equal to the `rng_key` is encountered
                     // (inclusive).
+                    let mut blocks_to_advance = inputs.len() - input_index;
                     inputs
                         .iter()
                         .take_while_inclusive(|&input| input.ephemeral_encryption_key() != rng_key)
                         .for_each(|input| {
-                            header.encapsulate(input.ephemeral_encryption_key());
+                            header.encapsulate_with_advanced_cipher(
+                                input
+                                    .ephemeral_encryption_key()
+                                    .cipher(domains::HEADER)
+                                    .advance(blocks_to_advance),
+                            );
+                            blocks_to_advance += 1;
                         });
                     header
                 })
@@ -326,8 +343,9 @@ impl EncapsulatedPrivateHeader {
         }));
 
         // Encrypt all blending headers
+        let mut cipher = shared_key.cipher(domains::HEADER);
         self.0.iter_mut().for_each(|header| {
-            header.encapsulate(shared_key);
+            header.encapsulate(&mut cipher);
         });
 
         self
@@ -343,8 +361,9 @@ impl EncapsulatedPrivateHeader {
         Verifier: ProofsVerifier,
     {
         // Decrypt all blending headers
+        let mut cipher = key.cipher(domains::HEADER);
         self.0.iter_mut().for_each(|header| {
-            header.decapsulate(key);
+            header.decapsulate(&mut cipher);
         });
 
         // Check if the first blending header which was correctly decrypted
@@ -375,7 +394,9 @@ impl EncapsulatedPrivateHeader {
         // in the same way as the initialization step.
         let mut last_blending_header =
             EncapsulatedBlendingHeader::initialize(&BlendingHeader::pseudo_random(key.as_slice()));
-        last_blending_header.encapsulate(key);
+        let num_layers = self.0.len();
+        last_blending_header
+            .encapsulate_with_advanced_cipher(key.cipher(domains::HEADER).advance(num_layers));
         self.replace_last(last_blending_header);
 
         if is_last {
@@ -453,13 +474,19 @@ impl EncapsulatedBlendingHeader {
     }
 
     /// Add a layer of encapsulation.
-    fn encapsulate(&mut self, key: &SharedKey) {
-        key.encrypt(self.0.as_mut_slice());
+    fn encapsulate(&mut self, cipher: &mut Cipher) {
+        cipher.encrypt(self.0.as_mut_slice());
+    }
+
+    /// Add a layer of encapsulation after advancing the cipher's keystream
+    /// by `blocks_to_advance` blocks of bytes.
+    fn encapsulate_with_advanced_cipher(&mut self, cipher: AdvancedCipher) -> Cipher {
+        cipher.encrypt(self.0.as_mut_slice())
     }
 
     /// Remove a layer of encapsulation.
-    fn decapsulate(&mut self, key: &SharedKey) {
-        key.decrypt(self.0.as_mut_slice());
+    fn decapsulate(&mut self, cipher: &mut Cipher) {
+        cipher.decrypt(self.0.as_mut_slice());
     }
 
     fn iter_bytes(&self) -> impl Iterator<Item = u8> + '_ {
@@ -492,14 +519,14 @@ impl EncapsulatedPayload {
     }
 
     /// Add a layer of encapsulation.
-    fn encapsulate(mut self, key: &SharedKey) -> Self {
-        key.encrypt(self.0.as_mut_slice());
+    fn encapsulate(mut self, cipher: &mut Cipher) -> Self {
+        cipher.encrypt(self.0.as_mut_slice());
         self
     }
 
     /// Remove a layer of encapsulation.
-    fn decapsulate(mut self, key: &SharedKey) -> Self {
-        key.decrypt(self.0.as_mut_slice());
+    fn decapsulate(mut self, cipher: &mut Cipher) -> Self {
+        cipher.decrypt(self.0.as_mut_slice());
         self
     }
 
