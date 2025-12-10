@@ -340,7 +340,27 @@ where
 
         // TODO: check active slot coeff is exactly 1/30
 
-        let leader = Leader::new(leader_config.sk, ledger_config.clone());
+        let mut slot_timer = {
+            let (sender, receiver) = oneshot::channel();
+            relays
+                .time_relay()
+                .send(TimeServiceMessage::Subscribe { sender })
+                .await
+                .expect("Request time subscription to time service should succeed");
+            receiver.await?
+        };
+
+        let SlotTick { slot, .. } = slot_timer
+            .next()
+            .await
+            .expect("Slot timer should emit at least one slot tick");
+
+        let leader = Leader::new(
+            leader_config.sk,
+            slot,
+            leader_config.cache_depth,
+            ledger_config.clone(),
+        );
         let mut winning_pol_slot_notifier =
             WinningPoLSlotNotifier::new(&leader, &self.winning_pol_epoch_slots_sender);
 
@@ -369,16 +389,6 @@ where
             Wallet
         )
         .await?;
-
-        let mut slot_timer = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::Subscribe { sender })
-                .await
-                .expect("Request time subscription to time service should succeed");
-            receiver.await?
-        };
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(

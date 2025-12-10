@@ -1,4 +1,6 @@
+use blake2::{Blake2b512, Digest as _};
 use cryptarchia_engine::{Epoch, Slot};
+use groth16::fr_to_bytes;
 use nomos_core::{
     mantle::{Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
@@ -8,21 +10,42 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::watch::Sender;
 use zksign::{PublicKey, SecretKey};
 
+use crate::pol::{MAX_TREE_DEPTH, merkle::MerklePolCache};
+
 #[derive(Clone)]
 pub struct Leader {
     sk: SecretKey,
     config: nomos_ledger::Config,
+    merkle_pol_cache: MerklePolCache,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LeaderConfig {
     pub pk: PublicKey,
     pub sk: SecretKey,
+    pub cache_depth: usize,
 }
 
 impl Leader {
-    pub const fn new(sk: SecretKey, config: nomos_ledger::Config) -> Self {
-        Self { sk, config }
+    pub fn new(
+        sk: SecretKey,
+        starting_slot: Slot,
+        cache_depth: usize,
+        config: nomos_ledger::Config,
+    ) -> Self {
+        let seed = Blake2b512::digest(fr_to_bytes(sk.to_public_key().as_fr()));
+        let seed: [u8; 64] = seed.into();
+        let merkle_pol_cache = MerklePolCache::new(
+            seed.into(),
+            starting_slot,
+            MAX_TREE_DEPTH as usize,
+            cache_depth,
+        );
+        Self {
+            sk,
+            config,
+            merkle_pol_cache,
+        }
     }
 
     #[expect(
@@ -113,6 +136,7 @@ impl Leader {
     fn private_inputs_for_winning_utxo_and_slot(
         &self,
         utxo: &Utxo,
+        slot: Slot,
         // TODO: Use aged tree to compute `aged_path`
         epoch_state: &EpochState,
         public_inputs: LeaderPublic,
@@ -121,8 +145,10 @@ impl Leader {
     ) -> LeaderPrivate {
         // TODO: Get the actual witness paths and leader key
         let aged_path = Vec::new(); // Placeholder for aged path, aged UTXO tree is included in `EpochState`.
-        let latest_path = Vec::new();
-        let slot_secret = *self.sk.as_fr();
+        let latest_path = self
+            .merkle_pol_cache
+            .merkle_path_for_index(slot.into_inner() as usize); // TODO: use proper u64 instead
+        let slot_secret = self.merkle_pol_cache.root_slot_secret();
         let starting_slot = self
             .config
             .epoch_config
