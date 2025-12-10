@@ -1,8 +1,8 @@
 use core::fmt::{self, Debug, Formatter};
 
 use bytes::Bytes;
-use ed25519_dalek::{Signature, SigningKey, ed25519::signature::Signer as _};
-use serde::{Deserialize, Serialize};
+use ed25519_dalek::SigningKey;
+use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
 use crate::keys::{errors::KeyError, secured_key::SecuredKey};
@@ -11,6 +11,8 @@ mod private;
 pub use self::private::{KEY_SIZE as ED25519_SECRET_KEY_SIZE, UnsecuredEd25519Key};
 mod public;
 pub use self::public::{KEY_SIZE as ED25519_PUBLIC_KEY_SIZE, PublicKey};
+mod signature;
+pub use self::signature::Signature;
 
 /// An hardened Ed25519 secret key that only exposes methods to retrieve public
 /// information.
@@ -18,13 +20,34 @@ pub use self::public::{KEY_SIZE as ED25519_PUBLIC_KEY_SIZE, PublicKey};
 /// It is a secured variant of a [`UnsecuredEd25519Key`] and used within the set
 /// of supported KMS keys.
 #[derive(Deserialize, ZeroizeOnDrop, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "unsafe", derive(Serialize))]
+#[cfg_attr(feature = "unsafe", derive(serde::Serialize))]
 pub struct Ed25519Key(UnsecuredEd25519Key);
 
 impl Ed25519Key {
     #[must_use]
     pub const fn new(signing_key: SigningKey) -> Self {
         Self(UnsecuredEd25519Key(signing_key))
+    }
+
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; ED25519_SECRET_KEY_SIZE]) -> Self {
+        Self(UnsecuredEd25519Key::from_bytes(bytes))
+    }
+
+    #[must_use]
+    pub fn public_key(&self) -> PublicKey {
+        self.0.public_key()
+    }
+
+    #[must_use]
+    pub fn sign_payload(&self, payload: &[u8]) -> Signature {
+        self.0.sign_payload(payload)
+    }
+}
+
+impl From<SigningKey> for Ed25519Key {
+    fn from(value: SigningKey) -> Self {
+        Self(UnsecuredEd25519Key::from(value))
     }
 }
 
@@ -47,12 +70,6 @@ impl From<UnsecuredEd25519Key> for Ed25519Key {
     }
 }
 
-impl From<SigningKey> for Ed25519Key {
-    fn from(value: SigningKey) -> Self {
-        Self(UnsecuredEd25519Key::from(value))
-    }
-}
-
 #[async_trait::async_trait]
 impl SecuredKey for Ed25519Key {
     type Payload = Bytes;
@@ -61,7 +78,7 @@ impl SecuredKey for Ed25519Key {
     type Error = KeyError;
 
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.as_ref().sign(payload.iter().as_slice()))
+        Ok(self.sign_payload(payload.iter().as_slice()))
     }
 
     fn sign_multiple(
@@ -72,6 +89,6 @@ impl SecuredKey for Ed25519Key {
     }
 
     fn as_public_key(&self) -> Self::PublicKey {
-        self.0.public_key()
+        self.public_key()
     }
 }

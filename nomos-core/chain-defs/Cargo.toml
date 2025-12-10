@@ -21,8 +21,6 @@ blake2                     = { default-features = false, version = "0.10" }
 bytes                      = { workspace = true }
 const-hex                  = { default-features = false, features = ["alloc"], version = "1" }
 cryptarchia-engine         = { features = ["serde"], workspace = true }
-ed25519                    = { default-features = false, version = "2.2" }
-ed25519-dalek              = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures                    = { version = "0.3", default-features = false, features = ["alloc"] }
 generic-array              = "1.2.0"
 groth16                    = { workspace = true, features = ["deser"] }
@@ -37,7 +35,6 @@ num-bigint                 = { version = "0.4", default-features = false }
 pol                        = { workspace = true }
 poseidon2                  = { workspace = true }
 serde                      = { workspace = true }
-serde_with                 = { version = "3.14.0", default-features = false, features = ["alloc", "macros"] }
 strum                      = { version = "0.27", features = ["derive"] }
 thiserror                  = "1.0"
 tracing                    = { workspace = true }

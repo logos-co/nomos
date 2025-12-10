@@ -1,10 +1,10 @@
-use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey};
+use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey, ed25519::signature::Signer as _};
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
 
-use crate::keys::Ed25519PublicKey;
+use crate::keys::{Ed25519PublicKey, Ed25519Signature};
 
 pub const KEY_SIZE: usize = SECRET_KEY_LENGTH;
 
@@ -24,6 +24,11 @@ impl UnsecuredEd25519Key {
     #[must_use]
     pub fn public_key(&self) -> Ed25519PublicKey {
         self.0.verifying_key().into()
+    }
+
+    #[must_use]
+    pub fn sign_payload(&self, payload: &[u8]) -> Ed25519Signature {
+        self.0.sign(payload).into()
     }
 }
 

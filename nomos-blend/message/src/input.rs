@@ -1,5 +1,5 @@
 use key_management_system_keys::keys::UnsecuredEd25519Key;
-use nomos_blend_crypto::keys::{Ed25519PublicKey, Ed25519PublicKeyExt as _, SharedKey};
+use nomos_blend_crypto::keys::{Ed25519PublicKeyExt as _, SharedKey};
 use nomos_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
 
 use crate::crypto::key_ext::Ed25519SecretKeyExt as _;

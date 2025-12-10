@@ -1,4 +1,7 @@
-use core::hash::{Hash, Hasher};
+use core::{
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
 
 use ed25519_dalek::SIGNATURE_LENGTH;
 use serde::{Deserialize, Serialize};
@@ -7,6 +10,13 @@ pub const ED25519_SIGNATURE_SIZE: usize = SIGNATURE_LENGTH;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Signature(ed25519_dalek::Signature);
+
+impl Signature {
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; ED25519_SIGNATURE_SIZE]) -> Self {
+        Self(ed25519_dalek::Signature::from_bytes(bytes))
+    }
+}
 
 impl Hash for Signature {
     fn hash<H>(&self, state: &mut H)
@@ -29,14 +39,16 @@ impl From<Signature> for ed25519_dalek::Signature {
     }
 }
 
-impl From<[u8; ED25519_SIGNATURE_SIZE]> for Signature {
-    fn from(bytes: [u8; ED25519_SIGNATURE_SIZE]) -> Self {
-        ed25519_dalek::Signature::from_bytes(&bytes).into()
+impl Deref for Signature {
+    type Target = ed25519_dalek::Signature;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl AsRef<ed25519_dalek::Signature> for Signature {
-    fn as_ref(&self) -> &ed25519_dalek::Signature {
-        &self.0
+impl DerefMut for Signature {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
