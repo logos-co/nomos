@@ -4682,7 +4682,6 @@ dependencies = [
  "key-management-system-macros",
  "nomos-blend-proofs",
  "nomos-utils",
- "num-bigint",
  "poseidon2",
  "serde",
  "subtle",
@@ -12226,10 +12225,8 @@ dependencies = [
 name = "zksign"
 version = "0.1.0"
 dependencies = [
- "ark-ff 0.4.2",
  "circuits-prover",
  "circuits-utils",
- "generic-array 1.3.5",
  "groth16",
  "num-bigint",
  "poseidon2",
@@ -12237,9 +12234,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "tracing",
  "witness-generator",
- "zeroize",
 ]
 
 [[package]]

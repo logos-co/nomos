@@ -21,7 +21,6 @@ groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }
 nomos-blend-proofs           = { workspace = true }
 nomos-utils                  = { features = ["rng", "serde", "types"], workspace = true }
-num-bigint                   = { version = "0.4", default-features = false }
 poseidon2                    = { workspace = true }
 serde                        = { default-features = false, features = ["derive"], version = "1" }
 subtle                       = { workspace = true }
