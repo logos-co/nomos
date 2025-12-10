@@ -102,7 +102,7 @@ where
                         .collect::<Vec<_>>();
                     let core_and_path_selectors = maybe_zk_public_key.map(|zk_public_key| {
                         zk_tree
-                            .get_proof_for_key(zk_public_key.as_ref())
+                            .get_proof_for_key(zk_public_key.as_fr())
                             .expect("Zk public key of core node should be part of membership info.")
                     });
                     let membership = Membership::new(&membership_nodes, &signing_public_key);

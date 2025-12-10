@@ -285,7 +285,7 @@ mod tests {
     use super::*;
 
     fn pk(v: u64) -> ZkPublicKey {
-        ZkPublicKey::from(BigUint::from(v))
+        ZkPublicKey::new(BigUint::from(v).into())
     }
 
     fn tx_hash(v: u64) -> TxHash {

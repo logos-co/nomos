@@ -47,6 +47,12 @@ impl PublicKey {
     }
 }
 
+impl From<PublicKey> for Fr {
+    fn from(value: PublicKey) -> Self {
+        value.0
+    }
+}
+
 fn try_from_pks(msg: Groth16Input, pks: &[PublicKey]) -> Result<ZkSignVerifierInputs, ZkSignError> {
     if pks.len() > 32 {
         return Err(ZkSignError::TooManyKeys(pks.len()));

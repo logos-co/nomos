@@ -39,11 +39,12 @@ tracing-futures    = { default-features = false, features = ["std-future"], vers
 utoipa             = { optional = true, workspace = true }
 
 [dev-dependencies]
-ed25519-dalek = { default-features = false, features = ["serde"], version = "2.2.0" }
-nomos-core    = { features = ["mock"], workspace = true }
-nomos-network = { features = ["mock"], workspace = true }
-nomos-storage = { features = ["rocksdb-backend"], workspace = true }
-tempfile      = { default-features = false, version = "3" }
+ed25519-dalek              = { default-features = false, features = ["serde"], version = "2.2.0" }
+key-management-system-keys = { workspace = true }
+nomos-core                 = { features = ["mock"], workspace = true }
+nomos-network              = { features = ["mock"], workspace = true }
+nomos-storage              = { features = ["rocksdb-backend"], workspace = true }
+tempfile                   = { default-features = false, version = "3" }
 
 [features]
 default      = []

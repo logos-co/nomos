@@ -53,6 +53,12 @@ impl ZkKey {
     pub fn to_public_key(&self) -> PublicKey {
         self.0.to_public_key()
     }
+
+    #[cfg(feature = "unsafe")]
+    #[must_use]
+    pub fn into_unsecured(self) -> UnsecuredZkKey {
+        self.0.clone()
+    }
 }
 
 impl Debug for ZkKey {

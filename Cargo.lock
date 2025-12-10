@@ -1796,6 +1796,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "groth16",
+ "key-management-system-keys",
  "nomos-core",
  "nomos-ledger",
  "nomos-network",

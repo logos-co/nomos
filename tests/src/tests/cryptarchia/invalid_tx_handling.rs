@@ -1,7 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
-use key_management_system_service::keys::{UnsecuredZkKey, ZkPublicKey};
+use key_management_system_service::keys::{ZkKey, ZkPublicKey};
 use nomos_core::mantle::{
     MantleTx, Note, SignedMantleTx, Transaction as _, TxHash, ledger::Tx as LedgerTx,
     ops::channel::ChannelId,
@@ -148,7 +148,7 @@ fn create_invalid_transaction_with_id(id: usize) -> SignedMantleTx {
 
     SignedMantleTx {
         ops_proofs: Vec::new(),
-        ledger_tx_proof: UnsecuredZkKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
+        ledger_tx_proof: ZkKey::multi_sign(&[], mantle_tx.hash().as_ref()).unwrap(),
         mantle_tx,
     }
 }

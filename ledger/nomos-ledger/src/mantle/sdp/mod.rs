@@ -675,7 +675,7 @@ mod tests {
 
     use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::{Field as _, Fr};
-    use key_management_system_keys::keys::UnsecuredZkKey;
+    use key_management_system_keys::keys::ZkKey;
     use nomos_core::crypto::ZkHash;
     use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
@@ -723,8 +723,8 @@ mod tests {
         }
     }
 
-    fn create_zk_key(sk: u64) -> UnsecuredZkKey {
-        UnsecuredZkKey::from(BigUint::from(sk))
+    fn create_zk_key(sk: u64) -> ZkKey {
+        ZkKey::new(BigUint::from(sk).into())
     }
 
     fn create_signing_key() -> SigningKey {
@@ -774,13 +774,13 @@ mod tests {
     fn apply_declare_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPDeclareOp,
-        zk_sk: &UnsecuredZkKey,
+        zk_sk: &ZkKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let (note_sk, utxo) = utxo_with_sk();
         let note = utxo.note;
         let tx_hash = TxHash(Fr::from(0u8));
-        let zk_sig = UnsecuredZkKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
+        let zk_sig = ZkKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
 
         let signing_key = create_signing_key();
         let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
@@ -791,12 +791,12 @@ mod tests {
     fn apply_withdraw_with_dummies(
         sdp_ledger: SdpLedger,
         op: &SDPWithdrawOp,
-        note_sk: UnsecuredZkKey,
-        zk_key: UnsecuredZkKey,
+        note_sk: ZkKey,
+        zk_key: ZkKey,
         config: &Config,
     ) -> Result<SdpLedger, Error> {
         let tx_hash = TxHash(Fr::from(1u8));
-        let zk_sig = UnsecuredZkKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
+        let zk_sig = ZkKey::multi_sign(&[note_sk, zk_key], &tx_hash.0).unwrap();
 
         sdp_ledger.apply_withdrawn_msg(op, &zk_sig, tx_hash, config)
     }
@@ -1408,7 +1408,7 @@ mod tests {
         };
 
         let tx_hash = TxHash(Fr::from(2u8));
-        let zk_sig = UnsecuredZkKey::multi_sign(&[sk, zk_key_2], &tx_hash.0).unwrap();
+        let zk_sig = ZkKey::multi_sign(&[sk, zk_key_2], &tx_hash.0).unwrap();
 
         sdp_ledger = sdp_ledger
             .apply_active_msg(&active_op, &zk_sig, tx_hash, &config)

@@ -15,7 +15,7 @@ use configs::{
 use futures::future::join_all;
 use key_management_system_service::{
     backend::preload::PreloadKMSBackendSettings,
-    keys::{Ed25519Key, UnsecuredZkKey, ZkKey},
+    keys::{Ed25519Key, ZkKey},
 };
 use nomos_core::{
     mantle::{GenesisTx as _, Note, NoteId},
@@ -128,7 +128,7 @@ impl TopologyConfig {
 #[derive(Clone)]
 pub struct GenesisNoteSpec {
     pub note: Note,
-    pub note_sk: UnsecuredZkKey,
+    pub note_sk: ZkKey,
 }
 
 #[derive(Clone)]
@@ -785,7 +785,7 @@ pub fn create_kms_configs(
                     ),
                     (
                         blend_conf.core.zk.secret_key_kms_id.clone(),
-                        ZkKey::new(zk_secret_key.clone().into_inner()).into(),
+                        zk_secret_key.clone().into(),
                     ),
                     (
                         key_id_for_preload_backend(
@@ -794,10 +794,8 @@ pub fn create_kms_configs(
                         Ed25519Key::from(da_conf.signer.clone()).into(),
                     ),
                     (
-                        key_id_for_preload_backend(
-                            &ZkKey::new(da_conf.secret_zk_key.clone().into_inner()).into(),
-                        ),
-                        ZkKey::new(da_conf.secret_zk_key.clone().into_inner()).into(),
+                        key_id_for_preload_backend(&da_conf.secret_zk_key.clone().into()),
+                        da_conf.secret_zk_key.clone().into(),
                     ),
                 ]
                 .into(),

@@ -1,7 +1,7 @@
 use core::time::Duration;
 use std::{num::NonZeroU64, str::FromStr as _};
 
-use key_management_system_service::keys::{UnsecuredEd25519Key, UnsecuredZkKey, ZkKey};
+use key_management_system_service::keys::{UnsecuredEd25519Key, ZkKey};
 use nomos_blend::message::crypto::key_ext::Ed25519SecretKeyExt as _;
 use nomos_blend_service::core::settings::ZkSettings;
 use nomos_libp2p::Multiaddr;
@@ -14,7 +14,7 @@ use num_bigint::BigUint;
 
 use crate::common::kms::key_id_for_preload_backend;
 
-pub type GeneralBlendConfig = (Config, UnsecuredZkKey);
+pub type GeneralBlendConfig = (Config, ZkKey);
 
 #[must_use]
 pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlendConfig> {
@@ -26,7 +26,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
             // the generated Ed25519 public keys, which are guaranteed to be unique because
             // they are in turned derived from node ID.
             let secret_zk_key =
-                UnsecuredZkKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
+                ZkKey::new(BigUint::from_bytes_le(private_key.public_key().as_bytes()).into());
             (
                 Config {
                     non_ephemeral_signing_key: private_key,
@@ -45,7 +45,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                         },
                         zk: ZkSettings {
                             secret_key_kms_id: key_id_for_preload_backend(
-                                &ZkKey::new(secret_zk_key.clone().into_inner()).into(),
+                                &secret_zk_key.clone().into(),
                             ),
                         },
                     },

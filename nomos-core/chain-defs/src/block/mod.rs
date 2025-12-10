@@ -220,6 +220,7 @@ mod tests {
 
     use ed25519_dalek::SigningKey;
     use groth16::Fr;
+    use key_management_system_keys::keys::ZkPublicKey;
     use num_bigint::BigUint;
 
     use super::*;
@@ -238,7 +239,7 @@ mod tests {
         let utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
-            note: Note::new(100, Fr::from(5).into()),
+            note: Note::new(100, ZkPublicKey::new(Fr::from(5))),
         };
 
         let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];

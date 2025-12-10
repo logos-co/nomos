@@ -1,7 +1,6 @@
 use std::sync::LazyLock;
 
 use groth16::{Field as _, Fr, fr_from_bytes_unchecked};
-use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
@@ -46,13 +45,6 @@ impl SecretKey {
         self.0
     }
 
-    #[must_use]
-    pub fn to_public_key(&self) -> PublicKey {
-        PublicKey::new(<Poseidon2Bn254Hasher as Digest>::compress(&[
-            *NOMOS_KDF, self.0,
-        ]))
-    }
-
     pub fn sign(&self, data: &Fr) -> Result<Signature, ZkSignError> {
         Self::multi_sign(std::slice::from_ref(self), data)
     }
@@ -63,6 +55,13 @@ impl SecretKey {
 
         let (signature, _) = zksign::prove(&inputs).expect("Signature should succeed");
         Ok(Signature::new(signature))
+    }
+
+    #[must_use]
+    pub fn to_public_key(&self) -> PublicKey {
+        PublicKey::new(<Poseidon2Bn254Hasher as Digest>::compress(&[
+            *NOMOS_KDF, self.0,
+        ]))
     }
 }
 

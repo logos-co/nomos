@@ -338,7 +338,7 @@ pub mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
-    use key_management_system_keys::keys::UnsecuredZkKey;
+    use key_management_system_keys::keys::ZkKey;
     use nomos_core::{
         crypto::{Digest as _, Hasher},
         mantle::{
@@ -366,9 +366,9 @@ pub mod tests {
     }
 
     #[must_use]
-    pub fn utxo_with_sk() -> (UnsecuredZkKey, Utxo) {
+    pub fn utxo_with_sk() -> (ZkKey, Utxo) {
         let tx_hash: Fr = BigUint::from(thread_rng().next_u64()).into();
-        let zk_sk = UnsecuredZkKey::from(BigUint::from(0u64));
+        let zk_sk = ZkKey::new(BigUint::from(0u64).into());
         let utxo = Utxo {
             tx_hash: tx_hash.into(),
             output_index: 0,
@@ -765,7 +765,7 @@ pub mod tests {
         assert_eq!(Some(LedgerError::InvalidProof), update_err);
     }
 
-    fn create_tx(inputs: &[(&UnsecuredZkKey, &Utxo)], outputs: Vec<Note>) -> SignedMantleTx {
+    fn create_tx(inputs: &[(&ZkKey, &Utxo)], outputs: Vec<Note>) -> SignedMantleTx {
         let sks = inputs
             .iter()
             .map(|(sk, _)| (*sk).clone())
@@ -780,16 +780,16 @@ pub mod tests {
         };
         SignedMantleTx {
             ops_proofs: vec![],
-            ledger_tx_proof: UnsecuredZkKey::multi_sign(&sks, &mantle_tx.hash().into()).unwrap(),
+            ledger_tx_proof: ZkKey::multi_sign(&sks, &mantle_tx.hash().into()).unwrap(),
             mantle_tx,
         }
     }
 
     #[test]
     fn test_tx_processing_valid_transaction() {
-        let note_sk = UnsecuredZkKey::from(BigUint::from(1u8));
-        let output_note1_sk = UnsecuredZkKey::from(BigUint::from(2u8));
-        let output_note2_sk = UnsecuredZkKey::from(BigUint::from(3u8));
+        let note_sk = ZkKey::new(BigUint::from(1u8).into());
+        let output_note1_sk = ZkKey::new(BigUint::from(2u8).into());
+        let output_note2_sk = ZkKey::new(BigUint::from(3u8).into());
         let input_note = Note::new(11000, note_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -847,7 +847,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_invalid_input() {
-        let input_sk = UnsecuredZkKey::from(BigUint::from(1u8));
+        let input_sk = ZkKey::new(BigUint::from(1u8).into());
         let input_note = Note::new(1000, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -870,7 +870,7 @@ pub mod tests {
         let non_existent_utxo_3 = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
-            note: Note::new(999, Fr::from(BigUint::from(1u8)).into()),
+            note: Note::new(999, ZkPublicKey::new(Fr::from(BigUint::from(1u8)))),
         };
 
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
@@ -883,7 +883,7 @@ pub mod tests {
 
         let locked_notes = LockedNotes::new();
         for non_existent_utxo in invalid_utxos {
-            let tx = create_tx(&[(&UnsecuredZkKey::zero(), &non_existent_utxo)], vec![]);
+            let tx = create_tx(&[(&ZkKey::zero(), &non_existent_utxo)], vec![]);
             let result = ledger_state
                 .clone()
                 .try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
@@ -893,7 +893,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_insufficient_balance() {
-        let input_sk = UnsecuredZkKey::from(BigUint::from(1u8));
+        let input_sk = ZkKey::new(BigUint::from(1u8).into());
         let input_note = Note::new(1, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -901,7 +901,7 @@ pub mod tests {
             note: input_note,
         };
 
-        let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
+        let output_note = Note::new(1, ZkPublicKey::new(Fr::from(BigUint::from(2u8))));
 
         let locked_notes = LockedNotes::new();
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
@@ -925,7 +925,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_no_outputs() {
-        let input_sk = UnsecuredZkKey::from(BigUint::from(1u8));
+        let input_sk = ZkKey::new(BigUint::from(1u8).into());
         let input_note = Note::new(10000, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -950,7 +950,7 @@ pub mod tests {
 
     #[test]
     fn test_output_not_zero() {
-        let input_sk = UnsecuredZkKey::from(BigUint::from(1u8));
+        let input_sk = ZkKey::new(BigUint::from(1u8).into());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
@@ -961,7 +961,7 @@ pub mod tests {
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(
             &[(&input_sk, &input_utxo)],
-            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
+            vec![Note::new(0, ZkPublicKey::new(Fr::from(BigUint::from(2u8))))],
         );
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);
