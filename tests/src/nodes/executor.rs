@@ -459,12 +459,7 @@ pub fn create_executor_config(config: GeneralConfig) -> Config {
         },
         sdp: SdpSettings { declaration: None },
         wallet: nomos_wallet::WalletServiceSettings {
-            known_keys: HashSet::from_iter([config
-                .consensus_config
-                .user_config()
-                .leader
-                .leader
-                .pk]),
+            known_keys: HashSet::from_iter([config.consensus_config.user_config().leader.pk]),
         },
         key_management: config.kms_config,
 

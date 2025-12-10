@@ -18,6 +18,7 @@ ignore = [
   { id = "RUSTSEC-2025-0081", reason = "`unic-char-property` is unmaintained; consider using an alternative. Use `cargo tree -p difference -i > tmp.txt` to check the dependency tree." },
   { id = "RUSTSEC-2025-0098", reason = "`unic-ucd-version` is unmaintained; consider using an alternative. Use `cargo tree -p difference -i > tmp.txt` to check the dependency tree." },
   { id = "RUSTSEC-2025-0100", reason = "`unic-ucd-ident` is unmaintained; consider using an alternative. Use `cargo tree -p difference -i > tmp.txt` to check the dependency tree." },
+  { id = "RUSTSEC-2025-0134", reason = "`rusttls-pemfile` is unmaintained; consider using an alternative. Use `cargo tree -p difference -i > tmp.txt` to check the dependency tree." },
 ]
 yanked = "deny"
 

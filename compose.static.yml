@@ -4,7 +4,7 @@ services:
 
   cfgsync:
     container_name: cfgsync
-    image: ghcr.io/logos-co/nomos:testnet
+    image: ghcr.io/logos-blockchain/logos-blockchain:testnet
     volumes:
       - ./testnet:/etc/nomos
     depends_on:
@@ -13,7 +13,7 @@ services:
 
   nomos-node-0:
     container_name: nomos_node_0
-    image: ghcr.io/logos-co/nomos:testnet
+    image: ghcr.io/logos-blockchain/logos-blockchain:testnet
     ports:
       - "3000:3000/udp"
       - "18080:18080/tcp"
@@ -26,7 +26,7 @@ services:
 
   nomos-node-1:
     container_name: nomos_node_1
-    image: ghcr.io/logos-co/nomos:testnet
+    image: ghcr.io/logos-blockchain/logos-blockchain:testnet
     volumes:
       - ./testnet:/etc/nomos
       - ./tests/kzgrs/kzgrs_test_params:/kzgrs_test_params:z
@@ -39,7 +39,7 @@ services:
 
   nomos-node-2:
     container_name: nomos_node_2
-    image: ghcr.io/logos-co/nomos:testnet
+    image: ghcr.io/logos-blockchain/logos-blockchain:testnet
     volumes:
       - ./testnet:/etc/nomos
       - ./tests/kzgrs/kzgrs_test_params:/kzgrs_test_params:z
@@ -52,7 +52,7 @@ services:
 
   nomos-node-3:
     container_name: nomos_node_3
-    image: ghcr.io/logos-co/nomos:testnet
+    image: ghcr.io/logos-blockchain/logos-blockchain:testnet
     volumes:
       - ./testnet:/etc/nomos
       - ./tests/kzgrs/kzgrs_test_params:/kzgrs_test_params:z
@@ -105,19 +105,22 @@ services:
 
   # Tempo runs as unpriviliged user, volumes need to be chowned before running.
   tempo-init:
-    image: &tempoImage grafana/tempo:latest
+    image: busybox:latest
     user: root
     entrypoint:
       - "chown"
       - "10001:10001"
       - "/var/tempo"
+    volumes:
+      - ./tempo-data:/var/tempo
 
   tempo:
-    image: *tempoImage
+    image: grafana/tempo:latest
     container_name: tempo
     command: [ "-config.file=/etc/tempo.yaml" ]
     volumes:
       - ./testnet/monitoring/tempo.yaml:/etc/tempo.yaml:z
+      - ./tempo-data:/var/tempo
     ports:
       - "4317:4317"  # otlp grpc
     depends_on:

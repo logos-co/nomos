@@ -349,7 +349,7 @@ mod core_to_core_tests {
             ),
             Err(VerifierError::ProofOfSelection(
                 selection::Error::IndexMismatch {
-                    expected: 1,
+                    expected: Some(1),
                     provided: 0
                 }
             ))
@@ -395,7 +395,7 @@ mod core_to_core_tests {
             ),
             Err(VerifierError::ProofOfSelection(
                 selection::Error::IndexMismatch {
-                    expected: 0,
+                    expected: Some(0),
                     provided: 1
                 }
             ))
@@ -499,7 +499,7 @@ mod core_to_core_tests {
             ),
             Err(VerifierError::ProofOfSelection(
                 selection::Error::IndexMismatch {
-                    expected: 1,
+                    expected: Some(1),
                     provided: 0
                 }
             ))
