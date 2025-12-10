@@ -368,7 +368,7 @@ pub mod tests {
     #[must_use]
     pub fn utxo_with_sk() -> (ZkKey, Utxo) {
         let tx_hash: Fr = BigUint::from(thread_rng().next_u64()).into();
-        let zk_sk = ZkKey::new(BigUint::from(0u64).into());
+        let zk_sk = ZkKey::from(BigUint::from(0u64));
         let utxo = Utxo {
             tx_hash: tx_hash.into(),
             output_index: 0,
@@ -787,9 +787,9 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_valid_transaction() {
-        let note_sk = ZkKey::new(BigUint::from(1u8).into());
-        let output_note1_sk = ZkKey::new(BigUint::from(2u8).into());
-        let output_note2_sk = ZkKey::new(BigUint::from(3u8).into());
+        let note_sk = ZkKey::from(BigUint::from(1u8));
+        let output_note1_sk = ZkKey::from(BigUint::from(2u8));
+        let output_note2_sk = ZkKey::from(BigUint::from(3u8));
         let input_note = Note::new(11000, note_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -847,7 +847,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_invalid_input() {
-        let input_sk = ZkKey::new(BigUint::from(1u8).into());
+        let input_sk = ZkKey::from(BigUint::from(1u8));
         let input_note = Note::new(1000, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -870,7 +870,7 @@ pub mod tests {
         let non_existent_utxo_3 = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
-            note: Note::new(999, ZkPublicKey::new(Fr::from(BigUint::from(1u8)))),
+            note: Note::new(999, Fr::from(BigUint::from(1u8)).into()),
         };
 
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
@@ -893,7 +893,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_insufficient_balance() {
-        let input_sk = ZkKey::new(BigUint::from(1u8).into());
+        let input_sk = ZkKey::from(BigUint::from(1u8));
         let input_note = Note::new(1, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -901,7 +901,7 @@ pub mod tests {
             note: input_note,
         };
 
-        let output_note = Note::new(1, ZkPublicKey::new(Fr::from(BigUint::from(2u8))));
+        let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
 
         let locked_notes = LockedNotes::new();
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
@@ -925,7 +925,7 @@ pub mod tests {
 
     #[test]
     fn test_tx_processing_no_outputs() {
-        let input_sk = ZkKey::new(BigUint::from(1u8).into());
+        let input_sk = ZkKey::from(BigUint::from(1u8));
         let input_note = Note::new(10000, input_sk.to_public_key());
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
@@ -950,7 +950,7 @@ pub mod tests {
 
     #[test]
     fn test_output_not_zero() {
-        let input_sk = ZkKey::new(BigUint::from(1u8).into());
+        let input_sk = ZkKey::from(BigUint::from(1u8));
         let input_utxo = Utxo {
             tx_hash: Fr::from(BigUint::from(1u8)).into(),
             output_index: 0,
@@ -961,7 +961,7 @@ pub mod tests {
         let ledger_state = LedgerState::from_utxos([input_utxo], Fr::ZERO);
         let tx = create_tx(
             &[(&input_sk, &input_utxo)],
-            vec![Note::new(0, ZkPublicKey::new(Fr::from(BigUint::from(2u8))))],
+            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
         );
 
         let result = ledger_state.try_apply_tx::<(), MainnetGasConstants>(&locked_notes, tx);

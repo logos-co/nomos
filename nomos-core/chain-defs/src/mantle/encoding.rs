@@ -1108,7 +1108,7 @@ mod tests {
         use num_bigint::BigUint;
 
         // Create a MantleTx with ledger inputs and outputs
-        let pk = ZkPublicKey::new(BigUint::from(42u64).into());
+        let pk = ZkPublicKey::from(BigUint::from(42u64));
         let note = Note::new(1000, pk);
         let note_id = NoteId(BigUint::from(123u64).into());
 
@@ -1309,7 +1309,7 @@ mod tests {
         let locator1: multiaddr::Multiaddr = "/ip4/127.0.0.1/tcp/8080".parse().unwrap();
         let locator2: multiaddr::Multiaddr = "/ip6/::1/tcp/9090".parse().unwrap();
 
-        let locked_note_sk = ZkKey::new(BigUint::from(1u64).into());
+        let locked_note_sk = ZkKey::from(BigUint::from(1u64));
         let locked_note = crate::mantle::Utxo {
             tx_hash: TxHash::from(BigUint::from(42u64)),
             output_index: 12,
@@ -1503,8 +1503,8 @@ mod tests {
     fn test_predict_signed_mantle_tx_size_with_ledger_inputs_outputs() {
         use num_bigint::BigUint;
 
-        let pk1 = ZkPublicKey::new(BigUint::from(100u64).into());
-        let pk2 = ZkPublicKey::new(BigUint::from(200u64).into());
+        let pk1 = ZkPublicKey::from(BigUint::from(100u64));
+        let pk2 = ZkPublicKey::from(BigUint::from(200u64));
 
         let note1 = Note::new(1000, pk1);
         let note2 = Note::new(2000, pk2);
@@ -1556,7 +1556,7 @@ mod tests {
             keys: vec![signing_key1.verifying_key(), signing_key2.verifying_key()],
         };
 
-        let locked_note_sk = ZkKey::new(BigUint::from(1u64).into());
+        let locked_note_sk = ZkKey::from(BigUint::from(1u64));
         let ledger_tx = LedgerTx {
             inputs: vec![NoteId(BigUint::from(777u64).into())],
             outputs: vec![Note::new(5000, locked_note_sk.to_public_key())],

@@ -794,8 +794,8 @@ pub fn create_kms_configs(
                         Ed25519Key::from(da_conf.signer.clone()).into(),
                     ),
                     (
-                        key_id_for_preload_backend(&da_conf.secret_zk_key.clone().into()),
-                        da_conf.secret_zk_key.clone().into(),
+                        key_id_for_preload_backend(&zk_secret_key.clone().into()),
+                        zk_secret_key.clone().into(),
                     ),
                 ]
                 .into(),

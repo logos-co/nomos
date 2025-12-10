@@ -30,7 +30,7 @@ use tokio::time::{sleep, timeout};
 #[tokio::test]
 #[serial]
 async fn sdp_ops_e2e() {
-    let note_sk = ZkKey::new(BigUint::from(42u64).into());
+    let note_sk = ZkKey::from(BigUint::from(42u64));
     let spare_note = Note::new(1, note_sk.to_public_key());
     let topology_config =
         TopologyConfig::validator_and_executor().with_extra_genesis_note(GenesisNoteSpec {
@@ -74,7 +74,7 @@ async fn sdp_ops_e2e() {
     );
 
     let provider_signing_key = SigningKey::from_bytes(&[7u8; 32]);
-    let provider_zk_key = ZkKey::new(BigUint::from(7u64).into());
+    let provider_zk_key = ZkKey::from(BigUint::from(7u64));
     let zk_id = provider_zk_key.to_public_key();
     let locator = Locator(
         "/ip4/127.0.0.1/tcp/9100"

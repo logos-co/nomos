@@ -361,7 +361,7 @@ pub fn update_cryptarchia_leader_consensus(
         return Ok(());
     };
 
-    let sk = UnsecuredZkKey::new(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?).into());
+    let sk = UnsecuredZkKey::from(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?));
     let pk = sk.to_public_key();
 
     leader.sk = sk;

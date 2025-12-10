@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use groth16::{Field as _, Fr, fr_from_bytes_unchecked};
+use num_bigint::BigUint;
 use poseidon2::{Digest, Poseidon2Bn254Hasher};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
@@ -72,6 +73,12 @@ impl PartialEq for SecretKey {
 }
 
 impl Eq for SecretKey {}
+
+impl From<BigUint> for SecretKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
 
 fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkSignError> {
     let len = keys.len();

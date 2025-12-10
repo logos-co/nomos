@@ -724,7 +724,7 @@ mod tests {
     }
 
     fn create_zk_key(sk: u64) -> ZkKey {
-        ZkKey::new(BigUint::from(sk).into())
+        ZkKey::from(BigUint::from(sk))
     }
 
     fn create_signing_key() -> SigningKey {

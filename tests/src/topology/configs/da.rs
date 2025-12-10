@@ -148,7 +148,7 @@ pub fn create_da_configs(
             // the generated Ed25519 public keys, which are guaranteed to be unique because
             // they are in turned derived from node ID.
             let secret_zk_key =
-                ZkKey::new(BigUint::from_bytes_le(signer.verifying_key().as_bytes()).into());
+                ZkKey::from(BigUint::from_bytes_le(signer.verifying_key().as_bytes()));
 
             GeneralDaConfig {
                 node_key,

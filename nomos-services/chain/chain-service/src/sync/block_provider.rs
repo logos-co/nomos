@@ -557,7 +557,6 @@ mod tests {
     use cryptarchia_engine::Config;
     use futures::StreamExt as _;
     use groth16::Fr;
-    use key_management_system_keys::keys::ZkPublicKey;
     use nomos_core::{
         codec::DeserializeOp as _,
         mantle::{Note, SignedMantleTx, ledger::Utxo},
@@ -957,7 +956,7 @@ mod tests {
             let utxo = Utxo {
                 tx_hash: Fr::from(BigUint::from(1u8)).into(),
                 output_index: 0,
-                note: Note::new(100, ZkPublicKey::new(Fr::from(5))),
+                note: Note::new(100, Fr::from(5).into()),
             };
 
             let aged_path = vec![MerkleNode::Right(Fr::from(0u8))];

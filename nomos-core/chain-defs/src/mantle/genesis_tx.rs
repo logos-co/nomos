@@ -194,7 +194,7 @@ mod tests {
 
     // Helper function to create a test note
     fn create_test_note(value: Value) -> Note {
-        Note::new(value, ZkPublicKey::new(BigUint::from(123u64).into()))
+        Note::new(value, ZkPublicKey::from(BigUint::from(123u64)))
     }
 
     // Helper function to create a basic signed transaction

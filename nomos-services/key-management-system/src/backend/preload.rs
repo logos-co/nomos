@@ -250,7 +250,7 @@ mod tests {
                 ),
                 (
                     "test2".into(),
-                    ZkKey::new(BigUint::from_bytes_le(&[1u8; 32]).into()).into(),
+                    Key::Zk(ZkKey::new(BigUint::from_bytes_le(&[1u8; 32]).into())),
                 ),
             ]
             .into(),

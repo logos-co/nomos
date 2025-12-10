@@ -1,6 +1,7 @@
 use core::fmt::{self, Debug, Formatter};
 
 use groth16::Fr;
+use num_bigint::BigUint;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 use zksign::ZkSignError;
@@ -72,16 +73,22 @@ impl Debug for ZkKey {
     }
 }
 
+impl From<Fr> for ZkKey {
+    fn from(value: Fr) -> Self {
+        Self(UnsecuredZkKey::new(value))
+    }
+}
+
+impl From<BigUint> for ZkKey {
+    fn from(value: BigUint) -> Self {
+        Self(value.into())
+    }
+}
+
 #[cfg(feature = "unsafe")]
 impl From<UnsecuredZkKey> for ZkKey {
     fn from(value: UnsecuredZkKey) -> Self {
         Self(value)
-    }
-}
-
-impl From<Fr> for ZkKey {
-    fn from(value: Fr) -> Self {
-        Self(UnsecuredZkKey::new(value))
     }
 }
 

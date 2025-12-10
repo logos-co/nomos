@@ -1,4 +1,5 @@
 use groth16::{Field as _, Fr, Groth16Input};
+use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zksign::{ZkSignError, ZkSignVerifierInputs};
@@ -50,6 +51,18 @@ impl PublicKey {
 impl From<PublicKey> for Fr {
     fn from(value: PublicKey) -> Self {
         value.0
+    }
+}
+
+impl From<BigUint> for PublicKey {
+    fn from(value: BigUint) -> Self {
+        Fr::from(value).into()
+    }
+}
+
+impl From<Fr> for PublicKey {
+    fn from(value: Fr) -> Self {
+        Self(value)
     }
 }
 

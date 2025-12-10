@@ -358,7 +358,7 @@ mod tests {
     fn test_ledger_try_update_with_transaction() {
         let (ledger, genesis_id, utxo) = create_test_ledger();
         let mut output_note = Note::new(1, ZkPublicKey::new(BigUint::from(1u8).into()));
-        let sk = ZkKey::new(BigUint::from(0u8).into());
+        let sk = ZkKey::from(BigUint::from(0u8));
         // determine fees
         let tx = create_tx(
             vec![utxo.id()],

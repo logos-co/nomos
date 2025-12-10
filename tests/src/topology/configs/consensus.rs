@@ -203,7 +203,7 @@ fn create_utxos_for_leader_and_services(
     // Create notes for leader, Blend and DA declarations.
     for &id in ids {
         let sk_leader_data = derive_key_material(b"ld", &id);
-        let sk_leader = ZkKey::new(BigUint::from_bytes_le(&sk_leader_data).into());
+        let sk_leader = ZkKey::from(BigUint::from_bytes_le(&sk_leader_data));
         let pk_leader = sk_leader.to_public_key();
         leader_keys.push((pk_leader, sk_leader));
         utxos.push(Utxo {
@@ -214,7 +214,7 @@ fn create_utxos_for_leader_and_services(
         output_index += 1;
 
         let sk_da_data = derive_key_material(b"da", &id);
-        let sk_da = ZkKey::new(BigUint::from_bytes_le(&sk_da_data).into());
+        let sk_da = ZkKey::from(BigUint::from_bytes_le(&sk_da_data));
         let pk_da = sk_da.to_public_key();
         let note_da = Note::new(1, pk_da);
         da_notes.push(ServiceNote {
@@ -231,7 +231,7 @@ fn create_utxos_for_leader_and_services(
         output_index += 1;
 
         let sk_blend_data = derive_key_material(b"bn", &id);
-        let sk_blend = ZkKey::new(BigUint::from_bytes_le(&sk_blend_data).into());
+        let sk_blend = ZkKey::from(BigUint::from_bytes_le(&sk_blend_data));
         let pk_blend = sk_blend.to_public_key();
         let note_blend = Note::new(1, pk_blend);
         blend_notes.push(ServiceNote {
