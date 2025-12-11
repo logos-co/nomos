@@ -64,12 +64,13 @@ impl ZkKey {
 
 impl Debug for ZkKey {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let private_key = if cfg!(feature = "unsafe") {
-            format!("{:?}", self.0)
-        } else {
-            "<redacted>".to_owned()
-        };
-        write!(f, "ZkKey({private_key})")
+        #[cfg(feature = "unsafe")]
+        write!(f, "ZkKey({:?})", self.0)?;
+
+        #[cfg(not(feature = "unsafe"))]
+        write!(f, "ZkKey(<redacted>)")?;
+
+        Ok(())
     }
 }
 

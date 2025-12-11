@@ -84,12 +84,13 @@ impl Ed25519Key {
 
 impl Debug for Ed25519Key {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let private_key = if cfg!(feature = "unsafe") {
-            format!("{:?}", self.0)
-        } else {
-            "<redacted>".to_owned()
-        };
-        write!(f, "Ed25519Key({private_key})")
+        #[cfg(feature = "unsafe")]
+        write!(f, "Ed25519Key({:?})", self.0)?;
+
+        #[cfg(not(feature = "unsafe"))]
+        write!(f, "Ed25519Key(<redacted>)")?;
+
+        Ok(())
     }
 }
 
