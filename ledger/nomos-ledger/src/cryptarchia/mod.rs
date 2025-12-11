@@ -338,7 +338,7 @@ pub mod tests {
 
     use cryptarchia_engine::EpochConfig;
     use groth16::Field as _;
-    use key_management_system_keys::keys::ZkKey;
+    use key_management_system_keys::keys::{Ed25519PublicKey, ZkKey};
     use nomos_core::{
         crypto::{Digest as _, Hasher},
         mantle::{
@@ -380,7 +380,7 @@ pub mod tests {
 
     pub struct DummyProof {
         pub public: LeaderPublic,
-        pub leader_key: ed25519_dalek::VerifyingKey,
+        pub leader_key: Ed25519PublicKey,
         pub voucher_cm: VoucherCm,
     }
 
@@ -398,7 +398,7 @@ pub mod tests {
             Fr::from(0u8)
         }
 
-        fn leader_key(&self) -> &ed25519_dalek::VerifyingKey {
+        fn leader_key(&self) -> &Ed25519PublicKey {
             &self.leader_key
         }
 
@@ -466,7 +466,7 @@ pub mod tests {
                 slot.into(),
                 ledger_state.epoch_state.total_stake,
             ),
-            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         }
     }
@@ -731,7 +731,7 @@ pub mod tests {
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
             },
-            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         };
         let update_err = ledger_state
@@ -755,7 +755,7 @@ pub mod tests {
                 slot: slot.into(),
                 total_stake: ledger_state.epoch_state.total_stake,
             },
-            leader_key: ed25519_dalek::VerifyingKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         };
         let update_err = ledger_state

@@ -3,8 +3,7 @@ pub mod rewards;
 
 use std::collections::HashMap;
 
-use ed25519::{Signature as Ed25519Sig, signature::Verifier as _};
-use key_management_system_keys::keys::{ZkPublicKey, ZkSignature};
+use key_management_system_keys::keys::{Ed25519Signature, ZkPublicKey, ZkSignature};
 use locked_notes::LockedNotes;
 use nomos_blend_message::crypto::proofs::RealProofsVerifier;
 use nomos_core::{
@@ -500,7 +499,7 @@ impl SdpLedger {
         op: &SDPDeclareOp,
         note: Note,
         zk_sig: &ZkSignature,
-        ed25519_sig: &Ed25519Sig,
+        ed25519_sig: &Ed25519Signature,
         tx_hash: TxHash,
         config: &Config,
     ) -> Result<Self, Error> {
@@ -673,9 +672,8 @@ impl SdpLedger {
 mod tests {
     use std::{num::NonZeroU64, sync::Arc};
 
-    use ed25519_dalek::{Signer as _, SigningKey};
     use groth16::{Field as _, Fr};
-    use key_management_system_keys::keys::ZkKey;
+    use key_management_system_keys::keys::{Ed25519Key, ZkKey};
     use nomos_core::crypto::ZkHash;
     use nomos_utils::math::NonNegativeF64;
     use num_bigint::BigUint;
@@ -727,8 +725,8 @@ mod tests {
         ZkKey::from(BigUint::from(sk))
     }
 
-    fn create_signing_key() -> SigningKey {
-        SigningKey::from_bytes(&[0; 32])
+    fn create_signing_key() -> Ed25519Key {
+        Ed25519Key::from_bytes(&[0; 32])
     }
 
     fn gc_test_config() -> Config {
@@ -783,7 +781,7 @@ mod tests {
         let zk_sig = ZkKey::multi_sign(&[note_sk, zk_sk.clone()], &tx_hash.0).unwrap();
 
         let signing_key = create_signing_key();
-        let ed25519_sig = signing_key.sign(tx_hash.as_signing_bytes().as_ref());
+        let ed25519_sig = signing_key.sign_payload(tx_hash.as_signing_bytes().as_ref());
 
         sdp_ledger.apply_declare_msg(op, note, &zk_sig, &ed25519_sig, tx_hash, config)
     }
@@ -823,7 +821,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: note_id,
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id = op.id();
@@ -866,7 +864,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: note_id,
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id = declare_op.id();
@@ -917,7 +915,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: note_id,
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id = op.id();
@@ -1038,7 +1036,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id = declare_op.id();
@@ -1103,7 +1101,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key_1.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_1 = declare_op_1.id();
@@ -1128,7 +1126,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key_2.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_2 = declare_op_2.id();
@@ -1193,7 +1191,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id = declare_op.id();
@@ -1253,7 +1251,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key_1.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_1 = declare_op_1.id();
@@ -1281,7 +1279,7 @@ mod tests {
             service_type: service_a,
             locked_note_id: utxo().id(),
             zk_id: zk_key_2.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_2 = declare_op_2.id();
@@ -1350,7 +1348,7 @@ mod tests {
             service_type: service_bn,
             locked_note_id: utxo().id(),
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_bn = declare_op_bn.id();
@@ -1360,7 +1358,7 @@ mod tests {
             service_type: service_da,
             locked_note_id: utxo().id(),
             zk_id: zk_key.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_da = declare_op_da.id();
@@ -1369,7 +1367,7 @@ mod tests {
             service_type: service_da,
             locked_note_id: utxo.id(),
             zk_id: zk_key_2.to_public_key(),
-            provider_id: ProviderId(signing_key.verifying_key()),
+            provider_id: ProviderId(signing_key.public_key()),
             locators: Vec::new(),
         };
         let declaration_id_da_2 = declare_op_da_2.id();

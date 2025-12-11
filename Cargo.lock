@@ -6385,8 +6385,6 @@ name = "nomos-ledger"
 version = "0.1.0"
 dependencies = [
  "cryptarchia-engine",
- "ed25519",
- "ed25519-dalek",
  "groth16",
  "key-management-system-keys",
  "mmr",
