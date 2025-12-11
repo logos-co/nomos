@@ -4682,6 +4682,7 @@ dependencies = [
  "nomos-utils",
  "num-bigint",
  "poseidon2",
+ "rand_core 0.6.4",
  "serde",
  "subtle",
  "thiserror 2.0.17",

@@ -1,8 +1,6 @@
-use ed25519_dalek::{
-    SECRET_KEY_LENGTH, SigningKey,
-    ed25519::signature::{Signer as _, rand_core::CryptoRngCore},
-};
+use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey, ed25519::signature::Signer as _};
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
+use rand_core::CryptoRngCore;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;

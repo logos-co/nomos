@@ -1,7 +1,8 @@
 use core::fmt::{self, Debug, Formatter};
 
 use bytes::Bytes;
-use ed25519_dalek::{SigningKey, ed25519::signature::rand_core::CryptoRngCore};
+use ed25519_dalek::SigningKey;
+use rand_core::CryptoRngCore;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
