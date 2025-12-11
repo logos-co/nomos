@@ -17,7 +17,7 @@ use std::{
 
 use async_trait::async_trait;
 use backends::{ConnectionStatus, NetworkBackend};
-use futures::{Stream, stream::select};
+use futures::Stream;
 use kzgrs_backend::common::share::{DaShare, DaSharesCommitments};
 use libp2p::{Multiaddr, PeerId};
 use nomos_core::{
@@ -42,13 +42,11 @@ use services_utils::wait_until_services_are_ready;
 use storage::{MembershipStorage, MembershipStorageAdapter};
 use subnetworks_assignations::{MembershipCreator, MembershipHandler, SubnetworkAssignations};
 use tokio::sync::{
-    mpsc::{self, Sender},
+    broadcast,
+    mpsc::{self},
     oneshot,
 };
-use tokio_stream::{
-    StreamExt as _,
-    wrappers::{IntervalStream, ReceiverStream, UnboundedReceiverStream},
-};
+use tokio_stream::{StreamExt as _, wrappers::UnboundedReceiverStream};
 
 use crate::{
     addressbook::{AddressBook, AddressBookSnapshot},
@@ -194,9 +192,10 @@ pub struct NetworkService<
     membership: DaMembershipHandler<Membership>,
     addressbook: DaAddressbook,
     api_adapter: ApiAdapter,
-    subnet_refresh_sender: Sender<()>,
+    subnet_refresh_sender: broadcast::Sender<()>,
     balancer_stats_stream: UnboundedReceiverStream<BalancerStats>,
     opinion_stream: UnboundedReceiverStream<OpinionEvent>,
+    subnet_refresh_interval: Duration,
 }
 
 pub struct NetworkState<
@@ -329,13 +328,9 @@ where
             addressbook.clone(),
         );
 
-        // Sampling subnetwork peers need to be updatedd periodically.
+        // Sampling and balancer subnetwork peers need to be updated periodically.
         // They also need to be updated when the assignations change.
-        let (subnet_refresh_sender, refresh_rx) = mpsc::channel(1);
-        let interval = tokio::time::interval(settings.subnet_refresh_interval);
-        let refresh_ticker = IntervalStream::new(interval).map(|_| ());
-        let refresh_signal = ReceiverStream::new(refresh_rx);
-        let subnet_refresh_signal = select(refresh_ticker, refresh_signal);
+        let (subnet_refresh_sender, _) = broadcast::channel(1);
         let (balancer_stats_sender, balancer_stats_receiver) = mpsc::unbounded_channel();
         let balancer_stats_stream = UnboundedReceiverStream::new(balancer_stats_receiver);
         let (opinion_sender, opinion_receiver) = mpsc::unbounded_channel();
@@ -347,7 +342,7 @@ where
                 service_resources_handle.overwatch_handle.clone(),
                 membership.clone(),
                 addressbook.clone(),
-                subnet_refresh_signal,
+                &subnet_refresh_sender,
                 balancer_stats_sender,
                 opinion_sender,
             ),
@@ -358,9 +353,14 @@ where
             subnet_refresh_sender,
             balancer_stats_stream,
             opinion_stream,
+            subnet_refresh_interval: settings.subnet_refresh_interval,
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "TODO: refactor after tests are green"
+    )]
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         let Self {
             service_resources_handle:
@@ -428,6 +428,9 @@ where
             })?;
 
         status_updater.notify_ready();
+
+        let mut refresh_interval = tokio::time::interval(self.subnet_refresh_interval);
+
         tracing::info!(
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
@@ -447,7 +450,7 @@ where
                         update.provider_mappings,
                     ).await {
                         Ok(membership_status) => {
-                            let _ = subnet_refresh_sender.send(()).await;
+                            let _ = subnet_refresh_sender.send(());
                             backend.update_session_status(membership_status);
                         }
                         Err(e) => {
@@ -467,6 +470,9 @@ where
                 }
                 Some(opinion_event) = opinion_stream.next() => {
                     opinion_aggregator.record_opinion(opinion_event);
+                }
+                _ = refresh_interval.tick() => {
+                    let _ = subnet_refresh_sender.send(());
                 }
             }
         }

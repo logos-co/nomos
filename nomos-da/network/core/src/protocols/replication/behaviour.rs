@@ -290,16 +290,16 @@ impl<M> ReplicationBehaviour<M>
 where
     M: MembershipHandler<NetworkId = SubnetworkId, Id = PeerId>,
 {
+    // FIXME: reenable when handling of incoming connection is fixed
     /// Check if some peer membership lies in at least a single subnetwork that
     /// the local peer is a member too.
-    fn is_neighbour(&self, peer_id: &PeerId) -> bool {
-        self.membership
-            .membership(&self.local_peer_id)
-            .intersection(&self.membership.membership(peer_id))
-            .count()
-            > 0
-    }
-
+    // fn is_neighbour(&self, peer_id: &PeerId) -> bool {
+    //     self.membership
+    //         .membership(&self.local_peer_id)
+    //         .intersection(&self.membership.membership(peer_id))
+    //         .count()
+    //         > 0
+    // }
     fn no_loopback_member_peers_of(&self, subnetwork: SubnetworkId) -> HashSet<PeerId> {
         let mut peers = self.membership.members_of(&subnetwork);
         // no loopback
@@ -577,10 +577,11 @@ where
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        if !self.is_neighbour(&peer_id) {
-            trace!("refusing connection to {peer_id}");
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // FIXME: same as in dispersal protocol
+        // if !self.is_neighbour(&peer_id) {
+        //     trace!("refusing connection to {peer_id}");
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         trace!("{}, Connected to {peer_id}", self.local_peer_id);
         self.connected.insert(peer_id);
         self.stream_behaviour

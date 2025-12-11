@@ -2,16 +2,19 @@
 //! are preloaded from config file.
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use key_management_system_keys::keys::{
+    Key, KeyOperators, errors::KeyError, secured_key::SecuredKey,
+};
+use serde::Deserialize;
 
-use crate::{SecuredKey, backend::KMSBackend, keys};
+use crate::backend::KMSBackend;
 
 pub type KeyId = String;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PreloadBackendError {
     #[error(transparent)]
-    KeyError(#[from] keys::errors::KeyError),
+    KeyError(#[from] KeyError),
     #[error("KeyId ({0:?}) is not registered")]
     NotRegisteredKeyId(KeyId),
     #[error("KeyId {0} is already registered")]
@@ -19,22 +22,23 @@ pub enum PreloadBackendError {
 }
 
 pub struct PreloadKMSBackend {
-    keys: HashMap<KeyId, keys::Key>,
+    keys: HashMap<KeyId, Key>,
 }
 
 /// This setting contains all [`Key`]s to be loaded into the
 /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
 /// populate the settings from bytes.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
+#[cfg_attr(any(test, feature = "unsafe"), derive(serde::Serialize))]
 pub struct PreloadKMSBackendSettings {
-    pub keys: HashMap<KeyId, keys::Key>,
+    pub keys: HashMap<KeyId, Key>,
 }
 
 #[async_trait::async_trait]
 impl KMSBackend for PreloadKMSBackend {
     type KeyId = KeyId;
-    type Key = keys::Key;
-    type KeyOperations = keys::KeyOperators;
+    type Key = Key;
+    type KeyOperations = KeyOperators;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;
 
@@ -116,14 +120,14 @@ mod tests {
     use std::marker::PhantomData;
 
     use bytes::{Bytes as RawBytes, Bytes};
+    use key_management_system_keys::keys::{
+        Ed25519Key, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
+    };
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
     use zksign::SecretKey;
 
     use super::*;
-    use crate::keys::{
-        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
-    };
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct NoKeyOperator<Key, Error> {

@@ -1,15 +1,17 @@
 use core::fmt::{Debug, Display};
 
 use async_trait::async_trait;
-use key_management_system::{
+use key_management_system_service::{
     KMSService,
     api::KmsServiceApi,
     backend::preload::{KeyId, PreloadKMSBackend},
     keys::KeyOperators,
     operators::blend::poq::PoQOperator,
 };
-use nomos_blend_message::crypto::proofs::quota::{self, ProofOfQuota, inputs::prove::PublicInputs};
-use nomos_blend_scheduling::message_blend::CoreProofOfQuotaGenerator;
+use nomos_blend::{
+    proofs::quota::{self, VerifiedProofOfQuota, inputs::prove::PublicInputs},
+    scheduling::message_blend::CoreProofOfQuotaGenerator,
+};
 use nomos_core::crypto::ZkHash;
 use overwatch::services::AsServiceId;
 use poq::CorePathAndSelectors;
@@ -75,7 +77,8 @@ where
         &self,
         public_inputs: &PublicInputs,
         key_index: u64,
-    ) -> impl Future<Output = Result<(ProofOfQuota, ZkHash), quota::Error>> + Send + Sync {
+    ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
+    {
         tracing::debug!(target: LOG_TARGET, "Generating KMS-based PoQ with public_inputs {public_inputs:?} and key_index {key_index:?}.");
 
         let kms_api = self.kms_api.clone();
@@ -110,7 +113,7 @@ async fn generate_and_send_kms_poq<RuntimeServiceId>(
     public_inputs: &PublicInputs,
     key_index: u64,
     core_path_and_selectors: &CorePathAndSelectors,
-    result_sender: oneshot::Sender<Result<(ProofOfQuota, ZkHash), quota::Error>>,
+    result_sender: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
 ) where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync + 'static,

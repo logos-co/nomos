@@ -445,7 +445,7 @@ where
                             Err(()) => continue 'peers_loop,
                         }
                     }
-                    let _ = stream.stream.close().await;
+                    drop(stream.stream.close().await);
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
@@ -532,7 +532,7 @@ where
                             Err(()) => continue 'peers_loop,
                         }
                     }
-                    let _ = stream.stream.close().await;
+                    drop(stream.stream.close().await);
                 }
                 Err(err) => {
                     log::error!("Failed to open stream to peer {peer_id}: {err}");
@@ -577,7 +577,7 @@ where
                         peer_id,
                         session_id,
                     });
-                    let _ = new_stream.stream.close().await;
+                    drop(new_stream.stream.close().await);
                     Err(())
                 }
             }
@@ -588,7 +588,7 @@ where
                     opinions.push(opinion);
                 }
                 if let Some(mut s) = maybe_stream {
-                    let _ = s.stream.close().await;
+                    drop(s.stream.close().await);
                 }
                 Err(())
             }

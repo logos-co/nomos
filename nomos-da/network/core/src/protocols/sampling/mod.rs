@@ -407,11 +407,13 @@ mod test {
     async fn test_sampling_two_peers() {
         const MSG_COUNT: usize = 10;
 
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .compact()
-            .with_writer(TestWriter::default())
-            .try_init();
+        drop(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::from_default_env())
+                .compact()
+                .with_writer(TestWriter::default())
+                .try_init(),
+        );
         let k1 = Keypair::generate_ed25519();
         let k2 = Keypair::generate_ed25519();
 

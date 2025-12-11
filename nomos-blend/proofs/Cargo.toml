@@ -1,0 +1,30 @@
+[package]
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-blend-proofs"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+generic-array      = { default-features = false, version = "1.2" }
+groth16            = { workspace = true }
+nomos-blend-crypto = { workspace = true }
+num-bigint         = { default-features = false, version = "0.4" }
+poq                = { workspace = true }
+serde              = { workspace = true }
+thiserror          = "1"
+
+[dev-dependencies]
+const-hex  = { default-features = false, version = "1.15.0" }
+nomos-core = { workspace = true }
+zksign     = { workspace = true }
+
+[features]
+unsafe-test-functions = []

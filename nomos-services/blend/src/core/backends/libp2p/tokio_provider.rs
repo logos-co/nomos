@@ -2,8 +2,9 @@ use core::{num::NonZeroU64, ops::RangeInclusive, time::Duration};
 use std::hash::Hash;
 
 use futures::StreamExt as _;
-use nomos_blend_network::core::with_core::behaviour::IntervalStreamProvider;
-use nomos_blend_scheduling::membership::Membership;
+use nomos_blend::{
+    network::core::with_core::behaviour::IntervalStreamProvider, scheduling::membership::Membership,
+};
 use nomos_utils::math::NonNegativeF64;
 use tokio_stream::wrappers::IntervalStream;
 

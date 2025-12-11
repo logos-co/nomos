@@ -1,12 +1,11 @@
 use std::num::NonZeroU64;
 
 use derivative::Derivative;
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_message::{
     Error,
-    crypto::keys::Ed25519PrivateKey,
     encap::{
-        encapsulated::EncapsulatedMessage,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        encapsulated::EncapsulatedMessage, validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
 };
 use nomos_core::codec::{DeserializeOp as _, SerializeOp as _};
@@ -27,15 +26,16 @@ mod test_utils;
 pub struct SessionCryptographicProcessorSettings {
     /// The non-ephemeral signing key (NSK) corresponding to the public key
     /// registered in the membership (SDP).
-    #[serde(with = "crate::serde::ed25519_privkey_hex")]
     #[derivative(Debug = "ignore")]
-    pub non_ephemeral_signing_key: Ed25519PrivateKey,
+    pub non_ephemeral_signing_key: UnsecuredEd25519Key,
     /// `ß_c`: number of blending operations for each locally generated message.
     pub num_blend_layers: NonZeroU64,
 }
 
 #[must_use]
-pub fn serialize_encapsulated_message(message: &EncapsulatedMessage) -> Vec<u8> {
+pub fn serialize_encapsulated_message(
+    message: &EncapsulatedMessageWithVerifiedPublicHeader,
+) -> Vec<u8> {
     message
         .to_bytes()
         .expect("EncapsulatedMessage should be serializable")

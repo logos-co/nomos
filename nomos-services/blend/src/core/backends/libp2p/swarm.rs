@@ -12,23 +12,21 @@ use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
-use nomos_blend_message::{
-    crypto::proofs::quota::inputs::prove::public::LeaderInputs,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        encapsulated::EncapsulatedMessage,
-        validated::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-        },
+use nomos_blend::{
+    message::encap::{
+        ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
+    network::core::{
+        NetworkBehaviourEvent,
+        with_core::behaviour::{
+            Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState,
+        },
+        with_edge::behaviour::Event as CoreToEdgeEvent,
+    },
+    proofs::quota::inputs::prove::public::LeaderInputs,
+    scheduling::membership::Membership,
 };
-use nomos_blend_network::core::{
-    NetworkBehaviourEvent,
-    with_core::behaviour::{Event as CoreToCoreEvent, IntervalStreamProvider, NegotiatedPeerState},
-    with_edge::behaviour::Event as CoreToEdgeEvent,
-};
-use nomos_blend_scheduling::membership::Membership;
 use nomos_libp2p::{DialOpts, SwarmEvent};
 use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
@@ -79,8 +77,7 @@ where
 {
     swarm: Swarm<BlendBehaviour<ProofsVerifier, ObservationWindowProvider>>,
     swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     public_info: PublicInfo<PeerId>,
     rng: Rng,
     max_dial_attempts_per_connection: NonZeroU64,
@@ -93,8 +90,7 @@ pub struct SwarmParams<'config, Rng> {
     pub current_public_info: PublicInfo<PeerId>,
     pub rng: Rng,
     pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage>,
-    pub incoming_message_sender:
-        broadcast::Sender<IncomingEncapsulatedMessageWithValidatedPublicHeader>,
+    pub incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
     pub minimum_network_size: NonZeroUsize,
 }
 
@@ -228,37 +224,37 @@ where
 
     fn handle_blend_core_behaviour_event(&mut self, blend_event: CoreToCoreEvent) {
         match blend_event {
-            nomos_blend_network::core::with_core::behaviour::Event::Message(msg, conn) => {
+            nomos_blend::network::core::with_core::behaviour::Event::Message(msg, conn) => {
                 // Forward message received from node to all other core nodes.
-                self.forward_validated_swarm_message(&(*msg).clone().into(), conn);
+                self.validate_and_forward_swarm_message((*msg).clone().into(), conn);
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(*msg);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::UnhealthyPeer(peer_id) => {
                 self.handle_unhealthy_peer(peer_id);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::HealthyPeer(peer_id) => {
                 Self::handle_healthy_peer(peer_id);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::PeerDisconnected(
+            nomos_blend::network::core::with_core::behaviour::Event::PeerDisconnected(
                 peer_id,
                 peer_state,
             ) => {
                 self.handle_disconnected_peer(peer_id, peer_state);
             }
-            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeFailed(peer_id) => {
                 // If we ran out of dial attempts, we try to connect to another random peer that we are not yet connected to.
                 if self.retry_dial(peer_id).is_some() {
                     self.dial_random_peers_except(1, Some(peer_id));
                 }
             }
-            nomos_blend_network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::OutboundConnectionUpgradeSucceeded(peer_id) => {
                 assert!(self.ongoing_dials.remove(&peer_id).is_some(), "Peer ID for a successfully upgraded connection must be present in storage");
             }
-            nomos_blend_network::core::with_core::behaviour::Event::InboundConnectionUpgradeFailed(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::InboundConnectionUpgradeFailed(peer_id) => {
                 tracing::warn!(target: LOG_TARGET, "Inbound connection upgrade failed for {peer_id:?}");
             }
-            nomos_blend_network::core::with_core::behaviour::Event::InboundConnectionUpgradeSucceeded(peer_id) => {
+            nomos_blend::network::core::with_core::behaviour::Event::InboundConnectionUpgradeSucceeded(peer_id) => {
                 tracing::debug!(target: LOG_TARGET, "Inbound connection upgrade succeeded for {peer_id:?}");
             }
         }
@@ -337,16 +333,13 @@ where
         self.ongoing_dials.remove(&peer_id)
     }
 
-    fn publish_validated_swarm_message(
-        &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
-    ) {
+    fn validate_and_publish_swarm_message(&mut self, msg: EncapsulatedMessage) {
         if let Err(e) = self
             .swarm
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .publish_validated_message(msg)
+            .validate_and_publish_message(msg)
         {
             tracing::error!(target: LOG_TARGET, "Failed to publish message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -355,9 +348,9 @@ where
         }
     }
 
-    fn forward_validated_swarm_message(
+    fn validate_and_forward_swarm_message(
         &mut self,
-        msg: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        msg: EncapsulatedMessage,
         except: (PeerId, ConnectionId),
     ) {
         if let Err(e) = self
@@ -365,7 +358,7 @@ where
             .behaviour_mut()
             .blend
             .with_core_mut()
-            .forward_validated_message(msg, except)
+            .validate_and_forward_message(msg, except)
         {
             tracing::error!(target: LOG_TARGET, "Failed to forward message to blend network: {e:?}");
             tracing::info!(counter.failed_outbound_messages = 1);
@@ -378,7 +371,7 @@ where
         clippy::cognitive_complexity,
         reason = "Tracing macros generate more code that triggers this warning."
     )]
-    fn report_message_to_service(&self, msg: IncomingEncapsulatedMessageWithValidatedPublicHeader) {
+    fn report_message_to_service(&self, msg: EncapsulatedMessageWithVerifiedPublicHeader) {
         tracing::debug!("Received message from a peer: {msg:?}");
 
         if let Err(e) = self.incoming_message_sender.send(msg) {
@@ -415,9 +408,9 @@ where
 
     fn handle_blend_edge_behaviour_event(&mut self, blend_event: CoreToEdgeEvent) {
         match blend_event {
-            nomos_blend_network::core::with_edge::behaviour::Event::Message(msg) => {
+            nomos_blend::network::core::with_edge::behaviour::Event::Message(msg) => {
                 // Forward message received from edge node to all the core nodes.
-                self.publish_validated_swarm_message(&msg.clone().into());
+                self.validate_and_publish_swarm_message(msg.clone().into());
                 // Bubble up to service for decapsulation and delaying.
                 self.report_message_to_service(msg);
             }
@@ -541,9 +534,7 @@ where
         identity: &libp2p::identity::Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage>,
-        incoming_message_sender: broadcast::Sender<
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        >,
+        incoming_message_sender: broadcast::Sender<EncapsulatedMessageWithVerifiedPublicHeader>,
         current_public_info: PublicInfo<PeerId>,
         rng: Rng,
         max_dial_attempts_per_connection: NonZeroU64,

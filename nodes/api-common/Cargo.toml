@@ -21,11 +21,13 @@ pprof = { default-features = false, features = [
   "flamegraph",
   "protobuf-codec",
 ], optional = true, version = "0.15" }
-serde = { default-features = false, features = ["alloc", "derive"], version = "1.0" }
+serde = { workspace = true, features = ["alloc", "derive"] }
+serde_json = { workspace = true }
 serde_with = { default-features = false, features = ["macros"], workspace = true }
 tokio = { default-features = false, features = ["time"], optional = true, version = "1" }
 tower_governor = { default-features = false, features = ["axum"], version = "0.3" }
 tracing = { default-features = false, optional = true, workspace = true }
+zksign = { workspace = true }
 
 [features]
 profiling = ["pprof", "tokio", "tracing"]

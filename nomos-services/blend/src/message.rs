@@ -1,4 +1,4 @@
-use nomos_blend_message::encap::encapsulated::EncapsulatedMessage;
+use nomos_blend::message::encap::encapsulated::EncapsulatedMessage;
 use serde::{Deserialize, Serialize};
 
 /// A message that is handled by [`BlendService`].
@@ -23,6 +23,9 @@ pub struct NetworkMessage<BroadcastSettings> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ProcessedMessage<BroadcastSettings> {
     Network(NetworkMessage<BroadcastSettings>),
+    // We cannot use `EncapsulatedMessageWithVerifiedPublicHeader` because we don't know if this
+    // message belongs to the current or the old session, so we need to let the libp2p swarm find
+    // out.
     Encapsulated(Box<EncapsulatedMessage>),
 }
 

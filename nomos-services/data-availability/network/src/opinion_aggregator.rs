@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use bitvec::prelude::*;
 use libp2p::PeerId;
-use nomos_core::sdp::{ActivityMetadata, DaActivityProof, ProviderId, SessionNumber};
+use nomos_core::sdp::{ActivityMetadata, ProviderId, SessionNumber, da::ActivityProof};
 use nomos_da_network_core::{
     SubnetworkId,
     protocols::sampling::opinions::{Opinion, OpinionEvent},
@@ -38,7 +38,7 @@ pub struct Opinions {
 
 impl From<Opinions> for ActivityMetadata {
     fn from(opinions: Opinions) -> Self {
-        let proof = DaActivityProof {
+        let proof = ActivityProof {
             current_session: opinions.current_session,
             previous_session_opinions: bitvec_to_bytes(&opinions.previous_session_opinions),
             current_session_opinions: bitvec_to_bytes(&opinions.current_session_opinions),

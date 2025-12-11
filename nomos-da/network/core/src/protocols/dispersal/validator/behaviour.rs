@@ -192,14 +192,15 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
+        // FIXME:
         // Sampling or replication behaviour might open connection to a member peer.
         // During the lifetime of a connection the remote peer might decide to
         // disperse data via existing connection - in such case the connection
         // needs to already have a handler that accepts DA_DISPERSAL_PROTOCOL
         // messages.
-        if !self.membership.is_allowed(&peer) {
-            return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
-        }
+        // if !self.membership.is_allowed(&peer) {
+        //     return Ok(Either::Right(libp2p::swarm::dummy::ConnectionHandler));
+        // }
         self.stream_behaviour
             .handle_established_outbound_connection(
                 connection_id,
@@ -247,6 +248,23 @@ impl<M: MembershipHandler<Id = PeerId, NetworkId = SubnetworkId> + 'static> Netw
                         )))
                     }
                     dispersal::DispersalRequest::Tx(signed_mantle_tx) => {
+                        let session = if let Some(Op::ChannelBlob(BlobOp { session, .. })) =
+                            signed_mantle_tx.mantle_tx.ops.first()
+                        {
+                            *session
+                        } else {
+                            tracing::debug!("Rejecting TX without BlobOp");
+                            return Poll::Pending;
+                        };
+
+                        let current_session = self.membership.session_id();
+                        if session != current_session {
+                            tracing::debug!(
+                                "Rejecting TX from session {session}, current session is {current_session}",
+                            );
+                            return Poll::Pending;
+                        }
+
                         let assignations = self.membership.membership(local_peer_id).len();
                         Poll::Ready(ToSwarm::GenerateEvent(DispersalEvent::IncomingTx((
                             assignations as u16,

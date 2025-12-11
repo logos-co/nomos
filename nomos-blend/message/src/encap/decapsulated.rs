@@ -1,6 +1,7 @@
+use nomos_blend_proofs::selection::VerifiedProofOfSelection;
+
 use crate::{
     PayloadType,
-    crypto::proofs::selection::ProofOfSelection,
     encap::encapsulated::{EncapsulatedMessage, EncapsulatedPart, EncapsulatedPrivateHeader},
     message::{Payload, PublicHeader},
     reward::BlendingToken,
@@ -22,14 +23,17 @@ pub enum DecapsulationOutput {
 /// The output of [`EncapsulatedPart::decapsulate`]
 pub(super) enum PartDecapsulationOutput {
     Incompleted {
+        // Encapsulated part of the next layer.
         encapsulated_part: EncapsulatedPart,
+        // Public (unverified) header of the next layer.
         public_header: Box<PublicHeader>,
-        proof_of_selection: ProofOfSelection,
+        // Verified PoSel of the current layer.
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 
     Completed {
         payload: Payload,
-        proof_of_selection: ProofOfSelection,
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 }
 
@@ -66,13 +70,16 @@ impl DecapsulatedMessage {
 /// The output of [`EncapsulatedPrivateHeader::decapsulate`]
 pub(super) enum PrivateHeaderDecapsulationOutput {
     Incompleted {
+        // Encapsulated part of the next layer.
         encapsulated_private_header: EncapsulatedPrivateHeader,
+        // Public (unverified) header of the next layer.
         public_header: PublicHeader,
-        proof_of_selection: ProofOfSelection,
+        // Verified PoSel of the current layer.
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
     Completed {
         encapsulated_private_header: EncapsulatedPrivateHeader,
         public_header: PublicHeader,
-        proof_of_selection: ProofOfSelection,
+        verified_proof_of_selection: VerifiedProofOfSelection,
     },
 }

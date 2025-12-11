@@ -138,7 +138,7 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
-        subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        subnet_refresh_sender: &broadcast::Sender<()>,
         balancer_stats_sender: UnboundedSender<BalancerStats>,
         opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
@@ -159,7 +159,7 @@ where
                 replication_settings: config.replication_settings,
                 subnets_settings: config.subnets_settings,
             },
-            subnet_refresh_signal,
+            subnet_refresh_sender,
             balancer_stats_sender,
         );
 
@@ -284,22 +284,22 @@ where
         match event {
             DaNetworkEventKind::Sampling => Box::pin(
                 BroadcastStream::new(self.sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Sampling),
             ),
             DaNetworkEventKind::Commitments => Box::pin(
                 BroadcastStream::new(self.commitments_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Commitments),
             ),
             DaNetworkEventKind::Verifying => Box::pin(
                 BroadcastStream::new(self.verifying_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::Verifying),
             ),
             DaNetworkEventKind::HistoricSampling => Box::pin(
                 BroadcastStream::new(self.historic_sampling_broadcast_receiver.resubscribe())
-                    .filter_map(|event| async { event.ok() })
+                    .filter_map(async |event| event.ok())
                     .map(Self::NetworkEvent::HistoricSampling),
             ),
         }

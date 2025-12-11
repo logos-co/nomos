@@ -26,7 +26,7 @@ nomos-core               = { workspace = true }
 nomos-da-messages        = { workspace = true }
 nomos-utils              = { workspace = true }
 rand                     = { default-features = false, version = "0.9" }
-serde                    = { default-features = false, version = "1.0" }
+serde                    = { workspace = true }
 serde_with               = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1.0"

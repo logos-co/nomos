@@ -2,8 +2,10 @@ use std::{hash::Hash, marker::PhantomData};
 
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
-use nomos_blend_message::crypto::keys::Ed25519PublicKey;
-use nomos_blend_scheduling::membership::{Membership, Node};
+use nomos_blend::{
+    crypto::{keys::Ed25519PublicKey, merkle::sort_nodes_and_build_merkle_tree},
+    scheduling::membership::{Membership, Node},
+};
 use nomos_core::sdp::{ProviderId, ProviderInfo};
 use overwatch::{
     DynError,
@@ -13,10 +15,7 @@ use tokio::sync::oneshot;
 use tracing::warn;
 use zksign::PublicKey;
 
-use crate::{
-    membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id},
-    merkle::MerkleTree,
-};
+use crate::membership::{MembershipInfo, MembershipStream, ServiceMessage, ZkInfo, node_id};
 
 /// Wrapper around [`Node`] that includes its ZK public key.
 #[derive(Debug, Clone)]
@@ -88,22 +87,19 @@ where
                         )
                     },
                 )
-                // Sort nodes by their ZK public key, since the returned `HashMap` from the chain
-                // broadcast service is non-deterministic across different machines.
-                // Since we need to sort Zk public keys anyway to generate the Merkle tree, we
-                // piggy-back on that instead of sorting by a different key.
+                // Sort nodes by their ZK public key to build a Merkle tree, since the returned
+                // `HashMap` from the chain broadcast service is non-deterministic across different
+                // machines.
                 .map(move |(mut nodes, session_number)| {
-                    nodes.sort_by_key(|ZkNode { zk_key, .. }| *zk_key);
-                    (nodes, session_number)
-                })
-                .map(move |(nodes, session_number)| {
-                    let (membership_nodes, zk_public_keys): (Vec<_>, Vec<_>) = nodes
+                    let zk_tree = sort_nodes_and_build_merkle_tree(
+                        &mut nodes,
+                        |ZkNode { zk_key, .. }| *zk_key,
+                    )
+                    .expect("Should not fail to build merkle tree of core nodes' zk public keys.");
+                    let membership_nodes = nodes
                         .into_iter()
-                        .map(|ZkNode { node, zk_key }| (node, zk_key))
-                        .unzip();
-                    let zk_tree = MerkleTree::new_from_ordered(zk_public_keys).expect(
-                        "Should not fail to build merkle tree of core nodes' zk public keys.",
-                    );
+                        .map(|ZkNode { node, .. }| node)
+                        .collect::<Vec<_>>();
                     let core_and_path_selectors = maybe_zk_public_key.map(|zk_public_key| {
                         zk_tree
                             .get_proof_for_key(&zk_public_key)
@@ -161,7 +157,7 @@ where
             warn!("Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
-    let public_key = Ed25519PublicKey::try_from(*provider_id)
+    let public_key = Ed25519PublicKey::from_bytes(provider_id)
         .map_err(|e| {
             warn!("Failed to decode provider_id to public_key: {e:?}");
         })

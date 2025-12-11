@@ -1,0 +1,31 @@
+[package]
+categories  = { workspace = true }
+description = { workspace = true }
+edition     = { workspace = true }
+keywords    = { workspace = true }
+license     = { workspace = true }
+name        = "nomos-blend-crypto"
+readme      = { workspace = true }
+repository  = { workspace = true }
+version     = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+blake2         = { workspace = true }
+ed25519-dalek  = { default-features = false, features = ["serde"], version = "2" }
+groth16        = { workspace = true }
+nomos-utils    = { features = ["rng"], workspace = true }
+poq            = { workspace = true }
+poseidon2      = { workspace = true }
+rs-merkle-tree = { default-features = false, version = "0.1", features = ["memory_store"] }
+serde          = { workspace = true }
+subtle         = { workspace = true }
+thiserror      = "1"
+x25519-dalek   = { default-features = false, features = ["serde", "static_secrets", "zeroize"], version = "2" }
+zeroize        = { workspace = true }
+zksign         = { workspace = true }
+
+[dev-dependencies]
+num-bigint = { default-features = false, version = "0.4" }

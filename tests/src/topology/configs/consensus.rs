@@ -1,7 +1,9 @@
-use std::{num::NonZero, sync::Arc};
+use core::{num::NonZeroUsize, time::Duration};
+use std::collections::HashSet;
 
 use chain_leader::LeaderConfig;
-use cryptarchia_engine::EpochConfig;
+use chain_network::{IbdConfig, OrphanConfig, SyncConfig};
+use chain_service::{OfflineGracePeriodConfig, StartingState};
 use ed25519_dalek::ed25519::signature::SignerMut as _;
 use groth16::CompressedGroth16Proof;
 use nomos_core::{
@@ -14,34 +16,16 @@ use nomos_core::{
             channel::{ChannelId, Ed25519PublicKey, MsgId, inscribe::InscriptionOp},
         },
     },
-    sdp::{DeclarationMessage, Locator, ProviderId, ServiceParameters, ServiceType},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
 };
-use nomos_node::{SignedMantleTx, Transaction as _};
+use nomos_node::{
+    SignedMantleTx, Transaction as _,
+    config::cryptarchia::serde::{Config, NetworkConfig, ServiceConfig},
+};
 use num_bigint::BigUint;
 use zksign::{PublicKey, SecretKey};
 
-#[derive(Clone)]
-pub struct ConsensusParams {
-    pub n_participants: usize,
-    pub security_param: NonZero<u32>,
-    pub active_slot_coeff: f64,
-}
-
-impl ConsensusParams {
-    #[must_use]
-    pub const fn default_for_participants(n_participants: usize) -> Self {
-        Self {
-            n_participants,
-            // by setting the slot coeff to 1, we also increase the probability of multiple blocks
-            // (forks) being produced in the same slot (epoch). Setting the security
-            // parameter to some value > 1 ensures nodes have some time to sync before
-            // deciding on the longest chain.
-            security_param: NonZero::new(10).unwrap(),
-            // a block should be produced (on average) every slot
-            active_slot_coeff: 0.9,
-        }
-    }
-}
+pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 pub struct ProviderInfo {
@@ -68,12 +52,30 @@ impl ProviderInfo {
 /// be converted into a specific service or services configuration.
 #[derive(Clone)]
 pub struct GeneralConsensusConfig {
-    pub leader_config: LeaderConfig,
-    pub ledger_config: nomos_ledger::Config,
-    pub genesis_tx: GenesisTx,
+    user_config: Config,
+    genesis_tx: GenesisTx,
     pub utxos: Vec<Utxo>,
     pub blend_notes: Vec<ServiceNote>,
     pub da_notes: Vec<ServiceNote>,
+}
+
+impl GeneralConsensusConfig {
+    pub fn override_genesis_tx(&mut self, genesis_tx: GenesisTx) {
+        self.user_config.service.starting_state = StartingState::Genesis {
+            genesis_tx: genesis_tx.clone(),
+        };
+        self.genesis_tx = genesis_tx;
+    }
+
+    #[must_use]
+    pub const fn user_config(&self) -> &Config {
+        &self.user_config
+    }
+
+    #[must_use]
+    pub const fn genesis_tx(&self) -> &GenesisTx {
+        &self.genesis_tx
+    }
 }
 
 #[derive(Clone)]
@@ -117,7 +119,7 @@ fn create_genesis_tx(utxos: &[Utxo]) -> GenesisTx {
 #[must_use]
 pub fn create_consensus_configs(
     ids: &[[u8; 32]],
-    consensus_params: &ConsensusParams,
+    prolonged_bootstrap_period: Duration,
 ) -> Vec<GeneralConsensusConfig> {
     let mut leader_keys = Vec::new();
     let mut blend_notes = Vec::new();
@@ -130,58 +132,45 @@ pub fn create_consensus_configs(
         &mut da_notes,
     );
     let genesis_tx = create_genesis_tx(&utxos);
-    let ledger_config = nomos_ledger::Config {
-        epoch_config: EpochConfig {
-            epoch_stake_distribution_stabilization: NonZero::new(3).unwrap(),
-            epoch_period_nonce_buffer: NonZero::new(3).unwrap(),
-            epoch_period_nonce_stabilization: NonZero::new(4).unwrap(),
-        },
-        consensus_config: cryptarchia_engine::Config {
-            security_param: consensus_params.security_param,
-            active_slot_coeff: consensus_params.active_slot_coeff,
-        },
-        sdp_config: nomos_ledger::mantle::sdp::Config {
-            service_params: Arc::new(
-                [
-                    (
-                        ServiceType::BlendNetwork,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 1000,
-                        },
-                    ),
-                    (
-                        ServiceType::DataAvailability,
-                        ServiceParameters {
-                            lock_period: 10,
-                            inactivity_period: 20,
-                            retention_period: 100,
-                            timestamp: 0,
-                            session_duration: 1000,
-                        },
-                    ),
-                ]
-                .into(),
-            ),
-            min_stake: nomos_core::sdp::MinStake {
-                threshold: 1,
-                timestamp: 0,
-            },
-        },
-    };
 
     leader_keys
         .into_iter()
         .map(|(pk, sk)| GeneralConsensusConfig {
-            leader_config: LeaderConfig { pk, sk },
-            ledger_config: ledger_config.clone(),
+            blend_notes: blend_notes.clone(),
+            da_notes: da_notes.clone(),
             genesis_tx: genesis_tx.clone(),
             utxos: utxos.clone(),
-            da_notes: da_notes.clone(),
-            blend_notes: blend_notes.clone(),
+            user_config: Config {
+                leader: LeaderConfig { pk, sk },
+                network: NetworkConfig {
+                    bootstrap: chain_network::BootstrapConfig {
+                        ibd: IbdConfig {
+                            delay_before_new_download: Duration::from_secs(10),
+                            peers: HashSet::new(),
+                        },
+                    },
+                    sync: SyncConfig {
+                        orphan: OrphanConfig {
+                            max_orphan_cache_size: NonZeroUsize::new(5)
+                                .expect("Max orphan cache size must be non-zero"),
+                        },
+                    },
+                },
+                service: ServiceConfig {
+                    bootstrap: chain_service::BootstrapConfig {
+                        force_bootstrap: false,
+                        offline_grace_period: OfflineGracePeriodConfig {
+                            grace_period: Duration::from_secs(20 * 60),
+                            state_recording_interval: Duration::from_secs(60),
+                        },
+                        prolonged_bootstrap_period,
+                    },
+                    recovery_file: "./recovery/cryptarchia.json".into(),
+                    starting_state: StartingState::Genesis {
+                        genesis_tx: genesis_tx.clone(),
+                    },
+                },
+            },
         })
         .collect()
 }

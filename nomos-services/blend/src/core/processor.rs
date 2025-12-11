@@ -4,25 +4,27 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use nomos_blend_message::{
-    Error as InnerError,
-    crypto::proofs::PoQVerificationInputsMinusSigningKey,
-    encap::{
-        ProofsVerifier as ProofsVerifierTrait,
-        decapsulated::{DecapsulatedMessage, DecapsulationOutput},
-        encapsulated::EncapsulatedMessage,
-        validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
-    },
-    reward::BlendingToken,
-};
-use nomos_blend_scheduling::{
-    membership::Membership,
-    message_blend::{
-        crypto::{
-            SessionCryptographicProcessorSettings,
-            core_and_leader::send_and_receive::SessionCryptographicProcessor,
+use nomos_blend::{
+    message::{
+        Error as InnerError,
+        crypto::proofs::PoQVerificationInputsMinusSigningKey,
+        encap::{
+            ProofsVerifier as ProofsVerifierTrait,
+            decapsulated::{DecapsulatedMessage, DecapsulationOutput},
+            encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
         },
-        provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        reward::BlendingToken,
+    },
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::{
+                SessionCryptographicProcessorSettings,
+                core_and_leader::send_and_receive::SessionCryptographicProcessor,
+            },
+            provers::core_and_leader::CoreAndLeaderProofsGenerator,
+        },
     },
 };
 
@@ -137,7 +139,7 @@ where
     /// collected along the way.
     pub fn decapsulate_message_recursive(
         &self,
-        message: IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        message: EncapsulatedMessageWithVerifiedPublicHeader,
     ) -> Result<MultiLayerDecapsulationOutput, InnerError> {
         let mut decapsulation_output = self.0.decapsulate_message(message)?;
 
@@ -157,9 +159,23 @@ where
                     blending_token,
                 } => {
                     collected_blending_tokens.push(blending_token.clone());
+                    // If we find a message with an invalid public header after a successful
+                    // decapsulation, we still bubble it up for the scheduler to
+                    // schedule it. At the time of release, the message will be
+                    // ignored since its public header cannot be verified. This is not the most
+                    // efficient way, but it's the less invasive way since by decapsulation we
+                    // currently mean decrypting an encrypted Blend header. No additional checks are
+                    // performed on the nested public header. The spec simply ignores the message,
+                    // and so we do.
+                    let Ok(message_with_validated_public_header) = remaining_encapsulated_message
+                        .clone()
+                        .verify_public_header(self.verifier())
+                    else {
+                        break;
+                    };
                     let Ok(nested_layer_decapsulation_output) = self
                         .0
-                        .decapsulate_message(IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(*remaining_encapsulated_message.clone()))
+                        .decapsulate_message(message_with_validated_public_header)
                     else {
                         break;
                     };
@@ -206,26 +222,26 @@ pub enum Error {
 mod tests {
     use core::num::NonZeroU64;
 
-    use nomos_blend_message::{
-        Error as InnerError, PayloadType,
-        crypto::{
-            keys::{Ed25519PrivateKey, Ed25519PublicKey},
-            proofs::{
-                PoQVerificationInputsMinusSigningKey,
-                quota::{
-                    ProofOfQuota,
-                    inputs::prove::public::{CoreInputs, LeaderInputs},
-                },
-                selection::{self, ProofOfSelection},
+    use key_management_system_service::keys::UnsecuredEd25519Key;
+    use nomos_blend::{
+        crypto::keys::Ed25519PublicKey,
+        message::{
+            Error as InnerError, PayloadType,
+            crypto::{
+                key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
             },
+            encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+            input::EncapsulationInput,
         },
-        encap::{
-            encapsulated::EncapsulatedMessage,
-            validated::IncomingEncapsulatedMessageWithValidatedPublicHeader,
+        proofs::{
+            quota::{
+                VerifiedProofOfQuota,
+                inputs::prove::public::{CoreInputs, LeaderInputs},
+            },
+            selection::{self, VerifiedProofOfSelection},
         },
-        input::EncapsulationInput,
+        scheduling::message_blend::crypto::SessionCryptographicProcessorSettings,
     };
-    use nomos_blend_scheduling::message_blend::crypto::SessionCryptographicProcessorSettings;
     use nomos_core::crypto::ZkHash;
 
     use crate::{
@@ -329,11 +345,7 @@ mod tests {
             (),
         );
         assert!(matches!(
-            processor.decapsulate_message_recursive(
-                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-                    mock_message
-                )
-            ),
+            processor.decapsulate_message_recursive(mock_message),
             Err(InnerError::ProofOfSelectionVerificationFailed(
                 selection::Error::Verification
             ))
@@ -364,11 +376,7 @@ mod tests {
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(1);
         let decapsulation_output = processor
-            .decapsulate_message_recursive(
-                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-                    mock_message,
-                ),
-            )
+            .decapsulate_message_recursive(mock_message)
             .unwrap();
         let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
         assert_eq!(blending_tokens.len(), 1);
@@ -402,11 +410,7 @@ mod tests {
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(2);
         let decapsulation_output = processor
-            .decapsulate_message_recursive(
-                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-                    mock_message,
-                ),
-            )
+            .decapsulate_message_recursive(mock_message)
             .unwrap();
         let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
         assert_eq!(blending_tokens.len(), 2);
@@ -440,11 +444,7 @@ mod tests {
         );
         StaticFetchVerifier::set_remaining_valid_poq_proofs(3);
         let decapsulation_output = processor
-            .decapsulate_message_recursive(
-                IncomingEncapsulatedMessageWithValidatedPublicHeader::from_message_unchecked(
-                    mock_message,
-                ),
-            )
+            .decapsulate_message_recursive(mock_message)
             .unwrap();
         let (blending_tokens, remaining_message_type) = decapsulation_output.into_components();
         assert_eq!(blending_tokens.len(), 3);
@@ -454,18 +454,20 @@ mod tests {
         ));
     }
 
-    fn mock_message(recipient_signing_pubkey: &Ed25519PublicKey) -> EncapsulatedMessage {
+    fn mock_message(
+        recipient_signing_pubkey: &Ed25519PublicKey,
+    ) -> EncapsulatedMessageWithVerifiedPublicHeader {
         let inputs = std::iter::repeat_with(|| {
             EncapsulationInput::new(
-                Ed25519PrivateKey::generate(),
+                UnsecuredEd25519Key::generate(),
                 recipient_signing_pubkey,
-                ProofOfQuota::from_bytes_unchecked([0; _]),
-                ProofOfSelection::from_bytes_unchecked([0; _]),
+                VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+                VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
             )
         })
         .take(3)
         .collect::<Vec<_>>();
-        EncapsulatedMessage::new(
+        EncapsulatedMessageWithVerifiedPublicHeader::new(
             &inputs,
             PayloadType::Cover,
             b"".as_slice().try_into().unwrap(),

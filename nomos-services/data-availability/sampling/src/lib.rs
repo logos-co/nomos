@@ -548,7 +548,7 @@ where
     ) -> Option<LongTask> {
         let Ok(commitments_stream) = network_adapter.listen_to_commitments_messages().await else {
             tracing::error!("Error subscribing to commitments stream");
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -556,7 +556,7 @@ where
             network_adapter.listen_to_historic_sampling_messages().await
         else {
             tracing::error!("Error subscribing to commitments stream");
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -565,15 +565,14 @@ where
             .await
             .is_err()
         {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         }
 
         let future = async move {
-            let _ = tokio::time::timeout(wait_duration, async move {
+            let result = tokio::time::timeout(wait_duration, async move {
                 let mut commits_stream = commitments_stream;
                 let mut historic_stream = historic_commitments_stream;
-
                 loop {
                     tokio::select! {
                         Some(message) = commits_stream.next() => {
@@ -583,8 +582,7 @@ where
                             } = message
                                 && received_blob_id == blob_id
                             {
-                                let _ = result_sender.send(Some(*commitments));
-                                return;
+                                return Some(*commitments);
                             }
                         }
                         Some(event) = historic_stream.next() => {
@@ -595,14 +593,20 @@ where
                             } = event
                                 && received_blob_id == blob_id
                             {
-                                let _ = result_sender.send(Some(commitments));
-                                return;
+                                return Some(commitments);
                             }
                         }
+                        else => break,
                     }
                 }
+                None // streams closed without finding match
             })
             .await;
+
+            // result is Result<Option<Commitments>, Elapsed>
+            // Ok(Some(...)) = found, Ok(None) = streams closed, Err(_) = timeout
+            let commitments = result.ok().flatten();
+            drop(result_sender.send(commitments));
         }
         .boxed();
 
@@ -618,7 +622,7 @@ where
         result_sender: oneshot::Sender<Option<DaSharesCommitments>>,
     ) -> Option<LongTask> {
         if let Ok(Some(commitments)) = storage_adapter.get_commitments(blob_id).await {
-            let _ = result_sender.send(Some(commitments));
+            drop(result_sender.send(Some(commitments)));
             return None;
         }
 
@@ -689,7 +693,7 @@ where
 
         let Ok(historic_stream) = network_adapter.listen_to_historic_sampling_messages().await
         else {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -697,7 +701,7 @@ where
             .request_historic_sampling(block_id, blob_ids)
             .await
         {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             error_with_id!(
                 blob_id,
                 "Request historic sampling fallback failed: {error}"
@@ -723,7 +727,7 @@ where
                     Some((blob_shares, blob_commitments))
                 });
 
-                let _ = result_sender.send(result);
+                drop(result_sender.send(result));
             }
             .boxed(),
         )
@@ -741,7 +745,7 @@ where
         let Ok(historic_commitments_stream) =
             network_adapter.listen_to_historic_sampling_messages().await
         else {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             return None;
         };
 
@@ -749,7 +753,7 @@ where
             .request_historic_commitments(block_id, blob_id, session)
             .await
         {
-            let _ = result_sender.send(None);
+            drop(result_sender.send(None));
             error_with_id!(
                 blob_id,
                 "Request historic commitments fallback failed: {error}"
@@ -785,7 +789,7 @@ where
                 .await
                 .unwrap_or(None);
 
-                let _ = result_sender.send(result);
+                drop(result_sender.send(result));
             }
             .boxed(),
         )

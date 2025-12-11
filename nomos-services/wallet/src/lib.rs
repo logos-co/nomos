@@ -10,7 +10,7 @@ use chain_service::{
     storage::{StorageAdapter as _, adapters::storage::StorageAdapter},
 };
 use groth16::fr_to_bytes;
-use key_management_system::{
+use key_management_system_service::{
     api::{KmsServiceApi, KmsServiceData},
     backend::preload::PreloadKMSBackend,
     keys::{Ed25519Key, PayloadEncoding, SignatureEncoding, secured_key::SecuredKey},
