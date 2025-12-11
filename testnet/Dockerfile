@@ -2,7 +2,7 @@
 # check=skip=SecretsUsedInArgOrEnv
 # Ignore warnings about sensitive information as this is test data.
 
-ARG VERSION=v0.2.0
+ARG VERSION=v0.3.1
 
 # ===========================
 # BUILD IMAGE
@@ -28,7 +28,7 @@ RUN chmod +x scripts/setup-nomos-circuits.sh && \
 
 ENV NOMOS_CIRCUITS=/opt/circuits
 
-RUN cargo build --release --all-features
+RUN cargo build --locked --release --all-features
 
 # ===========================
 # NODE IMAGE

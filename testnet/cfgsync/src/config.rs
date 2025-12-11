@@ -140,13 +140,13 @@ pub fn create_node_configs(
 
         // Libp2p network config.
         let mut network_config = network_configs[i].clone();
-        network_config.backend.inner.host = Ipv4Addr::from_str("0.0.0.0").unwrap();
-        network_config.backend.inner.port = host.network_port;
+        network_config.backend.swarm.host = Ipv4Addr::from_str("0.0.0.0").unwrap();
+        network_config.backend.swarm.port = host.network_port;
         network_config
             .backend
             .initial_peers
             .clone_from(&host_network_init_peers);
-        network_config.backend.inner.nat_config = nomos_libp2p::NatSettings::Static {
+        network_config.backend.swarm.nat_config = nomos_libp2p::NatSettings::Static {
             external_address: Multiaddr::from_str(&format!(
                 "/ip4/{}/udp/{}/quic-v1",
                 host.ip, host.network_port
@@ -208,7 +208,7 @@ fn create_providers(
             .enumerate()
             .map(|(i, (blend_conf, secret_zk_key))| ProviderInfo {
                 service_type: ServiceType::BlendNetwork,
-                provider_sk: blend_conf.common.non_ephemeral_signing_key.clone().into(),
+                provider_sk: blend_conf.non_ephemeral_signing_key.clone().into(),
                 zk_sk: secret_zk_key.clone(),
                 locator: Locator(
                     Multiaddr::from_str(&format!(
@@ -327,7 +327,7 @@ mod cfgsync_tests {
         );
 
         for (host, config) in &configs {
-            let network_port = config.network_config.backend.inner.port;
+            let network_port = config.network_config.backend.swarm.port;
             let da_network_port = extract_port(&config.da_config.listening_address);
             let blend_port = extract_port(&config.blend_config.0.core.backend.listening_address);
 

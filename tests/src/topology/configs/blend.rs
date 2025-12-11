@@ -7,7 +7,6 @@ use nomos_blend_service::core::settings::ZkSettings;
 use nomos_libp2p::Multiaddr;
 use nomos_node::config::blend::serde::{
     Config,
-    common::Config as CommonConfig,
     core::{BackendConfig as CoreBackendConfig, Config as CoreConfig},
     edge::{BackendConfig as EdgeBackendConfig, Config as EdgeConfig},
 };
@@ -31,10 +30,8 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                 SecretKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
             (
                 Config {
-                    common: CommonConfig {
-                        non_ephemeral_signing_key: private_key,
-                        recovery_path_prefix: "./recovery/blend".into(),
-                    },
+                    non_ephemeral_signing_key: private_key,
+                    recovery_path_prefix: "./recovery/blend".into(),
                     core: CoreConfig {
                         backend: CoreBackendConfig {
                             core_peering_degree: 1..=3,

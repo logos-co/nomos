@@ -4,6 +4,7 @@ use std::{
 };
 
 use ::time::OffsetDateTime;
+use chain_leader::LeaderConfig;
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
 use hex::FromHex as _;
@@ -19,12 +20,9 @@ use crate::{
     ApiService, CryptarchiaService, DaNetworkService, DaSamplingService, DaVerifierService,
     KeyManagementService, RuntimeServiceId, StorageService,
     config::{
-        blend::serde::Config as BlendConfig,
-        cryptarchia::serde::{Config as CryptarchiaConfig, LeaderConfig},
-        deployment::DeploymentSettings,
-        mempool::serde::Config as MempoolConfig,
-        network::serde::Config as NetworkConfig,
-        time::serde::Config as TimeConfig,
+        blend::serde::Config as BlendConfig, cryptarchia::serde::Config as CryptarchiaConfig,
+        deployment::DeploymentSettings, mempool::serde::Config as MempoolConfig,
+        network::serde::Config as NetworkConfig, time::serde::Config as TimeConfig,
     },
     generic_services::{SdpService, WalletService},
 };
@@ -302,18 +300,18 @@ pub fn update_network(network: &mut NetworkConfig, network_args: NetworkArgs) ->
     } = network_args;
 
     if let Some(IpAddr::V4(h)) = host {
-        network.backend.inner.host = h;
+        network.backend.swarm.host = h;
     } else if host.is_some() {
         return Err(eyre!("Unsupported ip version"));
     }
 
     if let Some(port) = port {
-        network.backend.inner.port = port as u16;
+        network.backend.swarm.port = port as u16;
     }
 
     if let Some(node_key) = node_key {
         let mut key_bytes = hex::decode(node_key)?;
-        network.backend.inner.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
+        network.backend.swarm.node_key = SecretKey::try_from_bytes(key_bytes.as_mut_slice())?;
     }
 
     if let Some(peers) = initial_peers {
@@ -365,8 +363,8 @@ pub fn update_cryptarchia_leader_consensus(
     let sk = zksign::SecretKey::from(BigUint::from_bytes_le(&<[u8; 16]>::from_hex(secret_key)?));
     let pk = sk.to_public_key();
 
-    leader.leader.sk = sk;
-    leader.leader.pk = pk;
+    leader.sk = sk;
+    leader.pk = pk;
 
     Ok(())
 }
@@ -378,4 +376,38 @@ pub fn update_time(time: &mut TimeConfig, time_args: &TimeArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigDeserializationError<Config> {
+    #[error("Unrecognized fields in config: {fields:?}")]
+    UnrecognizedFields { fields: Vec<String>, config: Config },
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error(transparent)]
+    SerdeError(#[from] serde_yaml::Error),
+}
+
+pub fn deserialize_config_at_path<Config>(
+    config_path: &Path,
+) -> Result<Config, ConfigDeserializationError<Config>>
+where
+    Config: for<'de> Deserialize<'de>,
+{
+    let mut ignored_fields = Vec::new();
+    let config = serde_ignored::deserialize::<_, _, Config>(
+        serde_yaml::Deserializer::from_reader(std::fs::File::open(config_path)?),
+        |path| {
+            ignored_fields.push(path.to_string());
+        },
+    )?;
+
+    if ignored_fields.is_empty() {
+        Ok(config)
+    } else {
+        Err(ConfigDeserializationError::UnrecognizedFields {
+            fields: ignored_fields,
+            config,
+        })
+    }
 }

@@ -629,6 +629,7 @@ where
     )
     .expect("The initial membership should satisfy the core node condition");
 
+    // TODO: Restore the collector from `last_saved_state`.
     let blending_token_collector = SessionBlendingTokenCollector::new(
             &reward::SessionInfo::new(
                 current_membership_info.public.session,
@@ -814,7 +815,7 @@ where
                     None
                 }
             } => {
-                recovery_checkpoint = handle_release_round_for_old_session(processed_messages_to_release, rng, backend, network_adapter, recovery_checkpoint).await;
+                handle_release_round_for_old_session(processed_messages_to_release, rng, backend, network_adapter).await;
             }
             Some(clock_tick) = remaining_clock_stream.next() => {
                 public_info = handle_clock_event(clock_tick, blend_config, epoch_handler, &mut crypto_processor, backend, public_info).await;
@@ -928,7 +929,7 @@ async fn retire<
                 recovery_checkpoint = handle_incoming_blend_message_from_old_session(incoming_message, &mut message_scheduler, &crypto_processor, &mut blending_token_collector, recovery_checkpoint);
             }
             Some(processed_messages_to_release) = message_scheduler.next() => {
-                recovery_checkpoint = handle_release_round_for_old_session(processed_messages_to_release, &mut rng, &backend, &network_adapter, recovery_checkpoint).await;
+                handle_release_round_for_old_session(processed_messages_to_release, &mut rng, &backend, &network_adapter).await;
             }
             Some(clock_tick) = remaining_clock_stream.next() => {
                 public_info = handle_clock_event(clock_tick, blend_config, &mut epoch_handler, &mut crypto_processor, &mut backend, public_info).await;
@@ -1319,7 +1320,7 @@ where
     match cryptographic_processor
         .decapsulate_message_recursive(validated_encapsulated_message.clone())
     {
-        Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+        Ok(output) => handle_decapsulated_incoming_message_from_current_session(
             output,
             scheduler,
             blending_token_collector,
@@ -1341,7 +1342,7 @@ where
             };
             match old_crypto_processor.decapsulate_message_recursive(validated_encapsulated_message)
             {
-                Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+                Ok(output) => handle_decapsulated_incoming_message_from_old_session(
                     output,
                     old_session_scheduler,
                     old_session_blending_token_collector,
@@ -1385,7 +1386,7 @@ where
     ProofsVerifier: ProofsVerifierTrait,
 {
     match cryptographic_processor.decapsulate_message_recursive(validated_encapsulated_message) {
-        Ok(output) => schedule_decapsulated_incoming_message_and_collect_tokens(
+        Ok(output) => handle_decapsulated_incoming_message_from_old_session(
             output,
             scheduler,
             blending_token_collector,
@@ -1398,24 +1399,81 @@ where
     }
 }
 
-/// Schedules a decapsulated incoming message using a message scheduler,
+/// Schedules a decapsulated incoming message from the current session,
 /// and collects the blending tokens obtained from the decapsulation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "TODO: Address this at some point."
-)]
-fn schedule_decapsulated_incoming_message_and_collect_tokens<BroadcastSettings, BackendSettings>(
+///
+/// It updates the recovery checkpoint by storing the scheduled message.
+fn handle_decapsulated_incoming_message_from_current_session<
+    Rng,
+    BroadcastSettings,
+    BackendSettings,
+>(
     multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
-    scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
-    blending_token_collector: &mut impl BlendingTokenCollector,
+    scheduler: &mut SessionMessageScheduler<
+        Rng,
+        ProcessedMessage<BroadcastSettings>,
+        EncapsulatedMessageWithVerifiedPublicHeader,
+    >,
+    blending_token_collector: &mut SessionBlendingTokenCollector,
     current_recovery_checkpoint: ServiceState<BackendSettings, BroadcastSettings>,
 ) -> ServiceState<BackendSettings, BroadcastSettings>
 where
     BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
     BackendSettings: Clone,
 {
-    let mut state_updater = current_recovery_checkpoint.start_updating();
+    if let Some(processed_message) = schedule_decapsulated_incoming_message_and_collect_tokens(
+        multi_layer_decapsulation_output,
+        scheduler,
+        blending_token_collector,
+    ) {
+        let mut state_updater = current_recovery_checkpoint.start_updating();
+        if state_updater.add_unsent_processed_message(processed_message) == Err(()) {
+            tracing::warn!(target: LOG_TARGET, "The same processed message was already added to the recovery state. Ignoring the new one...");
+        }
+        state_updater.commit_changes()
+    } else {
+        current_recovery_checkpoint
+    }
+}
 
+/// Schedules a decapsulated incoming message from the old session,
+/// and collects the blending tokens obtained from the decapsulation.
+fn handle_decapsulated_incoming_message_from_old_session<Rng, BroadcastSettings, BackendSettings>(
+    multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
+    scheduler: &mut OldSessionMessageScheduler<Rng, ProcessedMessage<BroadcastSettings>>,
+    blending_token_collector: &mut OldSessionBlendingTokenCollector,
+    recovery_checkpiont: ServiceState<BackendSettings, BroadcastSettings>,
+) -> ServiceState<BackendSettings, BroadcastSettings>
+where
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
+    BackendSettings: Clone,
+{
+    schedule_decapsulated_incoming_message_and_collect_tokens(
+        multi_layer_decapsulation_output,
+        scheduler,
+        blending_token_collector,
+    );
+    // TODO: Update the recovery checkpoint by storing blending tokens.
+    recovery_checkpiont
+}
+
+/// Schedules a decapsulated incoming message using a message scheduler,
+/// and collects the blending tokens obtained from the decapsulation.
+///
+/// It returns the processed message if it has been scheduled.
+/// Otherwise, it returns [`None`].
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "TODO: Address this at some point."
+)]
+fn schedule_decapsulated_incoming_message_and_collect_tokens<BroadcastSettings>(
+    multi_layer_decapsulation_output: MultiLayerDecapsulationOutput,
+    scheduler: &mut impl ProcessedMessageScheduler<ProcessedMessage<BroadcastSettings>>,
+    blending_token_collector: &mut impl BlendingTokenCollector,
+) -> Option<ProcessedMessage<BroadcastSettings>>
+where
+    BroadcastSettings: Serialize + for<'de> Deserialize<'de> + Debug + Eq + Hash + Clone + Send,
+{
     let (collected_blending_tokens, decapsulated_message_type) =
         multi_layer_decapsulation_output.into_components();
     tracing::trace!(target: LOG_TARGET, "Batch-decapsulated {} layers from the received message.", collected_blending_tokens.len());
@@ -1429,39 +1487,28 @@ where
             match fully_decapsulated_message.into_components() {
                 (PayloadType::Cover, _) => {
                     tracing::info!(target: LOG_TARGET, "Discarding received cover message.");
-                    state_updater.into_inner()
+                    None
                 }
                 (PayloadType::Data, serialized_data_message) => {
                     tracing::debug!(target: LOG_TARGET, "Processing a fully decapsulated data message.");
-                    if let Ok(deserialized_network_message) =
-                        NetworkMessage::from_bytes(&serialized_data_message)
-                    {
+                    NetworkMessage::from_bytes(&serialized_data_message).map_or_else(|e| {
+                        tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping: {e:?}");
+                        None
+                    }, |deserialized_network_message| {
                         tracing::debug!(target: LOG_TARGET, "Fully decapsulated and deserialized processed data message: {deserialized_network_message:?}");
                         let processed_message =
                             ProcessedMessage::from(deserialized_network_message);
                         scheduler.schedule_processed_message(processed_message.clone());
-                        if state_updater.add_unsent_processed_message(processed_message) == Err(())
-                        {
-                            tracing::warn!(target: LOG_TARGET, "The same processed message was already added to the recovery state. Ignoring the new one...");
-                        }
-                        state_updater.commit_changes()
-                    } else {
-                        tracing::debug!(target: LOG_TARGET, "Unrecognized data message from blend backend. Dropping.");
-                        state_updater.into_inner()
-                    }
+                        Some(processed_message)
+                    })
                 }
             }
         }
         DecapsulatedMessageType::Incompleted(remaining_encapsulated_message) => {
             tracing::debug!(target: LOG_TARGET, "Processed encapsulated data message: {remaining_encapsulated_message:?}");
-            let processed_message = ProcessedMessage::from(*remaining_encapsulated_message.clone());
+            let processed_message = ProcessedMessage::from(*remaining_encapsulated_message);
             scheduler.schedule_processed_message(processed_message.clone());
-            assert_eq!(
-                state_updater.add_unsent_processed_message(processed_message),
-                Ok(()),
-                "There should not be another copy of the same processed encapsulated message: {remaining_encapsulated_message:?}"
-            );
-            state_updater.commit_changes()
+            Some(processed_message)
         }
     }
 }
@@ -1538,7 +1585,7 @@ where
         processed_messages,
         backend,
         network_adapter,
-        &mut state_updater,
+        Some(&mut state_updater),
     );
 
     let mut message_futures = data_messages_relay_futures
@@ -1579,20 +1626,17 @@ async fn handle_release_round_for_old_session<
     rng: &mut Rng,
     backend: &Backend,
     network_adapter: &NetAdapter,
-    current_recovery_checkpoint: ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>,
-) -> ServiceState<Backend::Settings, NetAdapter::BroadcastSettings>
-where
+) where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
     Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId> + Sync,
     NetAdapter: NetworkAdapter<RuntimeServiceId, BroadcastSettings: Eq + Hash> + Sync,
 {
-    let mut state_updater = current_recovery_checkpoint.start_updating();
     let mut futures = build_futures_to_release_processed_messages(
         processed_messages_to_release,
         backend,
         network_adapter,
-        &mut state_updater,
+        None,
     );
     futures.shuffle(rng);
 
@@ -1600,8 +1644,6 @@ where
     let num_futures = futures.len();
     join_all(futures).await;
     tracing::debug!(target: LOG_TARGET, "Sent out {num_futures} processed messages at this release window for the old session");
-
-    state_updater.commit_changes()
 }
 
 fn build_futures_to_release_processed_messages<
@@ -1615,9 +1657,8 @@ fn build_futures_to_release_processed_messages<
     processed_messages_to_release: Vec<ProcessedMessage<NetAdapter::BroadcastSettings>>,
     backend: &'fut Backend,
     network_adapter: &'fut NetAdapter,
-    state_updater: &mut ServiceStateUpdater<
-        <Backend as BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>>::Settings,
-        NetAdapter::BroadcastSettings,
+    mut state_updater: Option<
+        &mut ServiceStateUpdater<Backend::Settings, NetAdapter::BroadcastSettings>,
     >,
 ) -> Vec<BoxFuture<'fut, ()>>
 where
@@ -1628,7 +1669,8 @@ where
     processed_messages_to_release
         .into_iter()
         .inspect(|processed_message_to_release| {
-            if state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
+            if let Some(state_updater) = state_updater.as_mut()
+                && state_updater.remove_sent_processed_message(processed_message_to_release).is_err() {
                 tracing::warn!(target: LOG_TARGET, "Previously processed message should be present in the recovery state but was not found.");
             }
         })
