@@ -4,11 +4,11 @@ pub mod da;
 use std::hash::Hash;
 
 use blake2::{Blake2b, Digest as _};
+use key_management_system_keys::keys::ZkPublicKey;
 use multiaddr::Multiaddr;
 use nom::{IResult, Parser as _, bytes::complete::take};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
-use zksign::PublicKey;
 
 use crate::{block::BlockNumber, mantle::NoteId};
 
@@ -167,7 +167,7 @@ pub struct Declaration {
     pub provider_id: ProviderId,
     pub locked_note_id: NoteId,
     pub locators: Vec<Locator>,
-    pub zk_id: PublicKey,
+    pub zk_id: ZkPublicKey,
     pub created: BlockNumber,
     pub active: BlockNumber,
     pub withdrawn: Option<BlockNumber>,
@@ -177,7 +177,7 @@ pub struct Declaration {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProviderInfo {
     pub locators: Vec<Locator>,
-    pub zk_id: PublicKey,
+    pub zk_id: ZkPublicKey,
 }
 
 impl Declaration {
@@ -202,7 +202,7 @@ pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Vec<Locator>,
     pub provider_id: ProviderId,
-    pub zk_id: PublicKey,
+    pub zk_id: ZkPublicKey,
     pub locked_note_id: NoteId,
 }
 

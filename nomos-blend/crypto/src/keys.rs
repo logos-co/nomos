@@ -4,10 +4,11 @@ use subtle::ConstantTimeEq as _;
 use x25519_dalek::StaticSecret;
 use zeroize::ZeroizeOnDrop;
 
-use crate::{cipher::Cipher, signatures::Signature};
+use crate::{ZkHash, cipher::Cipher, signatures::Signature};
 
 pub type Ed25519PublicKey = VerifyingKey;
 pub const ED25519_PUBLIC_KEY_SIZE: usize = ed25519_dalek::PUBLIC_KEY_LENGTH;
+pub(crate) type ZkPublicKey = ZkHash;
 
 pub trait Ed25519PublicKeyExt {
     fn derive_x25519(&self) -> X25519PublicKey;

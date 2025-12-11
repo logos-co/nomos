@@ -63,7 +63,6 @@ time                          = { default-features = false, version = "0.3" }
 tokio                         = "1"
 tracing                       = { workspace = true }
 tx-service                    = { features = ["libp2p", "mock"], workspace = true }
-zksign                        = { workspace = true }
 
 [[test]]
 name = "test_cryptarchia_happy_path"
@@ -80,6 +79,10 @@ path = "src/tests/cryptarchia/orphan.rs"
 [[test]]
 name = "test_immutable_blocks"
 path = "src/tests/cryptarchia/immutable_blocks.rs"
+
+[[test]]
+name = "test_invalid_tx_handling"
+path = "src/tests/cryptarchia/invalid_tx_handling.rs"
 
 [[test]]
 name = "test_da"

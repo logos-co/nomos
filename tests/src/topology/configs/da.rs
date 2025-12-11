@@ -3,6 +3,7 @@ use std::{
 };
 
 use ed25519_dalek::SigningKey;
+use key_management_system_service::keys::ZkKey;
 use nomos_da_network_core::swarm::{
     DAConnectionMonitorSettings, DAConnectionPolicySettings, ReplicationConfig,
 };
@@ -10,7 +11,6 @@ use nomos_libp2p::{Multiaddr, PeerId, ed25519};
 use nomos_node::NomosDaMembership;
 use num_bigint::BigUint;
 use subnetworks_assignations::MembershipHandler as _;
-use zksign::SecretKey;
 
 use crate::secret_key_to_peer_id;
 
@@ -102,7 +102,7 @@ pub struct GeneralDaConfig {
     pub subnets_refresh_interval: Duration,
     pub retry_shares_limit: usize,
     pub retry_commitments_limit: usize,
-    pub secret_zk_key: SecretKey,
+    pub secret_zk_key: ZkKey,
 }
 
 #[must_use]
@@ -148,7 +148,7 @@ pub fn create_da_configs(
             // the generated Ed25519 public keys, which are guaranteed to be unique because
             // they are in turned derived from node ID.
             let secret_zk_key =
-                SecretKey::from(BigUint::from_bytes_le(signer.verifying_key().as_bytes()));
+                ZkKey::from(BigUint::from_bytes_le(signer.verifying_key().as_bytes()));
 
             GeneralDaConfig {
                 node_key,

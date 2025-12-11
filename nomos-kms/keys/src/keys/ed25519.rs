@@ -69,8 +69,8 @@ impl AsRef<SigningKey> for UnsecuredEd25519Key {
 /// An hardened Ed25519 secret key that only exposes methods to retrieve public
 /// information.
 ///
-/// It is a secured variant of a [`Ed25519Key`] and used within the set of
-/// supported KMS keys.
+/// It is a secured variant of a [`UnsecuredEd25519Key`] and used within the set
+/// of supported KMS keys.
 #[derive(Deserialize, ZeroizeOnDrop, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "unsafe", derive(Serialize))]
 pub struct Ed25519Key(UnsecuredEd25519Key);
@@ -84,12 +84,13 @@ impl Ed25519Key {
 
 impl Debug for Ed25519Key {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let private_key = if cfg!(feature = "unsafe") {
-            format!("{:?}", self.0)
-        } else {
-            "<redacted>".to_owned()
-        };
-        write!(f, "Ed25519Key({private_key})")
+        #[cfg(feature = "unsafe")]
+        write!(f, "Ed25519Key({:?})", self.0)?;
+
+        #[cfg(not(feature = "unsafe"))]
+        write!(f, "Ed25519Key(<redacted>)")?;
+
+        Ok(())
     }
 }
 

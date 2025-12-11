@@ -5,6 +5,7 @@ use common_http_client::Error;
 use ed25519_dalek::{Signer as _, SigningKey};
 use executor_http_client::ExecutorHttpClient;
 use futures::StreamExt as _;
+use key_management_system_service::keys::ZkKey;
 use nomos_core::{
     block::Block,
     da::BlobId,
@@ -128,7 +129,7 @@ pub fn create_inscription_transaction_with_id(id: ChannelId) -> SignedMantleTx {
     SignedMantleTx::new(
         mantle_tx,
         vec![OpProof::Ed25519Sig(signature)],
-        zksign::SecretKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
+        ZkKey::multi_sign(&[], tx_hash.as_ref()).unwrap(),
     )
     .unwrap()
 }

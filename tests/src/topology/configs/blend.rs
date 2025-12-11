@@ -11,11 +11,10 @@ use nomos_node::config::blend::serde::{
     edge::{BackendConfig as EdgeBackendConfig, Config as EdgeConfig},
 };
 use num_bigint::BigUint;
-use zksign::SecretKey;
 
 use crate::common::kms::key_id_for_preload_backend;
 
-pub type GeneralBlendConfig = (Config, SecretKey);
+pub type GeneralBlendConfig = (Config, ZkKey);
 
 #[must_use]
 pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlendConfig> {
@@ -27,7 +26,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
             // the generated Ed25519 public keys, which are guaranteed to be unique because
             // they are in turned derived from node ID.
             let secret_zk_key =
-                SecretKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
+                ZkKey::from(BigUint::from_bytes_le(private_key.public_key().as_bytes()));
             (
                 Config {
                     non_ephemeral_signing_key: private_key,
@@ -46,7 +45,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
                         },
                         zk: ZkSettings {
                             secret_key_kms_id: key_id_for_preload_backend(
-                                &ZkKey::new(secret_zk_key.clone()).into(),
+                                &secret_zk_key.clone().into(),
                             ),
                         },
                     },
