@@ -49,6 +49,11 @@ impl PublicKey {
     ) -> Result<(), SignatureError> {
         self.0.verify(message, signature)
     }
+
+    #[must_use]
+    pub const fn into_inner(self) -> VerifyingKey {
+        self.0
+    }
 }
 
 impl From<VerifyingKey> for PublicKey {
