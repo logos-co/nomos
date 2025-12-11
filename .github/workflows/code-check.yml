@@ -79,7 +79,7 @@ jobs:
       - name: Run cargo-hack
         env:
           RUSTFLAGS: -D warnings
-        run: cargo hack --feature-powerset --no-dev-deps check
+        run: cargo hack --feature-powerset check --all-targets
       - name: Update Cargo cache
         if: success() || failure()
         uses: ./.github/actions/update-cargo-cache
