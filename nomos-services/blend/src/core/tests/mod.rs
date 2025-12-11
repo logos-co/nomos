@@ -101,7 +101,13 @@ async fn test_handle_incoming_blend_message() {
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 1);
     assert_eq!(token_collector.tokens().len(), 1);
-    assert_eq!(recovery_checkpoint.token_collector().tokens().len(), 1);
+    assert_eq!(
+        recovery_checkpoint
+            .current_session_token_collector()
+            .tokens()
+            .len(),
+        1
+    );
 
     // Creates a new processor/scheduler/token_collector with the new session
     // number.
@@ -139,7 +145,13 @@ async fn test_handle_incoming_blend_message() {
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
     assert_eq!(new_token_collector.tokens().len(), 0);
-    assert_eq!(recovery_checkpoint.token_collector().tokens().len(), 0);
+    assert_eq!(
+        recovery_checkpoint
+            .current_session_token_collector()
+            .tokens()
+            .len(),
+        0
+    );
     // No new token should be collected from the same message.
     assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
@@ -175,7 +187,13 @@ async fn test_handle_incoming_blend_message() {
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
     assert_eq!(new_token_collector.tokens().len(), 1);
-    assert_eq!(recovery_checkpoint.token_collector().tokens().len(), 1);
+    assert_eq!(
+        recovery_checkpoint
+            .current_session_token_collector()
+            .tokens()
+            .len(),
+        1
+    );
     assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
@@ -217,7 +235,13 @@ async fn test_handle_incoming_blend_message() {
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
     assert_eq!(new_token_collector.tokens().len(), 1);
-    assert_eq!(recovery_checkpoint.token_collector().tokens().len(), 1);
+    assert_eq!(
+        recovery_checkpoint
+            .current_session_token_collector()
+            .tokens()
+            .len(),
+        1
+    );
     assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint

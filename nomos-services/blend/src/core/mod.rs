@@ -701,7 +701,9 @@ where
         remaining_clock_stream,
         current_public_info,
         crypto_processor,
-        current_recovery_checkpoint.token_collector().clone(),
+        current_recovery_checkpoint
+            .current_session_token_collector()
+            .clone(),
         current_recovery_checkpoint,
         message_scheduler,
         backend,
@@ -1285,7 +1287,7 @@ where
         blending_token_collector.collect(blending_token);
     }
     state_updater
-        .update_token_collector(blending_token_collector.clone())
+        .update_current_session_token_collector(blending_token_collector.clone())
         .expect("token collector in the state should be updated successfully");
 
     // We treat a partially or fully decapsulated message as a processed message,
@@ -1455,7 +1457,7 @@ where
     }
 
     state_updater
-        .update_token_collector(blending_token_collector.clone())
+        .update_current_session_token_collector(blending_token_collector.clone())
         .expect("token collector in the state should be updated successfully");
     state_updater.commit_changes()
 }
@@ -1769,7 +1771,7 @@ where
         blending_token_collector.collect(blending_token);
     }
     state_updater
-        .update_token_collector(blending_token_collector.clone())
+        .update_current_session_token_collector(blending_token_collector.clone())
         .expect("token collector in the state should be updated successfully");
 
     match message_type {

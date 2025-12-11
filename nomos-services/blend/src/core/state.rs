@@ -27,7 +27,7 @@ mod serde {
         ))]
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
         unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
-        token_collector: SessionBlendingTokenCollector,
+        current_session_token_collector: SessionBlendingTokenCollector,
         old_session_token_collector: Option<OldSessionBlendingTokenCollector>,
     }
 
@@ -50,7 +50,7 @@ mod serde {
                 self.spent_core_quota,
                 self.unsent_processed_messages,
                 self.unsent_data_messages,
-                self.token_collector,
+                self.current_session_token_collector,
                 self.old_session_token_collector,
                 state_updater,
             )
@@ -66,7 +66,7 @@ mod serde {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
-                token_collector,
+                current_session_token_collector,
                 old_session_token_collector,
                 _,
             ) = value.into_components();
@@ -75,7 +75,7 @@ mod serde {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
-                token_collector,
+                current_session_token_collector,
                 old_session_token_collector,
             }
         }
@@ -111,7 +111,7 @@ mod service {
         spent_core_quota: u64,
         unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
         unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
-        token_collector: SessionBlendingTokenCollector,
+        current_session_token_collector: SessionBlendingTokenCollector,
         old_session_token_collector: Option<OldSessionBlendingTokenCollector>,
         state_updater: overwatch::services::state::StateUpdater<
             Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
@@ -128,7 +128,10 @@ mod service {
                 .field("spent_core_quota", &self.spent_core_quota)
                 .field("unsent_processed_messages", &self.unsent_processed_messages)
                 .field("unsent_data_messages", &self.unsent_data_messages)
-                .field("token_collector", &self.token_collector)
+                .field(
+                    "current_session_token_collector",
+                    &self.current_session_token_collector,
+                )
                 .field(
                     "old_session_token_collector",
                     &self.old_session_token_collector,
@@ -149,13 +152,16 @@ mod service {
             spent_core_quota: u64,
             unsent_processed_messages: HashSet<ProcessedMessage<BroadcastSettings>>,
             unsent_data_messages: HashSet<EncapsulatedMessageWithVerifiedPublicHeader>,
-            token_collector: SessionBlendingTokenCollector,
+            current_session_token_collector: SessionBlendingTokenCollector,
             old_session_token_collector: Option<OldSessionBlendingTokenCollector>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
         ) -> Result<Self, SessionMismatchError> {
-            Self::validate_token_collector(last_seen_session, &token_collector)?;
+            Self::validate_current_session_token_collector(
+                last_seen_session,
+                &current_session_token_collector,
+            )?;
             if let Some(ref token_collector) = old_session_token_collector {
                 Self::validate_old_session_token_collector(last_seen_session, token_collector)?;
             }
@@ -165,7 +171,7 @@ mod service {
                 spent_core_quota,
                 unsent_processed_messages,
                 unsent_data_messages,
-                token_collector,
+                current_session_token_collector,
                 old_session_token_collector,
                 state_updater,
             };
@@ -182,7 +188,7 @@ mod service {
         /// state was recovered.
         pub fn with_session(
             session: u64,
-            token_collector: SessionBlendingTokenCollector,
+            current_session_token_collector: SessionBlendingTokenCollector,
             old_session_token_collector: Option<OldSessionBlendingTokenCollector>,
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
@@ -193,7 +199,7 @@ mod service {
                 0,
                 HashSet::new(),
                 HashSet::new(),
-                token_collector,
+                current_session_token_collector,
                 old_session_token_collector,
                 state_updater,
             )
@@ -231,12 +237,12 @@ mod service {
             &mut self,
             collector: SessionBlendingTokenCollector,
         ) -> Result<(), SessionMismatchError> {
-            Self::validate_token_collector(self.last_seen_session, &collector)?;
-            self.token_collector = collector;
+            Self::validate_current_session_token_collector(self.last_seen_session, &collector)?;
+            self.current_session_token_collector = collector;
             Ok(())
         }
 
-        const fn validate_token_collector(
+        const fn validate_current_session_token_collector(
             last_seen_session: SessionNumber,
             collector: &SessionBlendingTokenCollector,
         ) -> Result<(), SessionMismatchError> {
@@ -279,8 +285,8 @@ mod service {
             self.old_session_token_collector.take()
         }
 
-        pub const fn token_collector(&self) -> &SessionBlendingTokenCollector {
-            &self.token_collector
+        pub const fn current_session_token_collector(&self) -> &SessionBlendingTokenCollector {
+            &self.current_session_token_collector
         }
 
         #[expect(
@@ -305,7 +311,7 @@ mod service {
                 self.spent_core_quota,
                 self.unsent_processed_messages,
                 self.unsent_data_messages,
-                self.token_collector,
+                self.current_session_token_collector,
                 self.old_session_token_collector,
                 self.state_updater,
             )
@@ -437,7 +443,7 @@ mod state_updater {
             self.inner
         }
 
-        pub fn update_token_collector(
+        pub fn update_current_session_token_collector(
             &mut self,
             collector: SessionBlendingTokenCollector,
         ) -> Result<(), SessionMismatchError> {
