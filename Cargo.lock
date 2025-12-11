@@ -6166,8 +6166,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "broadcast-service",
- "ed25519",
- "ed25519-dalek",
  "futures",
  "key-management-system-keys",
  "kzgrs-backend",
@@ -6242,8 +6240,8 @@ dependencies = [
  "blake2",
  "broadcast-service",
  "common-http-client",
- "ed25519-dalek",
  "futures",
+ "key-management-system-keys",
  "kzgrs-backend",
  "libp2p",
  "libp2p-identity",

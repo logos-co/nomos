@@ -6,13 +6,12 @@ use core::{
 };
 use std::time::Duration;
 
-use key_management_system_keys::keys::UnsecuredEd25519Key;
+use key_management_system_keys::keys::{Ed25519PublicKey, Ed25519Signature, UnsecuredEd25519Key};
 use libp2p::{
     PeerId, StreamProtocol, Swarm, Transport as _, core::transport::MemoryTransport,
     identity::PublicKey, plaintext, swarm, tcp, yamux,
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_crypto::{keys::Ed25519PublicKey, signatures::Signature};
 use nomos_blend_message::{
     PayloadType,
     crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
@@ -112,7 +111,7 @@ impl TestEncapsulatedMessage {
 
     pub fn new_with_invalid_signature(payload: &[u8]) -> Self {
         let mut self_instance = Self::new(payload);
-        *self_instance.0.public_header_mut().signature_mut() = Signature::from([100u8; _]);
+        *self_instance.0.public_header_mut().signature_mut() = Ed25519Signature::from([100u8; _]);
         self_instance
     }
 

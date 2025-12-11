@@ -7,13 +7,12 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, select};
 use groth16::Field as _;
-use key_management_system_keys::keys::UnsecuredEd25519Key;
+use key_management_system_keys::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use libp2p::{
     Multiaddr, PeerId, Swarm,
     identity::{PublicKey, ed25519},
 };
 use libp2p_swarm_test::SwarmExt as _;
-use nomos_blend_crypto::keys::Ed25519PublicKey;
 use nomos_blend_message::{
     crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
     encap,
