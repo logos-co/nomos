@@ -1,5 +1,5 @@
 use cryptarchia_engine::{Epoch, Slot};
-use key_management_system_keys::keys::{UnsecuredZkKey, ZkPublicKey};
+use key_management_system_keys::keys::{Ed25519Key, UnsecuredZkKey, ZkPublicKey};
 use nomos_core::{
     mantle::{Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
@@ -128,8 +128,8 @@ impl Leader {
             .epoch_config
             .starting_slot(&epoch_state.epoch, self.config.base_period_length())
             .into();
-        let leader_signing_key = ed25519_dalek::SigningKey::from_bytes(&[0; 32]);
-        let leader_pk = leader_signing_key.verifying_key(); // TODO: get actual leader public key
+        let leader_signing_key = Ed25519Key::from_bytes(&[0; 32]);
+        let leader_pk = leader_signing_key.public_key(); // TODO: get actual leader public key
 
         LeaderPrivate::new(
             public_inputs,
