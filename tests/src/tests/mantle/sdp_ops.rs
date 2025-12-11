@@ -1,8 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use common_http_client::CommonHttpClient;
-use ed25519_dalek::SigningKey;
-use key_management_system_service::keys::ZkKey;
+use key_management_system_service::keys::{Ed25519Key, ZkKey};
 use nomos_core::{
     mantle::{Note, NoteId, Transaction as _},
     sdp::{ActiveMessage, Declaration, Locator, ServiceType, SessionNumber, WithdrawMessage},
@@ -73,7 +72,7 @@ async fn sdp_ops_e2e() {
         "Injected note must be unused before submitting declare"
     );
 
-    let provider_signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let provider_signing_key = Ed25519Key::from_bytes(&[7u8; 32]);
     let provider_zk_key = ZkKey::from(BigUint::from(7u64));
     let zk_id = provider_zk_key.to_public_key();
     let locator = Locator(

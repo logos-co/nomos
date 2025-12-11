@@ -1,7 +1,7 @@
 use core::fmt::{self, Debug, Formatter};
 
 use bytes::Bytes;
-use ed25519_dalek::SigningKey;
+use ed25519_dalek::{SigningKey, ed25519::signature::rand_core::CryptoRngCore};
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
 
@@ -27,6 +27,13 @@ impl Ed25519Key {
     #[must_use]
     pub const fn new(signing_key: SigningKey) -> Self {
         Self(UnsecuredEd25519Key(signing_key))
+    }
+
+    pub fn generate<Rng>(rng: &mut Rng) -> Self
+    where
+        Rng: CryptoRngCore,
+    {
+        Self(UnsecuredEd25519Key::generate(rng))
     }
 
     #[must_use]

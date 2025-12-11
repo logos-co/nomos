@@ -247,7 +247,7 @@ mod test {
             TestEpochChangeCoreAndLeaderProofsGenerator,
         >::new(
             &SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: UnsecuredEd25519Key::generate(),
+                non_ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
                 num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
@@ -294,7 +294,7 @@ mod test {
             TestEpochChangeCoreAndLeaderProofsGenerator,
         >::new(
             &SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: UnsecuredEd25519Key::generate(),
+                non_ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
                 num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {

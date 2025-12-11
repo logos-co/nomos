@@ -444,7 +444,7 @@ fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
     }
 }
 

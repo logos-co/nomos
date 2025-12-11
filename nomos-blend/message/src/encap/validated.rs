@@ -54,7 +54,7 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 // Start with an initialized encapsulated part,
                 // a random signing key, and proof of quota.
                 EncapsulatedPart::initialize(inputs, payload_type, payload_body),
-                UnsecuredEd25519Key::generate(),
+                UnsecuredEd25519Key::generate_with_blake_rng(),
                 VerifiedProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
             |(part, signing_key, proof_of_quota), (i, input)| {

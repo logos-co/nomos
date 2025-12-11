@@ -126,7 +126,7 @@ where
     let quota = public_inputs.core.quota;
     stream::iter(starting_key_index..quota)
         .map(move |key_index| {
-            let ephemeral_signing_key = UnsecuredEd25519Key::generate();
+            let ephemeral_signing_key = UnsecuredEd25519Key::generate_with_blake_rng();
             let proof_of_quota_generator = proof_of_quota_generator.clone();
 
             async move {

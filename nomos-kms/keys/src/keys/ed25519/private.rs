@@ -1,4 +1,7 @@
-use ed25519_dalek::{SECRET_KEY_LENGTH, SigningKey, ed25519::signature::Signer as _};
+use ed25519_dalek::{
+    SECRET_KEY_LENGTH, SigningKey,
+    ed25519::signature::{Signer as _, rand_core::CryptoRngCore},
+};
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use subtle::ConstantTimeEq as _;
@@ -24,6 +27,13 @@ impl UnsecuredEd25519Key {
     #[must_use]
     pub fn public_key(&self) -> Ed25519PublicKey {
         self.0.verifying_key().into()
+    }
+
+    pub fn generate<Rng>(rng: &mut Rng) -> Self
+    where
+        Rng: CryptoRngCore,
+    {
+        Self(SigningKey::generate(rng))
     }
 
     #[must_use]

@@ -4,9 +4,8 @@ use std::collections::HashSet;
 use chain_leader::LeaderConfig;
 use chain_network::{IbdConfig, OrphanConfig, SyncConfig};
 use chain_service::{OfflineGracePeriodConfig, StartingState};
-use ed25519_dalek::ed25519::signature::SignerMut as _;
 use groth16::CompressedGroth16Proof;
-use key_management_system_service::keys::{ZkKey, ZkPublicKey, ZkSignature};
+use key_management_system_service::keys::{Ed25519Key, ZkKey, ZkPublicKey, ZkSignature};
 use nomos_core::{
     mantle::{
         MantleTx, Note, OpProof, Utxo,
@@ -30,7 +29,7 @@ pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
 #[derive(Clone)]
 pub struct ProviderInfo {
     pub service_type: ServiceType,
-    pub provider_sk: ed25519_dalek::SigningKey,
+    pub provider_sk: Ed25519Key,
     pub zk_sk: ZkKey,
     pub locator: Locator,
     pub note: ServiceNote,
@@ -39,7 +38,7 @@ pub struct ProviderInfo {
 impl ProviderInfo {
     #[must_use]
     pub fn provider_id(&self) -> ProviderId {
-        ProviderId(self.provider_sk.verifying_key())
+        ProviderId(self.provider_sk.public_key())
     }
 
     #[must_use]
@@ -293,13 +292,13 @@ pub fn create_genesis_tx_with_declarations(
     let mantle_tx_hash = mantle_tx.hash();
     let mut ops_proofs = vec![OpProof::NoProof];
 
-    for mut provider in providers {
+    for provider in providers {
         let zk_sig =
             ZkKey::multi_sign(&[provider.note.sk, provider.zk_sk], mantle_tx_hash.as_ref())
                 .unwrap();
         let ed25519_sig = provider
             .provider_sk
-            .sign(mantle_tx_hash.as_signing_bytes().as_ref());
+            .sign_payload(mantle_tx_hash.as_signing_bytes().as_ref());
 
         ops_proofs.push(OpProof::ZkAndEd25519Sigs {
             zk_sig,

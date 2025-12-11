@@ -155,12 +155,12 @@ impl Deref for TestEncapsulatedMessageWithSession {
 }
 
 fn generate_valid_inputs(session: SessionNumber) -> Vec<EncapsulationInput> {
-    repeat_with(UnsecuredEd25519Key::generate)
+    repeat_with(UnsecuredEd25519Key::generate_with_blake_rng)
         .take(3)
         .map(|recipient_signing_key| {
             let proofs = session_based_mock_blend_proof(session);
             EncapsulationInput::new(
-                UnsecuredEd25519Key::generate(),
+                UnsecuredEd25519Key::generate_with_blake_rng(),
                 &recipient_signing_key.public_key(),
                 proofs.proof_of_quota,
                 proofs.proof_of_selection,
@@ -222,7 +222,7 @@ fn session_based_mock_blend_proof(session: SessionNumber) -> BlendLayerProof {
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: UnsecuredEd25519Key::generate(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
     }
 }
 

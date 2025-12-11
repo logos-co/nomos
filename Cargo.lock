@@ -4706,7 +4706,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "ed25519-dalek",
  "key-management-system-keys",
  "log",
  "num-bigint",
@@ -5977,7 +5976,6 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "derivative",
- "ed25519-dalek",
  "groth16",
  "hex",
  "itertools 0.14.0",
@@ -6203,7 +6201,6 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "cached",
- "ed25519-dalek",
  "either",
  "fixed",
  "futures",
@@ -6521,7 +6518,6 @@ name = "nomos-sdp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "ed25519-dalek",
  "futures",
  "key-management-system-keys",
  "nomos-core",
@@ -10037,7 +10033,6 @@ dependencies = [
  "common-http-client",
  "cryptarchia-engine",
  "cryptarchia-sync",
- "ed25519-dalek",
  "executor-http-client",
  "futures",
  "futures-util",
