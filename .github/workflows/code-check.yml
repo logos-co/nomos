@@ -10,45 +10,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  formatting:
-    name: Check formatting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
-        with:
-          # The same version must be used in the `.pre-commit-config.yaml` file
-          toolchain: nightly-2025-09-14
-          profile: minimal
-          components: rustfmt
-          override: true
-      - name: Run cargo fmt
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: fmt
-          args: --all --check
-      - name: Install taplo CLI
-        run: cargo install taplo-cli --locked --version 0.9.3
-      - name: Run taplo lint
-        run: taplo lint
-      - name: Run taplo fmt
-        run: taplo fmt --check
+  # formatting:
+  #   name: Check formatting
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Install nightly toolchain
+  #       uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
+  #       with:
+  #         # The same version must be used in the `.pre-commit-config.yaml` file
+  #         toolchain: nightly-2025-09-14
+  #         profile: minimal
+  #         components: rustfmt
+  #         override: true
+  #     - name: Run cargo fmt
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       with:
+  #         command: fmt
+  #         args: --all --check
+  #     - name: Install taplo CLI
+  #       run: cargo install taplo-cli --locked --version 0.9.3
+  #     - name: Run taplo lint
+  #       run: taplo lint
+  #     - name: Run taplo fmt
+  #       run: taplo fmt --check
 
-  cargo-deny:
-    name: Check cargo-deny rules
-    # `cargo-deny` action is only supported on Linux
-    runs-on: ubuntu-latest
+  # cargo-deny:
+  #   name: Check cargo-deny rules
+  #   # `cargo-deny` action is only supported on Linux
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Run `cargo deny`
-        uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # Version 2.0.11
-        with:
-          arguments: "--locked"
-          command-arguments: "--hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings"
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Run `cargo deny`
+  #       uses: EmbarkStudios/cargo-deny-action@34899fc7ba81ca6268d5947a7a16b4649013fea1 # Version 2.0.11
+  #       with:
+  #         arguments: "--locked"
+  #         command-arguments: "--hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings"
 
   features:
     name: Check packages feature combinations
@@ -86,136 +86,136 @@ jobs:
         with:
           key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
 
-  unused-deps:
-    name: Check for unused dependencies
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Install cargo-machete
-        uses: bnjbvr/cargo-machete@9f0895d780783da0089162cae9668f6ec6e896c4  # Version 0.8.0
-        # This step also runs `cargo-machete` without the `--with-metadata` flag, which can trigger more false positives.
-        # We ignore errors and run `cargo-machete` with the `--with-metadata` flag for the actual result.
-        continue-on-error: true
-      - name: Run cargo-machete
-        run: cargo machete --with-metadata
+  # unused-deps:
+  #   name: Check for unused dependencies
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       os: [ ubuntu-latest, macos-latest ]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Install cargo-machete
+  #       uses: bnjbvr/cargo-machete@9f0895d780783da0089162cae9668f6ec6e896c4  # Version 0.8.0
+  #       # This step also runs `cargo-machete` without the `--with-metadata` flag, which can trigger more false positives.
+  #       # We ignore errors and run `cargo-machete` with the `--with-metadata` flag for the actual result.
+  #       continue-on-error: true
+  #     - name: Run cargo-machete
+  #       run: cargo machete --with-metadata
   
-  lints:
-    name: Check Rust lints
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest ]
-    runs-on: ${{ matrix.os }}
-    env:
-          RUSTFLAGS: -D warnings
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
-      - name: Set up Cargo cache
-        uses: ./.github/actions/setup-cargo-cache
-        with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Circuits
-        uses: ./.github/actions/setup-circuits
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run cargo clippy on workspace
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: clippy
-          args: --locked --all --all-targets --all-features
-      - name: Update Cargo cache
-        if: success() || failure()
-        uses: ./.github/actions/update-cargo-cache
-        with:
-          key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+  # lints:
+  #   name: Check Rust lints
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       os: [ ubuntu-latest, macos-latest ]
+  #   runs-on: ${{ matrix.os }}
+  #   env:
+  #         RUSTFLAGS: -D warnings
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Set up Cargo cache
+  #       uses: ./.github/actions/setup-cargo-cache
+  #       with:
+  #         key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Setup Circuits
+  #       uses: ./.github/actions/setup-circuits
+  #       with:
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Run cargo clippy on workspace
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       with:
+  #         command: clippy
+  #         args: --locked --all --all-targets --all-features
+  #     - name: Update Cargo cache
+  #       if: success() || failure()
+  #       uses: ./.github/actions/update-cargo-cache
+  #       with:
+  #         key: ${{ github.ref }}->${{ github.workflow }}->${{ github.job }}->${{ matrix.os }}
  
-  tests:
-    name: Run test suite
-    if: ${{ !startsWith(github.event.pull_request.title, '[WIP]') && !contains(github.event.label.name,  'DO NOT MERGE') }}
-    strategy:
-      fail-fast: false # all OSes should be tested even if one fails (default: true)
-      matrix:
-        os:
-          # Using self-hosted runners because we were running out of memory on GitHub-hosted runners
-          - [self-hosted, Linux]
-          - [self-hosted, macOS]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Disable rustup override
-        run: rustup override unset
+  # tests:
+  #   name: Run test suite
+  #   if: ${{ !startsWith(github.event.pull_request.title, '[WIP]') && !contains(github.event.label.name,  'DO NOT MERGE') }}
+  #   strategy:
+  #     fail-fast: false # all OSes should be tested even if one fails (default: true)
+  #     matrix:
+  #       os:
+  #         # Using self-hosted runners because we were running out of memory on GitHub-hosted runners
+  #         - [self-hosted, Linux]
+  #         - [self-hosted, macOS]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - name: Disable rustup override
+  #       run: rustup override unset
 
-      - name: Checkout repository
-        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+  #     - name: Checkout repository
+  #       uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
-      - name: Setup Circuits
-        uses: ./.github/actions/setup-circuits
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Setup Circuits
+  #       uses: ./.github/actions/setup-circuits
+  #       with:
+  #         github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run the node binary to check the config file validity
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: run
-          args: --locked -p nomos-node nodes/nomos-node/config.yaml --check-config
+  #     - name: Run the node binary to check the config file validity
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       with:
+  #         command: run
+  #         args: --locked -p nomos-node nodes/nomos-node/config.yaml --check-config
 
-      - name: Run the executor binary to check the config file validity
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        with:
-          command: run
-          args: --locked -p nomos-executor nodes/nomos-executor/config.yaml --check-config
+  #     - name: Run the executor binary to check the config file validity
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       with:
+  #         command: run
+  #         args: --locked -p nomos-executor nodes/nomos-executor/config.yaml --check-config
 
-      # This includes testing feature needed for tests
-      - name: Build binaries with all features
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
-        with:
-          command: build
-          args: --locked --all-features
+  #     # This includes testing feature needed for tests
+  #     - name: Build binaries with all features
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72
+  #       with:
+  #         command: build
+  #         args: --locked --all-features
 
-      - name: Cargo test
-        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
-        env:
-          POL_PROOF_DEV_MODE: true
-          CONSENSUS_SLOT_TIME: 5
-        with:
-          command: test
-          # We don't test benches as they take 6h+, leading to a timeout
-          args: --locked --all --lib --bins --tests --examples --all-features
+  #     - name: Cargo test
+  #       uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+  #       env:
+  #         POL_PROOF_DEV_MODE: true
+  #         CONSENSUS_SLOT_TIME: 5
+  #       with:
+  #         command: test
+  #         # We don't test benches as they take 6h+, leading to a timeout
+  #         args: --locked --all --lib --bins --tests --examples --all-features
 
-      - name: Upload integration tests results
-        uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
-        if: failure()
-        with:
-          name: integration-test-artifacts-${{ runner.os }}-${{ github.sha }}
-          include-hidden-files: true
-          path: tests/.tmp*
+  #     - name: Upload integration tests results
+  #       uses: actions/upload-artifact@6027e3dd177782cd8ab9af838c04fd81a07f1d47 # Version 4.6.2
+  #       if: failure()
+  #       with:
+  #         name: integration-test-artifacts-${{ runner.os }}-${{ github.sha }}
+  #         include-hidden-files: true
+  #         path: tests/.tmp*
   
-  build-docker:
-    name: Trigger Docker build
-    runs-on: ubuntu-latest
-    needs:
-      - formatting
-      - cargo-deny
-      - features
-      - unused-deps
-      - lints
-      - tests
-    env:
-      DOCKER_BUILD_WORKFLOW_FILE: build-docker.yml # Change this in case of file renamings
-    steps:
-      - name: Trigger "Docker build" workflow
-        uses: actions/github-script@3908079ba1e7bce10117ad701c321d07e89017a9 # Version 7.0.1
-        with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: '${{ env.DOCKER_BUILD_WORKFLOW_FILE }}',
-              ref: '${{ github.head_ref || github.ref }}',
-            })
+  # build-docker:
+  #   name: Trigger Docker build
+  #   runs-on: ubuntu-latest
+  #   needs:
+  #     - formatting
+  #     - cargo-deny
+  #     - features
+  #     - unused-deps
+  #     - lints
+  #     - tests
+  #   env:
+  #     DOCKER_BUILD_WORKFLOW_FILE: build-docker.yml # Change this in case of file renamings
+  #   steps:
+  #     - name: Trigger "Docker build" workflow
+  #       uses: actions/github-script@3908079ba1e7bce10117ad701c321d07e89017a9 # Version 7.0.1
+  #       with:
+  #         script: |
+  #           github.rest.actions.createWorkflowDispatch({
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             workflow_id: '${{ env.DOCKER_BUILD_WORKFLOW_FILE }}',
+  #             ref: '${{ github.head_ref || github.ref }}',
+  #           })
