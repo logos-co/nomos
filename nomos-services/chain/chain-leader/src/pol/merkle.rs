@@ -44,7 +44,7 @@ impl MerklePolCache {
                 *subtree
                     .merkle_path_for_index(0)
                     .first()
-                    .map(|node| node.item())
+                    .map(MerkleNode::item)
                     .expect("Root should be always present")
             })
             .collect();
