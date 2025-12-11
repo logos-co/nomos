@@ -1,10 +1,7 @@
 use core::convert::Infallible;
 
-use key_management_system_keys::keys::UnsecuredEd25519Key;
-use nomos_blend_crypto::{
-    keys::{Ed25519PublicKey, X25519PrivateKey},
-    signatures::Signature,
-};
+use key_management_system_keys::keys::{Ed25519PublicKey, Ed25519Signature, UnsecuredEd25519Key};
+use nomos_blend_crypto::keys::X25519PrivateKey;
 use nomos_blend_proofs::{
     quota::{ProofOfQuota, VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
     selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
@@ -214,7 +211,7 @@ fn invalid_public_header_signature() {
             PayloadType::Data,
             PAYLOAD_BODY.try_into().unwrap(),
         ));
-        *msg.public_header_mut().signature_mut() = Signature::from([100u8; _]);
+        *msg.public_header_mut().signature_mut() = Ed25519Signature::from([100u8; _]);
         msg
     };
 

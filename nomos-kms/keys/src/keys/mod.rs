@@ -10,7 +10,7 @@ use zeroize::ZeroizeOnDrop;
 
 pub use crate::keys::{
     ed25519::{
-        ED25519_PUBLIC_KEY_SIZE, ED25519_SECRET_KEY_SIZE, Ed25519Key,
+        ED25519_PUBLIC_KEY_SIZE, ED25519_SECRET_KEY_SIZE, ED25519_SIGNATURE_SIZE, Ed25519Key,
         PublicKey as Ed25519PublicKey, Signature as Ed25519Signature, UnsecuredEd25519Key,
     },
     zk::{PublicKey as ZkPublicKey, Signature as ZkSignature, UnsecuredZkKey, ZkKey},

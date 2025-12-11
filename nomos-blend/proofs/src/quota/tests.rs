@@ -1,15 +1,11 @@
 use const_hex::FromHex as _;
 use groth16::{Field as _, fr_from_bytes_unchecked};
 use key_management_system_keys::keys::UnsecuredZkKey;
-use nomos_blend_crypto::{
-    ZkHash,
-    keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey},
-    merkle::MerkleTree,
-};
+use nomos_blend_crypto::{ZkHash, merkle::MerkleTree};
 
 use crate::{
     quota::{
-        DOMAIN_SEPARATION_TAG_FR, VerifiedProofOfQuota,
+        DOMAIN_SEPARATION_TAG_FR, ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey, VerifiedProofOfQuota,
         fixtures::{valid_proof_of_core_quota_inputs, valid_proof_of_leadership_quota_inputs},
         inputs::prove::{
             PrivateInputs, PublicInputs,

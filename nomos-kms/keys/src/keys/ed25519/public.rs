@@ -82,3 +82,9 @@ impl AsRef<[u8]> for PublicKey {
         self.0.as_ref()
     }
 }
+
+impl AsRef<VerifyingKey> for PublicKey {
+    fn as_ref(&self) -> &VerifyingKey {
+        &self.0
+    }
+}

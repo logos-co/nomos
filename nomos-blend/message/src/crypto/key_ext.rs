@@ -1,9 +1,6 @@
-use ed25519_dalek::{SigningKey, Verifier as _};
+use ed25519_dalek::SigningKey;
 use key_management_system_keys::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
-use nomos_blend_crypto::{
-    keys::{X25519PrivateKey, X25519PublicKey},
-    signatures::Signature,
-};
+use nomos_blend_crypto::keys::{X25519PrivateKey, X25519PublicKey};
 use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
 use zeroize::ZeroizeOnDrop;
 
@@ -28,15 +25,10 @@ impl Ed25519SecretKeyExt for UnsecuredEd25519Key {
 
 pub(crate) trait Ed25519PublicKeyExt {
     fn derive_x25519(&self) -> X25519PublicKey;
-    fn verify_signature(&self, body: &[u8], signature: &Signature) -> bool;
 }
 
 impl Ed25519PublicKeyExt for Ed25519PublicKey {
     fn derive_x25519(&self) -> X25519PublicKey {
         self.to_montgomery().to_bytes().into()
-    }
-
-    fn verify_signature(&self, body: &[u8], signature: &Signature) -> bool {
-        self.verify(body, signature.as_ref()).is_ok()
     }
 }

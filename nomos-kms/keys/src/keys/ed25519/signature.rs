@@ -6,14 +6,14 @@ use core::{
 use ed25519_dalek::SIGNATURE_LENGTH;
 use serde::{Deserialize, Serialize};
 
-pub const ED25519_SIGNATURE_SIZE: usize = SIGNATURE_LENGTH;
+pub const SIGNATURE_SIZE: usize = SIGNATURE_LENGTH;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Signature(ed25519_dalek::Signature);
 
 impl Signature {
     #[must_use]
-    pub fn from_bytes(bytes: &[u8; ED25519_SIGNATURE_SIZE]) -> Self {
+    pub fn from_bytes(bytes: &[u8; SIGNATURE_SIZE]) -> Self {
         Self(ed25519_dalek::Signature::from_bytes(bytes))
     }
 }
@@ -36,6 +36,12 @@ impl From<ed25519_dalek::Signature> for Signature {
 impl From<Signature> for ed25519_dalek::Signature {
     fn from(sig: Signature) -> Self {
         sig.0
+    }
+}
+
+impl From<[u8; SIGNATURE_SIZE]> for Signature {
+    fn from(bytes: [u8; SIGNATURE_SIZE]) -> Self {
+        Self::from_bytes(&bytes)
     }
 }
 

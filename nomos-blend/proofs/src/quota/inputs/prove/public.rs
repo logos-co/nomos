@@ -14,7 +14,7 @@ pub struct Inputs {
 #[cfg(test)]
 impl Default for Inputs {
     fn default() -> Self {
-        use nomos_blend_crypto::keys::ED25519_PUBLIC_KEY_SIZE;
+        use crate::quota::ED25519_PUBLIC_KEY_SIZE;
 
         Self {
             signing_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
