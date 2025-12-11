@@ -8,9 +8,8 @@ use std::{collections::BTreeSet, fmt::Display, iter, pin::Pin, time::Duration};
 
 use chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use cryptarchia_engine::{Epoch, Slot};
-use ed25519_dalek::SigningKey;
 use futures::{StreamExt as _, future, stream};
-use key_management_system_keys::keys::UnsecuredZkKey;
+use key_management_system_keys::keys::{Ed25519Key, UnsecuredZkKey};
 pub use leadership::LeaderConfig;
 use nomos_core::{
     block::{Block, Error as BlockError, MAX_TRANSACTIONS},
@@ -646,7 +645,7 @@ where
         let txs: Vec<_> = selected_txs_stream.take(MAX_TRANSACTIONS).collect().await;
 
         // TODO: use PoL signing key
-        let dummy_signing_key = SigningKey::from_bytes(&[0u8; 32]);
+        let dummy_signing_key = Ed25519Key::from_bytes(&[0u8; 32]);
 
         let block = Block::create(parent, slot, proof, txs, &dummy_signing_key)?;
 

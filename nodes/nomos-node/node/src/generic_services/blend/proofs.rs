@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use groth16::{Field as _, fr_to_bytes};
-use key_management_system_service::keys::UnsecuredEd25519Key;
+use key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use nomos_blend::{
-    crypto::{keys::Ed25519PublicKey, random_sized_bytes},
+    crypto::random_sized_bytes,
     message::crypto::{
         key_ext::Ed25519SecretKeyExt as _,
         proofs::{Error as InnerVerifierError, PoQVerificationInputsMinusSigningKey},
@@ -115,7 +115,7 @@ fn random_proof() -> BlendLayerProof {
             continue;
         };
         return BlendLayerProof {
-            ephemeral_signing_key: UnsecuredEd25519Key::generate(),
+            ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
             proof_of_quota,
             proof_of_selection,
         };
@@ -534,7 +534,7 @@ mod core_to_core_tests {
         let verified_proof = verifier
             .verify_proof_of_quota(
                 proof_of_quota.into_inner(),
-                &UnsecuredEd25519Key::generate().public_key(),
+                &UnsecuredEd25519Key::generate_with_blake_rng().public_key(),
             )
             .unwrap();
         assert_eq!(verified_proof.key_nullifier(), ZkHash::ZERO);

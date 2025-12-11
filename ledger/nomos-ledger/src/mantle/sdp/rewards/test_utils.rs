@@ -1,5 +1,5 @@
 use groth16::Fr;
-use key_management_system_keys::keys::ZkPublicKey;
+use key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
 use nomos_core::{
     crypto::ZkHash,
     sdp::{Declaration, DeclarationId, ProviderId, ServiceParameters, ServiceType, SessionNumber},
@@ -35,11 +35,10 @@ pub fn create_test_session_state(
 }
 
 pub fn create_provider_id(byte: u8) -> ProviderId {
-    use ed25519_dalek::SigningKey;
     let key_bytes = [byte; 32];
     // Ensure the key is valid by using SigningKey
-    let signing_key = SigningKey::from_bytes(&key_bytes);
-    ProviderId(signing_key.verifying_key())
+    let signing_key = Ed25519Key::from_bytes(&key_bytes);
+    ProviderId(signing_key.public_key())
 }
 
 pub fn create_service_parameters() -> ServiceParameters {

@@ -2,7 +2,6 @@ use core::time::Duration;
 use std::{num::NonZeroU64, str::FromStr as _};
 
 use key_management_system_service::keys::{UnsecuredEd25519Key, ZkKey};
-use nomos_blend::message::crypto::key_ext::Ed25519SecretKeyExt as _;
 use nomos_blend_service::core::settings::ZkSettings;
 use nomos_libp2p::Multiaddr;
 use nomos_node::config::blend::serde::{
@@ -21,7 +20,7 @@ pub fn create_blend_configs(ids: &[[u8; 32]], ports: &[u16]) -> Vec<GeneralBlend
     ids.iter()
         .zip(ports)
         .map(|(id, port)| {
-            let private_key = UnsecuredEd25519Key::from_bytes(*id);
+            let private_key = UnsecuredEd25519Key::from_bytes(id);
             // We need unique ZK secret keys, so we just derive them deterministically from
             // the generated Ed25519 public keys, which are guaranteed to be unique because
             // they are in turned derived from node ID.

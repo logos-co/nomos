@@ -6,8 +6,9 @@ use poq::{CORE_MERKLE_TREE_HEIGHT, CorePathAndSelectors};
 use rs_merkle_tree::{Node, stores::MemoryStore, tree::MerkleProof};
 use thiserror::Error;
 
-use crate::{ZkHash, ZkHasher, keys::ZkPublicKey};
+use crate::{ZkHash, ZkHasher};
 
+type ZkPublicKey = ZkHash;
 const TOTAL_MERKLE_LEAVES: usize = 1 << CORE_MERKLE_TREE_HEIGHT;
 
 #[derive(Debug, Error, PartialEq, Eq, PartialOrd, Ord)]

@@ -14,7 +14,6 @@ workspace = true
 
 [dependencies]
 async-trait                = "0.1"
-ed25519-dalek              = { default-features = false, version = "2.2.0" }
 futures                    = { default-features = false, version = "0.3" }
 key-management-system-keys = { workspace = true }
 nomos-core                 = { workspace = true }

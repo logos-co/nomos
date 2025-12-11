@@ -1,6 +1,6 @@
-use ed25519::Signature;
-use ed25519_dalek::{Signer as _, ed25519};
-use key_management_system_service::keys::{ZkKey, ZkPublicKey, ZkSignature};
+use key_management_system_service::keys::{
+    Ed25519Key, Ed25519Signature, ZkKey, ZkPublicKey, ZkSignature,
+};
 use nomos_core::{
     mantle::{
         MantleTx, NoteId, SignedMantleTx, Transaction as _,
@@ -30,12 +30,12 @@ fn prove_zk_signature(tx_hash: &TxHash, keys: &[ZkKey]) -> ZkSignature {
 
 #[must_use]
 pub fn create_channel_inscribe_tx(
-    signing_key: &ed25519_dalek::SigningKey,
+    signing_key: &Ed25519Key,
     channel_id: ChannelId,
     inscription: Vec<u8>,
     parent: MsgId,
 ) -> SignedMantleTx {
-    let verifying_key_bytes = signing_key.verifying_key().to_bytes();
+    let verifying_key_bytes = signing_key.public_key().to_bytes();
     let verifying_key = Ed25519PublicKey::from_bytes(&verifying_key_bytes).unwrap();
 
     let inscribe_op = InscriptionOp {
@@ -56,9 +56,9 @@ pub fn create_channel_inscribe_tx(
 
     let tx_hash = inscribe_tx.hash();
     let signature_bytes = signing_key
-        .sign(tx_hash.as_signing_bytes().as_ref())
+        .sign_payload(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = Signature::from_bytes(&signature_bytes);
+    let signature = Ed25519Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -69,14 +69,14 @@ pub fn create_channel_inscribe_tx(
 
 #[must_use]
 pub fn create_channel_blob_tx(
-    signing_key: &ed25519_dalek::SigningKey,
+    signing_key: &Ed25519Key,
     channel_id: ChannelId,
     session: SessionNumber,
     blob: [u8; 32],
     blob_size: u64,
     parent: MsgId,
 ) -> SignedMantleTx {
-    let verifying_key_bytes = signing_key.verifying_key().to_bytes();
+    let verifying_key_bytes = signing_key.public_key().to_bytes();
     let verifying_key = Ed25519PublicKey::from_bytes(&verifying_key_bytes).unwrap();
 
     let blob_op = BlobOp {
@@ -98,9 +98,9 @@ pub fn create_channel_blob_tx(
 
     let tx_hash = blob_tx.hash();
     let signature_bytes = signing_key
-        .sign(tx_hash.as_signing_bytes().as_ref())
+        .sign_payload(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = Signature::from_bytes(&signature_bytes);
+    let signature = Ed25519Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -111,7 +111,7 @@ pub fn create_channel_blob_tx(
 
 #[must_use]
 pub fn create_channel_set_keys_tx(
-    signing_key: &ed25519_dalek::SigningKey,
+    signing_key: &Ed25519Key,
     channel_id: ChannelId,
     keys: Vec<Ed25519PublicKey>,
 ) -> SignedMantleTx {
@@ -129,9 +129,9 @@ pub fn create_channel_set_keys_tx(
 
     let tx_hash = set_keys_tx.hash();
     let signature_bytes = signing_key
-        .sign(tx_hash.as_signing_bytes().as_ref())
+        .sign_payload(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let signature = Signature::from_bytes(&signature_bytes);
+    let signature = Ed25519Signature::from_bytes(&signature_bytes);
 
     SignedMantleTx {
         ops_proofs: vec![OpProof::Ed25519Sig(signature)],
@@ -142,7 +142,7 @@ pub fn create_channel_set_keys_tx(
 
 #[must_use]
 pub fn create_sdp_declare_tx(
-    provider_signing_key: &ed25519_dalek::SigningKey,
+    provider_signing_key: &Ed25519Key,
     service_type: ServiceType,
     locators: Vec<nomos_core::sdp::Locator>,
     zk_id: ZkPublicKey,
@@ -150,7 +150,7 @@ pub fn create_sdp_declare_tx(
     locked_note_id: NoteId,
     note_sk: &ZkKey,
 ) -> (SignedMantleTx, DeclarationMessage) {
-    let provider_pk_bytes = provider_signing_key.verifying_key().to_bytes();
+    let provider_pk_bytes = provider_signing_key.public_key().to_bytes();
     let provider_id = nomos_core::sdp::ProviderId::try_from(provider_pk_bytes)
         .expect("Valid provider id from signing key");
 
@@ -172,9 +172,9 @@ pub fn create_sdp_declare_tx(
     let tx_hash = mantle_tx.hash();
 
     let ed25519_signature_bytes = provider_signing_key
-        .sign(tx_hash.as_signing_bytes().as_ref())
+        .sign_payload(tx_hash.as_signing_bytes().as_ref())
         .to_bytes();
-    let ed25519_sig = Signature::from_bytes(&ed25519_signature_bytes);
+    let ed25519_sig = Ed25519Signature::from_bytes(&ed25519_signature_bytes);
 
     let zk_sig = prove_zk_signature(&tx_hash, &[note_sk.clone(), zk_sk.clone()]);
 

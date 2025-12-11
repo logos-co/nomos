@@ -19,7 +19,6 @@ use nomos_blend::{
     crypto::random_sized_bytes,
     message::{
         PayloadType,
-        crypto::key_ext::Ed25519SecretKeyExt as _,
         encap::{
             ProofsVerifier as ProofsVerifierTrait, encapsulated::EncapsulatedMessage,
             validated::EncapsulatedMessageWithVerifiedPublicHeader,

@@ -17,7 +17,6 @@ async-trait                = "0.1"
 chain-common               = { workspace = true }
 chain-service              = { workspace = true }
 cryptarchia-engine         = { workspace = true }
-ed25519-dalek              = { default-features = false, features = ["serde"], version = "2.2.0" }
 futures                    = { default-features = false, version = "0.3" }
 key-management-system-keys = { workspace = true }
 nomos-blend-service        = { workspace = true }
