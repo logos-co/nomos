@@ -222,9 +222,8 @@ pub enum Error {
 mod tests {
     use core::num::NonZeroU64;
 
-    use key_management_system_service::keys::UnsecuredEd25519Key;
+    use key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
     use nomos_blend::{
-        crypto::keys::Ed25519PublicKey,
         message::{
             Error as InnerError, PayloadType,
             crypto::{

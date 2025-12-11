@@ -3,9 +3,8 @@ use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::Stream;
 use groth16::Field as _;
-use key_management_system_service::keys::UnsecuredEd25519Key;
+use key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use nomos_blend::{
-    crypto::keys::Ed25519PublicKey,
     message::{
         crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
         encap::{

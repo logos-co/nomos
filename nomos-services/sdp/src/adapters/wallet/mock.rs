@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 
-use ed25519_dalek::{Signer as _, SigningKey};
-use key_management_system_keys::keys::{ZkKey, ZkPublicKey};
+use key_management_system_keys::keys::{Ed25519Key, ZkKey, ZkPublicKey};
 use nomos_core::{
     mantle::{NoteId, Op, OpProof, SignedMantleTx, Transaction as _, tx_builder::MantleTxBuilder},
     sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
@@ -23,14 +22,14 @@ impl SdpWalletAdapter for MockWalletAdapter {
         declaration: Box<DeclarationMessage>,
     ) -> Result<SignedMantleTx, Self::Error> {
         // todo: this is for mock, we need signing key in production
-        let signing_key = SigningKey::from_bytes(&[0u8; 32]);
+        let signing_key = Ed25519Key::from_bytes(&[0u8; 32]);
         let zk_key = ZkKey::zero();
 
         let declare_op = Op::SDPDeclare(*declaration);
         let mantle_tx = tx_builder.push_op(declare_op).build();
         let tx_hash = mantle_tx.hash();
 
-        let ed25519_sig = signing_key.sign(&tx_hash.as_signing_bytes());
+        let ed25519_sig = signing_key.sign_payload(&tx_hash.as_signing_bytes());
         let zk_sig = zk_key.sign_payload(tx_hash.as_ref()).unwrap();
 
         Ok(SignedMantleTx::new(

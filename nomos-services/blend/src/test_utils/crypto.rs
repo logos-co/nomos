@@ -1,9 +1,8 @@
 use core::{cell::Cell, convert::Infallible};
 
 use async_trait::async_trait;
-use key_management_system_service::keys::UnsecuredEd25519Key;
+use key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use nomos_blend::{
-    crypto::keys::Ed25519PublicKey,
     message::{
         crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
         encap::ProofsVerifier,

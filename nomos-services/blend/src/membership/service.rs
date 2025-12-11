@@ -2,9 +2,9 @@ use std::{hash::Hash, marker::PhantomData};
 
 use broadcast_service::{BlockBroadcastMsg, SessionSubscription, SessionUpdate};
 use futures::StreamExt as _;
-use key_management_system_service::keys::ZkPublicKey;
+use key_management_system_service::keys::{Ed25519PublicKey, ZkPublicKey};
 use nomos_blend::{
-    crypto::{keys::Ed25519PublicKey, merkle::sort_nodes_and_build_merkle_tree},
+    crypto::merkle::sort_nodes_and_build_merkle_tree,
     scheduling::membership::{Membership, Node},
 };
 use nomos_core::sdp::{ProviderId, ProviderInfo};

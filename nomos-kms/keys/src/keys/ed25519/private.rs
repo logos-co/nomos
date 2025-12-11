@@ -30,6 +30,11 @@ impl UnsecuredEd25519Key {
     pub fn sign_payload(&self, payload: &[u8]) -> Ed25519Signature {
         self.0.sign(payload).into()
     }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8; SECRET_KEY_LENGTH] {
+        self.0.as_bytes()
+    }
 }
 
 impl Serialize for UnsecuredEd25519Key {

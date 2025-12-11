@@ -6072,7 +6072,6 @@ dependencies = [
  "broadcast-service",
  "chain-service",
  "cryptarchia-engine",
- "ed25519-dalek",
  "fork_stream",
  "futures",
  "groth16",

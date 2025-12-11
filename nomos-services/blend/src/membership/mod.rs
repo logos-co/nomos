@@ -4,8 +4,8 @@ pub mod service;
 use std::pin::Pin;
 
 use futures::Stream;
-use key_management_system_service::keys::ZkPublicKey;
-use nomos_blend::{crypto::keys::Ed25519PublicKey, scheduling::membership::Membership};
+use key_management_system_service::keys::{Ed25519PublicKey, ZkPublicKey};
+use nomos_blend::scheduling::membership::Membership;
 use nomos_core::crypto::ZkHash;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use poq::CorePathAndSelectors;
