@@ -112,6 +112,7 @@ pub const fn evaluate_hamming_distance(distance: u64, activity_threshold: u64) -
 
 #[cfg(test)]
 mod tests {
+    use key_management_system_keys::keys::Ed25519Key;
     use nomos_blend_proofs::{
         quota::{PROOF_OF_QUOTA_SIZE, VerifiedProofOfQuota},
         selection::{PROOF_OF_SELECTION_SIZE, VerifiedProofOfSelection},
@@ -167,7 +168,7 @@ mod tests {
         proof_of_selection: u8,
     ) -> BlendingToken {
         BlendingToken::new(
-            ed25519_dalek::SigningKey::from_bytes(&[signing_key; _]).verifying_key(),
+            Ed25519Key::from_bytes(&[signing_key; _]).public_key(),
             VerifiedProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
             VerifiedProofOfSelection::from_bytes_unchecked(
                 [proof_of_selection; PROOF_OF_SELECTION_SIZE],

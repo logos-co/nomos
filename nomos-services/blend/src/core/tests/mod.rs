@@ -3,6 +3,7 @@ mod utils;
 use std::num::NonZeroU64;
 
 use groth16::Field as _;
+use key_management_system_service::keys::Ed25519Key;
 use nomos_blend::{
     message::reward::{ActivityProof, BlendingToken, SessionBlendingTokenCollector},
     proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
@@ -212,7 +213,7 @@ async fn test_handle_session_transition_expired() {
             )))
             .1;
     let token = BlendingToken::new(
-        ed25519_dalek::SigningKey::from_bytes(&[0; _]).verifying_key(),
+        Ed25519Key::from_bytes(&[0; _]).public_key(),
         VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
         VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
     );
