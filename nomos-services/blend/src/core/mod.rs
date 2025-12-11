@@ -657,7 +657,8 @@ where
 
     // If there is the old session token collector loaded from `last_saved_state`,
     // compute/submit its activity proof because we won't collect more tokens for
-    // the old session after this initialization step.
+    // the old session after this initialization step because we are not
+    // establishing connections for the old session.
     let mut state_updater = current_recovery_checkpoint.start_updating();
     if let Some(old_session_token_collector) = state_updater.clear_old_session_token_collector() {
         tracing::info!(target: LOG_TARGET, "Old session token collector loaded. Computing activity proof");
