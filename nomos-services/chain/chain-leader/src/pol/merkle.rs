@@ -18,7 +18,6 @@ pub struct MerklePolCache {
     pub cached_tree: CachedTree,
     pub lower_sub_trees: Vec<MerklePolSubtree>,
     pub tree_depth: usize,
-    pub current_index: u64,
     pub starting_slot: Slot,
 }
 
@@ -57,7 +56,6 @@ impl MerklePolCache {
             lower_sub_trees,
             tree_depth,
             starting_slot,
-            current_index: 0,
         }
     }
 
@@ -74,11 +72,6 @@ impl MerklePolCache {
     pub fn root_slot_secret(&self) -> SlotSecret {
         // this should always be there
         self.cached_tree[0][0].into()
-    }
-
-    #[must_use]
-    pub fn current_slot(&self) -> Slot {
-        self.starting_slot + self.current_index
     }
 
     #[must_use]
