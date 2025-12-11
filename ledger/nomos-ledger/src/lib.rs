@@ -17,8 +17,9 @@ use mantle::LedgerState as MantleLedger;
 use nomos_core::{
     block::BlockNumber,
     mantle::{
-        AuthenticatedMantleTx, GenesisTx, NoteId, Utxo, gas::GasConstants,
-        ops::leader_claim::VoucherCm,
+        AuthenticatedMantleTx, GenesisTx, NoteId, Utxo,
+        gas::GasConstants,
+        ops::{channel::ChannelId, leader_claim::VoucherCm},
     },
     proofs::leader_proof,
     sdp::{Declaration, DeclarationId, ProviderId, ProviderInfo, ServiceType, SessionNumber},
@@ -305,6 +306,16 @@ impl LedgerState {
     #[must_use]
     pub fn active_sessions(&self) -> HashMap<ServiceType, SessionNumber> {
         self.mantle_ledger.active_sessions()
+    }
+
+    #[must_use]
+    pub const fn cryptarchia_ledger(&self) -> &CryptarchiaLedger {
+        &self.cryptarchia_ledger
+    }
+
+    #[must_use]
+    pub fn get_channel(&self, channel_id: &ChannelId) -> Option<&mantle::channel::ChannelState> {
+        self.mantle_ledger.get_channel(channel_id)
     }
 }
 

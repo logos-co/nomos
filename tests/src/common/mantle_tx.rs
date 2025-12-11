@@ -1,5 +1,5 @@
 use ed25519::Signature;
-use ed25519_dalek::{Signer as _, ed25519};
+use ed25519_dalek::Signer as _;
 use nomos_core::{
     mantle::{
         MantleTx, NoteId, SignedMantleTx, Transaction as _,
