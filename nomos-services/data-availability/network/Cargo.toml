@@ -36,7 +36,7 @@ nomos-tracing            = { workspace = true }
 nomos-utils              = { features = ["rng"], workspace = true }
 overwatch                = { workspace = true }
 rand                     = { workspace = true }
-serde                    = { default-features = false, features = ["derive"], version = "1.0" }
+serde                    = { workspace = true, features = ["derive"] }
 services-utils           = { workspace = true }
 subnetworks-assignations = { workspace = true }
 thiserror                = "1"
@@ -46,4 +46,4 @@ tracing                  = { workspace = true }
 url                      = { default-features = false, version = "2.5.4" }
 
 [dev-dependencies]
-ed25519-dalek = { default-features = false, version = "2.0.0" }
+key-management-system-keys = { workspace = true }

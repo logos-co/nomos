@@ -1,23 +1,22 @@
 use core::{hash::Hash, marker::PhantomData};
 use std::num::NonZeroU64;
 
+use nomos_blend_crypto::keys::X25519PrivateKey;
 use nomos_blend_message::{
-    Error, PayloadType,
-    crypto::{
-        keys::X25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
-        },
-    },
+    Error, PaddedPayloadBody, PayloadType,
+    crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
     input::EncapsulationInput,
+};
+use nomos_blend_proofs::quota::inputs::prove::{
+    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
 };
 
 use crate::{
-    EncapsulatedMessage,
     membership::Membership,
     message_blend::{
-        crypto::{EncapsulationInputs, SessionCryptographicProcessorSettings},
+        crypto::{
+            EncapsulatedMessageWithVerifiedPublicHeader, SessionCryptographicProcessorSettings,
+        },
         provers::{ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator},
     },
     serialize_encapsulated_message,
@@ -106,7 +105,7 @@ where
     pub async fn encapsulate_cover_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         self.encapsulate_payload(PayloadType::Cover, payload).await
     }
 
@@ -122,7 +121,7 @@ where
     pub async fn encapsulate_data_payload(
         &mut self,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
         self.encapsulate_payload(PayloadType::Data, payload).await
     }
 
@@ -143,7 +142,9 @@ where
         &mut self,
         payload_type: PayloadType,
         payload: &[u8],
-    ) -> Result<EncapsulatedMessage, Error> {
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
+        // We validate the payload early on so we don't generate proofs unnecessarily.
+        let validated_payload = PaddedPayloadBody::try_from(payload)?;
         let mut proofs = Vec::with_capacity(self.num_blend_layers.get() as usize);
 
         match payload_type {
@@ -191,22 +192,23 @@ where
                 )
             });
 
-        let inputs = EncapsulationInputs::new(
-            proofs_and_signing_keys
-                .into_iter()
-                .map(|(proof, receiver_non_ephemeral_signing_key)| {
-                    EncapsulationInput::new(
-                        proof.ephemeral_signing_key,
-                        &receiver_non_ephemeral_signing_key,
-                        proof.proof_of_quota,
-                        proof.proof_of_selection,
-                    )
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        )?;
+        let inputs = proofs_and_signing_keys
+            .into_iter()
+            .map(|(proof, receiver_non_ephemeral_signing_key)| {
+                EncapsulationInput::new(
+                    proof.ephemeral_signing_key,
+                    &receiver_non_ephemeral_signing_key,
+                    proof.proof_of_quota,
+                    proof.proof_of_selection,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        EncapsulatedMessage::new(&inputs, payload_type, payload)
+        Ok(EncapsulatedMessageWithVerifiedPublicHeader::new(
+            &inputs,
+            payload_type,
+            validated_payload,
+        ))
     }
 }
 
@@ -215,16 +217,16 @@ mod test {
     use std::num::NonZeroU64;
 
     use groth16::Field as _;
+    use key_management_system_keys::keys::{
+        ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey, UnsecuredEd25519Key,
+    };
     use multiaddr::{Multiaddr, PeerId};
     use nomos_blend_message::crypto::{
-        keys::Ed25519PrivateKey,
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::inputs::prove::{
-                private::ProofOfLeadershipQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
-            },
-        },
+        key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
+    };
+    use nomos_blend_proofs::quota::inputs::prove::{
+        private::ProofOfLeadershipQuotaInputs,
+        public::{CoreInputs, LeaderInputs},
     };
     use nomos_core::crypto::ZkHash;
 
@@ -245,13 +247,13 @@ mod test {
             TestEpochChangeCoreAndLeaderProofsGenerator,
         >::new(
             &SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
+                non_ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
                 num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
                 address: Multiaddr::empty(),
                 id: PeerId::random(),
-                public_key: [0; _].try_into().unwrap(),
+                public_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
             }]),
             PoQVerificationInputsMinusSigningKey {
                 session: 1,
@@ -292,13 +294,13 @@ mod test {
             TestEpochChangeCoreAndLeaderProofsGenerator,
         >::new(
             &SessionCryptographicProcessorSettings {
-                non_ephemeral_signing_key: Ed25519PrivateKey::generate(),
+                non_ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
                 num_blend_layers: NonZeroU64::new(1).unwrap(),
             },
             Membership::new_without_local(&[Node {
                 address: Multiaddr::empty(),
                 id: PeerId::random(),
-                public_key: [0; _].try_into().unwrap(),
+                public_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
             }]),
             PoQVerificationInputsMinusSigningKey {
                 session: 1,

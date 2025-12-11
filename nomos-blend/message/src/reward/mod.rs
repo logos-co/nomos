@@ -7,9 +7,9 @@ use std::collections::HashSet;
 pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
 pub use session::SessionInfo;
-pub use token::BlendingToken;
+pub use token::{BlendingToken, HammingDistance};
 
-pub use crate::reward::session::SessionRandomness;
+pub use crate::reward::session::{BlendingTokenEvaluation, Error, SessionRandomness};
 
 const LOG_TARGET: &str = "blend::message::reward";
 
@@ -20,8 +20,7 @@ pub trait BlendingTokenCollector {
 /// Holds blending tokens collected during a single session.
 pub struct SessionBlendingTokenCollector {
     session_number: SessionNumber,
-    token_count_byte_len: u64,
-    activity_threshold: u64,
+    token_evaluation: BlendingTokenEvaluation,
     tokens: HashSet<BlendingToken>,
 }
 
@@ -30,8 +29,7 @@ impl SessionBlendingTokenCollector {
     pub fn new(session_info: &SessionInfo) -> Self {
         Self {
             session_number: session_info.session_number,
-            token_count_byte_len: session_info.token_count_byte_len,
-            activity_threshold: session_info.activity_threshold,
+            token_evaluation: session_info.token_evaluation,
             tokens: HashSet::new(),
         }
     }
@@ -79,28 +77,19 @@ impl OldSessionBlendingTokenCollector {
     /// activity threshold calculated.
     #[must_use]
     pub fn compute_activity_proof(self) -> Option<ActivityProof> {
-        // Find the blending token with the smallest Hamming distance.
-        let maybe_token = self
-            .collector
+        // Find the blending token with the smallest Hamming distance,
+        // which is <= activity threshold.
+        self.collector
             .tokens
             .into_iter()
-            .map(|token| {
-                let distance = token.hamming_distance(
-                    self.collector.token_count_byte_len,
-                    self.next_session_randomness,
-                );
-                (token, distance)
+            .filter_map(|token| {
+                self.collector
+                    .token_evaluation
+                    .evaluate(&token, self.next_session_randomness)
+                    .map(|distance| (token, distance))
             })
-            .min_by_key(|(_, distance)| *distance);
-
-        // Check if the smallest distance satisfies the activity threshold.
-        if let Some((token, distance)) = maybe_token
-            && distance <= self.collector.activity_threshold
-        {
-            Some(ActivityProof::new(self.collector.session_number, token))
-        } else {
-            None
-        }
+            .min_by_key(|(_, distance)| *distance)
+            .map(|(token, _)| ActivityProof::new(self.collector.session_number, token))
     }
 
     #[cfg(test)]
@@ -116,15 +105,21 @@ impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
     }
 }
 
+#[must_use]
+pub const fn evaluate_hamming_distance(distance: u64, activity_threshold: u64) -> bool {
+    distance <= activity_threshold
+}
+
 #[cfg(test)]
 mod tests {
+    use key_management_system_keys::keys::Ed25519Key;
+    use nomos_blend_proofs::{
+        quota::{PROOF_OF_QUOTA_SIZE, VerifiedProofOfQuota},
+        selection::{PROOF_OF_SELECTION_SIZE, VerifiedProofOfSelection},
+    };
     use nomos_core::crypto::ZkHash;
 
     use super::*;
-    use crate::crypto::proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, ProofOfQuota},
-        selection::{PROOF_OF_SELECTION_SIZE, ProofOfSelection},
-    };
 
     #[test_log::test(test)]
     fn test_blending_token_collector() {
@@ -139,8 +134,9 @@ mod tests {
         let total_core_quota = core_quota.checked_mul(num_core_nodes).unwrap();
         let mut i = 0;
         for _ in 0..(total_core_quota.checked_sub(1).unwrap()) {
+            let signing_key: u8 = i.try_into().unwrap();
             let proof: u8 = i.try_into().unwrap();
-            let token = blending_token(proof, proof);
+            let token = blending_token(signing_key, proof, proof);
             tokens.collect(token.clone());
             assert!(tokens.tokens().contains(&token));
             i += 1;
@@ -154,8 +150,9 @@ mod tests {
         // Insert one more tokens.
         // Now,`total_core_quota` tokens have been collected.
         // So, we can expect that always one of them can be picked as an activity proof.
+        let signing_key: u8 = i.try_into().unwrap();
         let proof: u8 = i.try_into().unwrap();
-        let token = blending_token(proof, proof);
+        let token = blending_token(signing_key, proof, proof);
         tokens.collect(token.clone());
         assert!(tokens.tokens().contains(&token));
 
@@ -165,10 +162,17 @@ mod tests {
         assert!(candidates.contains(proof.token()));
     }
 
-    fn blending_token(proof_of_quota: u8, proof_of_selection: u8) -> BlendingToken {
+    fn blending_token(
+        signing_key: u8,
+        proof_of_quota: u8,
+        proof_of_selection: u8,
+    ) -> BlendingToken {
         BlendingToken::new(
-            ProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
-            ProofOfSelection::from_bytes_unchecked([proof_of_selection; PROOF_OF_SELECTION_SIZE]),
+            Ed25519Key::from_bytes(&[signing_key; _]).public_key(),
+            VerifiedProofOfQuota::from_bytes_unchecked([proof_of_quota; PROOF_OF_QUOTA_SIZE]),
+            VerifiedProofOfSelection::from_bytes_unchecked(
+                [proof_of_selection; PROOF_OF_SELECTION_SIZE],
+            ),
         )
     }
 }

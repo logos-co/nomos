@@ -2,13 +2,13 @@ use core::pin::Pin;
 
 use async_trait::async_trait;
 use futures::stream::{self, Stream, StreamExt as _};
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::inputs::prove::{PublicInputs, public::LeaderInputs},
-        selection::ProofOfSelection,
-    },
+    key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
+};
+use nomos_blend_proofs::{
+    quota::inputs::prove::{PublicInputs, public::LeaderInputs},
+    selection::VerifiedProofOfSelection,
 };
 
 use crate::message_blend::{
@@ -126,14 +126,14 @@ where
     let quota = public_inputs.core.quota;
     stream::iter(starting_key_index..quota)
         .map(move |key_index| {
-            let ephemeral_signing_key = Ed25519PrivateKey::generate();
+            let ephemeral_signing_key = UnsecuredEd25519Key::generate_with_blake_rng();
             let proof_of_quota_generator = proof_of_quota_generator.clone();
 
             async move {
                 let (proof_of_quota, secret_selection_randomness) = proof_of_quota_generator
                     .generate_poq(
                         &PublicInputs {
-                            signing_key: ephemeral_signing_key.public_key(),
+                            signing_key: ephemeral_signing_key.public_key().into_inner(),
                             core: public_inputs.core,
                             leader: public_inputs.leader,
                             session: public_inputs.session,
@@ -142,7 +142,7 @@ where
                     )
                     .await
                     .ok()?;
-                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                let proof_of_selection = VerifiedProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
@@ -151,5 +151,5 @@ where
             }
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async { result })
+        .filter_map(async |result| result)
 }

@@ -95,7 +95,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         _: OverwatchHandle<RuntimeServiceId>,
         _membership: Self::Membership,
         _addressbook: Self::Addressbook,
-        _subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        _subnet_refresh_sender: &broadcast::Sender<()>,
         _stats_sender: UnboundedSender<BalancerStats>,
         _opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
@@ -123,7 +123,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
                     subnetwork_id,
                 };
 
-                let _ = self.events_tx.send(Event::Disperse(success_message));
+                drop(self.events_tx.send(Event::Disperse(success_message)));
             }
         }
     }
@@ -139,7 +139,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for MockExecutorBackend 
         match kind {
             EventKind::Dispersal | EventKind::Sample => Box::pin(
                 BroadcastStream::new(self.events_tx.subscribe())
-                    .filter_map(|event| async { event.ok() }),
+                    .filter_map(async |event| event.ok()),
             ),
         }
     }

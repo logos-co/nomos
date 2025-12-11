@@ -3,12 +3,16 @@ mod utils;
 use std::num::NonZeroU64;
 
 use groth16::Field as _;
-use nomos_blend_message::reward::SessionBlendingTokenCollector;
-use nomos_blend_scheduling::{
-    SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
-    session::SessionEvent,
+use key_management_system_service::keys::Ed25519Key;
+use nomos_blend::{
+    message::reward::{ActivityProof, BlendingToken, SessionBlendingTokenCollector},
+    proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
+    scheduling::{
+        SessionMessageScheduler, message_blend::crypto::SessionCryptographicProcessorSettings,
+        session::SessionEvent,
+    },
 };
-use nomos_core::{codec::SerializeOp as _, crypto::ZkHash};
+use nomos_core::{codec::SerializeOp as _, crypto::ZkHash, sdp::ActivityMetadata};
 use nomos_time::SlotTick;
 use nomos_utils::blake_rng::BlakeRng;
 use poq::CORE_MERKLE_TREE_HEIGHT;
@@ -18,14 +22,14 @@ use crate::{
     core::{
         HandleSessionEventOutput,
         backends::BlendBackend,
-        handle_incoming_blend_message, handle_session_event, initialize, post_initialize, retire,
-        run_event_loop,
+        handle_incoming_blend_message, handle_session_event, handle_session_transition_expired,
+        initialize, post_initialize, retire, run_event_loop,
         state::ServiceState,
         tests::utils::{
             MockKmsAdapter, MockProofsVerifier, NodeId, TestBlendBackend, TestBlendBackendEvent,
             TestNetworkAdapter, dummy_overwatch_resources, new_crypto_processor, new_membership,
             new_public_info, new_stream, reward_session_info, scheduler_session_info,
-            scheduler_settings, settings, timing_settings, wait_for_blend_backend_event,
+            scheduler_settings, sdp_relay, settings, timing_settings, wait_for_blend_backend_event,
         },
     },
     epoch_info::EpochHandler,
@@ -35,7 +39,6 @@ use crate::{
     test_utils::{
         crypto::MockCoreAndLeaderProofsGenerator,
         epoch::{OncePolStreamProvider, TestChainService},
-        membership::{key, membership},
     },
 };
 
@@ -49,16 +52,16 @@ async fn test_handle_incoming_blend_message() {
         dummy_overwatch_resources::<(), (), RuntimeServiceId>();
 
     // Prepare a encapsulated message.
-    let id = [0; 32];
     let mut session = 0;
-    let num_blend_layers = NonZeroU64::try_from(1).unwrap();
-    let membership = membership(&[id], id);
-    let public_info = new_public_info(session, membership.clone());
-    let settings = SessionCryptographicProcessorSettings {
-        non_ephemeral_signing_key: key(id).0,
-        num_blend_layers,
-    };
-    let mut processor = new_crypto_processor(&settings, &public_info, ());
+    let minimal_network_size = 1;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let (settings, _recovery_file) = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+    );
+    let public_info = new_public_info(session, membership.clone(), &settings);
+    let mut processor = new_crypto_processor(&settings.crypto, &public_info, ());
     let payload = NetworkMessage {
         message: vec![],
         broadcast_settings: (),
@@ -68,12 +71,11 @@ async fn test_handle_incoming_blend_message() {
     let msg = processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
 
     // Check that the message is successfully decapsulated and scheduled.
-    let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
+    let scheduler_settings =
+        scheduler_settings(&timing_settings(), settings.crypto.num_blend_layers);
     let mut scheduler = SessionMessageScheduler::new(
         scheduler_session_info(&public_info),
         BlakeRng::from_entropy(),
@@ -96,8 +98,8 @@ async fn test_handle_incoming_blend_message() {
     // Creates a new processor/scheduler/token_collector with the new session
     // number.
     session += 1;
-    let public_info = new_public_info(session, membership.clone());
-    let mut new_processor = new_crypto_processor(&settings, &public_info, ());
+    let public_info = new_public_info(session, membership.clone(), &settings);
+    let mut new_processor = new_crypto_processor(&settings.crypto, &public_info, ());
     let (mut new_scheduler, mut scheduler) =
         scheduler.rotate_session(scheduler_session_info(&public_info), scheduler_settings);
     let (mut new_token_collector, mut token_collector) =
@@ -127,9 +129,7 @@ async fn test_handle_incoming_blend_message() {
     let msg = new_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(new_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,
@@ -149,14 +149,15 @@ async fn test_handle_incoming_blend_message() {
     // Check that a message built with a future session cannot be
     // decapsulated by either processor, and thus not scheduled.
     session += 1;
-    let mut future_processor =
-        new_crypto_processor(&settings, &new_public_info(session, membership), ());
+    let mut future_processor = new_crypto_processor(
+        &settings.crypto,
+        &new_public_info(session, membership, &settings),
+        (),
+    );
     let msg = future_processor
         .encapsulate_data_payload(&payload)
         .await
-        .expect("encapsulation must succeed")
-        .verify_public_header(future_processor.verifier())
-        .expect("verification must succeed");
+        .expect("encapsulation must succeed");
     handle_incoming_blend_message(
         msg,
         &mut new_scheduler,
@@ -176,6 +177,82 @@ async fn test_handle_incoming_blend_message() {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_handle_session_transition_expired() {
+    let (overwatch_handle, _, _, _) = dummy_overwatch_resources::<(), (), RuntimeServiceId>();
+
+    // Prepare settings.
+    let session = 0;
+    let minimal_network_size = 1;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let (mut settings, _recovery_file) = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+    );
+    // Set a long rounds_per_session to make the core quota large enough,
+    // since we want the activity threshold to be sufficiently high.
+    settings.time.rounds_per_session = 648_000.try_into().unwrap();
+
+    // Create backend.
+    let public_info = new_public_info(session, membership.clone(), &settings);
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, MockProofsVerifier, _>>::new(
+        settings.clone(),
+        overwatch_handle.clone(),
+        public_info.clone(),
+        BlakeRng::from_entropy(),
+    );
+    let mut backend_event_receiver = backend.subscribe_to_events();
+
+    // Create token collector and collect a token.
+    let mut token_collector =
+        SessionBlendingTokenCollector::new(&reward_session_info(&public_info))
+            .rotate_session(&reward_session_info(&new_public_info(
+                session + 1,
+                membership.clone(),
+                &settings,
+            )))
+            .1;
+    let token = BlendingToken::new(
+        Ed25519Key::from_bytes(&[0; _]).public_key(),
+        VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+        VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
+    );
+    token_collector.collect(token.clone());
+
+    // Create SDP relay.
+    let (sdp_relay, mut sdp_relay_receiver) = sdp_relay();
+
+    // Call `handle_session_transition_expired`.
+    handle_session_transition_expired::<_, NodeId, BlakeRng, MockProofsVerifier, _>(
+        &mut backend,
+        token_collector,
+        &sdp_relay,
+    )
+    .await;
+
+    // Check that the backend handled the transition completion.
+    wait_for_blend_backend_event(
+        &mut backend_event_receiver,
+        TestBlendBackendEvent::SessionTransitionCompleted,
+    )
+    .await;
+
+    // Check that an activity proof has been submitted to SDP service.
+    let nomos_sdp::SdpMessage::PostActivity {
+        metadata: ActivityMetadata::Blend(activity_proof),
+    } = sdp_relay_receiver
+        .try_recv()
+        .expect("an activity proof must be submitted")
+    else {
+        panic!("expected PostActivity with ActivityMetadata::Blend");
+    };
+    assert_eq!(
+        *activity_proof,
+        (&ActivityProof::new(session, token)).into()
+    );
+}
+
+#[test_log::test(tokio::test)]
 #[cfg(test)]
 async fn test_handle_session_event() {
     let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
@@ -190,7 +267,7 @@ async fn test_handle_session_event() {
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
     );
-    let public_info = new_public_info(session, membership.clone());
+    let public_info = new_public_info(session, membership.clone(), &settings);
     let crypto_processor = new_crypto_processor(
         &SessionCryptographicProcessorSettings {
             non_ephemeral_signing_key: local_private_key,
@@ -212,6 +289,7 @@ async fn test_handle_session_event() {
         BlakeRng::from_entropy(),
     );
     let mut backend_event_receiver = backend.subscribe_to_events();
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Handle a NewSession event, expecting Transitioning output.
     let output = handle_session_event(
@@ -231,6 +309,7 @@ async fn test_handle_session_event() {
         token_collector,
         None,
         &mut backend,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::Transitioning {
@@ -272,6 +351,7 @@ async fn test_handle_session_event() {
         new_token_collector,
         Some(old_token_collector),
         &mut backend,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::TransitionCompleted {
@@ -314,6 +394,7 @@ async fn test_handle_session_event() {
         current_token_collector,
         None,
         &mut backend,
+        &sdp_relay,
     )
     .await;
     let HandleSessionEventOutput::Retiring {
@@ -368,6 +449,8 @@ async fn complete_old_session_after_main_loop_done() {
         .send(membership_info.clone())
         .await
         .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Send the initial slot tick that the service will expect to receive
     // immediately.
@@ -444,6 +527,7 @@ async fn complete_old_session_after_main_loop_done() {
             &settings_cloned,
             &mut backend,
             &TestNetworkAdapter,
+            &sdp_relay,
             &mut epoch_handler,
             message_scheduler.into(),
             &mut rng,
@@ -461,6 +545,7 @@ async fn complete_old_session_after_main_loop_done() {
             &settings_cloned,
             backend,
             TestNetworkAdapter,
+            sdp_relay,
             epoch_handler,
             old_session_message_scheduler,
             rng,

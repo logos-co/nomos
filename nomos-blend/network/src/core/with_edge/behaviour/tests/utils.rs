@@ -2,6 +2,7 @@ use core::{num::NonZeroUsize, time::Duration};
 use std::collections::{HashSet, VecDeque};
 
 use async_trait::async_trait;
+use key_management_system_keys::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
 use libp2p::{Multiaddr, PeerId, Stream, Swarm};
 use libp2p_stream::Behaviour as StreamBehaviour;
 use libp2p_swarm_test::SwarmExt as _;
@@ -52,7 +53,8 @@ impl BehaviourBuilder {
                 .map(|edge_peer_id| Node {
                     address: Multiaddr::empty(),
                     id: edge_peer_id,
-                    public_key: [0; _].try_into().unwrap(),
+                    public_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE])
+                        .unwrap(),
                 })
                 .collect::<Vec<_>>()
                 .as_ref(),

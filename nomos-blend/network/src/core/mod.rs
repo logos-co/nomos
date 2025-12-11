@@ -5,7 +5,8 @@ pub mod with_edge;
 mod tests;
 
 use libp2p::{PeerId, StreamProtocol};
-use nomos_blend_message::{crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap};
+use nomos_blend_message::encap;
+use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
 use nomos_blend_scheduling::membership::Membership;
 
 use self::{

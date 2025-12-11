@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use reqwest::Client;
 use tempfile::TempDir;
 
-const DA_GET_TESTING_ENDPOINT_ERROR: &str = "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --workspace --all-features";
+const DA_GET_TESTING_ENDPOINT_ERROR: &str = "Failed to connect to testing endpoint. The binary was likely built without the 'testing' feature. Try: cargo build --locked --all-features";
 
 const LOGS_PREFIX: &str = "__logs";
 static CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
@@ -26,6 +26,6 @@ fn persist_tempdir(tempdir: &mut TempDir, label: &str) -> std::io::Result<()> {
     );
     // we need ownership of the dir to persist it
     let dir = std::mem::replace(tempdir, tempfile::tempdir()?);
-    let _ = dir.keep();
+    drop(dir.keep());
     Ok(())
 }

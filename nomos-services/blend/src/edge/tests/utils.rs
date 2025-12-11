@@ -6,18 +6,18 @@ use std::{
 
 use async_trait::async_trait;
 use futures::{StreamExt as _, future::ready, stream::once};
-use nomos_blend_message::crypto::proofs::quota::inputs::prove::{
-    private::ProofOfLeadershipQuotaInputs, public::LeaderInputs,
-};
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    membership::Membership,
-    message_blend::{
-        crypto::SessionCryptographicProcessorSettings,
-        provers::{BlendLayerProof, ProofsGeneratorSettings, leader::LeaderProofsGenerator},
+use nomos_blend::{
+    message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
+    proofs::quota::inputs::prove::{private::ProofOfLeadershipQuotaInputs, public::LeaderInputs},
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::SessionCryptographicProcessorSettings,
+            provers::{BlendLayerProof, ProofsGeneratorSettings, leader::LeaderProofsGenerator},
+        },
+        session::UninitializedSessionEventStream,
+        stream::UninitializedFirstReadyStream,
     },
-    session::UninitializedSessionEventStream,
-    stream::UninitializedFirstReadyStream,
 };
 use nomos_time::SlotTick;
 use overwatch::overwatch::{OverwatchHandle, commands::OverwatchCommand};
@@ -181,7 +181,7 @@ where
 
     fn shutdown(self) {}
 
-    async fn send(&self, _: EncapsulatedMessage) {
+    async fn send(&self, _: EncapsulatedMessageWithVerifiedPublicHeader) {
         let node_id = self
             .membership
             .choose_remote_nodes(&mut OsRng, 1)

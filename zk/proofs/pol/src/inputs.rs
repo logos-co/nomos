@@ -80,7 +80,7 @@ impl From<PolWitnessInputs> for PolInputsJson {
 pub struct PolVerifierInputJson([Groth16InputDeser; 9]);
 
 /// Public inputs of the POL verifier circuit as returned by the prover.
-/// This inputs are the ones that need to be fed into the verifier.
+/// These inputs are the ones that need to be fed into the verifier.
 pub struct PolVerifierInput {
     pub entropy_contribution: Groth16Input,
     pub slot_number: Groth16Input,

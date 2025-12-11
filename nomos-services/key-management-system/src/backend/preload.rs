@@ -2,16 +2,19 @@
 //! are preloaded from config file.
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use key_management_system_keys::keys::{
+    Key, KeyOperators, errors::KeyError, secured_key::SecuredKey,
+};
+use serde::Deserialize;
 
-use crate::{SecuredKey, backend::KMSBackend, keys};
+use crate::backend::KMSBackend;
 
 pub type KeyId = String;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PreloadBackendError {
     #[error(transparent)]
-    KeyError(#[from] keys::errors::KeyError),
+    KeyError(#[from] KeyError),
     #[error("KeyId ({0:?}) is not registered")]
     NotRegisteredKeyId(KeyId),
     #[error("KeyId {0} is already registered")]
@@ -19,22 +22,23 @@ pub enum PreloadBackendError {
 }
 
 pub struct PreloadKMSBackend {
-    keys: HashMap<KeyId, keys::Key>,
+    keys: HashMap<KeyId, Key>,
 }
 
 /// This setting contains all [`Key`]s to be loaded into the
 /// [`PreloadKMSBackend`]. This implements [`serde::Serialize`] for users to
 /// populate the settings from bytes.
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
+#[cfg_attr(any(test, feature = "unsafe"), derive(serde::Serialize))]
 pub struct PreloadKMSBackendSettings {
-    pub keys: HashMap<KeyId, keys::Key>,
+    pub keys: HashMap<KeyId, Key>,
 }
 
 #[async_trait::async_trait]
 impl KMSBackend for PreloadKMSBackend {
     type KeyId = KeyId;
-    type Key = keys::Key;
-    type KeyOperations = keys::KeyOperators;
+    type Key = Key;
+    type KeyOperations = KeyOperators;
     type Settings = PreloadKMSBackendSettings;
     type Error = PreloadBackendError;
 
@@ -116,14 +120,13 @@ mod tests {
     use std::marker::PhantomData;
 
     use bytes::{Bytes as RawBytes, Bytes};
+    use key_management_system_keys::keys::{
+        Ed25519Key, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
+    };
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
-    use zksign::SecretKey;
 
     use super::*;
-    use crate::keys::{
-        Ed25519Key, Key, KeyOperators, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
-    };
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct NoKeyOperator<Key, Error> {
@@ -140,7 +143,7 @@ mod tests {
         type Key = Key;
         type Error = Error;
 
-        async fn execute(&mut self, _key: &Self::Key) -> Result<(), Self::Error> {
+        async fn execute(self: Box<Self>, _key: &Self::Key) -> Result<(), Self::Error> {
             Ok(())
         }
     }
@@ -165,9 +168,7 @@ mod tests {
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
-        let key = Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
-            &mut OsRng,
-        )));
+        let key = Key::Ed25519(Ed25519Key::generate(&mut OsRng));
         let mut backend = PreloadKMSBackend::new(PreloadKMSBackendSettings {
             keys: HashMap::from_iter([(key_id.clone(), key.clone())]),
         });
@@ -204,9 +205,7 @@ mod tests {
         });
 
         let key_id = "blend/not_registered".to_owned();
-        let key = Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
-            &mut OsRng,
-        )));
+        let key = Key::Ed25519(Ed25519Key::generate(&mut OsRng));
 
         // Fetching public key fails
         assert!(matches!(
@@ -241,15 +240,11 @@ mod tests {
             keys: [
                 (
                     "test1".into(),
-                    Key::Ed25519(Ed25519Key::new(ed25519_dalek::SigningKey::generate(
-                        &mut OsRng,
-                    ))),
+                    Key::Ed25519(Ed25519Key::generate(&mut OsRng)),
                 ),
                 (
                     "test2".into(),
-                    Key::Zk(ZkKey::new(SecretKey::from(BigUint::from_bytes_le(
-                        &[1u8; 32],
-                    )))),
+                    Key::Zk(ZkKey::new(BigUint::from_bytes_le(&[1u8; 32]).into())),
                 ),
             ]
             .into(),

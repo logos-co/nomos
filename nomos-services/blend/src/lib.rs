@@ -7,13 +7,8 @@ use std::{
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
-pub use nomos_blend_message::{
-    crypto::proofs::{
-        RealProofsVerifier, quota::inputs::prove::private::ProofOfLeadershipQuotaInputs,
-    },
-    encap::ProofsVerifier,
-};
-use nomos_blend_scheduling::session::UninitializedSessionEventStream;
+pub use nomos_blend::message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
+use nomos_blend::scheduling::session::UninitializedSessionEventStream;
 use nomos_network::NetworkService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -43,7 +38,6 @@ pub mod core;
 pub mod edge;
 pub mod epoch_info;
 pub mod membership;
-pub mod merkle;
 pub mod message;
 pub mod session;
 pub mod settings;

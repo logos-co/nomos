@@ -13,33 +13,32 @@ version     = { workspace = true }
 workspace = true
 
 [dependencies]
-async-trait         = "0.1"
-blake2              = { workspace = true }
-chain-common        = { workspace = true }
-chain-service       = { workspace = true }
-cryptarchia-engine  = { workspace = true }
-ed25519-dalek       = { default-features = false, features = ["serde"], version = "2.2.0" }
-futures             = { default-features = false, version = "0.3" }
-groth16             = { workspace = true }
-nomos-blend-service = { workspace = true }
-nomos-core          = { workspace = true }
-nomos-da-sampling   = { workspace = true }
-nomos-ledger        = { features = ["serde"], workspace = true }
-nomos-time          = { workspace = true }
-nomos-utils         = { workspace = true }
-nomos-wallet        = { workspace = true }
-overwatch           = { workspace = true }
-rand                = "0.8.5"
-rayon               = "1"
-serde               = { default-features = false, version = "1" }
-services-utils      = { workspace = true }
-thiserror           = "1.0"
-tokio               = { default-features = false, version = "1" }
-tracing             = { workspace = true }
-tracing-futures     = { default-features = false, version = "0.2" }
-tx-service          = { workspace = true }
-zeroize             = { workspace = true }
-zksign              = { workspace = true }
+async-trait                = "0.1"
+blake2                     = { workspace = true }
+chain-common               = { workspace = true }
+chain-service              = { workspace = true }
+cryptarchia-engine         = { workspace = true }
+futures                    = { default-features = false, version = "0.3" }
+groth16                    = { workspace = true }
+key-management-system-keys = { workspace = true }
+nomos-blend-service        = { workspace = true }
+nomos-core                 = { workspace = true }
+nomos-da-sampling          = { workspace = true }
+nomos-ledger               = { features = ["serde"], workspace = true }
+nomos-time                 = { workspace = true }
+nomos-utils                = { workspace = true }
+nomos-wallet               = { workspace = true }
+overwatch                  = { workspace = true }
+rand                       = "0.8.5"
+rayon                      = "1"
+serde                      = { workspace = true }
+services-utils             = { workspace = true }
+thiserror                  = "1.0"
+tokio                      = { default-features = false, version = "1" }
+tracing                    = { workspace = true }
+tracing-futures            = { default-features = false, version = "0.2" }
+tx-service                 = { workspace = true }
+zeroize                    = { workspace = true }
 
 [dev-dependencies]
 divan = { default-features = false, version = "0.1" }

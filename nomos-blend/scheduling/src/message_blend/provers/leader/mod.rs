@@ -2,19 +2,19 @@ use core::pin::Pin;
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, stream};
+use key_management_system_keys::keys::UnsecuredEd25519Key;
 use nomos_blend_message::crypto::{
-    keys::Ed25519PrivateKey,
-    proofs::{
-        PoQVerificationInputsMinusSigningKey,
-        quota::{
-            ProofOfQuota,
-            inputs::prove::{
-                PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
-                public::LeaderInputs,
-            },
+    key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey,
+};
+use nomos_blend_proofs::{
+    quota::{
+        VerifiedProofOfQuota,
+        inputs::prove::{
+            PrivateInputs, PublicInputs, private::ProofOfLeadershipQuotaInputs,
+            public::LeaderInputs,
         },
-        selection::ProofOfSelection,
     },
+    selection::VerifiedProofOfSelection,
 };
 use tokio::task::spawn_blocking;
 
@@ -112,10 +112,10 @@ fn create_leadership_proof_stream(
             let private_inputs = private_inputs.clone();
 
             spawn_blocking(move || {
-                let ephemeral_signing_key = Ed25519PrivateKey::generate();
-                let (proof_of_quota, secret_selection_randomness) = ProofOfQuota::new(
+                let ephemeral_signing_key = UnsecuredEd25519Key::generate_with_blake_rng();
+                let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
                     &PublicInputs {
-                        signing_key: ephemeral_signing_key.public_key(),
+                        signing_key: ephemeral_signing_key.public_key().into_inner(),
                         core: public_inputs.core,
                         leader: public_inputs.leader,
                         session: public_inputs.session,
@@ -126,7 +126,7 @@ fn create_leadership_proof_stream(
                     ),
                 )
                 .ok()?;
-                let proof_of_selection = ProofOfSelection::new(secret_selection_randomness);
+                let proof_of_selection = VerifiedProofOfSelection::new(secret_selection_randomness);
                 Some(BlendLayerProof {
                     proof_of_quota,
                     proof_of_selection,
@@ -135,5 +135,5 @@ fn create_leadership_proof_stream(
             })
         })
         .buffered(PROOFS_GENERATOR_BUFFER_SIZE)
-        .filter_map(|result| async move { result.ok().flatten() })
+        .filter_map(async |result| result.ok().flatten())
 }

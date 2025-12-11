@@ -3,40 +3,41 @@ use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 use async_trait::async_trait;
 use futures::Stream;
 use groth16::Field as _;
-use nomos_blend_message::{
-    crypto::{
-        keys::{Ed25519PrivateKey, Ed25519PublicKey},
-        proofs::{
-            PoQVerificationInputsMinusSigningKey,
-            quota::{
-                ProofOfQuota,
-                inputs::prove::{
-                    private::ProofOfLeadershipQuotaInputs,
-                    public::{CoreInputs, LeaderInputs},
-                },
+use key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
+use nomos_blend::{
+    message::{
+        crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
+        encap::{
+            ProofsVerifier, encapsulated::EncapsulatedMessage,
+            validated::EncapsulatedMessageWithVerifiedPublicHeader,
+        },
+        reward,
+    },
+    proofs::{
+        quota::{
+            ProofOfQuota, VerifiedProofOfQuota,
+            inputs::prove::{
+                private::ProofOfLeadershipQuotaInputs,
+                public::{CoreInputs, LeaderInputs},
             },
-            selection::{ProofOfSelection, inputs::VerifyInputs},
         },
+        selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
     },
-    encap::ProofsVerifier,
-    reward,
-};
-use nomos_blend_scheduling::{
-    EncapsulatedMessage,
-    membership::Membership,
-    message_blend::{
-        crypto::{
-            IncomingEncapsulatedMessageWithValidatedPublicHeader,
-            SessionCryptographicProcessorSettings,
+    scheduling::{
+        membership::Membership,
+        message_blend::{
+            crypto::SessionCryptographicProcessorSettings,
+            provers::{
+                BlendLayerProof, ProofsGeneratorSettings,
+                core_and_leader::CoreAndLeaderProofsGenerator,
+            },
         },
-        provers::{
-            BlendLayerProof, ProofsGeneratorSettings, core_and_leader::CoreAndLeaderProofsGenerator,
-        },
+        message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
     },
-    message_scheduler::{self, session_info::SessionInfo as SchedulerSessionInfo},
 };
 use nomos_core::{crypto::ZkHash, sdp::SessionNumber};
 use nomos_network::{NetworkService, backends::NetworkBackend};
+use nomos_sdp::SdpMessage;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
@@ -70,7 +71,7 @@ pub type NodeId = [u8; 32];
 
 /// Creates a membership with the given size and returns it along with the
 /// private key of the local node.
-pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519PrivateKey) {
+pub fn new_membership(size: u8) -> (Membership<NodeId>, UnsecuredEd25519Key) {
     let ids = (0..size).map(|i| [i; 32]).collect::<Vec<_>>();
     let local_id = *ids.first().unwrap();
     (
@@ -85,7 +86,7 @@ pub fn new_membership(size: u8) -> (Membership<NodeId>, Ed25519PrivateKey) {
 /// Also returns a [`NamedTempFile`] used for service recovery
 /// that must not be dropped, as doing so will delete the underlying temp file.
 pub fn settings<BackendSettings>(
-    local_private_key: Ed25519PrivateKey,
+    local_private_key: UnsecuredEd25519Key,
     minimum_network_size: NonZeroU64,
     backend_settings: BackendSettings,
 ) -> (BlendConfig<BackendSettings>, NamedTempFile) {
@@ -186,8 +187,7 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = IncomingEncapsulatedMessageWithValidatedPublicHeader> + Send>>
-    {
+    ) -> Pin<Box<dyn Stream<Item = EncapsulatedMessageWithVerifiedPublicHeader> + Send>> {
         unimplemented!()
     }
 }
@@ -319,20 +319,25 @@ pub fn new_crypto_processor<CorePoQGenerator>(
     .expect("crypto processor must be created successfully")
 }
 
-pub fn new_public_info(session: u64, membership: Membership<NodeId>) -> PublicInfo<NodeId> {
+pub fn new_public_info<BackendSettings>(
+    session: u64,
+    membership: Membership<NodeId>,
+    settings: &BlendConfig<BackendSettings>,
+) -> PublicInfo<NodeId> {
+    let core_quota = settings.session_quota(membership.size());
     PublicInfo {
         session: SessionInfo {
             session_number: session,
             membership,
             core_public_inputs: CoreInputs {
                 zk_root: ZkHash::ZERO,
-                quota: 10,
+                quota: core_quota,
             },
         },
         epoch: LeaderInputs {
             pol_ledger_aged: ZkHash::ZERO,
             pol_epoch_nonce: ZkHash::ZERO,
-            message_quota: 10,
+            message_quota: settings.crypto.num_blend_layers.get(),
             total_stake: 10,
         },
     }
@@ -403,10 +408,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfQuota,
         _signing_key: &Ed25519PublicKey,
-    ) -> Result<ZkHash, Self::Error> {
+    ) -> Result<VerifiedProofOfQuota, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_quota;
         if proof == expected_proof {
-            Ok(ZkHash::ZERO)
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -416,10 +421,10 @@ impl ProofsVerifier for MockProofsVerifier {
         &self,
         proof: ProofOfSelection,
         _inputs: &VerifyInputs,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<VerifiedProofOfSelection, Self::Error> {
         let expected_proof = session_based_dummy_proofs(self.0).proof_of_selection;
         if proof == expected_proof {
-            Ok(())
+            Ok(expected_proof)
         } else {
             Err(())
         }
@@ -429,17 +434,17 @@ impl ProofsVerifier for MockProofsVerifier {
 fn session_based_dummy_proofs(session: SessionNumber) -> BlendLayerProof {
     let session_bytes = session.to_le_bytes();
     BlendLayerProof {
-        proof_of_quota: ProofOfQuota::from_bytes_unchecked({
+        proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        proof_of_selection: ProofOfSelection::from_bytes_unchecked({
+        proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked({
             let mut bytes = [0u8; _];
             bytes[..session_bytes.len()].copy_from_slice(&session_bytes);
             bytes
         }),
-        ephemeral_signing_key: Ed25519PrivateKey::generate(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
     }
 }
 
@@ -462,4 +467,9 @@ impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId> for MockKmsAdapter {
         _core_path_and_selectors: Box<CorePathAndSelectors>,
     ) -> Self::CorePoQGenerator {
     }
+}
+
+pub fn sdp_relay() -> (OutboundRelay<SdpMessage>, mpsc::Receiver<SdpMessage>) {
+    let (sender, receiver) = mpsc::channel(10);
+    (OutboundRelay::new(sender), receiver)
 }

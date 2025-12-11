@@ -166,7 +166,7 @@ where
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
         membership: Self::Membership,
         addressbook: Self::Addressbook,
-        subnet_refresh_signal: impl Stream<Item = ()> + Send + 'static,
+        subnet_refresh_sender: &broadcast::Sender<()>,
         balancer_stats_sender: UnboundedSender<BalancerStats>,
         opinion_sender: UnboundedSender<OpinionEvent>,
     ) -> Self {
@@ -187,7 +187,7 @@ where
                 replication_settings: config.validator_settings.replication_settings,
                 subnets_settings: config.validator_settings.subnets_settings,
             },
-            subnet_refresh_signal,
+            subnet_refresh_sender,
             balancer_stats_sender,
         );
 

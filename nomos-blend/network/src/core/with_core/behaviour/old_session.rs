@@ -10,16 +10,14 @@ use libp2p::{
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
 use nomos_blend_message::{
-    MessageIdentifier, crypto::proofs::quota::inputs::prove::public::LeaderInputs, encap,
-};
-use nomos_blend_scheduling::{
-    EncapsulatedMessage, deserialize_encapsulated_message,
-    message_blend::crypto::{
-        IncomingEncapsulatedMessageWithValidatedPublicHeader,
-        OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+    MessageIdentifier,
+    encap::{
+        self, encapsulated::EncapsulatedMessage,
+        validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
-    serialize_encapsulated_message,
 };
+use nomos_blend_proofs::quota::inputs::prove::public::LeaderInputs;
+use nomos_blend_scheduling::{deserialize_encapsulated_message, serialize_encapsulated_message};
 
 use crate::core::with_core::{
     behaviour::{Event, handler::FromBehaviour},
@@ -40,15 +38,6 @@ impl<ProofsVerifier> OldSession<ProofsVerifier>
 where
     ProofsVerifier: encap::ProofsVerifier,
 {
-    pub fn verify_encapsulated_message_public_header(
-        &self,
-        message: EncapsulatedMessage,
-    ) -> Result<IncomingEncapsulatedMessageWithValidatedPublicHeader, Error> {
-        message
-            .verify_public_header(&self.poq_verifier)
-            .map_err(|_| Error::InvalidMessage)
-    }
-
     /// Validates the public header of an encapsulated message, and
     /// if valid, forwards it to all negotiated peers.
     pub fn validate_and_publish_message(
@@ -56,7 +45,16 @@ where
         message: EncapsulatedMessage,
     ) -> Result<(), Error> {
         let validated_message = self.verify_encapsulated_message_public_header(message)?;
-        self.forward_validated_message_and_maybe_exclude(&validated_message.into(), None)
+        self.forward_validated_message_and_maybe_exclude(&validated_message, None)
+    }
+
+    fn verify_encapsulated_message_public_header(
+        &self,
+        message: EncapsulatedMessage,
+    ) -> Result<EncapsulatedMessageWithVerifiedPublicHeader, Error> {
+        message
+            .verify_public_header(&self.poq_verifier)
+            .map_err(|_| Error::InvalidMessage)
     }
 
     pub(super) fn start_new_epoch(&mut self, new_pol_inputs: LeaderInputs) {
@@ -112,13 +110,13 @@ impl<ProofsVerifier> OldSession<ProofsVerifier> {
     ///
     /// Public header validation checks are skipped, since the message is
     /// assumed to have been properly formed.
-    pub fn forward_validated_message_and_maybe_exclude(
+    fn forward_validated_message_and_maybe_exclude(
         &mut self,
-        message: &OutgoingEncapsulatedMessageWithValidatedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: Option<PeerId>,
     ) -> Result<(), Error> {
         let message_id = message.id();
-        let serialized_message = serialize_encapsulated_message(message.as_ref());
+        let serialized_message = serialize_encapsulated_message(message);
         let mut at_least_one_receiver = false;
         self.negotiated_peers
             .iter()
