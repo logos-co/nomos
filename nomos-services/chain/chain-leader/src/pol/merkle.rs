@@ -1,7 +1,10 @@
 use blake2::{Blake2b512, Digest as _};
 use cryptarchia_engine::Slot;
 use groth16::{Fr, fr_from_bytes_unchecked, fr_to_bytes};
-use nomos_core::crypto::{ZkDigest, ZkHasher};
+use nomos_core::{
+    crypto::{ZkDigest, ZkHasher},
+    utils::merkle::{MerkleNode, MerklePath},
+};
 use nomos_utils::blake_rng::{BlakeRng, BlakeRngSeed, SeedableRng as _};
 use rand::RngCore as _;
 use rayon::iter::{IntoParallelIterator as _, IntoParallelRefIterator as _, ParallelIterator as _};
@@ -41,6 +44,7 @@ impl MerklePolCache {
                 *subtree
                     .merkle_path_for_index(0)
                     .first()
+                    .map(|node| node.item())
                     .expect("Root should be always present")
             })
             .collect();
@@ -83,7 +87,7 @@ impl MerklePolCache {
     }
 
     #[must_use]
-    pub fn merkle_path_for_index(&self, index: usize) -> Vec<Fr> {
+    pub fn merkle_path_for_index(&self, index: usize) -> MerklePath<Fr> {
         let mut cached_path = get_merkle_path(&self.cached_tree, index, self.cached_tree.len());
         let subtree_leaf_length = 2usize.pow((self.tree_depth - self.cache_depth()) as u32);
         let subtree_index = index / subtree_leaf_length;
@@ -107,7 +111,7 @@ impl MerklePolSubtree {
     }
 
     #[must_use]
-    pub fn merkle_path_for_index(&self, index: usize) -> Vec<Fr> {
+    pub fn merkle_path_for_index(&self, index: usize) -> MerklePath<Fr> {
         let hashed_leafs: Vec<_> = std::iter::successors(Some(self.seed), |seed| {
             Some(fr_from_bytes_unchecked(
                 &Blake2b512::digest(fr_to_bytes(seed))[..31],
@@ -149,8 +153,8 @@ pub fn get_merkle_path(
     cached_tree: &CachedTree,
     mut current_index: usize,
     tree_depth: usize,
-) -> Vec<Fr> {
-    let mut path = Vec::new();
+) -> MerklePath<Fr> {
+    let mut path = MerklePath::new();
 
     for level in (0..tree_depth).rev() {
         let sibling_index = if current_index.is_multiple_of(2) {
@@ -160,7 +164,13 @@ pub fn get_merkle_path(
         };
 
         if sibling_index < cached_tree[level].len() {
-            path.push(cached_tree[level][sibling_index]);
+            let value = cached_tree[level][sibling_index];
+            let node = if sibling_index.is_multiple_of(2) {
+                MerkleNode::Left(value)
+            } else {
+                MerkleNode::Right(value)
+            };
+            path.push(node);
         }
 
         current_index /= 2;
