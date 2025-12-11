@@ -1736,8 +1736,8 @@ dependencies = [
  "chain-common",
  "chain-service",
  "cryptarchia-engine",
- "ed25519-dalek",
  "futures",
+ "key-management-system-keys",
  "nomos-blend-service",
  "nomos-core",
  "nomos-da-sampling",
@@ -1752,7 +1752,6 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -1793,9 +1792,9 @@ dependencies = [
  "bytes",
  "cryptarchia-engine",
  "cryptarchia-sync",
- "ed25519-dalek",
  "futures",
  "groth16",
+ "key-management-system-keys",
  "nomos-core",
  "nomos-ledger",
  "nomos-network",
@@ -4676,10 +4675,14 @@ dependencies = [
  "async-trait",
  "bytes",
  "ed25519-dalek",
+ "generic-array 1.3.5",
  "groth16",
  "key-management-system-macros",
  "nomos-blend-proofs",
  "nomos-utils",
+ "num-bigint",
+ "poseidon2",
+ "rand_core 0.6.4",
  "serde",
  "subtle",
  "thiserror 2.0.17",
@@ -4704,7 +4707,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "ed25519-dalek",
  "key-management-system-keys",
  "log",
  "num-bigint",
@@ -4715,7 +4717,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -5956,7 +5957,6 @@ name = "nomos-blend-crypto"
 version = "0.1.0"
 dependencies = [
  "blake2",
- "ed25519-dalek",
  "groth16",
  "nomos-utils",
  "num-bigint",
@@ -5968,7 +5968,6 @@ dependencies = [
  "thiserror 1.0.69",
  "x25519-dalek",
  "zeroize",
- "zksign",
 ]
 
 [[package]]
@@ -5977,9 +5976,7 @@ version = "0.1.0"
 dependencies = [
  "blake2",
  "derivative",
- "ed25519-dalek",
  "groth16",
- "hex",
  "itertools 0.14.0",
  "key-management-system-keys",
  "nomos-blend-crypto",
@@ -6008,7 +6005,6 @@ dependencies = [
  "libp2p",
  "libp2p-stream",
  "libp2p-swarm-test",
- "nomos-blend-crypto",
  "nomos-blend-message",
  "nomos-blend-proofs",
  "nomos-blend-scheduling",
@@ -6025,15 +6021,16 @@ name = "nomos-blend-proofs"
 version = "0.1.0"
 dependencies = [
  "const-hex",
+ "ed25519-dalek",
  "generic-array 1.3.5",
  "groth16",
+ "key-management-system-keys",
  "nomos-blend-crypto",
  "nomos-core",
  "num-bigint",
  "poq",
  "serde",
  "thiserror 1.0.69",
- "zksign",
 ]
 
 [[package]]
@@ -6070,7 +6067,6 @@ dependencies = [
  "broadcast-service",
  "chain-service",
  "cryptarchia-engine",
- "ed25519-dalek",
  "fork_stream",
  "futures",
  "groth16",
@@ -6098,7 +6094,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6140,15 +6135,13 @@ dependencies = [
  "bytes",
  "const-hex",
  "cryptarchia-engine",
- "ed25519",
- "ed25519-dalek",
  "futures",
  "generic-array 1.3.5",
  "groth16",
  "hex",
+ "key-management-system-keys",
  "multiaddr",
  "nom 8.0.0",
- "nomos-blend-crypto",
  "nomos-blend-proofs",
  "nomos-utils",
  "num-bigint",
@@ -6157,11 +6150,9 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "serde_with",
  "strum",
  "thiserror 1.0.69",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6170,9 +6161,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "broadcast-service",
- "ed25519",
- "ed25519-dalek",
  "futures",
+ "key-management-system-keys",
  "kzgrs-backend",
  "nomos-core",
  "nomos-da-network-core",
@@ -6188,7 +6178,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6209,11 +6198,10 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "cached",
- "ed25519-dalek",
- "either",
  "fixed",
  "futures",
  "indexmap 2.12.1",
+ "key-management-system-keys",
  "kzgrs",
  "kzgrs-backend",
  "libp2p",
@@ -6233,7 +6221,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tracing-subscriber 0.3.22",
- "zksign",
 ]
 
 [[package]]
@@ -6246,8 +6233,8 @@ dependencies = [
  "blake2",
  "broadcast-service",
  "common-http-client",
- "ed25519-dalek",
  "futures",
+ "key-management-system-keys",
  "kzgrs-backend",
  "libp2p",
  "libp2p-identity",
@@ -6372,6 +6359,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "governor",
+ "key-management-system-keys",
  "nomos-core",
  "pprof",
  "serde",
@@ -6380,7 +6368,6 @@ dependencies = [
  "tokio",
  "tower_governor",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -6388,9 +6375,8 @@ name = "nomos-ledger"
 version = "0.1.0"
 dependencies = [
  "cryptarchia-engine",
- "ed25519",
- "ed25519-dalek",
  "groth16",
+ "key-management-system-keys",
  "mmr",
  "nomos-blend-crypto",
  "nomos-blend-message",
@@ -6404,7 +6390,6 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "utxotree",
- "zksign",
 ]
 
 [[package]]
@@ -6523,7 +6508,6 @@ dependencies = [
  "tx-service",
  "utoipa",
  "utoipa-swagger-ui",
- "zksign",
 ]
 
 [[package]]
@@ -6531,8 +6515,8 @@ name = "nomos-sdp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "ed25519-dalek",
  "futures",
+ "key-management-system-keys",
  "nomos-core",
  "overwatch",
  "serde",
@@ -6541,7 +6525,6 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -6671,7 +6654,6 @@ dependencies = [
  "tokio",
  "tracing",
  "wallet",
- "zksign",
 ]
 
 [[package]]
@@ -10048,7 +10030,6 @@ dependencies = [
  "common-http-client",
  "cryptarchia-engine",
  "cryptarchia-sync",
- "ed25519-dalek",
  "executor-http-client",
  "futures",
  "futures-util",
@@ -10057,7 +10038,6 @@ dependencies = [
  "key-management-system-service",
  "kzgrs-backend",
  "nomos-api",
- "nomos-blend",
  "nomos-blend-service",
  "nomos-core",
  "nomos-da-dispersal",
@@ -10088,7 +10068,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tx-service",
- "zksign",
 ]
 
 [[package]]
@@ -11156,6 +11135,7 @@ name = "wallet"
 version = "0.1.0"
 dependencies = [
  "cryptarchia-engine",
+ "key-management-system-keys",
  "nomos-core",
  "nomos-ledger",
  "nomos-utils",
@@ -11163,7 +11143,6 @@ dependencies = [
  "rpds",
  "thiserror 2.0.17",
  "tracing",
- "zksign",
 ]
 
 [[package]]
@@ -11172,10 +11151,10 @@ version = "0.1.0"
 dependencies = [
  "common-http-client",
  "hex",
+ "key-management-system-keys",
  "nomos-core",
  "nomos-http-api-common",
  "url",
- "zksign",
 ]
 
 [[package]]
@@ -12229,10 +12208,8 @@ dependencies = [
 name = "zksign"
 version = "0.1.0"
 dependencies = [
- "ark-ff 0.4.2",
  "circuits-prover",
  "circuits-utils",
- "generic-array 1.3.5",
  "groth16",
  "num-bigint",
  "poseidon2",
@@ -12240,9 +12217,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "tracing",
  "witness-generator",
- "zeroize",
 ]
 
 [[package]]
