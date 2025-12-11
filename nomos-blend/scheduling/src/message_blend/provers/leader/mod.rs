@@ -115,7 +115,7 @@ fn create_leadership_proof_stream(
                 let ephemeral_signing_key = UnsecuredEd25519Key::generate_with_blake_rng();
                 let (proof_of_quota, secret_selection_randomness) = VerifiedProofOfQuota::new(
                     &PublicInputs {
-                        signing_key: *ephemeral_signing_key.public_key(),
+                        signing_key: ephemeral_signing_key.public_key().into_inner(),
                         core: public_inputs.core,
                         leader: public_inputs.leader,
                         session: public_inputs.session,

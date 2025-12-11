@@ -18,7 +18,7 @@ impl Ed25519SecretKeyExt for UnsecuredEd25519Key {
     }
 
     fn derive_x25519(&self) -> X25519PrivateKey {
-        self.as_ref().to_scalar_bytes().into()
+        self.as_inner().to_scalar_bytes().into()
     }
 }
 
@@ -28,6 +28,6 @@ pub(crate) trait Ed25519PublicKeyExt {
 
 impl Ed25519PublicKeyExt for Ed25519PublicKey {
     fn derive_x25519(&self) -> X25519PublicKey {
-        self.to_montgomery().to_bytes().into()
+        self.as_inner().to_montgomery().to_bytes().into()
     }
 }

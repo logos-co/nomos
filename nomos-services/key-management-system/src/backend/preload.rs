@@ -121,7 +121,7 @@ mod tests {
 
     use bytes::{Bytes as RawBytes, Bytes};
     use key_management_system_keys::keys::{
-        PayloadEncoding, UnsecuredEd25519Key, ZkKey, secured_key::SecureKeyOperator,
+        Ed25519Key, PayloadEncoding, ZkKey, secured_key::SecureKeyOperator,
     };
     use num_bigint::BigUint;
     use rand::rngs::OsRng;
@@ -168,7 +168,7 @@ mod tests {
     async fn preload_backend() {
         // Initialize a backend with a pre-generated key in the setting
         let key_id = "blend/1".to_owned();
-        let key = Key::Ed25519(UnsecuredEd25519Key::generate(&mut OsRng).into());
+        let key = Key::Ed25519(Ed25519Key::generate(&mut OsRng));
         let mut backend = PreloadKMSBackend::new(PreloadKMSBackendSettings {
             keys: HashMap::from_iter([(key_id.clone(), key.clone())]),
         });
@@ -205,7 +205,7 @@ mod tests {
         });
 
         let key_id = "blend/not_registered".to_owned();
-        let key = Key::Ed25519(UnsecuredEd25519Key::generate(&mut OsRng).into());
+        let key = Key::Ed25519(Ed25519Key::generate(&mut OsRng));
 
         // Fetching public key fails
         assert!(matches!(
@@ -240,7 +240,7 @@ mod tests {
             keys: [
                 (
                     "test1".into(),
-                    Key::Ed25519(UnsecuredEd25519Key::generate(&mut OsRng).into()),
+                    Key::Ed25519(Ed25519Key::generate(&mut OsRng)),
                 ),
                 (
                     "test2".into(),

@@ -15,7 +15,7 @@ workspace = true
 [dependencies]
 async-trait                  = { default-features = false, version = "0.1" }
 bytes                        = { workspace = true }
-ed25519-dalek                = { default-features = false, features = ["rand_core", "serde", "zeroize"], version = "2" }
+ed25519-dalek                = { workspace = true, features = ["rand_core", "serde", "zeroize"] }
 generic-array                = { default-features = false, version = "1.2.0" }
 groth16                      = { workspace = true }
 key-management-system-macros = { workspace = true }

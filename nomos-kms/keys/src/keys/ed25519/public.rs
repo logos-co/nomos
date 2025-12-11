@@ -1,5 +1,3 @@
-use core::ops::{Deref, DerefMut};
-
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, SignatureError, Verifier as _, VerifyingKey};
 use nomos_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
@@ -38,8 +36,13 @@ impl PublicKey {
     }
 
     #[must_use]
+    pub fn as_bytes(&self) -> &[u8; KEY_SIZE] {
+        self.0.as_bytes()
+    }
+
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; KEY_SIZE] {
-        self.0.to_bytes()
+        *self.as_bytes()
     }
 
     pub fn verify(
@@ -47,12 +50,17 @@ impl PublicKey {
         message: &[u8],
         signature: &Ed25519Signature,
     ) -> Result<(), SignatureError> {
-        self.0.verify(message, signature)
+        self.0.verify(message, signature.as_inner())
     }
 
     #[must_use]
     pub const fn into_inner(self) -> VerifyingKey {
         self.0
+    }
+
+    #[must_use]
+    pub const fn as_inner(&self) -> &VerifyingKey {
+        &self.0
     }
 }
 
@@ -68,28 +76,8 @@ impl From<PublicKey> for VerifyingKey {
     }
 }
 
-impl Deref for PublicKey {
-    type Target = VerifyingKey;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for PublicKey {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
 impl AsRef<[u8]> for PublicKey {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
-    }
-}
-
-impl AsRef<VerifyingKey> for PublicKey {
-    fn as_ref(&self) -> &VerifyingKey {
-        &self.0
     }
 }

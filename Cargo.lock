@@ -5956,7 +5956,6 @@ name = "nomos-blend-crypto"
 version = "0.1.0"
 dependencies = [
  "blake2",
- "ed25519-dalek",
  "groth16",
  "nomos-utils",
  "num-bigint",

@@ -45,6 +45,12 @@ impl UnsecuredEd25519Key {
     pub fn as_bytes(&self) -> &[u8; SECRET_KEY_LENGTH] {
         self.0.as_bytes()
     }
+
+    /// Return a reference to the inner secret key.
+    #[must_use]
+    pub const fn as_inner(&self) -> &SigningKey {
+        &self.0
+    }
 }
 
 impl Serialize for UnsecuredEd25519Key {
@@ -83,12 +89,5 @@ impl From<SigningKey> for UnsecuredEd25519Key {
 impl From<UnsecuredEd25519Key> for SigningKey {
     fn from(value: UnsecuredEd25519Key) -> Self {
         value.0.clone()
-    }
-}
-
-/// Return a reference to the inner secret key.
-impl AsRef<SigningKey> for UnsecuredEd25519Key {
-    fn as_ref(&self) -> &SigningKey {
-        &self.0
     }
 }
