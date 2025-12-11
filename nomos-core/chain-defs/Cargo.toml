@@ -28,7 +28,6 @@ hex                        = { version = "0.4", default-features = false, featur
 key-management-system-keys = { workspace = true }
 multiaddr                  = { default-features = false, version = "0.18" }
 nom                        = { version = "8", default-features = false, features = ["alloc"] }
-nomos-blend-crypto         = { workspace = true }
 nomos-blend-proofs         = { workspace = true }
 nomos-utils                = { workspace = true }
 num-bigint                 = { version = "0.4", default-features = false }
