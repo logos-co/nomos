@@ -6,6 +6,7 @@ use std::collections::HashSet;
 
 pub use activity::ActivityProof;
 use nomos_core::sdp::SessionNumber;
+use serde::{Deserialize, Serialize};
 pub use session::SessionInfo;
 pub use token::{BlendingToken, HammingDistance};
 
@@ -18,6 +19,7 @@ pub trait BlendingTokenCollector {
 }
 
 /// Holds blending tokens collected during a single session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionBlendingTokenCollector {
     session_number: SessionNumber,
     token_evaluation: BlendingTokenEvaluation,
@@ -47,9 +49,14 @@ impl SessionBlendingTokenCollector {
         (new_collector, old_collector)
     }
 
-    #[cfg(test)]
     #[must_use]
-    const fn tokens(&self) -> &HashSet<BlendingToken> {
+    pub const fn session_number(&self) -> SessionNumber {
+        self.session_number
+    }
+
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    #[must_use]
+    pub const fn tokens(&self) -> &HashSet<BlendingToken> {
         &self.tokens
     }
 }
@@ -61,6 +68,7 @@ impl BlendingTokenCollector for SessionBlendingTokenCollector {
 }
 
 /// Holds blending tokens collected during the old session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OldSessionBlendingTokenCollector {
     collector: SessionBlendingTokenCollector,
     next_session_randomness: SessionRandomness,
@@ -92,9 +100,14 @@ impl OldSessionBlendingTokenCollector {
             .map(|(token, _)| ActivityProof::new(self.collector.session_number, token))
     }
 
-    #[cfg(test)]
     #[must_use]
-    const fn tokens(&self) -> &HashSet<BlendingToken> {
+    pub const fn session_number(&self) -> SessionNumber {
+        self.collector.session_number()
+    }
+
+    #[cfg(any(test, feature = "unsafe-test-functions"))]
+    #[must_use]
+    pub const fn tokens(&self) -> &HashSet<BlendingToken> {
         self.collector.tokens()
     }
 }
