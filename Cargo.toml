@@ -276,6 +276,7 @@ shadow_same                 = { level = "allow" }
 shadow_unrelated            = { level = "allow" }
 tests_outside_test_module   = { level = "allow" }
 todo                        = { level = "allow" }
+unchecked_time_subtraction  = { level = "allow" }
 unimplemented               = { level = "allow" }
 unreachable                 = { level = "allow" }
 unwrap_in_result            = { level = "allow" }
