@@ -14,10 +14,6 @@ pub use crate::reward::session::{BlendingTokenEvaluation, Error, SessionRandomne
 
 const LOG_TARGET: &str = "blend::message::reward";
 
-pub trait BlendingTokenCollector {
-    fn collect(&mut self, token: BlendingToken);
-}
-
 /// Holds blending tokens collected during a single session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionBlendingTokenCollector {
@@ -34,6 +30,10 @@ impl SessionBlendingTokenCollector {
             token_evaluation: session_info.token_evaluation,
             tokens: HashSet::new(),
         }
+    }
+
+    pub fn collect(&mut self, token: BlendingToken) {
+        self.tokens.insert(token);
     }
 
     #[must_use]
@@ -58,12 +58,6 @@ impl SessionBlendingTokenCollector {
     #[must_use]
     pub const fn tokens(&self) -> &HashSet<BlendingToken> {
         &self.tokens
-    }
-}
-
-impl BlendingTokenCollector for SessionBlendingTokenCollector {
-    fn collect(&mut self, token: BlendingToken) {
-        self.tokens.insert(token);
     }
 }
 
@@ -109,12 +103,6 @@ impl OldSessionBlendingTokenCollector {
     #[must_use]
     pub const fn tokens(&self) -> &HashSet<BlendingToken> {
         self.collector.tokens()
-    }
-}
-
-impl BlendingTokenCollector for OldSessionBlendingTokenCollector {
-    fn collect(&mut self, token: BlendingToken) {
-        self.collector.collect(token);
     }
 }
 

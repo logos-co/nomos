@@ -80,13 +80,11 @@ async fn test_handle_incoming_blend_message() {
         BlakeRng::from_entropy(),
         scheduler_settings,
     );
-    let mut token_collector =
-        SessionBlendingTokenCollector::new(&reward_session_info(&public_info));
     let recovery_checkpoint = ServiceState::with_session(
         session,
-        token_collector.clone(),
+        SessionBlendingTokenCollector::new(&reward_session_info(&public_info)),
         None,
-        state_updater.clone(),
+        state_updater,
     )
     .unwrap();
     let recovery_checkpoint = handle_incoming_blend_message(
@@ -95,12 +93,9 @@ async fn test_handle_incoming_blend_message() {
         None,
         &processor,
         None,
-        &mut token_collector,
-        None,
         recovery_checkpoint,
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 1);
-    assert_eq!(token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .current_session_token_collector()
@@ -116,17 +111,19 @@ async fn test_handle_incoming_blend_message() {
     let mut new_processor = new_crypto_processor(&settings.crypto, &public_info, ());
     let (mut new_scheduler, mut scheduler) =
         scheduler.rotate_session(scheduler_session_info(&public_info), scheduler_settings);
-    let (mut new_token_collector, mut old_token_collector) =
-        token_collector.rotate_session(&reward_session_info(&public_info));
+    let (_, _, _, _, current_token_collector, _, state_updater) =
+        recovery_checkpoint.into_components();
+    let (new_token_collector, old_token_collector) =
+        current_token_collector.rotate_session(&reward_session_info(&public_info));
 
     // Check that decapsulating the same message fails with the new processor
     // but succeeds with the old one. Also, it should be scheduled in the old
     // scheduler.
     let recovery_checkpoint = ServiceState::with_session(
         session,
-        new_token_collector.clone(),
-        Some(old_token_collector.clone()),
-        state_updater.clone(),
+        new_token_collector,
+        Some(old_token_collector),
+        state_updater,
     )
     .unwrap();
     let recovery_checkpoint = handle_incoming_blend_message(
@@ -135,8 +132,6 @@ async fn test_handle_incoming_blend_message() {
         Some(&mut scheduler),
         &new_processor,
         Some(&processor),
-        &mut new_token_collector,
-        Some(&mut old_token_collector),
         recovery_checkpoint,
     );
     assert_eq!(
@@ -144,7 +139,6 @@ async fn test_handle_incoming_blend_message() {
         0
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
-    assert_eq!(new_token_collector.tokens().len(), 0);
     assert_eq!(
         recovery_checkpoint
             .current_session_token_collector()
@@ -153,7 +147,6 @@ async fn test_handle_incoming_blend_message() {
         0
     );
     // No new token should be collected from the same message.
-    assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .clone()
@@ -177,8 +170,6 @@ async fn test_handle_incoming_blend_message() {
         Some(&mut scheduler),
         &new_processor,
         Some(&processor),
-        &mut new_token_collector,
-        Some(&mut old_token_collector),
         recovery_checkpoint,
     );
     assert_eq!(
@@ -186,7 +177,6 @@ async fn test_handle_incoming_blend_message() {
         1
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
-    assert_eq!(new_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .current_session_token_collector()
@@ -194,7 +184,6 @@ async fn test_handle_incoming_blend_message() {
             .len(),
         1
     );
-    assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .clone()
@@ -224,8 +213,6 @@ async fn test_handle_incoming_blend_message() {
         Some(&mut scheduler),
         &new_processor,
         Some(&processor),
-        &mut new_token_collector,
-        Some(&mut old_token_collector),
         recovery_checkpoint,
     );
     // Nothing changed.
@@ -234,7 +221,6 @@ async fn test_handle_incoming_blend_message() {
         1
     );
     assert_eq!(scheduler.release_delayer().unreleased_messages().len(), 2);
-    assert_eq!(new_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .current_session_token_collector()
@@ -242,7 +228,6 @@ async fn test_handle_incoming_blend_message() {
             .len(),
         1
     );
-    assert_eq!(old_token_collector.tokens().len(), 1);
     assert_eq!(
         recovery_checkpoint
             .start_updating()
@@ -383,15 +368,7 @@ async fn test_handle_session_event() {
         crypto_processor,
         scheduler,
         public_info,
-        ServiceState::with_session(
-            session,
-            token_collector.clone(),
-            None,
-            state_updater.clone(),
-        )
-        .unwrap(),
-        token_collector,
-        None,
+        ServiceState::with_session(session, token_collector, None, state_updater.clone()).unwrap(),
         &mut backend,
         &sdp_relay,
     )
@@ -401,8 +378,6 @@ async fn test_handle_session_event() {
         old_crypto_processor,
         new_scheduler,
         old_scheduler,
-        new_token_collector,
-        old_token_collector,
         new_public_info,
         new_recovery_checkpoint,
     } = output
@@ -439,8 +414,6 @@ async fn test_handle_session_event() {
         new_scheduler,
         new_public_info,
         new_recovery_checkpoint,
-        new_token_collector,
-        Some(old_token_collector),
         &mut backend,
         &sdp_relay,
     )
@@ -448,7 +421,6 @@ async fn test_handle_session_event() {
     let HandleSessionEventOutput::TransitionCompleted {
         current_crypto_processor,
         current_scheduler,
-        current_token_collector,
         current_public_info,
         new_recovery_checkpoint,
     } = output
@@ -489,8 +461,6 @@ async fn test_handle_session_event() {
         current_scheduler,
         current_public_info,
         new_recovery_checkpoint,
-        current_token_collector,
-        None,
         &mut backend,
         &sdp_relay,
     )
@@ -577,7 +547,6 @@ async fn complete_old_session_after_main_loop_done() {
         mut remaining_clock_stream,
         current_public_info,
         crypto_processor,
-        blending_token_collector,
         current_recovery_checkpoint,
         message_scheduler,
         mut backend,
@@ -629,7 +598,6 @@ async fn complete_old_session_after_main_loop_done() {
             &mut epoch_handler,
             message_scheduler.into(),
             &mut rng,
-            blending_token_collector,
             crypto_processor,
             current_public_info,
             current_recovery_checkpoint,

@@ -8,10 +8,7 @@ mod serde {
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        core::state::{
-            recovery_state::RecoveryServiceState,
-            service::{ServiceState, SessionMismatchError},
-        },
+        core::state::{error, recovery_state::RecoveryServiceState, service::ServiceState},
         message::ProcessedMessage,
     };
 
@@ -40,7 +37,7 @@ mod serde {
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
-        ) -> Result<ServiceState<BackendSettings, BroadcastSettings>, SessionMismatchError>
+        ) -> Result<ServiceState<BackendSettings, BroadcastSettings>, error::SessionMismatch>
         where
             BackendSettings: Clone,
             BroadcastSettings: Clone,
@@ -92,12 +89,11 @@ mod service {
 
     use nomos_blend::message::{
         encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
-        reward::{OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
+        reward::{BlendingToken, OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
     };
-    use nomos_core::sdp::SessionNumber;
 
     use crate::{
-        core::state::{recovery_state::RecoveryServiceState, state_updater::StateUpdater},
+        core::state::{error, recovery_state::RecoveryServiceState, state_updater::StateUpdater},
         message::ProcessedMessage,
     };
 
@@ -157,13 +153,27 @@ mod service {
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
-        ) -> Result<Self, SessionMismatchError> {
-            Self::validate_current_session_token_collector(
-                last_seen_session,
-                &current_session_token_collector,
-            )?;
-            if let Some(ref token_collector) = old_session_token_collector {
-                Self::validate_old_session_token_collector(last_seen_session, token_collector)?;
+        ) -> Result<Self, error::SessionMismatch> {
+            // Check if `current_session_token_collector` has the correct session number.
+            let provided_current_session = current_session_token_collector.session_number();
+            if provided_current_session != last_seen_session {
+                return Err(error::SessionMismatch {
+                    last_seen: last_seen_session,
+                    provided: provided_current_session,
+                });
+            }
+
+            // Check if `old_session_token_collector` has the correct session number.
+            if let Some(old_session_token_collector) = &old_session_token_collector {
+                let provided_current_session = old_session_token_collector
+                    .session_number()
+                    .saturating_add(1);
+                if provided_current_session != last_seen_session {
+                    return Err(error::SessionMismatch {
+                        last_seen: last_seen_session,
+                        provided: provided_current_session,
+                    });
+                }
             }
 
             let this = Self {
@@ -193,7 +203,7 @@ mod service {
             state_updater: overwatch::services::state::StateUpdater<
                 Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
             >,
-        ) -> Result<Self, SessionMismatchError> {
+        ) -> Result<Self, error::SessionMismatch> {
             Self::new(
                 session,
                 0,
@@ -233,50 +243,28 @@ mod service {
             self.spent_core_quota
         }
 
-        pub(super) fn update_token_collector(
+        pub(super) fn collect_current_session_tokens(
             &mut self,
-            collector: SessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
-            Self::validate_current_session_token_collector(self.last_seen_session, &collector)?;
-            self.current_session_token_collector = collector;
-            Ok(())
-        }
-
-        const fn validate_current_session_token_collector(
-            last_seen_session: SessionNumber,
-            collector: &SessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
-            if last_seen_session == collector.session_number() {
-                Ok(())
-            } else {
-                Err(SessionMismatchError {
-                    last_seen: last_seen_session,
-                    actual: collector.session_number(),
-                })
+            tokens: impl Iterator<Item = BlendingToken>,
+        ) {
+            for token in tokens {
+                self.current_session_token_collector.collect(token);
             }
         }
 
-        pub(super) fn update_old_session_token_collector(
+        pub(super) fn collect_old_session_tokens(
             &mut self,
-            collector: OldSessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
-            Self::validate_old_session_token_collector(self.last_seen_session, &collector)?;
-            self.old_session_token_collector = Some(collector);
-            Ok(())
-        }
-
-        const fn validate_old_session_token_collector(
-            last_seen_session: SessionNumber,
-            collector: &OldSessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
-            if last_seen_session == collector.session_number().saturating_add(1) {
-                Ok(())
-            } else {
-                Err(SessionMismatchError {
-                    last_seen: last_seen_session,
-                    actual: collector.session_number().saturating_add(1),
-                })
-            }
+            tokens: impl Iterator<Item = BlendingToken>,
+        ) -> Result<(), error::OldSessionTokenCollectorNotExist> {
+            self.old_session_token_collector.as_mut().map_or(
+                Err(error::OldSessionTokenCollectorNotExist),
+                |collector| {
+                    for token in tokens {
+                        collector.collect(token);
+                    }
+                    Ok(())
+                },
+            )
         }
 
         pub(super) const fn clear_old_session_token_collector(
@@ -285,7 +273,10 @@ mod service {
             self.old_session_token_collector.take()
         }
 
-        pub const fn current_session_token_collector(&self) -> &SessionBlendingTokenCollector {
+        #[cfg(test)]
+        pub(crate) const fn current_session_token_collector(
+            &self,
+        ) -> &SessionBlendingTokenCollector {
             &self.current_session_token_collector
         }
 
@@ -379,12 +370,6 @@ mod service {
             &self.unsent_data_messages
         }
     }
-
-    #[derive(Debug)]
-    pub struct SessionMismatchError {
-        pub last_seen: SessionNumber,
-        pub actual: SessionNumber,
-    }
 }
 
 pub use self::state_updater::StateUpdater;
@@ -393,11 +378,11 @@ mod state_updater {
 
     use nomos_blend::message::{
         encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
-        reward::{OldSessionBlendingTokenCollector, SessionBlendingTokenCollector},
+        reward::{BlendingToken, OldSessionBlendingTokenCollector},
     };
 
     use crate::{
-        core::state::service::{ServiceState, SessionMismatchError},
+        core::state::{error, service::ServiceState},
         message::ProcessedMessage,
     };
 
@@ -443,20 +428,20 @@ mod state_updater {
             self.inner
         }
 
-        pub fn update_current_session_token_collector(
+        pub fn collect_current_session_tokens(
             &mut self,
-            collector: SessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
+            tokens: impl Iterator<Item = BlendingToken>,
+        ) {
             self.changed = true;
-            self.inner.update_token_collector(collector)
+            self.inner.collect_current_session_tokens(tokens);
         }
 
-        pub fn update_old_session_token_collector(
+        pub fn collect_old_session_tokens(
             &mut self,
-            collector: OldSessionBlendingTokenCollector,
-        ) -> Result<(), SessionMismatchError> {
+            tokens: impl Iterator<Item = BlendingToken>,
+        ) -> Result<(), error::OldSessionTokenCollectorNotExist> {
             self.changed = true;
-            self.inner.update_old_session_token_collector(collector)
+            self.inner.collect_old_session_tokens(tokens)
         }
 
         pub const fn clear_old_session_token_collector(
@@ -595,4 +580,17 @@ mod recovery_state {
             })
         }
     }
+}
+
+pub mod error {
+    use nomos_core::sdp::SessionNumber;
+
+    #[derive(Debug)]
+    pub struct SessionMismatch {
+        pub last_seen: SessionNumber,
+        pub provided: SessionNumber,
+    }
+
+    #[derive(Debug)]
+    pub struct OldSessionTokenCollectorNotExist;
 }
