@@ -19,11 +19,12 @@ ark-ff          = { version = "0.4.2" }
 ark-poly        = { version = "0.4.2" }
 ark-poly-commit = { default-features = false, features = ["std"], version = "0.4.0" }
 ark-serialize   = { version = "0.4" }
+ark-std         = { default-features = false, version = "0.4.0" }
 blake2          = { default-features = false, version = "0.10" }
 blst            = "0.3.11"
 num-bigint      = { default-features = false, version = "0.4.4" }
 num-traits      = { default-features = false, version = "0.2.18" }
-rand            = { default-features = false, version = "0.8.5" }
+rand            = { default-features = false, features = ["std", "std_rng"], version = "0.8.5" }
 rayon           = { optional = true, version = "1.10" }
 thiserror       = "1.0.58"
 
