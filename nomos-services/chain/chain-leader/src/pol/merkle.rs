@@ -1,11 +1,11 @@
-use blake2::{Blake2b512, Digest as _};
+use blake2::Digest as _;
 use cryptarchia_engine::Slot;
 use groth16::{Fr, fr_from_bytes_unchecked, fr_to_bytes};
 use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
     utils::merkle::{MerkleNode, MerklePath},
 };
-use nomos_utils::blake_rng::{BlakeRng, BlakeRngSeed, SeedableRng as _};
+use nomos_utils::blake256_rng::{Blake256Rng, Blake256RngSeed, Blake2b256, SeedableRng as _};
 use rand::RngCore as _;
 use rayon::iter::{IntoParallelIterator as _, IntoParallelRefIterator as _, ParallelIterator as _};
 
@@ -24,7 +24,7 @@ pub struct MerklePolCache {
 impl MerklePolCache {
     #[must_use]
     pub fn new(
-        seed: BlakeRngSeed,
+        seed: Blake256RngSeed,
         starting_slot: Slot,
         tree_depth: usize,
         cache_depth: usize,
@@ -59,8 +59,8 @@ impl MerklePolCache {
         }
     }
 
-    pub fn leaves_from_seed(seed: BlakeRngSeed) -> impl Iterator<Item = Fr> {
-        let mut rng = BlakeRng::from_seed(seed);
+    pub fn leaves_from_seed(seed: Blake256RngSeed) -> impl Iterator<Item = Fr> {
+        let mut rng = Blake256Rng::from_seed(seed);
         std::iter::repeat_with(move || {
             let mut bytes = [0u8; 31];
             rng.fill_bytes(&mut bytes);
@@ -107,7 +107,7 @@ impl MerklePolSubtree {
     pub fn merkle_path_for_index(&self, index: usize) -> MerklePath<Fr> {
         let hashed_leafs: Vec<_> = std::iter::successors(Some(self.seed), |seed| {
             Some(fr_from_bytes_unchecked(
-                &Blake2b512::digest(fr_to_bytes(seed))[..31],
+                &Blake2b256::digest(fr_to_bytes(seed))[..31],
             ))
         })
         .take(2usize.pow(self.tree_depth as u32))

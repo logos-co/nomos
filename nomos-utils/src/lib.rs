@@ -9,8 +9,12 @@ pub mod types;
 #[cfg(feature = "rng")]
 pub mod blake_rng;
 
+#[cfg(feature = "rng")]
+pub mod blake256_rng;
+
 #[cfg(feature = "time")]
 pub mod bounded_duration;
+
 
 #[cfg(feature = "serde")]
 pub mod serde {
