@@ -22,84 +22,92 @@ const EMPTY_VALUE: Fr = Fr::ZERO;
 /// need to preserve structural sharing, you should use a custom serialization.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
-pub struct MerkleMountainRange<T, Hash, const MAX_HEIGHT: u8 = 32> {
+pub struct MerkleMountainRange<T, Hash> {
     roots: StackSync<Root>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _hash: std::marker::PhantomData<(T, Hash)>,
+    max_height: u8,
 }
 
-impl<T, Hash, const MAX_HEIGHT: u8> PartialEq for MerkleMountainRange<T, Hash, MAX_HEIGHT> {
+impl<T, Hash> PartialEq for MerkleMountainRange<T, Hash> {
     fn eq(&self, other: &Self) -> bool {
         self.roots == other.roots
     }
 }
 
-impl<T, Hash, const MAX_HEIGHT: u8> Eq for MerkleMountainRange<T, Hash, MAX_HEIGHT> {}
+impl<T, Hash> Eq for MerkleMountainRange<T, Hash> {}
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Root {
+pub struct Root {
     #[cfg_attr(feature = "serde", serde(with = "serde_fr"))]
     root: Fr,
     height: u8,
 }
 
-impl<const MAX_HEIGHT: u8, T, Hash> Default for MerkleMountainRange<T, Hash, MAX_HEIGHT>
+impl Root {
+    #[must_use]
+    pub const fn root(&self) -> Fr {
+        self.root
+    }
+}
+
+impl<T, Hash> Default for MerkleMountainRange<T, Hash>
 where
     T: AsRef<Fr>,
     Hash: Digest,
 {
     fn default() -> Self {
-        Self::new()
+        Self::new(32)
     }
 }
 
-impl<const MAX_HEIGHT: u8, T, Hash> MerkleMountainRange<T, Hash, MAX_HEIGHT>
+impl<T, Hash> MerkleMountainRange<T, Hash>
 where
     T: AsRef<Fr>,
     Hash: Digest,
 {
     #[must_use]
-    pub fn new() -> Self {
-        assert!(
-            MAX_HEIGHT <= 32,
-            "MAX_HEIGHT must be less than or equal to 32"
-        );
+    pub fn new(tree_depth: u8) -> Self {
         Self {
             roots: StackSync::new_sync(),
             _hash: std::marker::PhantomData,
+            max_height: tree_depth,
         }
     }
 
     #[must_use]
-    pub fn push(&self, elem: T) -> Self {
-        let root = Hash::digest(&[*elem.as_ref()]);
-        let mut last_root = Root { root, height: 1 };
+    pub fn push(&self, root: T) -> Self {
+        let mut last_root = Root {
+            root: *root.as_ref(),
+            height: 1,
+        };
         let mut roots = self.roots.clone();
+        let max_height = self.max_height;
 
         while let Some(root) = roots.peek().copied() {
+            // we want the frontier root to have a fixed height, so each individual root
+            // must be less than MAX_HEIGHT
+            assert!(
+                root.height <= self.max_height,
+                "Height must be less than {max_height}"
+            );
             if last_root.height == root.height {
                 roots.pop_mut();
                 last_root = Root {
                     root: Hash::compress(&[root.root, last_root.root]),
                     height: last_root.height + 1,
                 };
-                // we want the frontier root to have a fixed height, so each individual root
-                // must be less than MAX_HEIGHT
-                assert!(
-                    last_root.height < MAX_HEIGHT,
-                    "Height must be less than {MAX_HEIGHT}"
-                );
             } else {
                 break;
             }
         }
-
         roots = roots.push(last_root);
 
         Self {
             roots,
             _hash: std::marker::PhantomData,
+            max_height,
         }
     }
 
@@ -115,14 +123,14 @@ where
             root = Hash::compress(&[last.root, root]);
             height += 1;
         }
-        assert!(height <= MAX_HEIGHT);
+        assert!(height <= self.max_height);
         // ensure a fixed depth
-        while height < MAX_HEIGHT {
+        while height < self.max_height {
             root = Hash::compress(&[root, empty_subtree_root::<Hash>(height as usize)]);
             height += 1;
         }
 
-        assert_eq!(height, MAX_HEIGHT);
+        assert_eq!(height, self.max_height);
 
         root
     }
@@ -138,6 +146,11 @@ where
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.roots.is_empty()
+    }
+
+    #[must_use]
+    pub const fn roots(&self) -> &StackSync<Root> {
+        &self.roots
     }
 }
 
@@ -183,10 +196,6 @@ mod test {
         Fr::from_le_bytes_mod_order(&repr)
     }
 
-    pub fn leaf(data: &[u8]) -> Fr {
-        ZkHasher::digest(&[b2p(data)])
-    }
-
     #[test]
     #[expect(clippy::clone_on_copy, reason = "for the sake of the test")]
     fn test_empty_roots() {
@@ -200,7 +209,7 @@ mod test {
     fn padded_leaves(elements: impl IntoIterator<Item = impl AsRef<[u8]>>, height: u8) -> Vec<Fr> {
         let mut leaves = elements
             .into_iter()
-            .map(|e| leaf(e.as_ref()))
+            .map(|e| b2p(e.as_ref()))
             .collect::<Vec<_>>();
         let pad = (1 << height as usize) - leaves.len();
         leaves.extend(std::iter::repeat_n(EMPTY_VALUE, pad));
@@ -222,7 +231,7 @@ mod test {
 
     #[property_test]
     fn test_frontier_root_8(elems: Vec<[u8; 32]>) {
-        let mut mmr = <MerkleMountainRange<TestFr, ZkHasher, 8>>::new();
+        let mut mmr = <MerkleMountainRange<TestFr, ZkHasher>>::new(8);
         for elem in &elems {
             mmr = mmr.push(elem.as_ref().into());
         }
@@ -232,7 +241,7 @@ mod test {
     #[ignore = "very slow"]
     #[property_test]
     fn test_frontier_root_16(elems: Vec<[u8; 32]>) {
-        let mut mmr = <MerkleMountainRange<TestFr, ZkHasher, 16>>::new();
+        let mut mmr = <MerkleMountainRange<TestFr, ZkHasher>>::new(16);
         for elem in &elems {
             mmr = mmr.push(elem.as_ref().into());
         }
@@ -241,18 +250,19 @@ mod test {
 
     #[test]
     fn test_empty_tree() {
-        let mmr = <MerkleMountainRange<TestFr, ZkHasher>>::new();
+        let mmr = <MerkleMountainRange<TestFr, ZkHasher>>::new(32);
         assert_eq!(mmr.len(), 0);
         assert!(mmr.is_empty());
     }
 
     #[test]
     fn test_mmr_push() {
-        let mut mmr = <MerkleMountainRange<TestFr, ZkHasher>>::new().push(b"hello".as_ref().into());
+        let mut mmr =
+            <MerkleMountainRange<TestFr, ZkHasher>>::new(32).push(b"hello".as_ref().into());
         assert_eq!(mmr.len(), 1);
         assert_eq!(mmr.roots.size(), 1);
         assert_eq!(mmr.roots.peek().unwrap().height, 1);
-        assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"hello"));
+        assert_eq!(mmr.roots.peek().unwrap().root, b2p(b"hello"));
 
         mmr = mmr.push(b"world".as_ref().into());
         assert_eq!(mmr.len(), 2);
@@ -260,7 +270,7 @@ mod test {
         assert_eq!(mmr.roots.peek().unwrap().height, 2);
         assert_eq!(
             mmr.roots.peek().unwrap().root,
-            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
+            <ZkHasher as Digest>::compress(&[b2p(b"hello"), b2p(b"world")])
         );
 
         mmr = mmr.push(b"!".as_ref().into());
@@ -270,10 +280,10 @@ mod test {
         assert_eq!(top_root.height, 2);
         assert_eq!(
             top_root.root,
-            <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")])
+            <ZkHasher as Digest>::compress(&[b2p(b"hello"), b2p(b"world")])
         );
         assert_eq!(mmr.roots.peek().unwrap().height, 1);
-        assert_eq!(mmr.roots.peek().unwrap().root, leaf(b"!"));
+        assert_eq!(mmr.roots.peek().unwrap().root, b2p(b"!"));
 
         mmr = mmr.push(b"!".as_ref().into());
         assert_eq!(mmr.len(), 4);
@@ -282,8 +292,8 @@ mod test {
         assert_eq!(
             mmr.roots.peek().unwrap().root,
             <ZkHasher as Digest>::compress(&[
-                <ZkHasher as Digest>::compress(&[leaf(b"hello"), leaf(b"world")]),
-                <ZkHasher as Digest>::compress(&[leaf(b"!"), leaf(b"!")])
+                <ZkHasher as Digest>::compress(&[b2p(b"hello"), b2p(b"world")]),
+                <ZkHasher as Digest>::compress(&[b2p(b"!"), b2p(b"!")])
             ])
         );
     }

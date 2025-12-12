@@ -1,28 +1,67 @@
+#[cfg(not(feature = "pol-dev-mode"))]
+use blake2::{Blake2b512, Digest as _};
 use cryptarchia_engine::{Epoch, Slot};
+use groth16::Fr;
+#[cfg(not(feature = "pol-dev-mode"))]
+use groth16::fr_to_bytes;
 use key_management_system_keys::keys::{Ed25519Key, UnsecuredZkKey, ZkPublicKey};
 use nomos_core::{
     mantle::{Utxo, ops::leader_claim::VoucherCm},
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+    utils::merkle::MerklePath,
 };
 use nomos_ledger::{EpochState, UtxoTree};
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch::Sender;
 
+#[cfg(not(feature = "pol-dev-mode"))]
+use crate::pol::{MAX_TREE_DEPTH, merkle::MerklePolCache};
+
 #[derive(Clone)]
 pub struct Leader {
     sk: UnsecuredZkKey,
     config: nomos_ledger::Config,
+    #[cfg(not(feature = "pol-dev-mode"))]
+    merkle_pol_cache: MerklePolCache,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LeaderConfig {
     pub pk: ZkPublicKey,
     pub sk: UnsecuredZkKey,
+    pub cache_depth: usize,
 }
 
 impl Leader {
-    pub const fn new(sk: UnsecuredZkKey, config: nomos_ledger::Config) -> Self {
-        Self { sk, config }
+    #[cfg_attr(
+        feature = "pol-dev-mode",
+        expect(unused, reason = "Variables used in dev mode only"),
+        expect(clippy::missing_const_for_fn, reason = "Non const fn in non dev-mode")
+    )]
+    pub fn new(
+        sk: UnsecuredZkKey,
+        starting_slot: Slot,
+        cache_depth: usize,
+        config: nomos_ledger::Config,
+    ) -> Self {
+        #[cfg(not(feature = "pol-dev-mode"))]
+        let merkle_pol_cache = {
+            let seed = Blake2b512::digest(fr_to_bytes(sk.to_public_key().as_fr()));
+            let seed: [u8; 64] = seed.into();
+            MerklePolCache::new(
+                seed.into(),
+                starting_slot,
+                MAX_TREE_DEPTH as usize,
+                cache_depth,
+            )
+        };
+
+        Self {
+            sk,
+            config,
+            #[cfg(not(feature = "pol-dev-mode"))]
+            merkle_pol_cache,
+        }
     }
 
     #[expect(
@@ -69,6 +108,7 @@ impl Leader {
 
                 let private_inputs = self.private_inputs_for_winning_utxo_and_slot(
                     utxo,
+                    slot,
                     epoch_state,
                     public_inputs,
                     latest_tree,
@@ -110,9 +150,14 @@ impl Leader {
         None
     }
 
+    #[cfg_attr(
+        feature = "pol-dev-mode",
+        expect(unused, reason = "Variables ar only used in non-dev mode")
+    )]
     fn private_inputs_for_winning_utxo_and_slot(
         &self,
         utxo: &Utxo,
+        slot: Slot,
         // TODO: Use aged tree to compute `aged_path`
         epoch_state: &EpochState,
         public_inputs: LeaderPublic,
@@ -121,8 +166,28 @@ impl Leader {
     ) -> LeaderPrivate {
         // TODO: Get the actual witness paths and leader key
         let aged_path = Vec::new(); // Placeholder for aged path, aged UTXO tree is included in `EpochState`.
-        let latest_path = Vec::new();
-        let slot_secret = *self.sk.as_fr();
+        let latest_path: MerklePath<Fr> = {
+            // TODO: use proper u64 instead
+            #[cfg(not(feature = "pol-dev-mode"))]
+            {
+                self.merkle_pol_cache
+                    .merkle_path_for_index(slot.into_inner() as usize)
+            }
+            #[cfg(feature = "pol-dev-mode")]
+            {
+                Vec::new()
+            }
+        };
+        let slot_secret: Fr = {
+            #[cfg(not(feature = "pol-dev-mode"))]
+            {
+                *self.merkle_pol_cache.root_slot_secret().as_ref()
+            }
+            #[cfg(feature = "pol-dev-mode")]
+            {
+                self.sk.clone().into_inner()
+            }
+        };
         let starting_slot = self
             .config
             .epoch_config
@@ -236,6 +301,7 @@ impl<'service> WinningPoLSlotNotifier<'service> {
 
                 let leader_private = self.leader.private_inputs_for_winning_utxo_and_slot(
                     utxo,
+                    Slot::new(slot),
                     epoch_state,
                     public_inputs,
                     &latest_tree,
