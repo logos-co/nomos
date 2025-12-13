@@ -1,5 +1,5 @@
 #[cfg(not(feature = "pol-dev-mode"))]
-use blake2::{Blake2b512, Digest as _};
+use blake2::Digest as _;
 use cryptarchia_engine::{Epoch, Slot};
 use groth16::Fr;
 #[cfg(not(feature = "pol-dev-mode"))]
@@ -11,6 +11,7 @@ use nomos_core::{
     utils::merkle::MerklePath,
 };
 use nomos_ledger::{EpochState, UtxoTree};
+use nomos_utils::blake_rng::Blake2b256;
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch::Sender;
 
@@ -46,8 +47,8 @@ impl Leader {
     ) -> Self {
         #[cfg(not(feature = "pol-dev-mode"))]
         let merkle_pol_cache = {
-            let seed = Blake2b512::digest(fr_to_bytes(sk.to_public_key().as_fr()));
-            let seed: [u8; 64] = seed.into();
+            let seed = Blake2b256::digest(fr_to_bytes(sk.to_public_key().as_fr()));
+            let seed: [u8; 32] = seed.into();
             MerklePolCache::new(
                 seed.into(),
                 starting_slot,

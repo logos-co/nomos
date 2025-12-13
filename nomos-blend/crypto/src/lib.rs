@@ -12,7 +12,10 @@ pub type ZkHasher = poseidon2::Poseidon2Bn254Hasher;
 #[must_use]
 pub fn random_sized_bytes<const SIZE: usize>() -> [u8; SIZE] {
     let mut buf = [0u8; SIZE];
-    BlakeRng::from_entropy().fill_bytes(&mut buf);
+    <BlakeRng<SIZE> as nomos_utils::blake_rng::RngCore>::fill_bytes(
+        &mut BlakeRng::from_entropy(),
+        &mut buf,
+    );
     buf
 }
 

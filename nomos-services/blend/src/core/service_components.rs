@@ -1,4 +1,4 @@
-use nomos_utils::blake_rng::BlakeRng;
+use nomos_utils::blake_rng::BlakeRng512;
 
 use crate::{
     core::{BlendService, backends::BlendBackend},
@@ -43,13 +43,13 @@ impl<
         RuntimeServiceId,
     >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, ProofsVerifier, RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, BlakeRng512, ProofsVerifier, RuntimeServiceId>,
     Network: crate::core::network::NetworkAdapter<RuntimeServiceId>,
 {
     type NetworkAdapter = Network;
     type BackendSettings = Backend::Settings;
     type NodeId = NodeId;
-    type Rng = BlakeRng;
+    type Rng = BlakeRng512;
     type ProofsGenerator = ProofsGenerator;
 }
 

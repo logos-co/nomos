@@ -1,42 +1,52 @@
 use std::iter::{Enumerate, FlatMap, Repeat};
 
-use blake2::{Blake2b512, Digest as _};
+pub use blake2::Blake2b512;
+use blake2::{
+    Blake2b, Blake2bVar,
+    digest::{
+        Update as _, VariableOutput as _,
+        consts::{U32, U64},
+    },
+};
 pub use cipher::StreamCipher;
 use cipher::{BlockSizeUser, StreamCipherError, inout::InOutBuf};
 use rand::Error;
 pub use rand::{CryptoRng, RngCore, SeedableRng};
+pub type Blake2b256 = Blake2b<U32>;
 
-const OUTPUT_SIZE: usize = 64;
-type Hasher = Blake2b512;
+pub type BlakeRng256 = BlakeRng<32>;
+pub type BlakeRng256Seed = BlakeRngSeed<32>;
+pub type BlakeRng512 = BlakeRng<64>;
+pub type BlakeRng512Seed = BlakeRngSeed<64>;
 
 #[derive(Clone)]
-pub struct BlakeRngSeed([u8; OUTPUT_SIZE]);
+pub struct BlakeRngSeed<const OUTPUT_SIZE: usize>([u8; OUTPUT_SIZE]);
 
-impl Default for BlakeRngSeed {
+impl<const OUTPUT_SIZE: usize> Default for BlakeRngSeed<OUTPUT_SIZE> {
     fn default() -> Self {
         Self([0; OUTPUT_SIZE])
     }
 }
 
-impl From<[u8; OUTPUT_SIZE]> for BlakeRngSeed {
+impl<const OUTPUT_SIZE: usize> From<[u8; OUTPUT_SIZE]> for BlakeRngSeed<OUTPUT_SIZE> {
     fn from(seed: [u8; OUTPUT_SIZE]) -> Self {
         Self(seed)
     }
 }
 
-impl AsRef<[u8]> for BlakeRngSeed {
+impl<const OUTPUT_SIZE: usize> AsRef<[u8]> for BlakeRngSeed<OUTPUT_SIZE> {
     fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
 
-impl AsMut<[u8]> for BlakeRngSeed {
+impl<const OUTPUT_SIZE: usize> AsMut<[u8]> for BlakeRngSeed<OUTPUT_SIZE> {
     fn as_mut(&mut self) -> &mut [u8] {
         &mut self.0
     }
 }
 
-impl IntoIterator for BlakeRngSeed {
+impl<const OUTPUT_SIZE: usize> IntoIterator for BlakeRngSeed<OUTPUT_SIZE> {
     type Item = u8;
     type IntoIter = <[u8; OUTPUT_SIZE] as IntoIterator>::IntoIter;
     fn into_iter(self) -> Self::IntoIter {
@@ -46,24 +56,36 @@ impl IntoIterator for BlakeRngSeed {
 
 // Box<dyn> is usually more convenient. But for making BlakeRng clone we needed
 // the actual type.
-type InnerIterator =
-    FlatMap<Enumerate<Repeat<BlakeRngSeed>>, Vec<u8>, fn((usize, BlakeRngSeed)) -> Vec<u8>>;
+type InnerIterator<const OUTPUT_SIZE: usize> = FlatMap<
+    Enumerate<Repeat<BlakeRngSeed<OUTPUT_SIZE>>>,
+    Vec<u8>,
+    fn((usize, BlakeRngSeed<OUTPUT_SIZE>)) -> Vec<u8>,
+>;
 
 #[derive(Clone)]
-pub struct BlakeRng(InnerIterator);
+pub struct BlakeRng<const OUTPUT_SIZE: usize>(InnerIterator<OUTPUT_SIZE>);
 
-impl BlakeRng {
-    fn rehash((i, seed): (usize, BlakeRngSeed)) -> Vec<u8> {
-        let mut hasher = Hasher::new();
-        hasher.update(seed);
-        hasher.update(i.to_le_bytes());
-        hasher.finalize().to_vec()
+impl<const OUTPUT_SIZE: usize> BlakeRng<OUTPUT_SIZE> {
+    fn rehash((i, seed): (usize, BlakeRngSeed<OUTPUT_SIZE>)) -> Vec<u8> {
+        // TODO: Using variable size is not really correct, but const generics are not
+        // stable yet. in the eventual case they make it stable we could
+        // canonicalize this depending the `Unsigned::SIZE` from the blake2
+        // crate.
+        let mut hasher = Blake2bVar::new(OUTPUT_SIZE)
+            .expect("Blake2bVar is always valid for the exported types sizes in this module");
+        hasher.update(seed.as_ref());
+        hasher.update(i.to_le_bytes().as_ref());
+        let mut output = [0u8; OUTPUT_SIZE];
+        hasher
+            .finalize_variable(&mut output)
+            .expect("Size should always be valid");
+        output.to_vec()
     }
 
-    fn with_seed(seed: BlakeRngSeed) -> Self {
+    fn with_seed(seed: BlakeRngSeed<OUTPUT_SIZE>) -> Self {
         let iter = std::iter::repeat(seed)
             .enumerate()
-            .flat_map(Self::rehash as fn((usize, BlakeRngSeed)) -> Vec<u8>);
+            .flat_map(Self::rehash as fn((usize, BlakeRngSeed<OUTPUT_SIZE>)) -> Vec<u8>);
         Self(iter)
     }
 
@@ -80,15 +102,15 @@ impl BlakeRng {
     }
 }
 
-impl SeedableRng for BlakeRng {
-    type Seed = BlakeRngSeed;
+impl<const OUTPUT_SIZE: usize> SeedableRng for BlakeRng<OUTPUT_SIZE> {
+    type Seed = BlakeRngSeed<OUTPUT_SIZE>;
 
     fn from_seed(seed: Self::Seed) -> Self {
         Self::with_seed(seed)
     }
 }
 
-impl RngCore for BlakeRng {
+impl<const OUTPUT_SIZE: usize> RngCore for BlakeRng<OUTPUT_SIZE> {
     fn next_u32(&mut self) -> u32 {
         u32::from_le_bytes(self.rng_next_bytes::<4>())
     }
@@ -107,18 +129,22 @@ impl RngCore for BlakeRng {
     }
 }
 
-impl CryptoRng for BlakeRng {}
+impl<const OUTPUT_SIZE: usize> CryptoRng for BlakeRng<OUTPUT_SIZE> {}
 
-impl BlockSizeUser for BlakeRng {
-    type BlockSize = <Blake2b512 as BlockSizeUser>::BlockSize;
+impl BlockSizeUser for BlakeRng<32> {
+    type BlockSize = <Blake2b<U32> as BlockSizeUser>::BlockSize;
 }
 
-impl StreamCipher for BlakeRng {
+impl BlockSizeUser for BlakeRng<64> {
+    type BlockSize = <Blake2b<U64> as BlockSizeUser>::BlockSize;
+}
+
+impl<const OUTPUT_SIZE: usize> StreamCipher for BlakeRng<OUTPUT_SIZE> {
     fn try_apply_keystream_inout(
         &mut self,
         mut buf: InOutBuf<'_, '_, u8>,
     ) -> Result<(), StreamCipherError> {
-        let buff = self.rng_next_bytes::<64>();
+        let buff = self.rng_next_bytes::<OUTPUT_SIZE>();
         buf.get_out().copy_from_slice(&buff);
         Ok(())
     }
@@ -126,6 +152,7 @@ impl StreamCipher for BlakeRng {
 
 #[cfg(test)]
 mod tests {
+    use blake2::{Blake2b512, Digest};
     use nistrs::prelude::*;
 
     use super::*;
@@ -232,8 +259,9 @@ mod tests {
     }
 
     fn test_seed() -> [u8; 64] {
-        let mut hasher = Hasher::new();
-        hasher.update(
+        let mut hasher = Blake2b512::new();
+        Digest::update(
+            &mut hasher,
             "Mehmets hope that long srings make it much much much much much much better...",
         );
         hasher.finalize().into()
@@ -241,7 +269,7 @@ mod tests {
     #[test]
     fn test_nistrs_blake() {
         println!("======================BLAKE RNG==========================");
-        nistrs_rng::<BlakeRng>(BlakeRngSeed(test_seed()));
+        nistrs_rng::<BlakeRng512>(BlakeRngSeed(test_seed()));
     }
 
     #[ignore = "This tests is just for comparison with the (blake) above one"]

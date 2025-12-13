@@ -1,6 +1,6 @@
 use key_management_system_keys::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use nomos_blend_crypto::keys::{X25519PrivateKey, X25519PublicKey};
-use nomos_utils::blake_rng::{BlakeRng, SeedableRng as _};
+use nomos_utils::blake_rng::{BlakeRng512, SeedableRng as _};
 use zeroize::ZeroizeOnDrop;
 
 // This extension trait must go here instead of `nomos-blend-crypto` because
@@ -14,7 +14,7 @@ pub trait Ed25519SecretKeyExt: ZeroizeOnDrop {
 
 impl Ed25519SecretKeyExt for UnsecuredEd25519Key {
     fn generate_with_blake_rng() -> Self {
-        Self::generate(&mut BlakeRng::from_entropy())
+        Self::generate(&mut BlakeRng512::from_entropy())
     }
 
     fn derive_x25519(&self) -> X25519PrivateKey {
