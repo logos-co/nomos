@@ -5,7 +5,7 @@ use nomos_core::{
     crypto::{ZkDigest, ZkHasher},
     utils::merkle::{MerkleNode, MerklePath},
 };
-use nomos_utils::blake256_rng::{Blake256Rng, Blake256RngSeed, Blake2b256, SeedableRng as _};
+use nomos_utils::blake_rng::{Blake2b256, BlakeRng256, BlakeRng256Seed, SeedableRng as _};
 use rand::RngCore as _;
 use rayon::iter::{IntoParallelIterator as _, IntoParallelRefIterator as _, ParallelIterator as _};
 
@@ -24,7 +24,7 @@ pub struct MerklePolCache {
 impl MerklePolCache {
     #[must_use]
     pub fn new(
-        seed: Blake256RngSeed,
+        seed: BlakeRng256Seed,
         starting_slot: Slot,
         tree_depth: usize,
         cache_depth: usize,
@@ -59,8 +59,8 @@ impl MerklePolCache {
         }
     }
 
-    pub fn leaves_from_seed(seed: Blake256RngSeed) -> impl Iterator<Item = Fr> {
-        let mut rng = Blake256Rng::from_seed(seed);
+    pub fn leaves_from_seed(seed: BlakeRng256Seed) -> impl Iterator<Item = Fr> {
+        let mut rng = BlakeRng256::from_seed(seed);
         std::iter::repeat_with(move || {
             let mut bytes = [0u8; 31];
             rng.fill_bytes(&mut bytes);

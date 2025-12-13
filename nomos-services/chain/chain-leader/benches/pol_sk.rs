@@ -6,7 +6,7 @@ use chain_leader::pol::{
 use cryptarchia_engine::Slot;
 use divan::{Bencher, black_box, counter::ItemsCount};
 use groth16::{Fr, fr_from_bytes};
-use nomos_utils::blake256_rng::{Blake256RngSeed, Blake2b256};
+use nomos_utils::blake256_rng::{Blake2b256, Blake256RngSeed};
 
 fn main() {
     divan::main();

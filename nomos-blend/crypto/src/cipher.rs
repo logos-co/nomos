@@ -1,4 +1,4 @@
-use nomos_utils::blake_rng::{BlakeRng, RngCore as _, SeedableRng as _};
+use nomos_utils::blake_rng::{BlakeRng, BlakeRng512, RngCore as _, SeedableRng as _};
 
 use crate::blake2b512;
 
@@ -10,7 +10,7 @@ use crate::blake2b512;
 /// a cipher initialized from a given seed can be decrypted by another cipher
 /// created from the same seed, as long as the data sequence is consumed in the
 /// same order.
-pub struct Cipher(BlakeRng);
+pub struct Cipher(BlakeRng512);
 
 impl Cipher {
     #[must_use]

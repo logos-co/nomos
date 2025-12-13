@@ -11,7 +11,7 @@ use nomos_blend::{
         },
     },
 };
-use nomos_utils::blake_rng::BlakeRng;
+use nomos_utils::blake_rng::BlakeRng512;
 use overwatch::overwatch::OverwatchHandle;
 use rand::SeedableRng as _;
 
@@ -79,7 +79,7 @@ where
             settings.clone(),
             overwatch_handle,
             membership,
-            BlakeRng::from_entropy(),
+            BlakeRng512::from_entropy(),
         );
         Self {
             cryptographic_processor,
