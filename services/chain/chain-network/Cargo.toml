@@ -16,6 +16,7 @@ workspace = true
 async-trait           = { workspace = true }
 backon                = { features = ["tokio-sleep"], workspace = true }
 futures               = { workspace = true }
+lb-banning-service    = { workspace = true }
 lb-binary-codec       = { workspace = true }
 lb-chain-service      = { workspace = true }
 lb-core               = { workspace = true }

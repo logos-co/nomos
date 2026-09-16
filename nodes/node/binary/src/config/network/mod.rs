@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use lb_banning_service::ConfiguredBanPolicy;
 use lb_libp2p::{ChainSyncSettings, IdentifySettings, KademliaSettings, SwarmConfig};
 use lb_network_service::{backends::libp2p::config::Libp2pConfig, config::NetworkConfig};
 
@@ -11,6 +12,7 @@ pub mod serde;
 /// protocol names derived from the deployment.
 pub struct ServiceConfig {
     pub user: Config,
+    pub configured_ban_policy: ConfiguredBanPolicy,
 }
 
 impl ServiceConfig {
@@ -19,12 +21,16 @@ impl ServiceConfig {
         protocol_names: &ProtocolNames,
         max_data_size_by_topic: HashMap<lb_libp2p::gossipsub::TopicHash, usize>,
     ) -> NetworkConfig<Libp2pConfig> {
-        let Self { user } = self;
+        let Self {
+            user,
+            configured_ban_policy,
+        } = self;
 
         NetworkConfig {
             backend: Libp2pConfig {
                 initial_peers: user.backend.initial_peers,
                 max_data_size_by_topic,
+                configured_ban_policy,
                 inner: SwarmConfig {
                     host: user.backend.swarm.host,
                     port: user.backend.swarm.port,

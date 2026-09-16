@@ -1,5 +1,6 @@
 use std::{collections::HashSet, fmt::Debug};
 
+use lb_banning_service::{BanScope, Subsystem};
 use lb_libp2p::{
     PeerId,
     cryptarchia_sync::{BoxedStream, ChainSyncError, GetTipResponse, HeaderId, SerialisedBlock},
@@ -69,6 +70,19 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
                 log_error!(reply_sender.send(self.chainsync_eligible_peers()));
             }
             ChainSyncCommand::RequestTip { peer, reply_sender } => {
+                if self
+                    .chainsync_ban_view
+                    .is_banned_for(peer, &BanScope::Service(Subsystem::ChainSync))
+                {
+                    let error = ChainSyncError::new(
+                        peer,
+                        lb_libp2p::cryptarchia_sync::ChainSyncErrorKind::RequestTipError(
+                            lb_libp2p::cryptarchia_sync::GetTipResponseReason::NodeNotOnline,
+                        ),
+                    );
+                    let _unused = reply_sender.send(Err(error));
+                    return;
+                }
                 if let Err(e) = self.swarm.request_tip(peer, reply_sender) {
                     tracing::error!(target: LOG_TARGET, "failed to request tip: {e:?}");
                 }
@@ -81,6 +95,20 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
                 additional_blocks,
                 reply_sender,
             } => {
+                if self
+                    .chainsync_ban_view
+                    .is_banned_for(peer, &BanScope::Service(Subsystem::ChainSync))
+                {
+                    let error = ChainSyncError::new(
+                        peer,
+                        lb_libp2p::cryptarchia_sync::ChainSyncErrorKind::RequestBlocksDownloadError(
+                            "peer is banned for ChainSync".to_owned(),
+                        ),
+                    );
+                    let stream = Box::pin(tokio_stream::once(Err(error)));
+                    let _unused = reply_sender.send(Box::new(stream));
+                    return;
+                }
                 if let Err(e) = self.swarm.start_blocks_download(
                     peer,
                     target_block,
@@ -99,8 +127,14 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     }
 
     pub(super) fn handle_chainsync_event(&self, event: lb_cryptarchia_sync::Event) {
-        let event = ChainSyncEvent::from(event);
-        if let Err(e) = self.chainsync_events_tx.send(event) {
+        let peer_id = match &event {
+            lb_cryptarchia_sync::Event::ProvideBlocksRequest { peer_id, .. }
+            | lb_cryptarchia_sync::Event::ProvideTipsRequest { peer_id, .. } => *peer_id,
+        };
+        if self.is_globally_blocked(peer_id) {
+            return;
+        }
+        if let Err(e) = self.chainsync_events_tx.send(event.into()) {
             tracing::error!(target: LOG_TARGET, "failed to send chainsync event: {e:?}");
         }
     }
@@ -111,21 +145,27 @@ impl From<lb_cryptarchia_sync::Event> for ChainSyncEvent {
     fn from(event: lb_cryptarchia_sync::Event) -> Self {
         match event {
             lb_cryptarchia_sync::Event::ProvideBlocksRequest {
+                peer_id,
                 target_block,
                 local_tip,
                 latest_immutable_block,
                 additional_blocks,
                 reply_sender,
             } => Self::ProvideBlocksRequest {
+                peer_id,
                 target_block,
                 local_tip,
                 latest_immutable_block,
                 additional_blocks,
                 reply_sender,
             },
-            lb_cryptarchia_sync::Event::ProvideTipsRequest { reply_sender } => {
-                Self::ProvideTipRequest { reply_sender }
-            }
+            lb_cryptarchia_sync::Event::ProvideTipsRequest {
+                peer_id,
+                reply_sender,
+            } => Self::ProvideTipRequest {
+                peer_id,
+                reply_sender,
+            },
         }
     }
 }

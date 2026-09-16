@@ -10,6 +10,7 @@ use std::{
 use async_trait::async_trait;
 use config::{api, mempool, sdp, state, storage, wallet};
 use flate2::read::GzDecoder;
+use lb_banning_service::BanningConfig;
 use lb_config::kms::key_id_for_preload_backend;
 use lb_core::mantle;
 use lb_key_management_system_service::keys::{Key, secured_key::SecuredKey as _};
@@ -688,6 +689,7 @@ fn build_run_config(config: Config, deployment_settings: &DeploymentSettings) ->
     tracing.level = Level::INFO;
 
     let user_config = UserConfig {
+        banning: BanningConfig::default(),
         network: config.network_config,
         blend: config.blend_config.0,
         time: config.time_config,

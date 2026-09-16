@@ -6,6 +6,7 @@ use std::{
 
 use clap::{Parser, ValueEnum, builder::OsStr};
 use color_eyre::eyre::{Result, eyre};
+use lb_banning_service::BanningConfig;
 use lb_core::sdp::ProviderId;
 use lb_groth16::fr_from_bytes;
 use lb_key_management_system_service::{
@@ -58,6 +59,8 @@ mod tests;
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserConfig {
     #[serde(default)]
+    pub banning: BanningConfig,
+    #[serde(default)]
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub cryptarchia: CryptarchiaConfig,
@@ -94,6 +97,7 @@ impl UserConfig {
     #[must_use]
     pub fn with_required_values(required_values: RequiredValues) -> Self {
         Self {
+            banning: BanningConfig::default(),
             blend: required_values.blend,
             cryptarchia: required_values.cryptarchia,
             sdp: required_values.sdp,

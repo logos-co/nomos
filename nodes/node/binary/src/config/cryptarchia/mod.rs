@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use lb_banning_service::ConfiguredBanPolicy;
 use lb_chain_network_service::network::adapters::libp2p::LibP2pAdapterSettings;
 use lb_core::{block::genesis::GenesisBlock, sdp::ServiceParameters};
 use lb_cryptarchia_engine::EpochConfig;
@@ -29,6 +30,7 @@ impl ServiceConfig {
         blend_rewards_params: RewardsParameters,
         proposal_topic: String,
         recovery_data: RecoveryData,
+        configured_ban_policy: ConfiguredBanPolicy,
     ) -> (
         lb_chain_service::CryptarchiaSettings,
         lb_chain_network_service::ChainNetworkSettings<PeerId, LibP2pAdapterSettings>,
@@ -117,6 +119,7 @@ impl ServiceConfig {
             },
         };
         let chain_network_settings = lb_chain_network_service::ChainNetworkSettings {
+            configured_ban_policy,
             bootstrap: lb_chain_network_service::BootstrapConfig {
                 ibd: lb_chain_network_service::IbdConfig {
                     peers: self.user.network.bootstrap.ibd.peers,

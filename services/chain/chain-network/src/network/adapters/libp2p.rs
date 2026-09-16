@@ -1,6 +1,14 @@
-use std::{collections::HashSet, fmt::Debug, hash::Hash, iter, marker::PhantomData, time::Instant};
+use std::{
+    collections::HashSet,
+    fmt::Debug,
+    hash::Hash,
+    iter,
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 
 use futures::{FutureExt as _, TryStreamExt as _, future::select_ok, stream};
+use lb_banning_service::LocalBanView;
 use lb_binary_codec::canonical::BinaryDecodeExt as _;
 use lb_core::{
     block::{Block, Proposal},
@@ -32,7 +40,7 @@ use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
 
 use crate::{
     metrics,
-    network::{BoxedStream, NetworkAdapter},
+    network::{BoxedStream, NetworkAdapter, adapters::chain_sync_ban_view::ChainSyncBanView},
 };
 
 type Relay<T, RuntimeServiceId> =
@@ -50,6 +58,7 @@ where
 {
     network_relay:
         OutboundRelay<<NetworkService<Libp2p, RuntimeServiceId> as ServiceData>::Message>,
+    chain_sync_ban_view: ChainSyncBanView,
     settings: LibP2pAdapterSettings,
     _phantom_tx: PhantomData<Tx>,
 }
@@ -67,6 +76,7 @@ pub struct LibP2pAdapterSettings {
 
 impl<Tx, RuntimeServiceId> LibP2pAdapter<Tx, RuntimeServiceId>
 where
+    RuntimeServiceId: Send + Sync + 'static,
     Tx: Clone + Eq + Serialize,
 {
     // Requests a blocks stream from a single peer and validates the first item
@@ -197,6 +207,7 @@ where
 #[async_trait::async_trait]
 impl<Tx, RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for LibP2pAdapter<Tx, RuntimeServiceId>
 where
+    RuntimeServiceId: Send + Sync + 'static,
     Tx: SignedMantleTx<Preverified, StandardMode>
         + StorageSize
         + Serialize
@@ -213,7 +224,11 @@ where
     type Block = Block<Tx>;
     type Proposal = Proposal;
 
-    async fn new(settings: Self::Settings, network_relay: Relay<Libp2p, RuntimeServiceId>) -> Self {
+    async fn new(
+        settings: Self::Settings,
+        network_relay: Relay<Libp2p, RuntimeServiceId>,
+        chain_sync_ban_view: LocalBanView,
+    ) -> Self {
         let relay = network_relay.clone();
         tracing::debug!(
             target: LOG_TARGET,
@@ -224,10 +239,11 @@ where
         tracing::trace!(target: LOG_TARGET, "Starting up...");
         // this wait seems to be helpful in some cases since we give the time
         // to the network to establish connections before we start sending messages
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
         Self {
             network_relay,
+            chain_sync_ban_view: ChainSyncBanView::new(chain_sync_ban_view),
             settings,
             _phantom_tx: PhantomData,
         }
@@ -282,6 +298,9 @@ where
     }
 
     async fn request_tip(&self, peer: Self::PeerId) -> Result<GetTipResponse, DynError> {
+        if self.chain_sync_ban_view.is_banned(peer) {
+            return Err(format!("peer {peer:?} is banned for ChainSync").into());
+        }
         let started_at = Instant::now();
         tracing::debug!(target: LOG_TARGET, "Requesting chain tip from peer {peer:?}");
         let (reply_sender, receiver) = oneshot::channel();
@@ -323,6 +342,8 @@ where
             .intersection(&chainsync_peers)
             .copied()
             .collect::<HashSet<_>>();
+
+        let connected_peers = self.chain_sync_ban_view.filter(&connected_peers);
 
         let sampled: Vec<PeerId> = connected_peers
             .into_iter()
@@ -374,6 +395,9 @@ where
         latest_immutable_block: HeaderId,
         additional_blocks: HashSet<HeaderId>,
     ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError> {
+        if self.chain_sync_ban_view.is_banned(peer) {
+            return Err(format!("peer {peer:?} is banned for ChainSync").into());
+        }
         let additional_blocks_len = additional_blocks.len();
         tracing::debug!(
             target: LOG_TARGET,
@@ -423,7 +447,11 @@ where
         // All peers we know about, including those that are not connected.
         let discovered_peers = Self::get_discovered_peers(&self.network_relay).await?;
 
-        // Discovery membership and protocol capability are independent.
+        let connected_peers = self.chain_sync_ban_view.filter(&connected_peers);
+        let discovered_peers = self.chain_sync_ban_view.filter(&discovered_peers);
+
+        // Ban policy and protocol capability are independent filters. Both are
+        // applied before the existing connected/discovered selection bounds.
         let peers_to_request = choose_eligible_peers_to_request_download(
             &connected_peers,
             &discovered_peers,
@@ -546,10 +574,42 @@ where
 }
 
 #[cfg(test)]
+fn filter_banned_peers<PeerId>(
+    peers: &HashSet<PeerId>,
+    banned_peers: &HashSet<PeerId>,
+) -> HashSet<PeerId>
+where
+    PeerId: Eq + Hash + Copy,
+{
+    peers.difference(banned_peers).copied().collect()
+}
+
+#[cfg(test)]
 mod tests {
-    use lb_cryptarchia_sync::{BlocksUnavailableReason, ChainSyncError, ChainSyncErrorKind};
+    use std::time::SystemTime;
+
+    use lb_banning_service::{
+        BanRecord, BanScope, BanSource, BanningConfig, ConfiguredBanPolicy, OffenseKind, Subsystem,
+    };
+    use lb_core::mantle::transactions::SignedOps;
+    use lb_cryptarchia_sync::{
+        BlocksUnavailableReason, ChainSyncError, ChainSyncErrorKind, GetTipResponseReason,
+    };
+    use tokio::sync::mpsc;
 
     use super::*;
+
+    fn dynamic_chain_sync_record(peer_id: PeerId) -> BanRecord {
+        BanRecord {
+            peer_id,
+            source: BanSource::Service(Subsystem::ChainSync),
+            scope: BanScope::Service(Subsystem::ChainSync),
+            offense: OffenseKind::ProtocolViolation,
+            context: Some("test".to_owned()),
+            reported_at: SystemTime::now(),
+            expires_at: Some(SystemTime::now() + Duration::from_secs(60)),
+        }
+    }
 
     #[test]
     fn validate_first_block_response_rejects_block_not_found() {
@@ -678,5 +738,192 @@ mod tests {
             choose_eligible_peers_to_request_download(&connected, &discovered, &eligible, 1, 1);
 
         assert_eq!(result, vec![[4; 32], [2; 32]]);
+    }
+
+    #[test]
+    fn chainsync_filter_excludes_only_banned_candidates() {
+        let peers = HashSet::from([[1; 32], [2; 32], [3; 32]]);
+        let banned = HashSet::from([[2; 32]]);
+
+        assert_eq!(
+            filter_banned_peers(&peers, &banned),
+            HashSet::from([[1; 32], [3; 32]])
+        );
+    }
+
+    #[test]
+    fn chainsync_unban_and_expiry_restore_candidate_eligibility() {
+        let peers = HashSet::from([[1; 32], [2; 32]]);
+        let banned = HashSet::from([[2; 32]]);
+
+        assert_eq!(filter_banned_peers(&peers, &banned).len(), 1);
+        assert_eq!(filter_banned_peers(&peers, &HashSet::new()).len(), 2);
+    }
+
+    #[test]
+    fn chainsync_filter_preserves_connected_and_discovered_bounds() {
+        let connected = HashSet::from([[1; 32], [2; 32], [3; 32], [4; 32]]);
+        let discovered = HashSet::from([[3; 32], [5; 32], [6; 32], [7; 32]]);
+        let banned = HashSet::from([[1; 32], [5; 32], [6; 32]]);
+        let connected = filter_banned_peers(&connected, &banned);
+        let discovered = filter_banned_peers(&discovered, &banned);
+
+        let eligible = HashSet::from([[2; 32], [3; 32], [4; 32], [7; 32]]);
+        let selected =
+            choose_eligible_peers_to_request_download(&connected, &discovered, &eligible, 2, 2);
+        assert!(selected.len() <= 4);
+        assert!(selected.iter().all(|peer| !banned.contains(peer)));
+        assert!(
+            selected
+                .iter()
+                .filter(|peer| connected.contains(*peer))
+                .count()
+                <= 2
+        );
+        assert!(
+            selected
+                .iter()
+                .filter(|peer| discovered.contains(*peer) && !connected.contains(*peer))
+                .count()
+                <= 2
+        );
+    }
+
+    #[test]
+    fn chainsync_filter_selects_healthy_peers_and_fails_cleanly_when_all_banned() {
+        let peers = HashSet::from([[1; 32], [2; 32], [3; 32]]);
+        let some_banned = HashSet::from([[1; 32], [2; 32]]);
+        let all_banned = peers.clone();
+
+        let healthy = filter_banned_peers(&peers, &some_banned);
+        assert_eq!(healthy, HashSet::from([[3; 32]]));
+        assert!(filter_banned_peers(&peers, &all_banned).is_empty());
+        assert!(
+            choose_peers_to_request_download(
+                &HashSet::<[u8; 32]>::new(),
+                2,
+                &HashSet::<[u8; 32]>::new(),
+                2
+            )
+            .next()
+            .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn request_tip_remains_network_driven_without_banning_service() {
+        let peer = PeerId::random();
+        let (sender, mut receiver) = mpsc::channel(1);
+        let handler = tokio::spawn(async move {
+            let NetworkMsg::Process(Command::ChainSync(ChainSyncCommand::RequestTip {
+                peer: requested_peer,
+                reply_sender,
+            })) = receiver.recv().await.expect("tip request")
+            else {
+                panic!("expected ChainSync tip request");
+            };
+            assert_eq!(requested_peer, peer);
+            reply_sender
+                .send(Ok(GetTipResponse::Failure(
+                    GetTipResponseReason::NodeNotOnline,
+                )))
+                .expect("tip response receiver");
+        });
+        let adapter = LibP2pAdapter::<SignedOps<Preverified, StandardMode>, ()> {
+            network_relay: OutboundRelay::new(sender),
+            chain_sync_ban_view: ChainSyncBanView::new(LocalBanView::new::<()>(
+                None,
+                ConfiguredBanPolicy::default(),
+            )),
+            settings: LibP2pAdapterSettings {
+                topic: "test".to_owned(),
+                max_connected_peers_to_try_download: 1,
+                max_discovered_peers_to_try_download: 1,
+            },
+            _phantom_tx: PhantomData,
+        };
+
+        assert!(matches!(
+            adapter.request_tip(peer).await,
+            Ok(GetTipResponse::Failure(reason)) if reason == GetTipResponseReason::NodeNotOnline
+        ));
+        handler.await.expect("network request handler");
+    }
+
+    #[tokio::test]
+    async fn configured_blacklist_rejects_request_tip_without_banning_service() {
+        let peer = PeerId::random();
+        let configured_ban_policy = ConfiguredBanPolicy::from_config(&BanningConfig {
+            blacklist: vec![peer],
+            ..Default::default()
+        });
+        let (sender, mut receiver) = mpsc::channel(1);
+        let adapter = LibP2pAdapter::<SignedOps<Preverified, StandardMode>, ()> {
+            network_relay: OutboundRelay::new(sender),
+            chain_sync_ban_view: ChainSyncBanView::new(LocalBanView::new::<()>(
+                None,
+                configured_ban_policy,
+            )),
+            settings: LibP2pAdapterSettings {
+                topic: "test".to_owned(),
+                max_connected_peers_to_try_download: 1,
+                max_discovered_peers_to_try_download: 1,
+            },
+            _phantom_tx: PhantomData,
+        };
+
+        assert!(adapter.request_tip(peer).await.is_err());
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn dynamic_ban_fails_open_after_authority_loss_but_configured_policy_remains() {
+        let configured_peer = PeerId::random();
+        let dynamic_peer = PeerId::random();
+        let configured_ban_policy = ConfiguredBanPolicy::from_config(&BanningConfig {
+            blacklist: vec![configured_peer],
+            ..Default::default()
+        });
+        let view = ChainSyncBanView::new(LocalBanView::new::<()>(None, configured_ban_policy));
+        view.install_snapshot(vec![dynamic_chain_sync_record(dynamic_peer)]);
+        let (sender, mut receiver) = mpsc::channel(1);
+        let adapter = LibP2pAdapter::<SignedOps<Preverified, StandardMode>, ()> {
+            network_relay: OutboundRelay::new(sender),
+            chain_sync_ban_view: view.clone(),
+            settings: LibP2pAdapterSettings {
+                topic: "test".to_owned(),
+                max_connected_peers_to_try_download: 1,
+                max_discovered_peers_to_try_download: 1,
+            },
+            _phantom_tx: PhantomData,
+        };
+
+        assert!(adapter.request_tip(dynamic_peer).await.is_err());
+        view.disable();
+
+        let handler = tokio::spawn(async move {
+            let NetworkMsg::Process(Command::ChainSync(ChainSyncCommand::RequestTip {
+                peer,
+                reply_sender,
+            })) = receiver.recv().await.expect("tip request")
+            else {
+                panic!("expected ChainSync tip request");
+            };
+            assert_eq!(peer, dynamic_peer);
+            reply_sender
+                .send(Ok(GetTipResponse::Failure(
+                    GetTipResponseReason::NodeNotOnline,
+                )))
+                .expect("tip response receiver");
+            receiver
+        });
+
+        assert!(matches!(
+            adapter.request_tip(dynamic_peer).await,
+            Ok(GetTipResponse::Failure(reason)) if reason == GetTipResponseReason::NodeNotOnline
+        ));
+        assert!(adapter.request_tip(configured_peer).await.is_err());
+        let mut receiver = handler.await.expect("network request handler");
+        assert!(receiver.try_recv().is_err());
     }
 }

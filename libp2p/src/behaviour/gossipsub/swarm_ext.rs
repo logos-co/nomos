@@ -1,4 +1,7 @@
-use libp2p::gossipsub::{IdentTopic, MessageId, PublishError, SubscriptionError, TopicHash};
+use libp2p::{
+    PeerId,
+    gossipsub::{IdentTopic, MessageId, PublishError, SubscriptionError, TopicHash},
+};
 use rand::RngCore;
 
 use crate::Swarm;
@@ -11,6 +14,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     pub fn subscribe(&mut self, topic: &str) -> Result<bool, SubscriptionError> {
         self.swarm
             .behaviour_mut()
+            .inner
             .gossipsub
             .subscribe(&IdentTopic::new(topic))
     }
@@ -25,6 +29,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     {
         self.swarm
             .behaviour_mut()
+            .inner
             .gossipsub
             .publish(IdentTopic::new(topic), message)
     }
@@ -35,6 +40,7 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
     pub fn unsubscribe(&mut self, topic: &str) -> bool {
         self.swarm
             .behaviour_mut()
+            .inner
             .gossipsub
             .unsubscribe(&IdentTopic::new(topic))
     }
@@ -45,9 +51,26 @@ impl<R: Clone + Send + RngCore + 'static> Swarm<R> {
         //TODO: consider O(1) searching by having our own data structure
         self.swarm
             .behaviour_mut()
+            .inner
             .gossipsub
             .topics()
             .any(|h| h == &topic_hash)
+    }
+
+    pub fn blacklist_peer(&mut self, peer_id: PeerId) {
+        self.swarm
+            .behaviour_mut()
+            .inner
+            .gossipsub
+            .blacklist_peer(&peer_id);
+    }
+
+    pub fn remove_blacklisted_peer(&mut self, peer_id: PeerId) {
+        self.swarm
+            .behaviour_mut()
+            .inner
+            .gossipsub
+            .remove_blacklisted_peer(&peer_id);
     }
 }
 

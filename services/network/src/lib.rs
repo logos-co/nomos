@@ -1,13 +1,12 @@
 use std::fmt::{Debug, Display};
 
 use async_trait::async_trait;
-use backends::NetworkBackend;
+use backends::{BanningSynchronizer, NetworkBackend};
 use lb_log_targets::network_service;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
-        resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
     },
 };
@@ -43,7 +42,7 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for NetworkService<Backend, RuntimeServiceId>
 where
-    Backend: NetworkBackend<RuntimeServiceId> + Send + 'static,
+    Backend: BanningSynchronizer<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId: AsServiceId<Self> + Clone + Display + Send,
 {
     fn init(
@@ -64,23 +63,37 @@ where
     }
 
     async fn run(mut self) -> Result<(), overwatch::DynError> {
+        self.service_resources_handle.status_updater.notify_ready();
         let Self {
             service_resources_handle:
-                ServiceResourcesHandle {
-                    mut inbound_relay, ..
+                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    overwatch_handle,
+                    mut inbound_relay,
+                    ..
                 },
             mut backend,
         } = self;
 
-        self.service_resources_handle.status_updater.notify_ready();
         tracing::info!(
             target: LOG_TARGET,
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
 
-        while let Some(msg) = inbound_relay.recv().await {
-            Self::handle_network_service_message(msg, &mut backend).await;
+        let mut banning_configured = false;
+        let mut banning_synchronizer =
+            Box::pin(backend.start_banning_synchronizer(overwatch_handle));
+
+        loop {
+            tokio::select! {
+                Some(msg) = inbound_relay.recv() => {
+                    Self::handle_network_service_message(msg, &mut backend).await;
+                }
+                () = &mut banning_synchronizer, if !banning_configured => {
+                    banning_configured = true;
+                }
+                else => break,
+            }
         }
 
         Ok(())

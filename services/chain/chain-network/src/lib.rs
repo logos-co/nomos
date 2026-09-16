@@ -15,6 +15,7 @@ use std::{
 
 use bootstrap::ibd::ChainNetworkIbdBlockProcessor;
 use futures::{StreamExt as _, future::join_all};
+use lb_banning_service::{BanningService, BanningServiceApi, ConfiguredBanPolicy, LocalBanView};
 use lb_chain_service::{
     AppliedBlock,
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
@@ -142,6 +143,8 @@ pub struct ChainNetworkSettings<NodeId, NetworkAdapterSettings>
 where
     NodeId: Clone + Eq + Hash,
 {
+    #[serde(default)]
+    pub configured_ban_policy: ConfiguredBanPolicy,
     pub network: NetworkAdapterSettings,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
@@ -264,7 +267,8 @@ where
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
-        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>,
+        + AsServiceId<TimeService<TimeBackend, RuntimeServiceId>>
+        + AsServiceId<BanningService<RuntimeServiceId>>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -291,6 +295,7 @@ where
         .await;
 
         let ChainNetworkSettings {
+            configured_ban_policy,
             network: network_config,
             bootstrap: bootstrap_config,
             sync: sync_config,
@@ -299,6 +304,20 @@ where
             .settings_handle
             .notifier()
             .get_updated_settings();
+
+        let chain_sync_ban_view =
+            LocalBanView::new::<RuntimeServiceId>(None, configured_ban_policy);
+        let overwatch_handle = self.service_resources_handle.overwatch_handle.clone();
+        chain_sync_ban_view.start_synchronizer_with_acquisition(move || {
+            let overwatch_handle = overwatch_handle.clone();
+            async move {
+                overwatch_handle
+                    .relay::<BanningService<RuntimeServiceId>>()
+                    .await
+                    .map(BanningServiceApi::<RuntimeServiceId>::new)
+                    .map_err(|error| error.to_string())
+            }
+        });
 
         // Wait for services (except Chain) to become ready, with timeout
         wait_until_services_are_ready!(
@@ -317,7 +336,12 @@ where
         )
         .await?;
 
-        let network_adapter = NetAdapter::new(network_config, relays.network_relay().clone()).await;
+        let network_adapter = NetAdapter::new(
+            network_config,
+            relays.network_relay().clone(),
+            chain_sync_ban_view,
+        )
+        .await;
 
         let initial_block_download = InitialBlockDownload::new(
             ChainNetworkIbdBlockProcessor::<_, Mempool> {
@@ -1407,7 +1431,9 @@ mod tests {
     struct NoopNetworkAdapter;
 
     #[async_trait::async_trait]
-    impl<RuntimeServiceId: Send + Sync> NetworkAdapter<RuntimeServiceId> for NoopNetworkAdapter {
+    impl<RuntimeServiceId: Send + Sync + 'static> NetworkAdapter<RuntimeServiceId>
+        for NoopNetworkAdapter
+    {
         type Backend = Mock;
         type Settings = ();
         type PeerId = ();
@@ -1419,6 +1445,7 @@ mod tests {
             _network_relay: OutboundRelay<
                 <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
             >,
+            _chain_sync_ban_view: LocalBanView,
         ) -> Self {
             unimplemented!()
         }

@@ -1,6 +1,7 @@
 use core::future::ready;
 use std::{
     collections::HashSet,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -55,6 +56,8 @@ type ToSwarmEvent = ToSwarm<
     <<Behaviour as NetworkBehaviour>::ConnectionHandler as ConnectionHandler>::FromBehaviour,
 >;
 
+pub type PeerBlockPredicate = Arc<dyn Fn(PeerId) -> bool + Send + Sync>;
+
 pub struct BlocksRequestStream {
     pub peer_id: PeerId,
     pub stream: Libp2pStream,
@@ -98,6 +101,8 @@ impl TipRequestStream {
 #[derive(Debug, Clone)]
 pub enum Event {
     ProvideBlocksRequest {
+        /// Authenticated peer that opened the request stream.
+        peer_id: PeerId,
         /// Return blocks up to `target_block`.
         target_block: HeaderId,
         /// The local canonical chain latest block.
@@ -110,6 +115,8 @@ pub enum Event {
         reply_sender: Sender<BlocksResponse>,
     },
     ProvideTipsRequest {
+        /// Authenticated peer that opened the request stream.
+        peer_id: PeerId,
         /// Channel to send the latest tip to the service.
         reply_sender: Sender<TipResponse>,
     },
@@ -153,11 +160,22 @@ pub struct Behaviour {
     config: Config,
     /// Protocol name.
     protocol_name: StreamProtocol,
+    /// Synchronous admission policy for newly opened inbound streams.
+    peer_block_predicate: Option<PeerBlockPredicate>,
 }
 
 impl Behaviour {
     #[must_use]
     pub fn new(protocol_name: StreamProtocol, config: Config) -> Self {
+        Self::new_with_peer_block_predicate(protocol_name, config, None)
+    }
+
+    #[must_use]
+    pub fn new_with_peer_block_predicate(
+        protocol_name: StreamProtocol,
+        config: Config,
+        peer_block_predicate: Option<PeerBlockPredicate>,
+    ) -> Self {
         let stream_behaviour = StreamBehaviour::new();
         let mut control = stream_behaviour.new_control();
         let incoming_streams = control
@@ -178,6 +196,7 @@ impl Behaviour {
             waker: None,
             config,
             protocol_name,
+            peer_block_predicate,
         }
     }
 
@@ -244,6 +263,7 @@ impl Behaviour {
         );
 
         Poll::Ready(ToSwarm::GenerateEvent(Event::ProvideTipsRequest {
+            peer_id,
             reply_sender,
         }))
     }
@@ -274,6 +294,7 @@ impl Behaviour {
         );
 
         Poll::Ready(ToSwarm::GenerateEvent(Event::ProvideBlocksRequest {
+            peer_id,
             target_block: request.target_block,
             local_tip: request.known_blocks.local_tip,
             latest_immutable_block: request.known_blocks.latest_immutable_block,
@@ -283,6 +304,22 @@ impl Behaviour {
     }
 
     fn handle_incoming_stream(&self, peer_id: PeerId, mut stream: Libp2pStream) {
+        if self
+            .peer_block_predicate
+            .as_ref()
+            .is_some_and(|is_blocked| is_blocked(peer_id))
+        {
+            self.incoming_streams_to_close.push(
+                async move {
+                    drop(stream.close().await);
+                }
+                .boxed(),
+            );
+            debug!(target: LOG_TARGET, %peer_id, "Rejected banned incoming ChainSync stream");
+            self.try_notify_waker();
+            return;
+        }
+
         let concurrent_requests = self.receiving_requests.len()
             + self.sending_block_responses.len()
             + self.sending_tip_responses.len();
@@ -526,7 +563,15 @@ impl NetworkBehaviour for Behaviour {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, iter, time::Duration};
+    use std::{
+        collections::HashSet,
+        iter,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
 
     use futures::StreamExt as _;
     use lb_core::header::HeaderId;
@@ -542,7 +587,7 @@ mod tests {
         GetTipResponseReason, ProviderResponse, TipResponse,
         config::Config,
         libp2p::{
-            behaviour::{Behaviour, BoxedStream, Event},
+            behaviour::{Behaviour, BoxedStream, Event, PeerBlockPredicate},
             errors::{ChainSyncError, ChainSyncErrorKind},
             provider::MAX_ADDITIONAL_BLOCKS,
         },
@@ -742,6 +787,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn blocked_peer_is_rejected_before_inbound_request_decoding() {
+        let config = Config {
+            peer_response_timeout: Duration::from_secs(1),
+            max_inbound_requests: 1.try_into().unwrap(),
+        };
+        let blocked = Arc::new(AtomicBool::new(false));
+        let admission_flag = Arc::clone(&blocked);
+        let block_predicate: PeerBlockPredicate =
+            Arc::new(move |_| admission_flag.load(Ordering::SeqCst));
+
+        let mut provider_swarm =
+            new_swarm_with_quic_and_peer_block_predicate(config.clone(), Some(block_predicate));
+        let provider_peer_id = *provider_swarm.local_peer_id();
+        let provider_addr: Multiaddr = format!(
+            "/ip4/127.0.0.1/udp/{}/quic-v1",
+            thread_rng().gen_range(10000..60000)
+        )
+        .parse()
+        .unwrap();
+        provider_swarm.listen_on(provider_addr.clone()).unwrap();
+
+        let (event_sender, event_receiver) = oneshot::channel();
+        let provider_task = tokio::spawn(async move {
+            while let Some(event) = provider_swarm.next().await {
+                if matches!(
+                    event,
+                    SwarmEvent::Behaviour(
+                        Event::ProvideTipsRequest { .. } | Event::ProvideBlocksRequest { .. },
+                    )
+                ) {
+                    let _unused = event_sender.send(());
+                    return;
+                }
+            }
+        });
+
+        let mut downloader_swarm = setup_downloader_and_connect(provider_addr, config).await;
+        blocked.store(true, Ordering::SeqCst);
+
+        let receiver = request_tip(&mut downloader_swarm, provider_peer_id);
+        let downloader_task = tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+        let result = tokio::time::timeout(Duration::from_secs(2), receiver)
+            .await
+            .expect("blocked request should complete");
+
+        assert!(matches!(result, Err(_) | Ok(Err(_))));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), event_receiver)
+                .await
+                .is_err()
+        );
+
+        downloader_task.abort();
+        provider_task.abort();
+    }
+
+    #[tokio::test]
     async fn test_block_stream_error_during_transmission() {
         let config = Config {
             peer_response_timeout: Duration::from_secs(1),
@@ -855,7 +957,7 @@ mod tests {
     async fn run_provider<B: ProviderBehavior>(mut provider_swarm: Swarm<Behaviour>, behavior: B) {
         while let Some(event) = provider_swarm.next().await {
             match event {
-                SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender }) => {
+                SwarmEvent::Behaviour(Event::ProvideTipsRequest { reply_sender, .. }) => {
                     reply_sender
                         .send(behavior.handle_tip_request())
                         .await
@@ -1001,13 +1103,26 @@ mod tests {
     }
 
     fn new_swarm_with_quic(config: Config) -> Swarm<Behaviour> {
+        new_swarm_with_quic_and_peer_block_predicate(config, None)
+    }
+
+    fn new_swarm_with_quic_and_peer_block_predicate(
+        config: Config,
+        peer_block_predicate: Option<PeerBlockPredicate>,
+    ) -> Swarm<Behaviour> {
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         libp2p::SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_dns()
             .unwrap()
-            .with_behaviour(|_| Behaviour::new(StreamProtocol::new("/tests/chain-sync"), config))
+            .with_behaviour(move |_| {
+                Behaviour::new_with_peer_block_predicate(
+                    StreamProtocol::new("/tests/chain-sync"),
+                    config,
+                    peer_block_predicate,
+                )
+            })
             .unwrap()
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(10)))
             .build()

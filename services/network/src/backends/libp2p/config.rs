@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use lb_banning_service::ConfiguredBanPolicy;
 use lb_libp2p::{Multiaddr, SwarmConfig};
 use serde::{Deserialize, Serialize};
 
@@ -13,4 +14,6 @@ pub struct Libp2pConfig {
     // Initial peers to connect to
     #[serde(default)]
     pub initial_peers: Vec<Multiaddr>,
+    #[serde(default)]
+    pub configured_ban_policy: ConfiguredBanPolicy,
 }

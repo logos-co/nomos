@@ -180,32 +180,62 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
         }
     }
 
-    pub(super) fn handle_gossipsub_event(&self, event: gossipsub::Event) {
-        if let gossipsub::Event::Message { message, .. } = event {
-            let Some(max_data_size) = self.max_data_size_by_topic.get(&message.topic).copied()
-            else {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    topic = ?message.topic,
-                    "dropping gossipsub application data for a topic without a configured data-size limit"
-                );
-                return;
-            };
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Global ban filtering and the current event handling remain co-located at this boundary."
+    )]
+    pub(super) fn handle_gossipsub_event(&mut self, event: gossipsub::Event) {
+        match event {
+            gossipsub::Event::Message {
+                propagation_source,
+                message,
+                ..
+            } if !self.is_globally_blocked(propagation_source) => {
+                let Some(max_data_size) = self.max_data_size_by_topic.get(&message.topic).copied()
+                else {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        topic = ?message.topic,
+                        "dropping gossipsub application data for a topic without a configured data-size limit"
+                    );
+                    return;
+                };
 
-            if !is_within_application_data_limit(&self.max_data_size_by_topic, &message) {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    topic = ?message.topic,
-                    message_size = message.data.len(),
-                    max_data_size,
-                    "Dropping oversized inbound gossipsub application data"
-                );
-                return;
-            }
+                if !is_within_application_data_limit(&self.max_data_size_by_topic, &message) {
+                    tracing::warn!(
+                        target: LOG_TARGET,
+                        topic = ?message.topic,
+                        message_size = message.data.len(),
+                        max_data_size,
+                        "Dropping oversized inbound gossipsub application data"
+                    );
+                    return;
+                }
 
-            if let Err(e) = self.pubsub_messages_tx.send(message) {
-                tracing::error!(target: LOG_TARGET, "Failed to send gossipsub message event: {}", e);
+                if let Err(e) = self.pubsub_messages_tx.send(message) {
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Failed to send gossipsub message event: {}",
+                        e
+                    );
+                }
             }
+            gossipsub::Event::Message {
+                propagation_source, ..
+            } => {
+                self.swarm.blacklist_peer(propagation_source);
+                let _ = self.swarm.disconnect_peer(propagation_source);
+            }
+            gossipsub::Event::Subscribed { peer_id, .. }
+            | gossipsub::Event::Unsubscribed { peer_id, .. }
+            | gossipsub::Event::GossipsubNotSupported { peer_id }
+            | gossipsub::Event::SlowPeer { peer_id, .. }
+                if self.is_globally_blocked(peer_id) =>
+            {
+                self.swarm.blacklist_peer(peer_id);
+                let _ = self.swarm.disconnect_peer(peer_id);
+            }
+            _ => {}
         }
     }
 }

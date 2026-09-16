@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr};
 
+use lb_banning_service::BanningConfig;
 use lb_key_management_system_service::{
     backend::preload::KeyId,
     keys::{Key, secured_key::SecuredKey as _},
@@ -40,6 +41,7 @@ pub fn create_node_user_config(config: GeneralConfig) -> UserConfig {
     sdp_config.declaration = config.sdp_config.declaration;
 
     UserConfig {
+        banning: BanningConfig::default(),
         network: config.network_config,
         blend: config.blend_config.0,
         time: config.time_config,

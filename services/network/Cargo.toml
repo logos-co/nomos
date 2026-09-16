@@ -15,6 +15,7 @@ workspace = true
 [dependencies]
 async-trait         = { workspace = true }
 futures             = { workspace = true }
+lb-banning-service  = { workspace = true }
 lb-core             = { workspace = true }
 lb-cryptarchia-sync = { workspace = true }
 lb-libp2p           = { workspace = true }
@@ -25,7 +26,7 @@ overwatch           = { workspace = true }
 rand                = { features = ["std"], workspace = true }
 rand_chacha         = { workspace = true }
 serde               = { features = ["derive"], workspace = true }
-tokio               = { features = ["macros", "sync"], workspace = true }
+tokio               = { features = ["macros", "sync", "time"], workspace = true }
 tokio-stream        = { workspace = true }
 tracing             = { workspace = true }
 utoipa              = { features = ["macros"], optional = true, workspace = true }

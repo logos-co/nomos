@@ -34,10 +34,17 @@ pub struct PendingQueryData {
 }
 
 impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Retain the existing bootstrap validation and logging in one boundary."
+    )]
     pub(super) fn bootstrap_kad_from_peers(&mut self, initial_peers: &Vec<Multiaddr>) {
         for peer_addr in initial_peers {
             if let Some(Protocol::P2p(peer_id_bytes)) = peer_addr.iter().last() {
                 if let Ok(peer_id) = PeerId::from_multihash(peer_id_bytes.into()) {
+                    if self.is_globally_blocked(peer_id) {
+                        continue;
+                    }
                     self.swarm.kademlia_add_address(peer_id, peer_addr);
                     tracing::trace!(
                         target: LOG_TARGET,
@@ -93,8 +100,49 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
         }
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "Keep current Kademlia event handling in one policy boundary."
+    )]
     pub(super) fn handle_kademlia_event(&mut self, event: kad::Event) {
         match event {
+            kad::Event::RoutablePeer { peer, address }
+            | kad::Event::PendingRoutablePeer { peer, address }
+                if self.is_globally_blocked(peer) =>
+            {
+                self.swarm.kademlia_remove_address(peer, &address);
+                let _ = self.swarm.disconnect_peer(peer);
+            }
+            kad::Event::UnroutablePeer { peer } if self.is_globally_blocked(peer) => {
+                let _ = self.swarm.disconnect_peer(peer);
+            }
+            kad::Event::InboundRequest {
+                request: kad::InboundRequest::PutRecord { source, .. },
+            } if self.is_globally_blocked(source) => {
+                // The common GlobalPeerGate drops authenticated handler
+                // traffic before Kademlia sees it. Keep this event-level
+                // branch as a defensive disconnect for any event already
+                // queued by Kademlia; do not remove by record key because
+                // that could delete an unrelated local record.
+                let _ = self.swarm.disconnect_peer(source);
+            }
+            kad::Event::InboundRequest {
+                request:
+                    kad::InboundRequest::AddProvider {
+                        record: Some(record),
+                    },
+            } if self.is_globally_blocked(record.provider) => {
+                self.swarm
+                    .kademlia_remove_provider(&record.key, &record.provider);
+            }
+            kad::Event::InboundRequest { request } => {
+                // The current libp2p-kad event does not expose the authenticated
+                // request peer for FindNode/GetProvider/GetRecord/AddProvider.
+                // Those variants are not forwarded to application consumers;
+                // the common connection gate and reconciliation handle their
+                // peer-attributed admission boundary.
+                tracing::trace!(target: LOG_TARGET, "Handle Kademlia inbound request: {request:?}");
+            }
             kad::Event::OutboundQueryProgressed {
                 id, result, step, ..
             } => {
@@ -107,10 +155,15 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
                 is_new_peer,
                 ..
             } => {
-                let addresses = addresses.into_vec();
-                log_routing_update(peer, &addresses, old_peer, is_new_peer);
-                if let Some(old_peer) = old_peer {
-                    self.prune_peer_advertised_protocols(old_peer);
+                if self.is_globally_blocked(peer) {
+                    self.swarm.kademlia_remove_peer(peer);
+                    let _ = self.swarm.disconnect_peer(peer);
+                } else {
+                    let addresses = addresses.into_vec();
+                    log_routing_update(peer, &addresses, old_peer, is_new_peer);
+                    if let Some(old_peer) = old_peer {
+                        self.prune_peer_advertised_protocols(old_peer);
+                    }
                 }
             }
             kad::Event::ModeChanged { new_mode } => {
@@ -130,8 +183,13 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     ) {
         match result {
             kad::QueryResult::GetClosestPeers(Ok(result)) => {
+                let peers = result
+                    .peers
+                    .into_iter()
+                    .filter(|peer_info| !self.is_globally_blocked(peer_info.peer_id))
+                    .collect::<Vec<_>>();
                 if let Some(query_data) = self.pending_queries.get_mut(&id) {
-                    query_data.accumulated_results.extend(result.peers);
+                    query_data.accumulated_results.extend(peers);
 
                     if step.last
                         && let Some(query_data) = self.pending_queries.remove(&id)

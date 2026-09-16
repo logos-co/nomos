@@ -2,6 +2,9 @@ mod command;
 pub mod config;
 pub(crate) mod swarm;
 
+use std::{pin::Pin, sync::Arc};
+
+use lb_banning_service::{BanningService, BanningServiceApi, LocalBanView};
 pub use lb_libp2p::{
     PeerId,
     libp2p::gossipsub::{Message, TopicHash},
@@ -22,7 +25,7 @@ pub use self::{
     },
     config::Libp2pConfig,
 };
-use super::NetworkBackend;
+use super::{BanningSynchronizer, NetworkBackend};
 use crate::message::ChainSyncEvent;
 
 const LOG_TARGET: &str = network_service::backends::libp2p::ROOT;
@@ -31,6 +34,7 @@ pub struct Libp2p {
     pubsub_events_tx: Sender<Message>,
     chainsync_events_tx: Sender<ChainSyncEvent>,
     commands_tx: mpsc::Sender<Command>,
+    ban_view: LocalBanView,
 }
 const BUFFER_SIZE: usize = 64;
 
@@ -49,13 +53,15 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         let (chainsync_events_tx, _) = broadcast::channel(BUFFER_SIZE);
 
         let initial_peers = config.initial_peers.clone();
+        let ban_view = LocalBanView::new::<()>(None, config.configured_ban_policy.clone());
 
-        let mut swarm_handler = SwarmHandler::new(
+        let mut swarm_handler = SwarmHandler::new_with_ban_view(
             config,
             commands_tx.clone(),
             commands_rx,
             pubsub_events_tx.clone(),
             chainsync_events_tx.clone(),
+            ban_view.clone(),
             rng,
         );
 
@@ -71,6 +77,7 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
             pubsub_events_tx,
             chainsync_events_tx,
             commands_tx,
+            ban_view,
         }
     }
 
@@ -89,5 +96,36 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
 
     async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
         BroadcastStream::new(self.chainsync_events_tx.subscribe())
+    }
+}
+
+impl<RuntimeServiceId> BanningSynchronizer<RuntimeServiceId> for Libp2p
+where
+    RuntimeServiceId: overwatch::services::AsServiceId<BanningService<RuntimeServiceId>>
+        + std::fmt::Debug
+        + std::fmt::Display
+        + Send
+        + Sync
+        + 'static,
+{
+    fn start_banning_synchronizer(
+        &self,
+        overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let view = self.ban_view.clone();
+        let overwatch_handle = Arc::new(overwatch_handle);
+        Box::pin(async move {
+            view.start_synchronizer_with_acquisition(move || {
+                let overwatch_handle = Arc::clone(&overwatch_handle);
+                async move {
+                    overwatch_handle
+                        .relay::<BanningService<RuntimeServiceId>>()
+                        .await
+                        .map(BanningServiceApi::<RuntimeServiceId>::new)
+                        .map(BanningServiceApi::into_untyped)
+                        .map_err(|error| error.to_string())
+                }
+            });
+        })
     }
 }
