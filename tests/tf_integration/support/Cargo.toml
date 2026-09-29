@@ -15,9 +15,9 @@ hex                              = { workspace = true }
 lb-binary-codec                  = { workspace = true }
 lb-key-management-system-service = { workspace = true }
 lb-libp2p                        = { workspace = true }
-lb-utils                         = { workspace = true }
 num-bigint                       = { workspace = true }
 rand                             = { workspace = true }
 serde                            = { features = ["derive"], workspace = true }
 testing-framework-core           = { workspace = true }
+testing-framework-tools          = { workspace = true }
 thiserror                        = { workspace = true }

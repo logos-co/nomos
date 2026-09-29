@@ -898,11 +898,11 @@ dependencies = [
  "logos-blockchain-binary-codec",
  "logos-blockchain-key-management-system-service",
  "logos-blockchain-libp2p",
- "logos-blockchain-utils",
  "num-bigint",
  "rand 0.8.6",
  "serde",
  "testing-framework-core",
+ "testing-framework-tools",
  "thiserror 2.0.21",
 ]
 
@@ -4652,6 +4652,7 @@ dependencies = [
  "logos-blockchain-utils",
  "num-bigint",
  "rand 0.8.6",
+ "testing-framework-tools",
  "time",
 ]
 
@@ -5010,6 +5011,7 @@ dependencies = [
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "serde",
+ "testing-framework-tools",
  "tokio",
  "tokio-stream",
  "tracing",
