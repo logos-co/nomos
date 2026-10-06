@@ -166,7 +166,7 @@ pub mod api {
         }
 
         /// Gets the chain info, but only once the chain is `Online`.
-        async fn get_online_cryptarchia_info(&self) -> StatusResult<CryptarchiaInfo> {
+        pub async fn get_online_cryptarchia_info(&self) -> StatusResult<CryptarchiaInfo> {
             let cryptarchia_info = self.api.info().await?.cryptarchia_info;
             if cryptarchia_info.state != State::Online {
                 return Err(OperationStatus::error(
