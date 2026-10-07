@@ -2,14 +2,17 @@ use std::hash::Hash;
 
 use indexmap::IndexMap;
 
-use crate::backend::{policy::TtlPolicy, pool::MempoolSettings};
+use crate::backend::{
+    policy::{TtlPolicy, TxEvictionPolicy},
+    pool::MempoolSettings,
+};
 
 /// Decides which valid transactions the pool stops carrying.
 ///
 /// Composes eviction policies and drives their lifecycle; it never removes
 /// anything itself — the pool executes the key lists it returns.
-pub struct Evictor<Key> {
-    ttl: TtlPolicy<Key>,
+pub struct Evictor<Tx> {
+    policies: Vec<Box<dyn TxEvictionPolicy<Tx = Tx>>>,
 }
 
 impl<Key> Evictor<Key>

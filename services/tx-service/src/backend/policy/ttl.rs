@@ -1,6 +1,9 @@
 use std::{hash::Hash, time::Duration};
 
 use indexmap::IndexMap;
+use lb_core::mantle::traits::Hashable;
+
+use crate::backend::policy::{PolicyEvent, TxEvictionPolicy};
 
 /// Evicts transactions that stayed in the pool longer than the configured
 /// TTL, regardless of pool fill.
@@ -18,9 +21,9 @@ where
     Key: Hash + Eq + Clone,
 {
     #[must_use]
-    pub fn new(tx_ttl: Option<Duration>) -> Self {
+    pub fn new(tx_ttl: impl Into<Option<Duration>>) -> Self {
         Self {
-            tx_ttl,
+            tx_ttl: tx_ttl.into(),
             inserted: IndexMap::new(),
         }
     }
@@ -62,6 +65,32 @@ where
         Self {
             tx_ttl,
             inserted: state,
+        }
+    }
+}
+
+impl<Tx, Settings> TxEvictionPolicy for TtlPolicy<Tx::Hash>
+where
+    Settings: Into<Option<Duration>>,
+    Tx: Hashable,
+{
+    type Tx = Tx;
+    type Settings = Settings;
+
+    fn new(settings: Self::Settings) -> Self {
+        Self::new(settings)
+    }
+
+    fn process_event(&mut self, event: PolicyEvent<Self::Tx>) -> bool {
+        match event {
+            PolicyEvent::Add(key, now) => {
+                self.on_add(key, now);
+                false
+            }
+            PolicyEvent::Remove(key) => {
+                self.on_remove(key);
+                false
+            }
         }
     }
 }
