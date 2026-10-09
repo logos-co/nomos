@@ -1,6 +1,7 @@
 pub mod powclaim;
 pub mod ttl;
 
+use lb_cryptarchia_engine::Slot;
 pub use powclaim::PoWClaimPolicy;
 pub use ttl::TtlPolicy;
 
