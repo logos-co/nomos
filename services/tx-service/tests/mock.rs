@@ -283,13 +283,18 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
         Ok(())
     }
 
-    async fn get_block_slot(&self, block_id: &Self::BlockId) -> Result<Option<Slot>, Self::Error> {
-        Ok(self
+    async fn get_block_slots(
+        &self,
+        block_ids: &[Self::BlockId],
+    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
+        let known = self
             .block_slots
             .lock()
-            .expect("in-memory storage adapter lock should not be poisoned")
-            .get(block_id)
-            .copied())
+            .expect("in-memory storage adapter lock should not be poisoned");
+        Ok(block_ids
+            .iter()
+            .filter_map(|block_id| known.get(block_id).map(|slot| (*block_id, *slot)))
+            .collect())
     }
 }
 
@@ -323,8 +328,11 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
         Ok(())
     }
 
-    async fn get_block_slot(&self, _block_id: &Self::BlockId) -> Result<Option<Slot>, Self::Error> {
-        Ok(None)
+    async fn get_block_slots(
+        &self,
+        _block_ids: &[Self::BlockId],
+    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
+        Ok(HashMap::new())
     }
 }
 

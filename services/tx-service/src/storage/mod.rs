@@ -1,4 +1,4 @@
-use std::pin::Pin;
+use std::{collections::HashMap, hash::Hash, pin::Pin};
 
 use async_trait::async_trait;
 use futures::Stream;
@@ -12,7 +12,7 @@ pub trait MempoolStorageAdapter<RuntimeServiceId>: Send + Sync {
 
     type Key: Send + Sync;
 
-    type BlockId: Send + Sync;
+    type BlockId: Hash + Eq + Send + Sync;
 
     type Error: Send;
 
@@ -31,6 +31,10 @@ pub trait MempoolStorageAdapter<RuntimeServiceId>: Send + Sync {
 
     async fn remove_items(&mut self, keys: &[Self::Key]) -> Result<(), Self::Error>;
 
-    /// Slot of the stored block `block_id`, or `None` if it is not stored.
-    async fn get_block_slot(&self, block_id: &Self::BlockId) -> Result<Option<Slot>, Self::Error>;
+    /// Slots of the stored blocks among `block_ids`. Blocks that are not
+    /// stored are left out.
+    async fn get_block_slots(
+        &self,
+        block_ids: &[Self::BlockId],
+    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error>;
 }

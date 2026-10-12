@@ -407,30 +407,25 @@ where
     /// to, for those storage already holds. The rest resolve once the chain
     /// reports the block processed.
     async fn resolve_claim_anchors(&self, item: &Item) -> BlockSlots<BlockId> {
-        let mut block_slots = BlockSlots::new();
         // Collected up front: the op iterator borrows `item` and is not `Send`.
         let anchors = item
             .pow_reward_claims()
             .map(|claim| BlockId::from(claim.block_hash))
-            .collect::<Vec<_>>();
-        for anchor in anchors {
-            if block_slots.contains_key(&anchor) {
-                continue;
-            }
-            match self.storage_adapter.get_block_slot(&anchor).await {
-                Ok(Some(slot)) => {
-                    block_slots.insert(anchor, slot);
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    tracing::warn!(
-                        target: LOG_TARGET,
-                        "Failed to look up the anchor block of a PoW reward claim: {e:?}"
-                    );
-                }
-            }
+            .collect::<IndexSet<_>>();
+        if anchors.is_empty() {
+            return BlockSlots::new();
         }
-        block_slots
+        let anchors = anchors.into_iter().collect::<Vec<_>>();
+        self.storage_adapter
+            .get_block_slots(&anchors)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    target: LOG_TARGET,
+                    "Failed to look up the anchor blocks of PoW reward claims: {e:?}"
+                );
+                BlockSlots::new()
+            })
     }
 
     async fn prune_removed_items(&mut self) {

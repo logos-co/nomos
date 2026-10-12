@@ -1,7 +1,7 @@
-use std::{marker::PhantomData, pin::Pin};
+use std::{collections::HashMap, marker::PhantomData, pin::Pin};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt as _, TryStreamExt as _};
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -15,6 +15,10 @@ use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 
 use crate::{backend::MempoolError, storage::MempoolStorageAdapter};
+
+/// How many block lookups [`RocksStorageAdapter::get_block_slots`] keeps in
+/// flight at once.
+const MAX_CONCURRENT_BLOCK_LOOKUPS: usize = 16;
 
 /// Maps the mempool's item/key interface to the shared storage API.
 #[derive(Clone)]
@@ -83,12 +87,20 @@ where
             .map_err(MempoolError::DynamicPoolError)
     }
 
-    async fn get_block_slot(&self, block_id: &Self::BlockId) -> Result<Option<Slot>, Self::Error> {
-        let block = self
-            .storage
-            .try_get_block(block_id)
+    async fn get_block_slots(
+        &self,
+        block_ids: &[Self::BlockId],
+    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
+        let storage = &self.storage;
+        futures::stream::iter(block_ids.iter().copied())
+            .map(async |block_id| {
+                let block = storage.try_get_block(&block_id).await?;
+                Ok::<_, overwatch::DynError>(block.map(|block| (block_id, block.header().slot())))
+            })
+            .buffer_unordered(MAX_CONCURRENT_BLOCK_LOOKUPS)
+            .try_filter_map(async |found| Ok(found))
+            .try_collect()
             .await
-            .map_err(MempoolError::DynamicPoolError)?;
-        Ok(block.map(|block| block.header().slot()))
+            .map_err(MempoolError::DynamicPoolError)
     }
 }
