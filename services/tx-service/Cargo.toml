@@ -22,6 +22,7 @@ workspace = true
 [dependencies]
 async-trait           = { workspace = true }
 futures               = { workspace = true }
+hex                   = { workspace = true }
 indexmap              = { features = ["serde", "std"], workspace = true }
 lb-binary-codec       = { workspace = true }
 lb-core               = { workspace = true }
@@ -42,6 +43,7 @@ tracing               = { workspace = true }
 utoipa                = { features = ["macros"], optional = true, workspace = true }
 
 [dev-dependencies]
+lb-core            = { features = ["test-utils"], workspace = true }
 lb-tracing-service = { workspace = true }
 overwatch-derive   = { workspace = true }
 tempfile           = { workspace = true }
