@@ -190,6 +190,7 @@ testing-framework-core           = { default-features = false, git = "https://gi
 testing-framework-runner-compose = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-testing.git", rev = "a35ec04869ec06bee2e4bf1af1ffebf8e7a815df" }
 testing-framework-runner-k8s     = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-testing.git", rev = "a35ec04869ec06bee2e4bf1af1ffebf8e7a815df" }
 testing-framework-runner-local   = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-testing.git", rev = "a35ec04869ec06bee2e4bf1af1ffebf8e7a815df" }
+testing-framework-tools          = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-testing.git", rev = "a35ec04869ec06bee2e4bf1af1ffebf8e7a815df" }
 
 # External
 anyhow                             = { default-features = false, version = "1" }
