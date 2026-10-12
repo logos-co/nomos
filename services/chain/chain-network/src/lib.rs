@@ -6,7 +6,7 @@ pub mod network;
 mod relays;
 mod sync;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, num::NonZeroUsize};
 use std::{
     fmt::Display,
     hash::Hash,
@@ -80,7 +80,6 @@ const SERVICE_ID: &str = "ChainNetwork";
 pub(crate) const LOG_TARGET: &str = chain::network::ROOT;
 const FUTURE_BLOCK_MAX_RETRIES: usize = 3;
 const FUTURE_BLOCK_RETRY_DELAY: Duration = Duration::from_millis(500);
-const RECEIVED_PROPOSALS_BUFFER: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -145,6 +144,7 @@ where
     pub network: NetworkAdapterSettings,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
+    pub seen_items_subscription_channel_size: NonZeroUsize,
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
@@ -270,7 +270,12 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (received_proposals_sender, _) = broadcast::channel(RECEIVED_PROPOSALS_BUFFER);
+        let received_proposals_buffer = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .seen_items_subscription_channel_size;
+        let (received_proposals_sender, _) = broadcast::channel(received_proposals_buffer.get());
         Ok(Self {
             service_resources_handle,
             received_proposals_sender,
@@ -294,6 +299,7 @@ where
             network: network_config,
             bootstrap: bootstrap_config,
             sync: sync_config,
+            ..
         } = self
             .service_resources_handle
             .settings_handle
@@ -1164,7 +1170,6 @@ where
 mod tests {
     use std::{
         collections::HashSet,
-        num::NonZeroUsize,
         sync::atomic::{AtomicUsize, Ordering},
     };
 

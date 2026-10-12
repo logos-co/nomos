@@ -8,12 +8,24 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub bootstrap: BootstrapConfig,
     pub sync: SyncConfig,
     pub network: NetworkConfig,
+    pub seen_items_subscription_channel_size: NonZeroU64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bootstrap: BootstrapConfig::default(),
+            sync: SyncConfig::default(),
+            network: NetworkConfig::default(),
+            seen_items_subscription_channel_size: NonZeroU64::new(64).unwrap(),
+        }
+    }
 }
 
 #[serde_as]

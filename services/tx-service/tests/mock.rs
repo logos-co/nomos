@@ -114,6 +114,7 @@ fn mock_pool_node_settings(
             mockpool: TxMempoolSettings {
                 pool: MempoolSettings::default(),
                 network_adapter: (),
+                seen_items_subscription_channel_size: 64.try_into().unwrap(),
                 recovery_data: RecoveryData::default(),
             },
             logging: TracingSettings::default(),
@@ -748,6 +749,7 @@ fn test_mock_mempool() {
         let recovery_settings = TxMempoolSettings {
             pool: MempoolSettings::default(),
             network_adapter: (),
+            seen_items_subscription_channel_size: 64.try_into().unwrap(),
             recovery_data,
         };
         let recovered_state =
