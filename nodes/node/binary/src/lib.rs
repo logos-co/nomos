@@ -84,7 +84,7 @@ pub use crate::{
     config::{ApiArgs, LogArgs, NetworkArgs, UserConfig},
 };
 
-pub(crate) type TracingService = Tracing<RuntimeServiceId>;
+pub type TracingService = Tracing<RuntimeServiceId>;
 
 pub(crate) type NetworkService =
     lb_network_service::NetworkService<NetworkBackend, RuntimeServiceId>;
