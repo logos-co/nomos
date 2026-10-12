@@ -1061,6 +1061,7 @@ where
     trace!(target: LOG_TARGET, "Received proposal with ID: {:?}", block.header().id());
 
     let block_id = block.header().id();
+    let block_slot = block.header().slot();
     let AppliedBlock {
         tip,
         newly_canonical_txs,
@@ -1081,12 +1082,9 @@ where
 
     // Every applied block advances the mempool's clock, canonical or not: a
     // block's slot does not depend on the chain it ends up on.
-    mempool_adapter
-        .notify_processed_block(block.header().id(), block.header().slot())
-        .await
-        .unwrap_or_else(
-            |e| error!(target: LOG_TARGET, "Could not notify mempool of processed block: {e}"),
-        );
+    if let Err(err) = mempool.notify_processed_block(block_id, block_slot).await {
+        error!(target: LOG_TARGET, err, "could not notify mempool of processed block");
+    }
 
     // Re-insert reorged txs back into the mempool.
     join_all(reorged_txs.into_iter().map(|tx| {
