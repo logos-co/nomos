@@ -9,6 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub use blockchain_test_support::runtime_info::{NodeWalletKey, NodeWalletKeyRole};
 use cucumber::World;
 use educe::Educe;
 use lb_binary_codec::bincode::DeserializeOp as _;
@@ -999,8 +1000,8 @@ pub struct ClusterState {
     ///
     /// The world stays concrete because the Cucumber step macros do not support
     /// a world generic over the node implementation. Shared steps use
-    /// `local_app` instead; this handle is present only when this checkout
-    /// generates the Logos configuration.
+    /// `local_app` instead; this handle is present only for the normal Logos
+    /// runner, even when an external factory happens to deploy Logos nodes.
     pub logos_cluster: Option<ClusterHandle<LbcEnv>>,
 
     /// Owns the selected local app, including its cleanup guards.
@@ -1071,7 +1072,10 @@ impl ClusterState {
                     message: "Local app does not provide node runtime information".into(),
                 })?,
         );
-        self.logos_cluster = app.runtime().get::<ClusterHandle<LbcEnv>>();
+        self.logos_cluster = match self.implementation {
+            LocalImplementation::Logos => app.runtime().get::<ClusterHandle<LbcEnv>>(),
+            LocalImplementation::External(_) => None,
+        };
         self.local_app = Some(app);
         self.k8s_manual_cluster = None;
         Ok(())
@@ -1721,33 +1725,6 @@ pub struct PreparedPriorityFee {
     pub funded_fee: u64,
     pub initial_execution_price: u64,
     pub initial_storage_price: u64,
-}
-
-/// A scenario wallet is either user-owned or backed by a node wallet key.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum NodeWalletKeyRole {
-    Funding,
-    VoucherMaster,
-    BlendZk,
-    General,
-}
-
-impl NodeWalletKeyRole {
-    #[must_use]
-    pub const fn priority(self) -> u8 {
-        match self {
-            Self::Funding => 0,
-            Self::VoucherMaster => 1,
-            Self::BlendZk => 2,
-            Self::General => 3,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NodeWalletKey {
-    pub wallet_pk: String,
-    pub role: NodeWalletKeyRole,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

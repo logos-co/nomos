@@ -1,19 +1,53 @@
 use std::fmt::Debug;
 
 use async_trait::async_trait;
-use lb_testing_framework::{LbcClusterApp, SharedDeployment, internal::DeploymentPlan};
+use lb_testing_framework::{
+    LbcClusterApp, SharedDeployment,
+    configs::{PreparedDeployment, build_plan},
+};
 use testing_framework_app::AppDeployer;
 use testing_framework_core::{scenario::DynError, topology::FixedDeploymentProvider};
 
 use super::{CucumberClusterApp, LocalDeployment};
 use crate::cucumber::error::StepError;
 
-/// Prepares an external implementation from the suite's shared network inputs.
+impl CucumberClusterApp<LbcClusterApp> {
+    /// Renders Logos configuration from the scenario's prepared network and
+    /// leaves process startup to the Cucumber lifecycle steps.
+    pub fn from_logos(deployment: PreparedDeployment) -> Result<Self, DynError> {
+        let inputs = deployment.shared_inputs()?;
+        let plan = build_plan(deployment)?;
+        let app =
+            LbcClusterApp::new(Box::new(FixedDeploymentProvider::new(plan))).with_on_demand_start();
+
+        Ok(Self { app, inputs })
+    }
+}
+
+/// Prepared network input for the selected implementation.
+/// Native rendering stays with the adapter.
+pub struct DeploymentInput {
+    deployment: PreparedDeployment,
+}
+
+impl DeploymentInput {
+    pub fn shared_inputs(&self) -> Result<SharedDeployment, DynError> {
+        self.deployment.shared_inputs()
+    }
+
+    pub async fn deploy_logos(self) -> Result<LocalDeployment, DynError> {
+        AppDeployer::new()
+            .deploy(CucumberClusterApp::from_logos(self.deployment)?)
+            .await
+    }
+}
+
+/// Deploys the scenario through an integration's selected apps.
 #[async_trait]
 pub trait ExternalDeploymentFactory: Debug + Send + Sync {
     fn name(&self) -> &'static str;
 
-    async fn deploy(&self, inputs: SharedDeployment) -> Result<LocalDeployment, DynError>;
+    async fn deploy(&self, deployment: DeploymentInput) -> Result<LocalDeployment, DynError>;
 }
 
 /// The default Logos deployment or a factory supplied by an integration runner.
@@ -48,19 +82,15 @@ impl LocalImplementation {
         })
     }
 
-    pub async fn deploy(self, deployment: DeploymentPlan) -> Result<LocalDeployment, StepError> {
-        let inputs = SharedDeployment::from_plan(&deployment)?;
+    pub async fn deploy(
+        self,
+        deployment: PreparedDeployment,
+    ) -> Result<LocalDeployment, StepError> {
+        let deployment = DeploymentInput { deployment };
 
         match self {
-            Self::Logos => {
-                let app = LbcClusterApp::new(Box::new(FixedDeploymentProvider::new(deployment)))
-                    .with_on_demand_start();
-
-                Ok(AppDeployer::new()
-                    .deploy(CucumberClusterApp { app, inputs })
-                    .await?)
-            }
-            Self::External(factory) => Ok(factory.deploy(inputs).await?),
+            Self::Logos => Ok(deployment.deploy_logos().await?),
+            Self::External(factory) => Ok(factory.deploy(deployment).await?),
         }
     }
 }
@@ -75,7 +105,7 @@ mod tests {
 
     use async_trait::async_trait;
     use lb_libp2p::identity::Keypair;
-    use lb_testing_framework::{DeploymentBuilder, TopologyConfig};
+    use lb_testing_framework::{DeploymentBuilder, LbcEnv, TopologyConfig};
     use testing_framework_app::{AppDeployment, AppHostEnv, DeployContext};
     use testing_framework_core::{
         scenario::{
@@ -175,9 +205,9 @@ mod tests {
         }
     }
 
-    impl NodeRuntimeInfoProvider for NodeRuntimeInfo {
-        fn runtime_info(&self) -> Result<NodeRuntimeInfo, DynError> {
-            Ok(self.clone())
+    impl NodeRuntimeInfoProvider for TestEnv {
+        fn runtime_info(config: &NodeRuntimeInfo) -> Result<NodeRuntimeInfo, DynError> {
+            Ok(config.clone())
         }
     }
 
@@ -190,13 +220,58 @@ mod tests {
             "test"
         }
 
-        async fn deploy(&self, inputs: SharedDeployment) -> Result<LocalDeployment, DynError> {
+        async fn deploy(&self, deployment: DeploymentInput) -> Result<LocalDeployment, DynError> {
             AppDeployer::new()
                 .deploy(CucumberClusterApp {
                     app: TestApp,
-                    inputs,
+                    inputs: deployment.shared_inputs()?,
                 })
                 .await
+        }
+    }
+
+    #[derive(Debug)]
+    struct ExternalLogosFactory;
+
+    #[async_trait]
+    impl ExternalDeploymentFactory for ExternalLogosFactory {
+        fn name(&self) -> &'static str {
+            "external-logos"
+        }
+
+        async fn deploy(&self, deployment: DeploymentInput) -> Result<LocalDeployment, DynError> {
+            deployment.deploy_logos().await
+        }
+    }
+
+    #[tokio::test]
+    async fn external_logos_factory_does_not_expose_typed_logos_control() {
+        for implementation in [
+            LocalImplementation::Logos,
+            LocalImplementation::External(&ExternalLogosFactory),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let deployment = DeploymentBuilder::new(
+                TopologyConfig::with_node_numbers(1).with_blend_core_nodes(0),
+            )
+            .scenario_base_dir(dir.path().to_owned())
+            .prepare()
+            .unwrap();
+            let app = implementation.deploy(deployment).await.unwrap();
+
+            // Both deployments contain a real Logos handle. External selection
+            // must still keep Cucumber on its implementation-independent path.
+            assert!(app.runtime().get::<ClusterHandle<LbcEnv>>().is_some());
+
+            let mut cluster = ClusterState {
+                implementation,
+                ..Default::default()
+            };
+            cluster.install_local(app).unwrap();
+
+            assert_eq!(cluster.logos_cluster().is_some(), implementation.is_logos());
+            assert!(cluster.local_control().is_ok());
+            assert!(cluster.node_runtime_info.is_some());
         }
     }
 
@@ -204,9 +279,9 @@ mod tests {
     async fn external_factory_reads_runtime_info_for_nodes_beyond_initial_capacity() {
         let plan =
             DeploymentBuilder::new(TopologyConfig::with_node_numbers(1).with_blend_core_nodes(0))
-                .build()
+                .prepare()
                 .unwrap();
-        let expected = SharedDeployment::from_plan(&plan).unwrap();
+        let expected = plan.shared_inputs().unwrap();
         let implementation = LocalImplementation::External(&TestFactory);
 
         let app = implementation.deploy(plan).await.unwrap();
@@ -221,7 +296,10 @@ mod tests {
             expected.network_key(0).unwrap().public()
         );
 
-        let mut cluster = ClusterState::default();
+        let mut cluster = ClusterState {
+            implementation,
+            ..Default::default()
+        };
         cluster.install_local(app).unwrap();
         assert!(cluster.logos_cluster().is_none());
         let reader = cluster.node_runtime_info.as_ref().unwrap();
