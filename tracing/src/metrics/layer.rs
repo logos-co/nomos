@@ -10,10 +10,15 @@ use crate::{
     OtlpProtocol,
     metrics::{
         emit::reset_cached_instruments,
-        open_metrics,
+        open_metrics::OpenMetrics,
         otlp::{OtlpMetricsConfig, build_grpc_exporter, build_http_exporter},
     },
 };
+
+pub type MetricsSetup<S> = (
+    MetricsLayer<S, opentelemetry_sdk::metrics::SdkMeterProvider>,
+    Option<OpenMetrics>,
+);
 
 /// Creates the metrics layer, backed by a global meter provider with one reader
 /// per enabled output.
@@ -27,7 +32,8 @@ use crate::{
 /// # Returns
 ///
 /// - `None` if no output is enabled, so no provider is installed.
-/// - `Some(layer)` if at least one output is enabled.
+/// - `Some((layer, open_metrics))` if at least one output is enabled, where
+///   `open_metrics` is `Some` only if `OpenMetrics` is enabled.
 ///
 /// # Errors
 ///
@@ -35,16 +41,11 @@ use crate::{
 pub fn create_metrics_layer<S>(
     otlp_config: Option<OtlpMetricsConfig>,
     enable_open_metrics: bool,
-) -> Result<
-    Option<MetricsLayer<S, opentelemetry_sdk::metrics::SdkMeterProvider>>,
-    Box<dyn Error + Send + Sync>,
->
+) -> Result<Option<MetricsSetup<S>>, Box<dyn Error + Send + Sync>>
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
-    let open_metrics_reader = open_metrics::install(enable_open_metrics)?;
-
-    if otlp_config.is_none() && open_metrics_reader.is_none() {
+    if otlp_config.is_none() && !enable_open_metrics {
         return Ok(None);
     }
 
@@ -68,9 +69,13 @@ where
             .with_resource(resource);
     }
 
-    if let Some(open_metrics_reader) = open_metrics_reader {
-        meter_provider_builder = meter_provider_builder.with_reader(open_metrics_reader);
-    }
+    let open_metrics = if enable_open_metrics {
+        let (open_metrics, reader) = OpenMetrics::new()?;
+        meter_provider_builder = meter_provider_builder.with_reader(reader);
+        Some(open_metrics)
+    } else {
+        None
+    };
 
     let meter_provider = meter_provider_builder.build();
 
@@ -78,5 +83,5 @@ where
     // If any instruments were created before provider initialization, drop them
     // so subsequent accesses rebuild against the configured provider.
     reset_cached_instruments();
-    Ok(Some(MetricsLayer::new(meter_provider)))
+    Ok(Some((MetricsLayer::new(meter_provider), open_metrics)))
 }

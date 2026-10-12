@@ -225,6 +225,7 @@ mod no_node {
             assert_eq!(code(get_network_info(node)), np);
             assert_eq!(code(get_channel_state(node, id.as_ptr())), np);
             assert_eq!(code(get_time_info(node)), np);
+            assert_eq!(code(get_open_metrics(node)), np);
             assert_eq!(code(get_cryptarchia_info(node)), np);
             assert_eq!(code(get_block_events(node, &raw const id)), np);
             assert_eq!(code(get_block(node, &raw const id)), np);
@@ -520,12 +521,6 @@ mod no_node {
         let json = unsafe { CStr::from_ptr(result.value) }.to_str().unwrap();
         let _version: serde_json::Value = serde_json::from_str(json).expect("Version info is JSON");
         assert!(unsafe { free_cstring(result.value) }.is_ok());
-    }
-
-    #[test]
-    #[ignore = "Runs under valgrind only: see the module docs."]
-    fn open_metrics_not_found_without_node() {
-        assert_eq!(code(get_open_metrics()), OperationStatusCode::NotFound);
     }
 
     #[test]
@@ -847,6 +842,11 @@ mod with_node {
             assert!(result.is_ok());
             assert!((*result.value).slot_duration_ms > 0);
             assert!(free_time_info(result.value).is_ok());
+
+            assert_eq!(
+                string_result("get_open_metrics", get_open_metrics(node)),
+                OperationStatusCode::NotFound
+            );
 
             let result = get_cryptarchia_info(node);
             assert!(result.is_ok());
