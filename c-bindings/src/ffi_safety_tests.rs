@@ -58,6 +58,7 @@ use crate::{
         keys::{KeyType, add_key, generate_key, remove_key},
         leader::leader_claim,
         lifecycle::{shutdown_node, start_lb_node},
+        metrics::get_open_metrics,
         network::get_network_info,
         peer::get_peer_id,
         pow::{
@@ -224,6 +225,7 @@ mod no_node {
             assert_eq!(code(get_network_info(node)), np);
             assert_eq!(code(get_channel_state(node, id.as_ptr())), np);
             assert_eq!(code(get_time_info(node)), np);
+            assert_eq!(code(get_open_metrics(node)), np);
             assert_eq!(code(get_cryptarchia_info(node)), np);
             assert_eq!(code(get_block_events(node, &raw const id)), np);
             assert_eq!(code(get_block(node, &raw const id)), np);
@@ -840,6 +842,11 @@ mod with_node {
             assert!(result.is_ok());
             assert!((*result.value).slot_duration_ms > 0);
             assert!(free_time_info(result.value).is_ok());
+
+            assert_eq!(
+                string_result("get_open_metrics", get_open_metrics(node)),
+                OperationStatusCode::NotFound
+            );
 
             let result = get_cryptarchia_info(node);
             assert!(result.is_ok());

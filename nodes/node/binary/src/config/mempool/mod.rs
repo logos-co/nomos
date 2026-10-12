@@ -36,6 +36,11 @@ impl ServiceConfig {
             pool: MempoolSettings {
                 tx_ttl: self.user.tx_ttl,
             },
+            seen_items_subscription_channel_size: self
+                .user
+                .seen_items_subscription_channel_size
+                .try_into()
+                .unwrap(),
             recovery_data,
         }
     }
