@@ -44,7 +44,6 @@ impl ServiceConfig {
                 tx_ttl: self.user.tx_ttl,
                 pow_claim: Some(PowClaimEvictionSettings {
                     slot_window: pow_slot_window,
-                    grace_slots: self.user.pow_claim_grace_slots,
                 }),
             },
             seen_items_subscription_channel_size: self

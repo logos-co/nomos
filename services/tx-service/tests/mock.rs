@@ -359,13 +359,13 @@ const fn ttl_settings(tx_ttl: Duration) -> MempoolSettings {
 const TEST_SLOT_WINDOW: u64 = 10;
 
 /// Settings with only `PoW` claim eviction enabled, so the TTL cannot
-/// interfere.
-const fn pow_claim_settings(grace_slots: u64) -> MempoolSettings {
+/// interfere. With a window of 10 and the grace of twice that, a claim
+/// anchored at slot 100 is accepted through slot 110 and evicted from 131.
+const fn pow_claim_settings() -> MempoolSettings {
     MempoolSettings {
         tx_ttl: None,
         pow_claim: Some(PowClaimEvictionSettings {
             slot_window: NonZeroU64::new(TEST_SLOT_WINDOW).expect("non-zero"),
-            grace_slots,
         }),
     }
 }
@@ -852,7 +852,7 @@ async fn processed_block(pool: &mut InMemoryPool, slot: u64) {
 async fn expired_claim_is_evicted_after_its_window_and_grace() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(2), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
@@ -865,11 +865,11 @@ async fn expired_claim_is_evicted_after_its_window_and_grace() {
         .await
         .expect("plain tx should be added");
 
-    // Accepted through slot 110, rejected from 111, evicted from 113.
-    processed_block(&mut pool, 112).await;
+    // Accepted through slot 110, rejected from 111, evicted from 131.
+    processed_block(&mut pool, 130).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Pending]);
 
-    processed_block(&mut pool, 113).await;
+    processed_block(&mut pool, 131).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Unknown]);
     assert_eq!(pool.status(&[plain_id]), vec![Status::Pending]);
     assert!(pool.keys_by_prefix(&claim_id.key_prefix()).next().is_none());
@@ -887,10 +887,10 @@ async fn expired_claim_is_evicted_after_its_window_and_grace() {
 async fn claim_that_arrives_expired_is_refused() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(2), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
 
-    // The chain is already past the claim's deadline of slot 113.
-    processed_block(&mut pool, 113).await;
+    // The chain is already at the claim's deadline of slot 131.
+    processed_block(&mut pool, 131).await;
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
@@ -915,20 +915,20 @@ async fn claim_that_arrives_expired_is_refused() {
 
     // One slot earlier it is still admitted, and then swept at the deadline.
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(2), storage);
-    processed_block(&mut pool, 112).await;
+    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    processed_block(&mut pool, 130).await;
     pool.add_item(claim_id, claim_tx(anchor))
         .await
         .expect("a claim inside its grace must be admitted");
     assert_eq!(pool.status(&[claim_id]), vec![Status::Pending]);
-    processed_block(&mut pool, 113).await;
+    processed_block(&mut pool, 131).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Unknown]);
 }
 
 #[tokio::test]
 async fn claim_with_unknown_anchor_waits_for_its_block() {
     let anchor = HeaderId::from([1u8; 32]);
-    let mut pool = InMemoryPool::new(pow_claim_settings(0), InMemoryStorageAdapter::default());
+    let mut pool = InMemoryPool::new(pow_claim_settings(), InMemoryStorageAdapter::default());
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
@@ -940,7 +940,7 @@ async fn claim_with_unknown_anchor_waits_for_its_block() {
     processed_block(&mut pool, 1_000).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Pending]);
 
-    // Once the anchor is processed its deadline resolves to slot 111, which
+    // Once the anchor is processed its deadline resolves to slot 131, which
     // the chain already passed.
     pool.on_processed_block(anchor, Slot::from(100u64)).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Unknown]);
@@ -972,7 +972,7 @@ async fn claim_eviction_is_disabled_without_settings() {
 async fn claim_included_in_a_block_is_not_evicted_twice() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(0), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();

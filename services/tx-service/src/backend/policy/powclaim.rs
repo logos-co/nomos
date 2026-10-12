@@ -19,10 +19,16 @@ pub struct PowClaimEvictionSettings {
     /// `s` is accepted by blocks up to slot `s + slot_window` inclusive. Must
     /// match the ledger's `PoW` reward configuration.
     pub slot_window: NonZeroU64,
+}
+
+impl PowClaimEvictionSettings {
     /// How many slots past expiry a claim stays in the pool before it is
-    /// evicted. `0` evicts in the first slot the ledger would reject it.
-    #[serde(default)]
-    pub grace_slots: u64,
+    /// evicted: twice the acceptance window, so a claim is only dropped once
+    /// it is well beyond any reorg that could bring it back into the window.
+    #[must_use]
+    pub const fn grace_slots(&self) -> u64 {
+        self.slot_window.get().saturating_mul(2)
+    }
 }
 
 /// Evicts transactions carrying a `PoW` reward claim the ledger can no longer
@@ -71,7 +77,7 @@ where
         u64::from(anchor_slot)
             .saturating_add(self.settings.slot_window.get())
             .saturating_add(1)
-            .saturating_add(self.settings.grace_slots)
+            .saturating_add(self.settings.grace_slots())
             .into()
     }
 
@@ -227,10 +233,11 @@ mod tests {
 
     const WINDOW: u64 = 10;
 
-    fn policy(grace_slots: u64) -> Policy {
+    /// With a window of 10 and the grace of twice that, a claim anchored at
+    /// slot 100 is accepted through slot 110 and evicted from slot 131.
+    fn policy() -> Policy {
         Policy::new(PowClaimEvictionSettings {
             slot_window: NonZeroU64::new(WINDOW).expect("non-zero"),
-            grace_slots,
         })
     }
 
@@ -268,19 +275,20 @@ mod tests {
     #[test]
     fn claim_is_evicted_once_its_window_and_grace_pass() {
         let anchor = [1u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([claim(anchor)]);
         let key = add(&mut policy, &tx, &known(&[(anchor, 100)]));
 
-        // Accepted through slot 110, rejected from 111.
-        assert_eq!(select(&policy, 110), NONE);
-        assert_eq!(select(&policy, 111), vec![key]);
+        // Rejected by the ledger from slot 111, evicted once the grace passes.
+        assert_eq!(select(&policy, 111), NONE);
+        assert_eq!(select(&policy, 130), NONE);
+        assert_eq!(select(&policy, 131), vec![key]);
     }
 
     #[test]
     fn claim_past_its_deadline_is_expired_on_arrival() {
         let anchor = [1u8; 32];
-        let policy = policy(2);
+        let policy = policy();
         let tx = Ops::from([claim(anchor)]);
         let block_slots = known(&[(anchor, 100)]);
         let expired_at = |slot| {
@@ -292,8 +300,8 @@ mod tests {
             )
         };
 
-        assert!(!expired_at(112));
-        assert!(expired_at(113));
+        assert!(!expired_at(130));
+        assert!(expired_at(131));
 
         // Neither an unknown anchor nor a chain without blocks can expire it.
         assert!(!EvictionPolicy::<Ops, HeaderId>::is_expired(
@@ -311,20 +319,26 @@ mod tests {
     }
 
     #[test]
-    fn grace_delays_eviction() {
+    fn grace_is_twice_the_window() {
+        let settings = PowClaimEvictionSettings {
+            slot_window: NonZeroU64::new(7).expect("non-zero"),
+        };
+        assert_eq!(settings.grace_slots(), 14);
+
         let anchor = [1u8; 32];
-        let mut policy = policy(3);
+        let mut policy = Policy::new(settings);
         let tx = Ops::from([claim(anchor)]);
         let key = add(&mut policy, &tx, &known(&[(anchor, 100)]));
 
-        assert_eq!(select(&policy, 113), NONE);
-        assert_eq!(select(&policy, 114), vec![key]);
+        // Window closes after 107, grace runs to 121, eviction from 122.
+        assert_eq!(select(&policy, 121), NONE);
+        assert_eq!(select(&policy, 122), vec![key]);
     }
 
     #[test]
     fn nothing_is_selected_before_the_first_block() {
         let anchor = [1u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([claim(anchor)]);
         add(&mut policy, &tx, &known(&[(anchor, 0)]));
 
@@ -336,7 +350,7 @@ mod tests {
 
     #[test]
     fn transaction_without_claims_is_ignored() {
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([Op::ChannelInscribe(InscriptionOp::sample())]);
         add(&mut policy, &tx, &known(&[]));
 
@@ -348,18 +362,18 @@ mod tests {
     fn earliest_claim_decides_the_deadline() {
         let early = [1u8; 32];
         let late = [2u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([claim(late), claim(early)]);
         let key = add(&mut policy, &tx, &known(&[(early, 100), (late, 200)]));
 
-        assert_eq!(select(&policy, 111), vec![key]);
+        assert_eq!(select(&policy, 131), vec![key]);
         assert_eq!(policy.tracked(), 1);
     }
 
     #[test]
     fn unknown_anchor_waits_for_its_block() {
         let anchor = [1u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([claim(anchor)]);
         let key = add(&mut policy, &tx, &known(&[]));
 
@@ -371,8 +385,8 @@ mod tests {
             &HeaderId::from(anchor),
             Slot::from(100u64),
         );
-        assert_eq!(select(&policy, 110), NONE);
-        assert_eq!(select(&policy, 111), vec![key]);
+        assert_eq!(select(&policy, 130), NONE);
+        assert_eq!(select(&policy, 131), vec![key]);
         assert!(policy.parked_by_key.is_empty());
         assert!(policy.parked_by_block.is_empty());
     }
@@ -381,7 +395,7 @@ mod tests {
     fn late_anchor_can_only_bring_the_deadline_forward() {
         let known_anchor = [1u8; 32];
         let unknown_anchor = [2u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tx = Ops::from([claim(known_anchor), claim(unknown_anchor)]);
         let key = add(&mut policy, &tx, &known(&[(known_anchor, 200)]));
 
@@ -390,21 +404,21 @@ mod tests {
             &HeaderId::from(unknown_anchor),
             Slot::from(100u64),
         );
-        assert_eq!(select(&policy, 111), vec![key]);
+        assert_eq!(select(&policy, 131), vec![key]);
 
         // A later anchor than the one already tracked changes nothing.
-        let mut policy = policy_with(&[(known_anchor, 100)], &tx, 0);
+        let mut policy = policy_with(&[(known_anchor, 100)], &tx);
         EvictionPolicy::<Ops, HeaderId>::on_processed_block(
             &mut policy,
             &HeaderId::from(unknown_anchor),
             Slot::from(200u64),
         );
-        assert_eq!(select(&policy, 111), vec![key]);
+        assert_eq!(select(&policy, 131), vec![key]);
         assert_eq!(policy.tracked(), 1);
     }
 
-    fn policy_with(blocks: &[([u8; 32], u64)], tx: &Ops, grace_slots: u64) -> Policy {
-        let mut policy = policy(grace_slots);
+    fn policy_with(blocks: &[([u8; 32], u64)], tx: &Ops) -> Policy {
+        let mut policy = policy();
         add(&mut policy, tx, &known(blocks));
         policy
     }
@@ -413,7 +427,7 @@ mod tests {
     fn removal_forgets_tracked_and_parked_keys() {
         let known_anchor = [1u8; 32];
         let unknown_anchor = [2u8; 32];
-        let mut policy = policy(0);
+        let mut policy = policy();
         let tracked = Ops::from([claim(known_anchor)]);
         let parked = Ops::from([claim(unknown_anchor)]);
         let tracked_key = add(&mut policy, &tracked, &known(&[(known_anchor, 100)]));
