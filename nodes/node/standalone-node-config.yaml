@@ -24,7 +24,7 @@ network:
           nanos: 0
         check_explicit_peers_ticks: 300
         duplicate_cache_time:
-          secs: 60
+          secs: 86400
           nanos: 0
         validate_messages: false
         allow_self_origin: false
@@ -94,7 +94,7 @@ network:
           check_interval:
             secs: 300
             nanos: 0
-    initial_peers: []
+    initial_peers: [ ]
 blend:
   non_ephemeral_signing_key_id: aa70aafc48536ae13168ed4845981a40cbd2dc1c38df88d04c46250e9ad65ce0
   core:
@@ -121,7 +121,7 @@ cryptarchia:
   network:
     bootstrap:
       ibd:
-        peers: []
+        peers: [ ]
         delay_before_new_download:
           secs: 10
           nanos: 0
@@ -163,7 +163,7 @@ sdp:
 api:
   backend:
     listen_address: 127.0.0.1:8080
-    cors_origins: []
+    cors_origins: [ ]
     timeout: 30
     max_body_size: 10485760
     max_concurrent_requests: 500
@@ -203,7 +203,7 @@ pow:
     # satisfied. Every key here must also appear in `wallet.known_keys`, or the
     # node refuses to start. Empty means claims only happen on demand, through
     # `POST /pow/claim`.
-    targets: []
+    targets: [ ]
 tracing:
   logger:
     file:
