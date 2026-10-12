@@ -13,6 +13,7 @@ ignore = [
   # Vulnerable deps, affecting our production code. To review periodically to check if they can be removed with an upgrade.
   { id = "RUSTSEC-2026-0119", reason = "`hickory-proto` O(n^2) name compression during DNS message *encoding* (no feature gate, so the code is present). We use it only as a stub resolver behind `libp2p` `.with_dns()`, encoding small outbound queries rather than many-record responses, so exposure is low. Fixed in `hickory-proto` 0.26.1+, but `libp2p-dns` 0.44.0 (latest) still requires `hickory-resolver` ^0.25.2, so the upgrade is blocked upstream." },
   # Unmaintained deps. Acknowledged but a replacement has not been decided yet.
+  { id = "RUSTSEC-2024-0449", reason = "`unsafe-libyaml` is unmaintained. Pulled in via the deprecated `serde_yaml` 0.9, which 9 workspace crates use directly (node binary, utils, c-bindings, tools, faucet, KMS, tests), and also via `logos-blockchain-testing` (`cfgsync-core`, `testing-framework-core`, `testing-framework-runner-{k8s,local}`) and `kube-client` 3.x, so migrating our own code to a safe-Rust parser (e.g. `serde-saphyr`, which `kube-client` 4.x already switched to) would not drop it until upstream migrates too. Re-evaluate once `logos-blockchain-testing` moves off `serde_yaml`." },
   { id = "RUSTSEC-2025-0141", reason = "`bincode` is unmaintained but continuing to use it." },
 
   # Vulnerable deps, not affecting our production code.
