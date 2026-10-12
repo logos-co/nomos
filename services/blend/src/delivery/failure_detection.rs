@@ -138,17 +138,14 @@ impl Stream for FailureDetector {
             // Take what the broadcasting channel has for us before looking at the clock,
             // so that a payload delivered in this very round is never the one the same
             // round reveals.
-            loop {
+            while !self.payload_broadcasts.is_done() {
                 match self.payload_broadcasts.poll_next_unpin(cx) {
                     Poll::Pending => break,
                     Poll::Ready(Some(delivered)) => self.mark_payload_as_delivered(&delivered),
-                    Poll::Ready(None) => {
-                        tracing::error!(
-                            target: LOG_TARGET,
-                            "Lost sight of the broadcasting channel; a delivery can no longer be told from a loss, so the direct broadcast is disabled for the rest of this run."
-                        );
-                        return Poll::Ready(None);
-                    }
+                    Poll::Ready(None) => tracing::warn!(
+                        target: LOG_TARGET,
+                        "Lost sight of the broadcasting channel; every payload still awaiting delivery is broadcast in the clear at its delivery deadline."
+                    ),
                 }
             }
             let now = self.round_clock.poll_current(cx);
@@ -347,27 +344,46 @@ mod tests {
         );
     }
 
-    /// The broadcasting channel is the only evidence of delivery there is.
-    /// Without it every payload looks lost, so carrying on would answer a
-    /// broken observer by revealing everything this node sends — the
-    /// opposite of what the fallback is for.
+    /// The broadcasting channel is the only evidence of delivery there is, but
+    /// not what the deadlines run on: without it a payload still leaves at its
+    /// deadline, rather than waiting for an observation that cannot come.
     #[tokio::test(start_paused = true)]
-    async fn losing_sight_of_the_broadcasting_channel_stops_the_detection() {
+    async fn losing_sight_of_the_broadcasting_channel_leaves_the_deadlines_running() {
         let mut detection =
             FailureDetector::new(DEADLINE, ROUND_IN_SECONDS, stream::empty().boxed());
         let start = Instant::now();
         detection.mark_payload_as_blended(proposal());
 
-        assert!(
-            until(&mut detection, start, DEADLINE.get() + 2)
-                .await
-                .is_empty(),
-            "a node that cannot see the channel must not answer that by revealing its own traffic"
+        assert_eq!(
+            until(&mut detection, start, DEADLINE.get() + 2).await,
+            vec![proposal()]
         );
         assert_eq!(
-            detection.next().await,
-            None,
-            "the branch this feeds is disabled outright rather than polled forever"
+            detection.outstanding_payloads_count(),
+            0,
+            "nothing stays tracked for the rest of the run"
+        );
+    }
+
+    /// A payload leaves at its deadline, so an observation of it that comes
+    /// later — the one a lag skipped, or one the network was slow to make — has
+    /// nothing left to clear.
+    #[tokio::test(start_paused = true)]
+    async fn an_observation_after_the_deadline_is_ignored() {
+        let (mut detection, start, channel) = watching();
+        detection.mark_payload_as_blended(proposal());
+        assert_eq!(
+            until(&mut detection, start, DEADLINE.get() + 2).await,
+            vec![proposal()]
+        );
+
+        channel.send(proposal()).expect("the watch is listening");
+
+        assert_eq!(until(&mut detection, start, DEADLINE.get() + 4).await, []);
+        assert_eq!(
+            detection.outstanding_payloads_count(),
+            0,
+            "an observation never starts tracking a payload"
         );
     }
 

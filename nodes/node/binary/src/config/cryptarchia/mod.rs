@@ -155,6 +155,12 @@ impl ServiceConfig {
                     max_peers_to_sample: self.user.network.sync.tip_poll.max_peers_to_sample,
                 },
             },
+            seen_items_subscription_channel_size: self
+                .user
+                .network
+                .seen_items_subscription_channel_size
+                .try_into()
+                .unwrap(),
         };
         let chain_leader_settings = lb_chain_leader_service::LeaderSettings {
             config: ledger_config,

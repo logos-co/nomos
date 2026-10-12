@@ -42,7 +42,6 @@ use crate::{
 };
 
 const LOG_TARGET: &str = mempool::SERVICE;
-const ACCEPTED_ITEMS_BUFFER: usize = 64;
 
 type MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId> =
     overwatch::services::state::StateUpdater<
@@ -252,7 +251,8 @@ where
         )
         .await?;
 
-        let (accepted_items_channel_sender, _) = broadcast::channel(ACCEPTED_ITEMS_BUFFER);
+        let (accepted_items_channel_sender, _) =
+            broadcast::channel(settings.seen_items_subscription_channel_size.get());
 
         self.run_event_loop(
             &mut pool,
