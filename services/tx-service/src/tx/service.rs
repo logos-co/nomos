@@ -359,6 +359,9 @@ where
             MempoolMsg::Remove { ids } => {
                 pool.remove(&ids).await;
             }
+            MempoolMsg::ProcessedBlock { block_id, slot } => {
+                pool.on_processed_block(block_id, slot).await;
+            }
             MempoolMsg::Metrics { reply_channel } => {
                 Self::handle_metrics_message(pool, reply_channel);
             }
@@ -577,6 +580,12 @@ where
                 tracing::trace!(
                     target: LOG_TARGET,
                     "network item already exists in the mempool"
+                );
+            }
+            MempoolError::Expired => {
+                tracing::trace!(
+                    target: LOG_TARGET,
+                    "network item can no longer be included in a block"
                 );
             }
             err => {

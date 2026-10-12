@@ -1079,6 +1079,15 @@ where
         error!(target: LOG_TARGET, err, "could not remove transactions from mempool");
     }
 
+    // Every applied block advances the mempool's clock, canonical or not: a
+    // block's slot does not depend on the chain it ends up on.
+    mempool_adapter
+        .notify_processed_block(block.header().id(), block.header().slot())
+        .await
+        .unwrap_or_else(
+            |e| error!(target: LOG_TARGET, "Could not notify mempool of processed block: {e}"),
+        );
+
     // Re-insert reorged txs back into the mempool.
     join_all(reorged_txs.into_iter().map(|tx| {
         let mempool_adapter = mempool.clone();
@@ -1218,6 +1227,14 @@ mod tests {
 
         async fn remove_transactions(&self, _ids: &[TxHash]) -> Result<(), DynError> {
             unimplemented!("resolution never removes")
+        }
+
+        async fn notify_processed_block(
+            &self,
+            _block_id: HeaderId,
+            _slot: Slot,
+        ) -> Result<(), DynError> {
+            unimplemented!("resolution never processes blocks")
         }
 
         async fn get_transactions_by_prefix(
