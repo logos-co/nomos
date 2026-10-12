@@ -812,6 +812,8 @@ fn build_cryptarchia_user_config(
                 },
                 tip_poll: network::TipPollConfig::default(),
             },
+            seen_items_subscription_channel_size: NonZeroU64::new(64)
+                .expect("received proposals buffer must be non-zero"),
         },
         service: ServiceConfig {
             bootstrap: service::BootstrapConfig {
