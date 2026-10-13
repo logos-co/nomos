@@ -1,11 +1,13 @@
 use std::io::Error as IoError;
 
 use hex::FromHexError;
-use lb_core::{codec::Error, mantle::tx::VerificationError};
+use lb_binary_codec::bincode::Error;
+use lb_core::mantle::transactions::VerificationError;
 use lb_testing_framework::configs::wallet::WalletConfigError;
+use lb_utils::bounded::BoundedError;
 use lb_wallet::WalletError;
 use lb_zksign::ZkSignError;
-use testing_framework_core::scenario::ScenarioBuildError;
+use testing_framework_core::scenario::{DynError, ScenarioBuildError};
 use testing_framework_runner_local::ManualClusterError;
 use thiserror::Error;
 
@@ -13,6 +15,8 @@ use crate::cucumber::world::DeployerKind;
 
 #[derive(Debug, Error)]
 pub enum StepError {
+    #[error(transparent)]
+    ClusterControl(#[from] DynError),
     #[error("deployer is not selected; set it first (e.g. `Given deployer is \"local\"`)")]
     MissingDeployer,
     #[error("scenario topology is not configured")]
@@ -47,6 +51,8 @@ pub enum StepError {
     Timeout { message: String },
     #[error("Step fail: {message}")]
     StepFail { message: String },
+    #[error("background task cancelled")]
+    BackgroundTaskCancelled,
     #[error(transparent)]
     ParseError(#[from] strum::ParseError),
     #[error(transparent)]
@@ -77,6 +83,39 @@ pub enum StepError {
         num_utxos_required: usize,
         value_per_utxos_required: u64,
     },
+    #[error(
+        "fee horizon expired: paid fee {paid_fee}, current required fee {required_fee} (prepared epoch {prepared_at_epoch}, valid through {valid_through_epoch})"
+    )]
+    FeeHorizonExpired {
+        paid_fee: u64,
+        required_fee: u64,
+        prepared_at_epoch: u32,
+        valid_through_epoch: u32,
+    },
+    #[error(
+        "fee horizon expired after preparing wallet '{wallet_name}' ({prepared_count} transaction(s)): current epoch {current_epoch} exceeds valid-through epoch {valid_through_epoch} (prepared epoch {prepared_at_epoch})"
+    )]
+    FeeHorizonExceededAfterWalletBatch {
+        wallet_name: String,
+        prepared_count: usize,
+        current_epoch: u64,
+        prepared_at_epoch: u32,
+        valid_through_epoch: u32,
+    },
+    #[error(
+        "fee horizon expired before submission: current epoch {current_epoch} exceeds valid-through epoch {valid_through_epoch} (prepared epoch {prepared_at_epoch})"
+    )]
+    FeeHorizonExceeded {
+        current_epoch: u64,
+        prepared_at_epoch: u32,
+        valid_through_epoch: u32,
+    },
+    #[error(transparent)]
+    BoundedError(#[from] BoundedError),
+    #[error(transparent)]
+    LogosSql(#[from] logos_sql::Error),
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 pub type StepResult = Result<(), StepError>;

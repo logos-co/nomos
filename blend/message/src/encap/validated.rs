@@ -1,10 +1,13 @@
-use derivative::Derivative;
+use educe::Educe;
+use lb_binary_codec::canonical::BinaryEncode;
 use lb_blend_crypto::random_sized_bytes;
 use lb_blend_proofs::{
     quota::{self, VerifiedProofOfQuota},
     selection::inputs::VerifyInputs,
 };
-use lb_key_management_system_keys::keys::{UnsecuredEd25519Key, X25519PrivateKey};
+use lb_key_management_system_keys::keys::{
+    Ed25519PublicKey, UnsecuredEd25519Key, X25519PrivateKey,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,12 +23,12 @@ use crate::{
     reward::BlendingToken,
 };
 
-#[derive(Derivative, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[derivative(Debug)]
+#[derive(Educe, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[educe(Debug)]
 /// An encapsulated message whose public header signature has been verified.
 pub struct EncapsulatedMessageWithVerifiedSignature {
     public_header_with_verified_signature: PublicHeaderWithVerifiedSignature,
-    #[derivative(Debug = "ignore")] // too long
+    #[educe(Debug(ignore))] // too long
     encapsulated_part: EncapsulatedPart,
 }
 
@@ -34,11 +37,13 @@ impl EncapsulatedMessageWithVerifiedSignature {
         inputs: &[EncapsulationInput],
         payload_type: PayloadType,
         payload_body: PaddedPayloadBody,
+        encapsulation_layers: usize,
     ) -> Result<Self, Error> {
         Ok(EncapsulatedMessageWithVerifiedPublicHeader::try_new(
             inputs,
             payload_type,
             payload_body,
+            encapsulation_layers,
         )?
         .into())
     }
@@ -61,7 +66,7 @@ impl EncapsulatedMessageWithVerifiedSignature {
     where
         Verifier: ProofsVerifier,
     {
-        let (_, signing_key, proof_of_quota, signature) =
+        let (signing_key, proof_of_quota, signature) =
             self.public_header_with_verified_signature.into_components();
         let verified_proof_of_quota = verifier
             .verify_proof_of_quota(proof_of_quota, &signing_key)
@@ -81,9 +86,28 @@ impl EncapsulatedMessageWithVerifiedSignature {
         self.public_header_with_verified_signature.id()
     }
 
+    #[must_use]
+    pub const fn signing_key(&self) -> &Ed25519PublicKey {
+        self.public_header_with_verified_signature.signing_key()
+    }
+
     #[cfg(any(feature = "unsafe-test-functions", test))]
     pub const fn public_header_mut(&mut self) -> &mut PublicHeaderWithVerifiedSignature {
         &mut self.public_header_with_verified_signature
+    }
+}
+
+impl BinaryEncode for EncapsulatedMessageWithVerifiedSignature {
+    fn encoded_length(&self) -> usize {
+        self.public_header_with_verified_signature
+            .encoded_length()
+            .checked_add(self.encapsulated_part.encoded_length())
+            .unwrap()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.public_header_with_verified_signature.encode_into(out);
+        self.encapsulated_part.encode_into(out);
     }
 }
 
@@ -106,11 +130,11 @@ pub struct RequiredProofOfSelectionVerificationInputs {
 }
 
 /// An encapsulated message whose public header has been verified.
-#[derive(Derivative, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
-#[derivative(Debug)]
+#[derive(Educe, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[educe(Debug)]
 pub struct EncapsulatedMessageWithVerifiedPublicHeader {
     validated_public_header: VerifiedPublicHeader,
-    #[derivative(Debug = "ignore")] // too long
+    #[educe(Debug(ignore))] // too long
     encapsulated_part: EncapsulatedPart,
 }
 
@@ -124,18 +148,31 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
         )
     }
 
+    /// Encapsulate `payload_body` once per entry in `inputs`.
+    ///
+    /// `encapsulation_layers` is `ß_max`, the fixed number of blending headers
+    /// every message carries. `inputs` may be shorter than that: the unused
+    /// leading layers are filled with random bytes, keeping the
+    /// encapsulation count off the wire. It returns an error if `inputs` is
+    /// empty or longer than `encapsulation_layers`.
     pub fn try_new(
         inputs: &[EncapsulationInput],
         payload_type: PayloadType,
         payload_body: PaddedPayloadBody,
+        encapsulation_layers: usize,
     ) -> Result<Self, Error> {
         // Create the encapsulated part.
         let (part, signing_key, proof_of_quota) = inputs.iter().enumerate().fold(
             (
                 // Start with an initialized encapsulated part,
                 // a random signing key, and proof of quota.
-                EncapsulatedPart::try_initialize(inputs, payload_type, payload_body)?,
-                UnsecuredEd25519Key::generate_with_blake_rng(),
+                EncapsulatedPart::try_initialize(
+                    inputs,
+                    payload_type,
+                    payload_body,
+                    encapsulation_layers,
+                )?,
+                UnsecuredEd25519Key::generate_with_chacha_rng(),
                 VerifiedProofOfQuota::from_bytes_unchecked(random_sized_bytes()),
             ),
             |(part, signing_key, proof_of_quota), (i, input)| {
@@ -188,6 +225,11 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
         self.validated_public_header.id()
     }
 
+    #[must_use]
+    pub const fn signing_key(&self) -> &Ed25519PublicKey {
+        self.validated_public_header.signing_key()
+    }
+
     /// Decapsulates the message using the provided key.
     ///
     /// If the provided key is eligible, returns the following:
@@ -211,13 +253,10 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
         Verifier: ProofsVerifier,
     {
         let (validated_public_header, encapsulated_part) = self.into_components();
-        let (_, signing_key, verified_proof_of_quota, _) =
-            validated_public_header.into_components();
+        let (signing_key, verified_proof_of_quota, _) = validated_public_header.into_components();
 
         // Derive the shared key.
-        let Some(shared_key) = private_key.derive_shared_key(&signing_key.derive_x25519()) else {
-            return Err(Error::InvalidSharedSecret);
-        };
+        let shared_key = private_key.derive_shared_key(&signing_key.derive_x25519());
 
         // Decapsulate the encapsulated part.
         match encapsulated_part.decapsulate(
@@ -251,7 +290,7 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
                 payload,
                 verified_proof_of_selection,
             } => {
-                let (payload_type, payload_body) = payload.try_into_components()?;
+                let (payload_type, payload_body) = payload.into_components();
                 let blending_token = BlendingToken::new(
                     signing_key,
                     verified_proof_of_quota,
@@ -276,6 +315,20 @@ impl EncapsulatedMessageWithVerifiedPublicHeader {
     #[cfg(any(feature = "unsafe-test-functions", test))]
     pub const fn public_header_mut(&mut self) -> &mut VerifiedPublicHeader {
         &mut self.validated_public_header
+    }
+}
+
+impl BinaryEncode for EncapsulatedMessageWithVerifiedPublicHeader {
+    fn encoded_length(&self) -> usize {
+        self.validated_public_header
+            .encoded_length()
+            .checked_add(self.encapsulated_part.encoded_length())
+            .unwrap()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.validated_public_header.encode_into(out);
+        self.encapsulated_part.encode_into(out);
     }
 }
 

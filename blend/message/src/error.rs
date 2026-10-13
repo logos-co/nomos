@@ -14,18 +14,16 @@ pub enum Error {
     ProofOfQuotaVerificationFailed(quota::Error),
     #[error("Encapsulated message deserialization failed")]
     MessageDeserializationFailed,
+    #[error(transparent)]
+    BinaryDecode(#[from] lb_binary_codec::canonical::DecodeError),
     #[error("Payload deserialization failed")]
     PayloadDeserializationFailed,
     #[error("Private header deserialization failed")]
     PrivateHeaderDeserializationFailed,
-    #[error("Invalid payload length")]
-    InvalidPayloadLength,
     #[error("Signature verification failed")]
     SignatureVerificationFailed,
     #[error("Node is not a core node")]
     NotCoreNodeReceiver,
     #[error("Node could not generate enough proof of the required type")]
     ProofNotAvailable,
-    #[error("Invalid shared secret")]
-    InvalidSharedSecret,
 }

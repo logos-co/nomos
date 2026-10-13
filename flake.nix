@@ -5,20 +5,15 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     rust-overlay = {
-      url = "github:oxalica/rust-overlay/40b0a3a193e0840c76174b4a322874c8f6dd0a63";
+      url = "github:oxalica/rust-overlay/dcee1adabb61484343af863501d2e3d91ef51f72";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
     crane.url = "github:ipetkov/crane";
 
     # Must stay in sync with the lbc-* tags in Cargo.toml.
-    # Pinned to the commit right after the v0.5.3 tag (127626881faa975aa8e9868422cf6bbb08fcb512):
-    # the tag itself predates the CI job that registers its Nix hashes in
-    # circuits-nix-hashes.json, so building directly off the tag fails with
-    # `attribute '"0.5.3"' missing`. This commit adds that entry without
-    # otherwise changing the source.
     logos-blockchain-circuits = {
-      url = "github:logos-blockchain/logos-blockchain-circuits/2846ee7a4cfa24458bb8063412ab2e753b344d2f";
+      url = "github:logos-blockchain/logos-blockchain-circuits/v0.5.7";
     };
 
     # Must stay in sync with the rust-rapidsnark rev in Cargo.toml.
@@ -29,6 +24,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       rust-overlay,
       crane,
@@ -53,7 +49,7 @@
           overlays = [ rust-overlay.overlays.default ];
         };
 
-      rustVersion = "1.96.0";
+      rustVersion = "1.99.0";
     in
     {
       packages = forAll (
@@ -62,10 +58,18 @@
           pkgs = mkPkgs system;
           rustToolchain = pkgs.rust-bin.stable.${rustVersion}.default;
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+          # `craneLib.filterCargoSources` keeps only *.rs, *.toml, Cargo.lock and
+          # .cargo/config, so any non-Rust file pulled in with include_str!/
+          # include_bytes! has to be allowed through explicitly or the build
+          # fails with "couldn't read ...: No such file or directory".
+          assetSuffixes = [
+            ".hex"
+            "nodes/node/binary/src/config/deployment/settings.yaml"
+          ];
           src = pkgs.lib.cleanSourceWith {
             src = craneLib.path ./.;
             filter = path: type:
-              (pkgs.lib.hasSuffix "nodes/node/binary/src/config/deployment/devnet/deployment.yaml" path) ||
+              (pkgs.lib.any (suffix: pkgs.lib.hasSuffix suffix path) assetSuffixes) ||
               (craneLib.filterCargoSources path type);
           };
           crateName = craneLib.crateNameFromCargoToml { inherit src; };
@@ -84,7 +88,15 @@
               pkgs.pkg-config
               pkgs.clang
               pkgs.llvmPackages.libclang.lib
+              pkgs.git
             ];
+            # The source is a git-less snapshot; give `git rev-parse HEAD` the flake's rev.
+            preBuild = pkgs.lib.optionalString (self ? rev) ''
+              if [ ! -e .git ]; then
+                git init -q
+                echo ${self.rev} > .git/HEAD
+              fi
+            '';
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             LBC_ROOT_DIR = logos-blockchain-circuits.packages.${system}.default;
             RAPIDSNARK_LIB_DIR = rust-rapidsnark.packages.${system}.rapidsnark;
@@ -92,12 +104,12 @@
             RUSTFLAGS = "-L ${pkgs.libiconv}/lib";
           };
 
-          logosBlockchainDependencies = craneLib.buildDepsOnly (commonArgs);
+          logosBlockchainDependencies = craneLib.buildDepsOnly commonArgs;
 
           logosBlockChainC = craneLib.buildPackage (
             commonArgs
             // {
-              inherit logosBlockchainDependencies;
+              cargoArtifacts = logosBlockchainDependencies;
 
               postInstall = ''
                 mkdir -p $out/include

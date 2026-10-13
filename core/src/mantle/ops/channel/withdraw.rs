@@ -1,159 +1,640 @@
-use nom::IResult;
+use lb_binary_codec::canonical::{BinaryCodec, BinaryEncode as _};
+#[cfg(any(test, feature = "test-utils"))]
+use lb_groth16::Fr;
 use serde::{Deserialize, Serialize};
 
+#[cfg(any(test, feature = "test-utils"))]
+use crate::mantle::{NoteId, ledger::BoundedInputs};
 use crate::{
-    events::Events,
+    events::TxEvent,
     mantle::{
-        TxHash,
+        TxHash, Value,
+        batch::DeferredZkpVerification,
         channel::{Channels, Error},
-        encoding::NomOutputs,
-        ledger::{Operation, Outputs, Utxos},
-        nom::{NomDecode, NomEncode},
-        ops::{OpId, channel::ChannelId},
+        gas::{
+            Gas, GasOverflow, MainnetGasProfile, OpGasCalculator, OperationGas, ThresholdSource,
+        },
+        ledger::{
+            ExecutableOperation, Inputs, PreverifiableOperation, ProvableOperation, Utxos,
+            VerifiableOperation,
+            verification_mode::{StandardMode, VerificationMode},
+        },
+        ops::{
+            OpId, SignedOperation,
+            channel::{ChannelId, verification::verify_channel_multi_sig},
+        },
+        transactions::{
+            OperationVerificationHelper,
+            hash::TxHashView,
+            states::{Preverified, Unverified, Verified},
+        },
     },
     proofs::channel_multi_sig_proof::ChannelMultiSigProof,
+    sdp::service_notes::ServiceNotes,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+// ChannelWithdraw = ChannelId Inputs — plain field-order concat.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, BinaryCodec)]
 pub struct ChannelWithdrawOp {
     pub channel_id: ChannelId,
-    pub outputs: Outputs,
-    pub withdraw_nonce: u32,
+    pub inputs: Inputs,
 }
 
 impl OpId for ChannelWithdrawOp {
     fn op_bytes(&self) -> Vec<u8> {
-        self.encode()
-    }
-}
-
-impl NomEncode for ChannelWithdrawOp {
-    fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend(self.channel_id.encode());
-        bytes.extend(NomOutputs::from(self.outputs.as_ref()).encode());
-        bytes.extend(self.withdraw_nonce.encode());
-        bytes
-    }
-}
-
-impl NomDecode for ChannelWithdrawOp {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> IResult<&[u8], Self::Output> {
-        let (bytes, channel_id) = ChannelId::decode(bytes)?;
-        let (bytes, outputs) = NomOutputs::decode(bytes)?;
-        let (bytes, withdraw_nonce) = u32::decode(bytes)?;
-        Ok((
-            bytes,
-            Self {
-                channel_id,
-                outputs: Outputs::new(outputs),
-                withdraw_nonce,
-            },
-        ))
+        self.encode_to_vec()
     }
 }
 
 pub struct WithdrawValidationContext<'a> {
     pub channels: &'a Channels,
-    pub tx_hash: &'a TxHash,
-    pub withdraw_sigs: &'a ChannelMultiSigProof,
+    pub service_notes: &'a ServiceNotes,
+    pub utxos: &'a Utxos,
+    pub tx_hash_view: &'a TxHashView,
+    pub op_index: usize,
+    pub helper: &'a dyn OperationVerificationHelper,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct WithdrawExecutionContext {
     pub channels: Channels,
-    pub utxos: Utxos,
+    pub tx_hash: TxHash,
 }
 
-impl Operation<WithdrawValidationContext<'_>> for ChannelWithdrawOp {
-    type ExecutionContext<'a>
-        = WithdrawExecutionContext
-    where
-        Self: 'a;
+impl ProvableOperation for ChannelWithdrawOp {
+    type Proof = ChannelMultiSigProof;
+    const CODE: u8 = 0x13;
+}
+
+impl OperationGas<MainnetGasProfile> for ChannelWithdrawOp {
+    const GAS_COST: Gas = Gas::new(56);
+}
+
+impl OpGasCalculator<MainnetGasProfile> for ChannelWithdrawOp {
+    fn execution_gas(&self, thresholds: &impl ThresholdSource) -> Result<Gas, GasOverflow> {
+        Self::GAS_COST.checked_mul(Value::from(thresholds.transfer_threshold(&self.channel_id)))
+    }
+}
+
+impl PreverifiableOperation<StandardMode>
+    for SignedOperation<ChannelWithdrawOp, Unverified, StandardMode>
+{
+    type Context<'a> = ();
     type Error = Error;
 
-    fn validate(&self, ctx: &WithdrawValidationContext<'_>) -> Result<(), Self::Error> {
-        // Check that the outputs are valid
-        self.outputs.validate()?;
+    fn preverify(&self, _context: &Self::Context<'_>) -> Result<(), Self::Error> {
+        // Ensure the inputs is non-empty
+        self.operation().inputs.preverify()?;
 
-        // Check that the channel exist
-        if !ctx.channels.channels.contains_key(&self.channel_id) {
-            return Err(Error::ChannelNotFound {
-                channel_id: self.channel_id,
-            });
-        }
+        Ok(())
+    }
+}
 
-        // Check that the withdrawal nonce is correct
-        let channel = ctx
-            .channels
-            .channels
-            .get(&self.channel_id)
-            .cloned()
-            .expect("we checked that the channel exist above");
-        if channel.withdrawal_nonce != self.withdraw_nonce {
-            return Err(Error::InvalidWithdrawNonce);
-        }
+impl VerifiableOperation<StandardMode>
+    for SignedOperation<ChannelWithdrawOp, Preverified, StandardMode>
+{
+    type Context<'a> = WithdrawValidationContext<'a>;
+    type Error = Error;
 
-        // Check that the channel has enough funds
-        let amount = self.outputs.amount()?;
-        if amount > channel.balance {
-            return Err(Error::InsufficientFunds);
-        }
+    fn verify(
+        &self,
+        context: &Self::Context<'_>,
+    ) -> Result<Option<DeferredZkpVerification>, Self::Error> {
+        let operation = self.operation();
+        let proof = self.proof();
 
-        // Check that the indexes are unique and there is the same number of proof and
-        // index. This is enforced by the proof structure that enforces it.
+        verify_channel_multi_sig(
+            &operation.channel_id,
+            proof,
+            context.tx_hash_view.as_bytes(),
+            context.helper,
+            context.op_index,
+        )
+        .map_err(|_error| Error::InvalidSignature)?; // FIXME: Discards error details
+
+        // Check that the channel exists
+        let channel =
+            context
+                .channels
+                .channels
+                .get(&operation.channel_id)
+                .ok_or(Error::ChannelNotFound {
+                    channel_id: operation.channel_id,
+                })?;
+
+        // Check that the inputs are valid and belong to the channel
+        operation.inputs.validate_in_channel(
+            context.service_notes,
+            context.channels,
+            &operation.channel_id,
+            context.utxos,
+        )?;
 
         // Check there is enough signatures
-        let signatures = ctx.withdraw_sigs.signatures();
-        if signatures.len() != channel.withdraw_threshold as usize {
+        let signatures = proof.signatures();
+        if signatures.len() != channel.transfer_threshold as usize {
             return Err(Error::ThresholdUnmet {
-                channel_id: self.channel_id,
-                threshold: channel.withdraw_threshold,
-                actual: ctx.withdraw_sigs.signatures().len(),
+                channel_id: operation.channel_id,
+                threshold: channel.transfer_threshold,
+                actual: signatures.len(),
             });
         }
 
-        // Check the signatures
-        for sig in signatures {
-            if channel.accredited_keys[sig.channel_key_index as usize]
-                .verify(ctx.tx_hash.as_signing_bytes().as_ref(), &sig.signature)
+        // Check the signatures. Don't defer this because ed25519 verification is cheap.
+        for (index, signature) in signatures {
+            if channel
+                .accredited_keys
+                .get(*index as usize)
+                .ok_or(Error::InvalidSignature)?
+                .verify(context.tx_hash_view.as_bytes(), signature)
                 .is_err()
             {
                 return Err(Error::InvalidSignature);
             }
         }
 
-        Ok(())
+        Ok(None)
+    }
+}
+
+impl<Mode: VerificationMode> ExecutableOperation
+    for SignedOperation<ChannelWithdrawOp, Verified, Mode>
+{
+    type Context<'a> = WithdrawExecutionContext;
+    type Error = Error;
+
+    fn execute<'a>(
+        &self,
+        mut context: Self::Context<'a>,
+    ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error> {
+        let operation = self.operation();
+
+        // Release the inputs from the channel. The notes keep their NoteId,
+        // value and ZkPublicKey and stay in the ledger as regular notes.
+        for note_id in operation.inputs.iter() {
+            context.channels = context
+                .channels
+                .unregister_channel_note(note_id, &operation.channel_id)?;
+        }
+
+        Ok((context, Vec::new()))
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl ChannelWithdrawOp {
+    #[must_use]
+    pub fn sample() -> Self {
+        Self {
+            channel_id: ChannelId::from([18u8; 32]),
+            inputs: BoundedInputs::from(NoteId(Fr::from(19u64))).into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use lb_key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
+
+    use super::*;
+    use crate::mantle::{
+        Note, Utxo, channel_notes,
+        gas::test_utils::FixedThresholds,
+        ledger::InputsError,
+        ops::channel::{
+            UnverifiedChannelKeys, verification::test_utils::create_channel_multi_sig_proof,
+        },
+        transactions::{
+            tx_list::signed_ops::test_utils::make_channel_state,
+            verification_helper::test_utils::TestOperationVerificationHelper,
+        },
+    };
+
+    const CHANNEL_ID: ChannelId = ChannelId([18u8; 32]);
+
+    fn signing_key() -> Ed25519Key {
+        Ed25519Key::from_bytes(&[0; 32])
     }
 
-    fn execute(
-        &self,
-        mut ctx: Self::ExecutionContext<'_>,
-    ) -> Result<(Self::ExecutionContext<'_>, Events), Self::Error> {
-        // Get the amount withdraw
-        let amount_withdraw = self.outputs.amount()?;
+    fn utxo() -> Utxo {
+        Utxo {
+            op_id: [1u8; 32],
+            output_index: 0,
+            note: Note::new(10_000, ZkPublicKey::from(Fr::from(1u64))),
+        }
+    }
 
-        // Decrease the balance of the channel and increase the withdrawal nonce
-        if let Some(channel) = ctx.channels.channels.get_mut(&self.channel_id) {
-            channel.balance = channel
-                .balance
-                .checked_sub(amount_withdraw)
-                .ok_or(Error::InsufficientFunds)?;
-            channel.withdrawal_nonce = channel
-                .withdrawal_nonce
-                .checked_add(1)
-                .ok_or(Error::WithdrawNonceOverflow)?;
-            Ok(self)
+    fn channel_view(register_note: bool) -> Channels {
+        let mut channels = Channels::new();
+        channels.channels.insert_mut(
+            CHANNEL_ID,
+            make_channel_state(
+                1,
+                Some(UnverifiedChannelKeys::new_unchecked(vec![
+                    signing_key().public_key().into_unverified(),
+                ])),
+            ),
+        );
+
+        if register_note {
+            channels
+                .register_channel_note(&utxo().id(), &CHANNEL_ID)
+                .expect("the note is not owned by another channel")
         } else {
-            Err(Error::ChannelNotFound {
-                channel_id: self.channel_id,
+            channels
+        }
+    }
+
+    fn ledger_view(transfer_threshold: u16, accredited_keys: UnverifiedChannelKeys) -> Channels {
+        let mut channels = Channels::new();
+        channels.channels.insert_mut(
+            CHANNEL_ID,
+            make_channel_state(transfer_threshold, Some(accredited_keys)),
+        );
+
+        channels
+            .register_channel_note(&utxo().id(), &CHANNEL_ID)
+            .expect("the note is not owned by another channel")
+    }
+
+    fn preverified(
+        proof: ChannelMultiSigProof,
+    ) -> SignedOperation<ChannelWithdrawOp, Preverified, StandardMode> {
+        let operation = ChannelWithdrawOp {
+            channel_id: CHANNEL_ID,
+            inputs: BoundedInputs::from(utxo().id()).into(),
+        };
+
+        SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
+            .into_preverified(&())
+            .expect("preverify accepts a non-empty input list")
+    }
+
+    #[test]
+    fn preverify_rejects_empty_inputs() {
+        let withdraw = ChannelWithdrawOp {
+            channel_id: ChannelId::from([0u8; 32]),
+            inputs: Inputs::empty(),
+        };
+        let proof = ChannelMultiSigProof::empty();
+        let signed_operation = SignedOperation::new(withdraw, proof);
+
+        assert_eq!(
+            signed_operation.preverify(&()),
+            Err(Error::Inputs(InputsError::EmptyInputs))
+        );
+    }
+
+    #[test]
+    fn verify_rejects_signatures_over_another_transaction() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let other_hash = TxHash::from([10u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = channel_view(true);
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(other_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_signature_the_ledger_view_key_does_not_match() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = ledger_view(
+            1,
+            UnverifiedChannelKeys::new_unchecked(vec![
+                Ed25519Key::from_bytes(&[1; 32])
+                    .public_key()
+                    .into_unverified(),
+            ]),
+        );
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_signature_index_the_ledger_view_cannot_resolve() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = ledger_view(1, UnverifiedChannelKeys::new_unchecked(vec![]));
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_channel_missing_from_the_ledger_view() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &Channels::new(),
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::ChannelNotFound {
+                channel_id: CHANNEL_ID
+            }
+        );
+    }
+
+    #[test]
+    fn verify_rejects_an_input_the_channel_does_not_own() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = channel_view(false);
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(false),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::Inputs(InputsError::NotAChannelNote(utxo().id()))
+        );
+    }
+
+    #[test]
+    fn has_no_deferred_zkp() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = ledger_view(
+            1,
+            UnverifiedChannelKeys::new_unchecked(vec![
+                signing_key().public_key().into_unverified(),
+            ]),
+        );
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .expect("one accredited signature meets a threshold of one")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_signature_count_below_the_ledger_view_threshold() {
+        let signed_hash = TxHash::from([9u8; 32]);
+        let signed_operation = preverified(create_channel_multi_sig_proof(
+            &signed_hash,
+            &[&signing_key()],
+        ));
+
+        let channels = ledger_view(
+            2,
+            UnverifiedChannelKeys::new_unchecked(vec![
+                signing_key().public_key().into_unverified(),
+            ]),
+        );
+        let helper = TestOperationVerificationHelper::new(
+            channel_view(true),
+            [(
+                (CHANNEL_ID, 0),
+                signing_key().public_key().into_unverified(),
+            )],
+        );
+        let service_notes = ServiceNotes::new();
+        let (utxos, _) = Utxos::new().insert(utxo().id(), utxo());
+
+        assert_eq!(
+            signed_operation
+                .verify(&WithdrawValidationContext {
+                    channels: &channels,
+                    service_notes: &service_notes,
+                    utxos: &utxos,
+                    tx_hash_view: &TxHashView::from(signed_hash),
+                    op_index: 0,
+                    helper: &helper,
+                })
+                .unwrap_err(),
+            Error::ThresholdUnmet {
+                channel_id: CHANNEL_ID,
+                threshold: 2,
+                actual: 1,
+            }
+        );
+    }
+
+    fn verified() -> SignedOperation<ChannelWithdrawOp, Verified, StandardMode> {
+        SignedOperation::<_, Unverified, StandardMode>::new(
+            ChannelWithdrawOp {
+                channel_id: CHANNEL_ID,
+                inputs: BoundedInputs::from(utxo().id()).into(),
+            },
+            ChannelMultiSigProof::sample_with_signatures(1),
+        )
+        .into_state_trusted()
+    }
+
+    #[test]
+    fn execute_releases_the_inputs_from_the_channel() {
+        let (context, events) = verified()
+            .execute(WithdrawExecutionContext {
+                channels: channel_view(true),
+                tx_hash: TxHash::from([9u8; 32]),
             })
-        }?;
+            .expect("the input is a channel note of this channel");
 
-        // Add the ouputs to the ledger
-        ctx.utxos = self.outputs.execute(ctx.utxos, self);
+        assert!(!context.channels.is_channel_note(&utxo().id()));
+        assert_eq!(events, []);
+    }
 
-        Ok((ctx, Events::new()))
+    #[test]
+    fn execute_rejects_an_input_no_channel_owns() {
+        assert_eq!(
+            verified()
+                .execute(WithdrawExecutionContext {
+                    channels: channel_view(false),
+                    tx_hash: TxHash::from([9u8; 32]),
+                })
+                .map(|_| ())
+                .map_err(|(_, error)| error),
+            Err(Error::ChannelNotes(channel_notes::Error::NotInChannel(
+                utxo().id()
+            )))
+        );
+    }
+
+    #[test]
+    fn execute_rejects_an_input_another_channel_owns() {
+        let channels = channel_view(false)
+            .register_channel_note(&utxo().id(), &ChannelId::from([19u8; 32]))
+            .expect("the note is not owned by another channel yet");
+
+        assert_eq!(
+            verified()
+                .execute(WithdrawExecutionContext {
+                    channels,
+                    tx_hash: TxHash::from([9u8; 32]),
+                })
+                .map(|_| ())
+                .map_err(|(_, error)| error),
+            Err(Error::ChannelNotes(channel_notes::Error::NotAChannelNote {
+                note_id: utxo().id(),
+                channel_id: CHANNEL_ID,
+            }))
+        );
+    }
+
+    #[test]
+    fn channel_withdraw_op_execution_gas_scales_with_the_threshold() {
+        for (threshold, expected) in [(1, 56), (2, 112), (3, 168)] {
+            assert_eq!(
+                ChannelWithdrawOp::sample().execution_gas(&FixedThresholds(threshold)),
+                Ok(Gas::new(expected))
+            );
+        }
+    }
+
+    #[test]
+    fn channel_withdraw_op_execution_gas_is_zero_against_an_unknown_channel() {
+        assert_eq!(
+            ChannelWithdrawOp::sample().execution_gas(&FixedThresholds(0)),
+            Ok(Gas::new(0))
+        );
     }
 }

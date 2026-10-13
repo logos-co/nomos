@@ -43,7 +43,10 @@ pub fn consensus_observe_proposal_reconstruct_ok(duration: Duration) {
 
 pub fn consensus_observe_proposal_reconstruct_err(origin: &'static str, err: &Error) {
     let reason = match err {
-        Error::MissingMempoolTransactions(_) => "missing_txs",
+        Error::InvalidHeader(_) => "invalid_header",
+        Error::UnresolvedReference { .. } => "missing_txs",
+        Error::CollidingReference { .. } => "colliding_reference",
+        Error::NoMatchingReconstruction => "body_root_mismatch",
         Error::Mempool(_) => "mempool",
         Error::InvalidBlock(_) => "invalid_block",
         _ => "other",
@@ -97,22 +100,29 @@ pub fn orphan_blocks_fetch_failed_total() {
     lb_tracing::increase_counter_u64!(orphan_blocks_fetch_failed_total, 1);
 }
 
+/// Enqueue was refused because the block (or its parent) is in the
+/// rejected-blocks negative cache.
+pub fn orphan_blocks_enqueue_rejected_total() {
+    lb_tracing::increase_counter_u64!(orphan_blocks_enqueue_rejected_total, 1);
+}
+
+/// A queued orphan was dropped at dequeue time because it had been marked
+/// rejected after enqueue.
+pub fn orphan_blocks_dequeue_rejected_total() {
+    lb_tracing::increase_counter_u64!(orphan_blocks_dequeue_rejected_total, 1);
+}
+
+/// A block id was inserted into the rejected-blocks negative cache.
+pub fn orphan_blocks_rejected_inserted_total() {
+    lb_tracing::increase_counter_u64!(orphan_blocks_rejected_inserted_total, 1);
+}
+
 pub fn tip_poll_triggered_total() {
     lb_tracing::increase_counter_u64!(tip_poll_triggered_total, 1);
 }
 
 pub fn tip_poll_enqueued_total() {
     lb_tracing::increase_counter_u64!(tip_poll_enqueued_total, 1);
-}
-
-pub fn chainsync_observe_download_blocks_ok(duration: Duration, blocks_downloaded: u64) {
-    lb_tracing::increase_counter_u64!(chainsync_requests_total, 1, kind = "blocks", result = "ok");
-    lb_tracing::metric_histogram_f64!(chainsync_download_blocks_seconds, duration.as_secs_f64());
-    lb_tracing::metric_histogram_u64!(chainsync_download_blocks_blocks, blocks_downloaded);
-}
-
-pub fn chainsync_observe_download_blocks_err() {
-    lb_tracing::increase_counter_u64!(chainsync_requests_total, 1, kind = "blocks", result = "err");
 }
 
 pub fn chainsync_observe_request_tip_ok(duration: Duration) {

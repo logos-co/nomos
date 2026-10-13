@@ -1,7 +1,9 @@
-use core::time::Duration;
+use core::{num::NonZeroU64, time::Duration};
 use std::collections::HashSet;
 
-use lb_blend::scheduling::membership::Membership;
+use lb_blend::{
+    message::encap::encapsulated_message_encoded_size, scheduling::membership::Membership,
+};
 use lb_libp2p::{Protocol, SwarmEvent};
 use libp2p::{Multiaddr, PeerId};
 use test_log::test;
@@ -10,10 +12,16 @@ use tokio::{
     time::{self, sleep, sleep_until},
 };
 
-use crate::core::backends::libp2p::{
-    core_swarm_test_utils::{SwarmExt as _, new_nodes_with_empty_address, update_nodes},
-    swarm::BlendSwarmMessage,
-    tests::utils::{BlendBehaviourBuilder, SwarmBuilder, TestSwarm, build_membership},
+use crate::core::backends::{
+    BackendEpochInfo,
+    libp2p::{
+        core_swarm_test_utils::{SwarmExt as _, new_nodes_with_empty_address, update_nodes},
+        swarm::BlendSwarmMessage,
+        tests::utils::{
+            BlendBehaviourBuilder, SwarmBuilder, TestProofsVerifier, TestSwarm, build_membership,
+            test_peering_degree,
+        },
+    },
 };
 
 #[test(tokio::test)]
@@ -103,11 +111,7 @@ async fn core_redial_different_peer_after_redial_limit() {
             .contains_key(&listening_node.id)
     );
     assert_eq!(
-        dialing_swarm
-            .behaviour()
-            .blend
-            .with_core()
-            .num_healthy_peers(),
+        dialing_swarm.behaviour().blend.with_core().num_live_peers(),
         1
     );
     assert!(
@@ -229,10 +233,14 @@ async fn core_remembers_failed_peers_across_retries() {
     );
 }
 
-/// Verifies that when all peers have been tried and failed, the failed peers
-/// memory is cleared and peers are retried from scratch.
+/// Verifies that when all peers have been tried and failed in a cycle, the node
+/// does not immediately re-dial the whole membership (which would spin at
+/// event-loop speed against peers that keep rejecting us). Instead it schedules
+/// a single delayed retry from scratch; when the cooldown elapses,
+/// `check_and_dial_new_peers` re-dials the membership with a cleared
+/// failed-peers set.
 #[test(tokio::test)]
-async fn core_clears_failed_peers_memory_when_all_exhausted() {
+async fn core_schedules_delayed_retry_when_all_peers_exhausted() {
     // Create 3 membership nodes: 1 local + 2 remote unreachable.
     let (mut identities, nodes) = new_nodes_with_empty_address(3);
     let TestSwarm {
@@ -273,17 +281,16 @@ async fn core_clears_failed_peers_memory_when_all_exhausted() {
         })
         .await;
 
-    // Both peers have been tried. The memory should be cleared and a new dial
-    // should be attempted with an empty failed_peers set.
+    // Both peers have been tried this cycle. Instead of an immediate re-dial, a
+    // single delayed retry-from-scratch should be scheduled, with no dial in
+    // flight in the meantime.
     assert!(
-        !dialing_swarm.ongoing_dials().is_empty(),
-        "A new dial should be attempted after clearing failed peers memory"
+        dialing_swarm.ongoing_dials().is_empty(),
+        "No immediate re-dial should happen; the retry from scratch is delayed"
     );
-    let retried_peer = *dialing_swarm.ongoing_dials().keys().next().unwrap();
-    assert_eq!(
-        dialing_swarm.failed_peers_for(&retried_peer),
-        Some(&HashSet::new()),
-        "Failed peers memory should be cleared after all peers have been tried"
+    assert!(
+        dialing_swarm.has_pending_full_membership_retry(),
+        "A delayed retry-from-scratch should be scheduled after all peers have been tried"
     );
 }
 
@@ -314,7 +321,11 @@ async fn core_epoch_rotation_clears_pending_retries() {
     assert_eq!(dialing_swarm.pending_retries_count(), 1);
 
     // Trigger a new epoch via the swarm message channel.
-    let new_epoch_info = (Membership::new_without_local(&[]), 2.into());
+    let new_epoch_info = BackendEpochInfo {
+        membership: Membership::new_without_local(&[]),
+        epoch: 2.into(),
+        proofs_verifier: TestProofsVerifier,
+    };
     swarm_message_sender
         .send(BlendSwarmMessage::StartNewEpoch(new_epoch_info))
         .await
@@ -344,7 +355,9 @@ async fn core_epoch_rotation_clears_pending_retries() {
 /// the minimum.
 #[test(tokio::test)]
 async fn core_does_not_give_up_below_minimum_peering_degree() {
-    let min_peering_degree = 2;
+    let peering_degree = test_peering_degree();
+    // `Φ_CC - 1`: the fewest live connections the node settles for.
+    let min_peering_degree = peering_degree.get() - 1;
 
     // 4 membership nodes: [0] reachable listener, [1] local dialer, [2]/[3]
     // unreachable.
@@ -356,7 +369,7 @@ async fn core_does_not_give_up_below_minimum_peering_degree() {
         ..
     } = SwarmBuilder::new(identities.next().unwrap(), &nodes).build(|id, membership| {
         BlendBehaviourBuilder::new(id, membership)
-            .with_peering_degree(min_peering_degree..=3)
+            .with_peering_degree(peering_degree)
             .build()
     });
     let (reachable_node, _) = reachable_swarm
@@ -380,7 +393,7 @@ async fn core_does_not_give_up_below_minimum_peering_degree() {
         .with_max_dial_attempts(1.try_into().unwrap())
         .build(|id, membership| {
             BlendBehaviourBuilder::new(id, membership)
-                .with_peering_degree(min_peering_degree..=3)
+                .with_peering_degree(peering_degree)
                 .build()
         });
 
@@ -388,7 +401,11 @@ async fn core_does_not_give_up_below_minimum_peering_degree() {
     // peers to reach the minimum degree.
     let new_membership = build_membership(&nodes, Some(*dialing_swarm.local_peer_id()));
     swarm_message_sender
-        .send(BlendSwarmMessage::StartNewEpoch((new_membership, 2.into())))
+        .send(BlendSwarmMessage::StartNewEpoch(BackendEpochInfo {
+            membership: new_membership,
+            epoch: 2.into(),
+            proofs_verifier: TestProofsVerifier,
+        }))
         .await
         .unwrap();
 
@@ -407,13 +424,10 @@ async fn core_does_not_give_up_below_minimum_peering_degree() {
         }
     }
 
-    let healthy = dialing_swarm
-        .behaviour()
-        .blend
-        .with_core()
-        .num_healthy_peers();
+    let healthy = dialing_swarm.behaviour().blend.with_core().num_live_peers();
     let ongoing = dialing_swarm.ongoing_dials().len();
     let pending = dialing_swarm.pending_retries_count();
+    let full_retry = dialing_swarm.has_pending_full_membership_retry();
 
     // Sanity: the reachable peer connected, so we are genuinely one short of the
     // minimum (not simply failing to connect to anyone).
@@ -423,13 +437,15 @@ async fn core_does_not_give_up_below_minimum_peering_degree() {
     );
 
     // Regression guard: a node below the minimum peering degree must not give up
-    // — it must still be dialing (an ongoing dial or a pending retry). Before the
-    // fix it ended with no ongoing dials and no pending retries, stranded at degree
-    // 1 < 2 until the next epoch.
+    // — it must still be trying to reach the minimum, whether via an ongoing
+    // dial, a pending per-peer retry, or a scheduled retry-from-scratch. Before
+    // the fix it ended with none of these, stranded at degree 1 < 2 until the
+    // next epoch.
     assert!(
-        healthy >= min_peering_degree || ongoing > 0 || pending > 0,
+        healthy >= min_peering_degree || ongoing > 0 || pending > 0 || full_retry,
         "node gave up below the minimum peering degree: healthy={healthy} < {min_peering_degree}, \
-         ongoing_dials={ongoing}, pending_retries={pending} — it will stay stranded until the next epoch"
+         ongoing_dials={ongoing}, pending_retries={pending}, full_membership_retry={full_retry} — \
+         it will stay stranded until the next epoch"
     );
 }
 
@@ -466,11 +482,7 @@ async fn core_maintenance_task_dials_to_maintain_peering_degree() {
     // Precondition: the node is idle and below the (default) minimum degree of 1.
     assert!(dialing_swarm.ongoing_dials().is_empty());
     assert_eq!(
-        dialing_swarm
-            .behaviour()
-            .blend
-            .with_core()
-            .num_healthy_peers(),
+        dialing_swarm.behaviour().blend.with_core().num_live_peers(),
         0
     );
 
@@ -566,12 +578,159 @@ async fn core_retry_skipped_when_peering_degree_satisfied() {
     // The pending retries queue should have been drained.
     assert_eq!(dialing_swarm.pending_retries_count(), 0);
     // Peering degree should be satisfied.
+    assert!(dialing_swarm.behaviour().blend.with_core().num_live_peers() >= 1);
+}
+
+#[test(tokio::test)]
+async fn core_does_not_retry_unrecoverable_dial_failure() {
+    let (mut identities, peer_ids) = new_nodes_with_empty_address(2);
+
+    // A real listening swarm whose address we pair with the wrong identity.
+    let TestSwarm {
+        swarm: mut listening_swarm,
+        ..
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids)
+        .build(|id, membership| BlendBehaviourBuilder::new(id, membership).build());
+    let (listening_node, _) = listening_swarm
+        .listen_and_return_membership_entry(None)
+        .await;
+    tokio::spawn(async move { listening_swarm.run().await });
+
+    let TestSwarm {
+        swarm: mut dialing_swarm,
+        ..
+    } = SwarmBuilder::new(identities.next().unwrap(), &peer_ids)
+        .build(|id, membership| BlendBehaviourBuilder::new(id, membership).build());
+
+    let wrong_peer_id = PeerId::random();
+    dialing_swarm.dial_peer_at_addr(wrong_peer_id, listening_node.address.clone());
+
+    dialing_swarm
+        .poll_next_until(|event| {
+            let SwarmEvent::OutgoingConnectionError { peer_id, .. } = event else {
+                return false;
+            };
+            *peer_id == Some(wrong_peer_id)
+        })
+        .await;
+
     assert!(
-        dialing_swarm
+        dialing_swarm.unrecoverable_peers().contains(&wrong_peer_id),
+        "a wrong-peer-id failure must mark the peer unusable for this epoch"
+    );
+    assert!(
+        !dialing_swarm.ongoing_dials().contains_key(&wrong_peer_id),
+        "the abandoned peer must not be left in ongoing dials"
+    );
+
+    // The first backoff would be 2^1 = 2s; no further attempt may occur.
+    let no_second_attempt = time::timeout(
+        Duration::from_secs(4),
+        dialing_swarm.poll_next_until(|event| {
+            let SwarmEvent::OutgoingConnectionError { peer_id, .. } = event else {
+                return false;
+            };
+            *peer_id == Some(wrong_peer_id)
+        }),
+    )
+    .await;
+    assert!(
+        no_second_attempt.is_err(),
+        "an unrecoverable dial failure must not be retried"
+    );
+}
+
+/// Blacklisting a peer drops every connection this node holds with it, and a
+/// connection dropped part way through its handshake reaches the swarm as a
+/// failed dial. Answering that with the backoff ladder spends the whole ladder
+/// on a peer this node has just decided it wants nothing to do with: every rung
+/// is a dial the behaviour refuses, and every rung is time the peering degree
+/// spends a connection short, when a replacement was available all along.
+#[test(tokio::test)]
+async fn core_does_not_retry_a_blacklisted_peer() {
+    let (mut identities, nodes) = new_nodes_with_empty_address(2);
+
+    let TestSwarm {
+        swarm: mut offender,
+        ..
+    } = SwarmBuilder::new(identities.next().unwrap(), &nodes)
+        .build(|id, membership| BlendBehaviourBuilder::new(id, membership).build());
+    let (offender_node, _) = offender.listen_and_return_membership_entry(None).await;
+    let offender_id = offender_node.id;
+
+    let TestSwarm {
+        swarm: mut victim, ..
+    } = SwarmBuilder::new(identities.next().unwrap(), &nodes)
+        .build(|id, membership| BlendBehaviourBuilder::new(id, membership).build());
+    let (victim_node, _) = victim.listen_and_return_membership_entry(None).await;
+    let victim_id = victim_node.id;
+
+    // The offender is the one to open the connection, which leaves the victim's
+    // own dial bookkeeping untouched by the setup: the retry it must not
+    // schedule later then has nothing to hide behind.
+    offender.dial_peer_at_addr(victim_id, victim_node.address);
+
+    // A message of the right length that decodes into nothing, which is an
+    // offence its sender cannot blame on the network.
+    let undecodable_message =
+        vec![0xAB; encapsulated_message_encoded_size(NonZeroU64::new(3).unwrap()).get()];
+    time::timeout(Duration::from_secs(10), async {
+        while !victim
             .behaviour()
             .blend
             .with_core()
-            .num_healthy_peers()
-            >= 1
+            .is_peer_blacklisted(&offender_id)
+        {
+            // Lands once the connection is up; until then there is no peer to
+            // send it to.
+            let _: Result<(), _> = offender
+                .behaviour_mut()
+                .blend
+                .with_core_mut()
+                .force_send_serialized_message_to_peer_at_epoch(
+                    &undecodable_message,
+                    victim_id,
+                    1.into(),
+                );
+            select! {
+                () = offender.poll_next() => {}
+                () = victim.poll_next() => {}
+            }
+        }
+    })
+    .await
+    .expect("a message that decodes into nothing must cost its sender the victim's trust");
+
+    assert_eq!(
+        victim.pending_retries_count(),
+        0,
+        "the setup left a retry behind, so the assertion below would prove nothing"
+    );
+    tokio::spawn(async move { offender.run().await });
+
+    // The behaviour refuses a blacklisted peer once the transport has connected,
+    // which is the same shape of failure as a dropped handshake: an outgoing
+    // connection error the swarm has to decide what to do about.
+    victim.dial_peer_at_addr(offender_id, offender_node.address);
+    time::timeout(
+        Duration::from_secs(10),
+        victim.poll_next_until(|event| {
+            let SwarmEvent::OutgoingConnectionError { peer_id, .. } = event else {
+                return false;
+            };
+            *peer_id == Some(offender_id)
+        }),
+    )
+    .await
+    .expect("the dial at a blacklisted peer must fail");
+
+    assert_eq!(
+        victim.pending_retries_count(),
+        0,
+        "the swarm queued a retry at a peer it refuses to speak to, instead of dialing a replacement"
+    );
+    assert!(
+        !victim.ongoing_dials().contains_key(&offender_id),
+        "the refused dial must not be left in ongoing dials either"
     );
 }

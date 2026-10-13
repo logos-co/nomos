@@ -20,7 +20,6 @@ lbp-error          = { workspace = true }
 num-bigint         = { workspace = true }
 serde              = { features = ["derive"], workspace = true }
 serde_json         = { workspace = true }
-thiserror          = { workspace = true }
 tracing            = { workspace = true }
 
 [dev-dependencies]
@@ -30,6 +29,10 @@ lb-utils = { workspace = true }
 [[bench]]
 harness = false
 name    = "prove"
+
+[[bench]]
+harness = false
+name    = "verify"
 
 [lints]
 workspace = true

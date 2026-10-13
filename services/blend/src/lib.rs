@@ -12,7 +12,7 @@ use lb_blend::scheduling::epoch::UninitializedEpochEventStream;
 use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use lb_core::{
     mantle::NoteId,
-    sdp::{DeclarationId, DeclarationMessage, Locator, ProviderId, ServiceType},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
 };
 use lb_key_management_system_service::{
     api::KmsServiceApi,
@@ -20,39 +20,42 @@ use lb_key_management_system_service::{
 };
 use lb_log_targets::blend;
 use lb_network_service::NetworkService;
-use lb_sdp_service::{SdpMessage, SdpServiceApi};
+use lb_sdp_service::{SdpMessage, SdpServiceApi, SdpSubmission};
 use lb_services_utils::wait_until_services_are_ready;
 use lb_time_service::TimeService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
+        resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
     },
 };
 use tracing::{debug, error, info};
 
 use crate::{
+    broadcast::service_components::ServiceComponents as BroadcastServiceComponents,
     core::{
-        network::NetworkAdapter as NetworkAdapterTrait,
+        dispatcher::PayloadDispatcher as PayloadDispatcherTrait,
         service_components::{
-            BlendBackendSettingsOfService, MessageComponents, NetworkBackendOfService,
+            BlendBackendSettingsOfService, ChainNetworkOfService, MempoolOfService,
+            NetworkBackendOfService, PayloadDispatcherSettingsOfService,
             ServiceComponents as CoreServiceComponents,
         },
     },
     edge::service_components::ServiceComponents as EdgeServiceComponents,
-    instance::{Instance, Mode},
     kms::PreloadKmsService,
-    membership::{
-        MembershipInfo,
-        chain::BlendEpochState,
-        node_id::{self, TryFrom as _},
-    },
-    message::ProxyServiceMessage,
+    membership::node_id,
+    message::{ProxyServiceMessage, ServiceMessage},
+    mode::ModeMembership,
+    orchestrator::Instance,
     settings::Settings,
 };
 
+pub mod api;
+pub mod broadcast;
 pub mod core;
+pub mod delivery;
 pub mod edge;
 pub mod epoch;
 pub mod epoch_info;
@@ -61,28 +64,29 @@ pub mod message;
 pub(crate) mod metrics;
 pub mod settings;
 
-mod instance;
 mod kms;
-mod modes;
+mod mode;
+mod orchestrator;
+mod pending;
 mod service_components;
-pub use self::service_components::ServiceComponents;
+pub use self::{mode::Mode, service_components::ServiceComponents};
 
 #[cfg(test)]
 mod test_utils;
 
 const LOG_TARGET: &str = blend::service::ROOT;
 
-pub struct BlendService<CoreService, EdgeService, SdpService, RuntimeServiceId>
+pub struct BlendService<CoreService, EdgeService, BroadcastService, SdpService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: EdgeServiceComponents,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    _phantom: PhantomData<(CoreService, EdgeService, SdpService)>,
+    _phantom: PhantomData<(CoreService, EdgeService, BroadcastService, SdpService)>,
 }
 
-impl<CoreService, EdgeService, SdpService, RuntimeServiceId> ServiceData
-    for BlendService<CoreService, EdgeService, SdpService, RuntimeServiceId>
+impl<CoreService, EdgeService, BroadcastService, SdpService, RuntimeServiceId> ServiceData
+    for BlendService<CoreService, EdgeService, BroadcastService, SdpService, RuntimeServiceId>
 where
     CoreService: ServiceData + CoreServiceComponents<RuntimeServiceId>,
     EdgeService: EdgeServiceComponents,
@@ -90,47 +94,50 @@ where
     type Settings = Settings<
         BlendBackendSettingsOfService<CoreService, RuntimeServiceId>,
         <EdgeService as EdgeServiceComponents>::BackendSettings,
+        PayloadDispatcherSettingsOfService<CoreService, RuntimeServiceId>,
     >;
     type State = NoState<Self::Settings>;
     type StateOperator = NoOperator<Self::State>;
     type Message = ProxyServiceMessage<CoreService::Message>;
 }
 
-#[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One linear bootstrap, then the mode loop."
+)]
 #[async_trait]
-impl<CoreService, EdgeService, SdpService, RuntimeServiceId> ServiceCore<RuntimeServiceId>
-    for BlendService<CoreService, EdgeService, SdpService, RuntimeServiceId>
+impl<CoreService, EdgeService, BroadcastService, SdpService, RuntimeServiceId>
+    ServiceCore<RuntimeServiceId>
+    for BlendService<CoreService, EdgeService, BroadcastService, SdpService, RuntimeServiceId>
 where
-    CoreService: ServiceData<
-            Message: MessageComponents<CoreService::NodeId, Payload: Into<Vec<u8>>>
-                         + Send
-                         + Sync
-                         + 'static,
-        > + CoreServiceComponents<
+    CoreService: ServiceData<Message = ServiceMessage<CoreService::NodeId>>
+        + CoreServiceComponents<
             RuntimeServiceId,
-            NetworkAdapter: NetworkAdapterTrait<
-                RuntimeServiceId,
-                BroadcastSettings = BroadcastSettings<CoreService, RuntimeServiceId>,
-            > + Send
-                                + Sync
-                                + 'static,
+            PayloadDispatcher: PayloadDispatcherTrait<RuntimeServiceId> + Send + Sync + 'static,
             NodeId: Clone + Debug + Hash + Eq + Send + Sync + node_id::TryFrom + 'static,
             BackendSettings: Clone + Send + Sync,
         > + Send
         + 'static,
+    // The core and edge services are tied to the same message type, so a node
+    // cannot be wired up with two modes that answer different requests.
     EdgeService: ServiceData<Message = CoreService::Message>
-        // We tie the core and edge proofs generator to be the same type, to avoid mistakes in the
-        // node configuration where the two services use different verification logic
         + EdgeServiceComponents<
             BackendSettings: Clone + Send + Sync,
-            ChainService: CryptarchiaServiceData<Tx: Send + Sync>,
+            ChainService: CryptarchiaServiceData<Tx: Send>,
             TimeBackend: lb_time_service::backends::TimeBackend + Send,
+        > + Send
+        + 'static,
+    BroadcastService: ServiceData<Message = CoreService::Message>
+        + BroadcastServiceComponents<
+            ChainService = <EdgeService as EdgeServiceComponents>::ChainService,
+            TimeBackend = <EdgeService as EdgeServiceComponents>::TimeBackend,
         > + Send
         + 'static,
     SdpService: ServiceData<Message = SdpMessage> + Send,
     RuntimeServiceId: AsServiceId<Self>
         + AsServiceId<CoreService>
         + AsServiceId<EdgeService>
+        + AsServiceId<BroadcastService>
         + AsServiceId<<EdgeService as EdgeServiceComponents>::ChainService>
         + AsServiceId<
             TimeService<<EdgeService as EdgeServiceComponents>::TimeBackend, RuntimeServiceId>,
@@ -140,7 +147,9 @@ where
                 NetworkBackendOfService<CoreService, RuntimeServiceId>,
                 RuntimeServiceId,
             >,
-        > + AsServiceId<SdpService>
+        > + AsServiceId<MempoolOfService<CoreService, RuntimeServiceId>>
+        + AsServiceId<ChainNetworkOfService<CoreService, RuntimeServiceId>>
+        + AsServiceId<SdpService>
         + Debug
         + Display
         + Clone
@@ -162,7 +171,7 @@ where
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
             service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                ServiceResourcesHandle {
                     ref mut inbound_relay,
                     ref overwatch_handle,
                     ref settings_handle,
@@ -173,7 +182,7 @@ where
         } = self;
 
         let settings = settings_handle.notifier().get_updated_settings();
-        let minimal_network_size = settings.common.minimum_network_size.get() as usize;
+        let minimal_network_size = settings.common.minimum_network_size;
 
         wait_until_services_are_ready!(
             &overwatch_handle,
@@ -206,21 +215,15 @@ where
         else {
             panic!("Non-ephemeral signing key must be an Ed25519 key");
         };
-        let local_node_id =
-            CoreService::NodeId::try_from_provider_id(non_ephemeral_signing_key_public.as_bytes())
-                .expect("non-ephemeral signing public key should decode into a valid node id");
 
         // Wait until the chain becomes Online mode before subscribing to memberships.
         // Chain service provides the correct epoch state only after the chain becomes
         // Online.
-        let chain_api = CryptarchiaServiceApi::<
-            <EdgeService as EdgeServiceComponents>::ChainService,
-            RuntimeServiceId,
-        >::new(
-            overwatch_handle
-                .relay::<<EdgeService as EdgeServiceComponents>::ChainService>()
-                .await?,
-        );
+        let chain_api =
+            CryptarchiaServiceApi::<<EdgeService as EdgeServiceComponents>::ChainService>::from_overwatch_handle(
+                overwatch_handle,
+            )
+            .await;
         info!(target: LOG_TARGET, "Waiting for chain to become Online mode");
         chain_api
             .wait_until_chain_becomes_online()
@@ -236,20 +239,17 @@ where
         >(
             overwatch_handle,
             non_ephemeral_signing_key_public,
-            // We don't need to generate secret zk info in the proxy service, so we ignore the
-            // secret key at this level.
+            // We don't need to generate secret zk info in the orchestrator service, so we
+            // ignore the secret key at this level.
             None,
+            "blend_orchestrator_service",
         )
         .await
         // We take only the membership info from the epoch stream since the proxy service does not
         // need anything else.
-        .map(
-            |BlendEpochState {
-                 membership_info, ..
-             }| membership_info,
-        );
+        .map(|(_, membership_info)| membership_info);
 
-        let (MembershipInfo { membership, .. }, mut remaining_membership_stream) =
+        let (membership_info, mut remaining_membership_stream) =
             UninitializedEpochEventStream::new(
                 membership_stream,
                 settings.common.time.epoch_transition_period,
@@ -260,16 +260,16 @@ where
 
         info!(
             target: LOG_TARGET,
-            members = membership.size(),
+            members = membership_info.membership.size(),
             "current membership is ready",
         );
 
-        let mut instance = Instance::<CoreService, EdgeService, RuntimeServiceId>::new(
-            Mode::choose(&membership, minimal_network_size),
-            local_node_id.clone(),
-            overwatch_handle,
-        )
-        .await?;
+        let mut instance =
+            Instance::<CoreService, EdgeService, BroadcastService, RuntimeServiceId>::new(
+                ModeMembership::resolve(membership_info, minimal_network_size).mode(),
+                overwatch_handle,
+            )
+            .await?;
 
         status_updater.notify_ready();
         info!(
@@ -287,18 +287,17 @@ where
                             epoch_event,
                             overwatch_handle,
                             minimal_network_size,
-                            local_node_id.clone(),
                         )
                         .await?;
                 },
                 Some(message) = inbound_relay.next() => {
                     match message {
-                        ProxyServiceMessage::JoinAsCore { locator, locked_note_id, reply } => {
+                        ProxyServiceMessage::JoinAsCore { locator, service_note_id, reply } => {
                             reply.send(
                                 submit_blend_sdp_declaration(
                                     &sdp_service_api,
                                     locator,
-                                    locked_note_id,
+                                    service_note_id,
                                     non_ephemeral_signing_key_public,
                                     zk_public_key,
                                 )
@@ -322,28 +321,23 @@ where
 async fn submit_blend_sdp_declaration<SdpService>(
     sdp_service_api: &SdpServiceApi<SdpService>,
     locator: Locator,
-    locked_note_id: NoteId,
+    service_note_id: NoteId,
     non_ephemeral_signing_key_public: Ed25519PublicKey,
     zk_id: ZkPublicKey,
-) -> Result<DeclarationId, lb_sdp_service::api::Error>
+) -> Result<SdpSubmission, lb_sdp_service::api::Error>
 where
     SdpService: ServiceData<Message = SdpMessage>,
 {
     tracing::info!(
         target: LOG_TARGET,
-        "Submitting Blend service declaration to SDP with locator {locator:?} and locked note id {locked_note_id:?}",
+        "Submitting Blend service declaration to SDP with locator {locator:?} and service note id {service_note_id:?}",
     );
     let sdp_declaration = DeclarationMessage {
-        locators: [locator].into(),
-        locked_note_id,
+        locators: locator.into(),
+        service_note_id,
         provider_id: ProviderId(non_ephemeral_signing_key_public),
         service_type: ServiceType::BlendNetwork,
         zk_id,
     };
     sdp_service_api.post_declaration(sdp_declaration).await
 }
-
-type BroadcastSettings<CoreService, RuntimeServiceId> =
-    <<CoreService as ServiceData>::Message as MessageComponents<
-        <CoreService as CoreServiceComponents<RuntimeServiceId>>::NodeId,
-    >>::BroadcastSettings;

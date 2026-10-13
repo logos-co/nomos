@@ -1,18 +1,22 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, HashSet},
     convert::Infallible,
-    path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex, atomic::AtomicBool},
+    time::Duration,
 };
 
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, stream};
+use indexmap::IndexMap;
+use lb_binary_codec::bincode::{DeserializeOp as _, SerializeOp as _};
 use lb_core::{
-    block::MAX_BLOCK_SIZE,
-    codec::{DeserializeOp as _, SerializeOp as _},
+    block::MAX_BLOCK_TRANSACTIONS_SIZE,
     header::HeaderId,
-    mantle::mock::{MockTransaction, MockTxId},
+    mantle::{
+        mock::{MockTransaction, MockTxId},
+        transactions::hash::{PrefixedKey as _, TxHashPrefix},
+    },
 };
 use lb_network_service::{
     NetworkService,
@@ -20,35 +24,38 @@ use lb_network_service::{
     config::NetworkConfig,
     message::NetworkMsg,
 };
-use lb_services_utils::{
-    overwatch::{JsonFileBackend, recovery::operators::RecoveryBackend as _},
-    traits::FromSettings as _,
+use lb_services_utils::overwatch::{
+    RecoveryData, recovery::operators::RecoveryBackend as RecoveryBackendTrait,
 };
 use lb_storage_service::{
     StorageService,
-    backends::rocksdb::{self, RocksBackend},
+    recovery::{StorageRecoveryBackend, load_recovery_data},
+    rocksdb,
 };
 use lb_tracing_service::{Tracing, TracingSettings};
 use lb_utils::noop_service::NoService;
 use logos_blockchain_tx_service::{
     MempoolMsg, TxMempoolSettings,
     backend::{
-        MemPool as _, Mempool, MempoolError, PoolRecoveryState, RecoverableMempool as _, Status,
+        MemPool as _, Mempool, MempoolError, MempoolSettings, PoolRecoveryState,
+        RecoverableMempool as _, Status,
     },
     network::adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter},
     storage::{MempoolStorageAdapter, adapters::rocksdb::RocksStorageAdapter},
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 use overwatch::{
-    overwatch::OverwatchRunner,
+    overwatch::{OverwatchRunner, Shutdown},
     services::{ServiceData, relay::OutboundRelay},
 };
 use overwatch_derive::*;
-use rand::distributions::{Alphanumeric, DistString as _};
 use tempfile::TempDir;
 
-type MockRecoveryBackend =
-    JsonFileBackend<TxMempoolState<PoolRecoveryState<MockTxId>, (), ()>, TxMempoolSettings<(), ()>>;
+type MockRecoveryBackend = StorageRecoveryBackend<
+    TxMempoolState<PoolRecoveryState<MockTxId>, MempoolSettings, ()>,
+    TxMempoolSettings<MempoolSettings, ()>,
+    RuntimeServiceId,
+>;
 
 type MockMempoolService = GenericTxMempoolService<
     Mempool<
@@ -64,22 +71,13 @@ type MockMempoolService = GenericTxMempoolService<
     RuntimeServiceId,
 >;
 
-#[derive_services]
+#[derive_services(panic_policy = Shutdown)]
 struct MockPoolNode {
     logging: Tracing<RuntimeServiceId>,
     network: NetworkService<Mock, RuntimeServiceId>,
-    storage: StorageService<RocksBackend, RuntimeServiceId>,
+    storage: StorageService<RuntimeServiceId>,
     mockpool: MockMempoolService,
     no_service: NoService,
-}
-
-fn run_with_recovery_teardown(recovery_path: &Path, run: impl Fn()) {
-    run();
-    drop(std::fs::remove_file(recovery_path));
-}
-
-fn get_test_random_path() -> PathBuf {
-    PathBuf::from(Alphanumeric.sample_string(&mut rand::thread_rng(), 5)).with_extension(".json")
 }
 
 fn sample_removed_tx() -> MockTransaction<MockMessage> {
@@ -92,7 +90,6 @@ fn sample_removed_tx() -> MockTransaction<MockMessage> {
 }
 
 fn mock_pool_node_settings(
-    recovery_file_path: &Path,
     predefined_messages: Vec<MockMessage>,
 ) -> (MockPoolNodeServiceSettings, TempDir) {
     let temp_dir = TempDir::new().expect("Failed to create temp directory");
@@ -103,7 +100,7 @@ fn mock_pool_node_settings(
             network: NetworkConfig {
                 backend: MockConfig {
                     predefined_messages,
-                    duration: tokio::time::Duration::from_millis(100),
+                    duration: Duration::from_millis(100),
                     seed: 0,
                     version: 1,
                     weights: None,
@@ -115,15 +112,24 @@ fn mock_pool_node_settings(
                 column_family: None,
             },
             mockpool: TxMempoolSettings {
-                pool: (),
+                pool: MempoolSettings::default(),
                 network_adapter: (),
-                recovery_path: recovery_file_path.to_path_buf(),
+                seen_items_subscription_channel_size: 64.try_into().unwrap(),
+                recovery_data: RecoveryData::default(),
             },
             logging: TracingSettings::default(),
             no_service: (),
         },
         temp_dir,
     )
+}
+
+fn run_with_mock_pool_node(
+    predefined_messages: Vec<MockMessage>,
+    run: impl FnOnce(MockPoolNodeServiceSettings, TempDir),
+) {
+    let (settings, temp_dir) = mock_pool_node_settings(predefined_messages);
+    run(settings, temp_dir);
 }
 
 async fn add_tx(
@@ -162,6 +168,27 @@ async fn pending_txs(
         .await
 }
 
+async fn txs_by_prefix(
+    mempool_outbound: &OutboundRelay<<MockMempoolService as ServiceData>::Message>,
+    prefix: TxHashPrefix,
+) -> Vec<MockTransaction<MockMessage>> {
+    let (reply_channel, reply) = tokio::sync::oneshot::channel();
+    mempool_outbound
+        .send(MempoolMsg::GetTransactionsByPrefix {
+            prefix,
+            reply_channel,
+        })
+        .await
+        .unwrap();
+
+    reply
+        .await
+        .expect("mempool should reply to prefix lookup")
+        .expect("prefix lookup should succeed")
+        .collect::<Vec<_>>()
+        .await
+}
+
 #[derive(Clone, Default)]
 struct InMemoryStorageAdapter {
     items: Arc<Mutex<BTreeMap<MockTxId, MockTransaction<MockMessage>>>>,
@@ -172,15 +199,12 @@ struct FailingStorageAdapter;
 
 #[async_trait]
 impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
-    type Backend = RocksBackend;
     type Item = MockTransaction<MockMessage>;
     type Key = MockTxId;
     type Error = Infallible;
 
     fn new(
-        _storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
+        _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self::default()
     }
@@ -195,7 +219,7 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
 
     async fn get_items(
         &self,
-        keys: &BTreeSet<Self::Key>,
+        keys: &[Self::Key],
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, Self::Error> {
         let items = {
             let storage = self
@@ -223,15 +247,12 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
 
 #[async_trait]
 impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
-    type Backend = RocksBackend;
     type Item = MockTransaction<MockMessage>;
     type Key = MockTxId;
     type Error = MempoolError;
 
     fn new(
-        _storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
+        _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self
     }
@@ -244,7 +265,7 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
 
     async fn get_items(
         &self,
-        _keys: &BTreeSet<Self::Key>,
+        _keys: &[Self::Key],
     ) -> Result<Pin<Box<dyn Stream<Item = Self::Item> + Send>>, Self::Error> {
         Ok(Box::pin(stream::empty()))
     }
@@ -257,7 +278,7 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
 #[test]
 fn test_mock_pool_recovery_state() {
     let recovery_state = PoolRecoveryState::<MockTxId> {
-        pending_items: BTreeSet::new(),
+        pending_items: IndexMap::new(),
         removed_items: BTreeMap::new(),
         last_item_timestamp: 1_234_567_890,
     };
@@ -275,6 +296,136 @@ fn test_mock_pool_recovery_state() {
     );
 }
 
+const fn ttl_settings(tx_ttl: Duration) -> MempoolSettings {
+    MempoolSettings {
+        tx_ttl: Some(tx_ttl),
+    }
+}
+
+const TEST_TX_TTL: Duration = Duration::from_hours(1);
+
+/// Build a pool holding one pending tx whose insertion timestamp is backdated
+/// to the unix epoch, so it is expired for any reasonable TTL.
+async fn pool_with_backdated_tx(
+    settings: MempoolSettings,
+) -> (
+    Mempool<
+        HeaderId,
+        MockTransaction<MockMessage>,
+        MockTxId,
+        InMemoryStorageAdapter,
+        RuntimeServiceId,
+    >,
+    MockTransaction<MockMessage>,
+) {
+    let storage = InMemoryStorageAdapter::default();
+    let mut pool = Mempool::<
+        HeaderId,
+        MockTransaction<MockMessage>,
+        MockTxId,
+        InMemoryStorageAdapter,
+        RuntimeServiceId,
+    >::new(settings, storage.clone());
+
+    let tx = sample_removed_tx();
+    let tx_id = tx.id();
+
+    pool.add_item(tx_id, tx.clone())
+        .await
+        .expect("tx should be added");
+
+    let mut saved_state = pool.save();
+    saved_state.pending_items.insert(tx_id, 0);
+
+    (Mempool::recover(settings, saved_state, storage), tx)
+}
+
+#[tokio::test]
+async fn expired_tx_is_evicted_on_next_sweep() {
+    let storage = InMemoryStorageAdapter::default();
+    let mut pool = Mempool::<
+        HeaderId,
+        MockTransaction<MockMessage>,
+        MockTxId,
+        InMemoryStorageAdapter,
+        RuntimeServiceId,
+    >::new(ttl_settings(TEST_TX_TTL), storage.clone());
+
+    let old_tx = sample_removed_tx();
+    let old_tx_id = old_tx.id();
+    let old_tx_prefix = old_tx_id.key_prefix();
+
+    let fresh_tx = MockTransaction::new(MockMessage {
+        payload: "fresh".to_owned(),
+        content_topic: MOCK_TX_CONTENT_TOPIC,
+        version: 0,
+        timestamp: 1,
+    });
+    let fresh_tx_id = fresh_tx.id();
+
+    pool.add_item(old_tx_id, old_tx.clone())
+        .await
+        .expect("old tx should be added");
+    pool.add_item(fresh_tx_id, fresh_tx.clone())
+        .await
+        .expect("fresh tx should be added");
+
+    let mut saved_state = pool.save();
+    saved_state.pending_items.insert(old_tx_id, 0);
+    let mut pool = Mempool::<
+        HeaderId,
+        MockTransaction<MockMessage>,
+        MockTxId,
+        InMemoryStorageAdapter,
+        RuntimeServiceId,
+    >::recover(ttl_settings(TEST_TX_TTL), saved_state, storage);
+
+    assert_eq!(pool.pending_item_count(), 2);
+    assert_eq!(pool.status(&[old_tx_id]), vec![Status::Pending]);
+    assert_eq!(
+        pool.keys_by_prefix(&old_tx_prefix)
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![old_tx_id]
+    );
+
+    pool.remove(&[]).await;
+
+    assert_eq!(pool.pending_item_count(), 1);
+    assert_eq!(pool.status(&[old_tx_id]), vec![Status::Unknown]);
+    assert_eq!(pool.status(&[fresh_tx_id]), vec![Status::Pending]);
+    assert!(pool.keys_by_prefix(&old_tx_prefix).next().is_none());
+
+    let pending_after_eviction = pool
+        .view([0; 32].into())
+        .await
+        .expect("pending view should load")
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(pending_after_eviction, vec![fresh_tx]);
+
+    let fetched_after_eviction = pool
+        .get_items_by_keys([old_tx_id])
+        .await
+        .expect("evicted tx should still be fetchable during grace period")
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(fetched_after_eviction, vec![old_tx]);
+}
+
+#[tokio::test]
+async fn expired_tx_is_not_evicted_when_ttl_is_disabled() {
+    let (mut pool, tx) = pool_with_backdated_tx(MempoolSettings { tx_ttl: None }).await;
+    let tx_id = tx.id();
+
+    for _ in 0..10 {
+        pool.remove(&[]).await;
+    }
+
+    assert_eq!(pool.pending_item_count(), 1);
+    assert_eq!(pool.status(&[tx_id]), vec![Status::Pending]);
+}
+
 #[tokio::test]
 async fn storage_failure_does_not_mark_tx_pending() {
     let mut pool = Mempool::<
@@ -283,7 +434,7 @@ async fn storage_failure_does_not_mark_tx_pending() {
         MockTxId,
         FailingStorageAdapter,
         RuntimeServiceId,
-    >::new((), FailingStorageAdapter);
+    >::new(MempoolSettings::default(), FailingStorageAdapter);
 
     let tx = sample_removed_tx();
     let tx_id = tx.id();
@@ -308,7 +459,7 @@ async fn removed_items_are_not_pending_but_still_fetchable() {
         MockTxId,
         InMemoryStorageAdapter,
         RuntimeServiceId,
-    >::new((), storage.clone());
+    >::new(MempoolSettings::default(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.id();
@@ -340,7 +491,7 @@ async fn removed_items_are_not_pending_but_still_fetchable() {
         .expect("pending view should still work")
         .collect::<Vec<_>>()
         .await;
-    assert!(pending_after_remove.is_empty());
+    assert_eq!(pending_after_remove, []);
 
     let fetched_after_remove = pool
         .get_items_by_keys([tx_id])
@@ -360,7 +511,7 @@ async fn removed_items_remain_fetchable_after_recovery() {
         MockTxId,
         InMemoryStorageAdapter,
         RuntimeServiceId,
-    >::new((), storage.clone());
+    >::new(MempoolSettings::default(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.id();
@@ -380,7 +531,7 @@ async fn removed_items_remain_fetchable_after_recovery() {
         MockTxId,
         InMemoryStorageAdapter,
         RuntimeServiceId,
-    >::recover((), saved_state, storage);
+    >::recover(MempoolSettings::default(), saved_state, storage);
 
     assert_eq!(recovered_pool.pending_item_count(), 0);
     assert_eq!(recovered_pool.status(&[tx_id]), vec![Status::Unknown]);
@@ -396,9 +547,7 @@ async fn removed_items_remain_fetchable_after_recovery() {
 
 #[test]
 fn local_submission_rejects_oversized_tx() {
-    let recovery_file_path = get_test_random_path();
-    run_with_recovery_teardown(&recovery_file_path, || {
-        let (settings, _temp_dir) = mock_pool_node_settings(&recovery_file_path, Vec::new());
+    run_with_mock_pool_node(Vec::new(), |settings, _temp_dir| {
         let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
             .map_err(|e| eprintln!("Error encountered: {e}"))
             .unwrap();
@@ -415,7 +564,7 @@ fn local_submission_rejects_oversized_tx() {
             .block_on(async { app.handle().relay::<MockMempoolService>().await.unwrap() });
 
         let oversized_tx = MockTransaction::new(MockMessage {
-            payload: "x".repeat(MAX_BLOCK_SIZE + 1),
+            payload: "x".repeat(MAX_BLOCK_TRANSACTIONS_SIZE + 1),
             content_topic: MOCK_TX_CONTENT_TOPIC,
             version: 0,
             timestamp: 0,
@@ -431,48 +580,103 @@ fn local_submission_rejects_oversized_tx() {
             error,
             MempoolError::ItemTooLarge {
                 size,
-                max: MAX_BLOCK_SIZE,
-            } if size > MAX_BLOCK_SIZE
+                max: MAX_BLOCK_TRANSACTIONS_SIZE,
+            } if size > MAX_BLOCK_TRANSACTIONS_SIZE
         ));
 
-        assert!(
+        assert_eq!(
             app.runtime()
                 .handle()
-                .block_on(pending_txs(&mempool_outbound))
-                .is_empty()
+                .block_on(pending_txs(&mempool_outbound)),
+            []
         );
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
+    });
+}
+
+#[test]
+fn mempool_view_preserves_receive_order() {
+    run_with_mock_pool_node(Vec::new(), |settings, _temp_dir| {
+        let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
+            .map_err(|e| eprintln!("Error encountered: {e}"))
+            .unwrap();
+
+        drop(
+            app.runtime()
+                .handle()
+                .block_on(app.handle().start_all_services()),
+        );
+
+        let mempool_outbound = app
+            .runtime()
+            .handle()
+            .block_on(async { app.handle().relay::<MockMempoolService>().await.unwrap() });
+
+        let first_tx = MockTransaction::new(MockMessage {
+            payload: "first".to_owned(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 1,
+        });
+
+        let second_tx = MockTransaction::new(MockMessage {
+            payload: "second".to_owned(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 2,
+        });
+
+        let expected_txs = if first_tx.id() < second_tx.id() {
+            vec![second_tx, first_tx]
+        } else {
+            vec![first_tx, second_tx]
+        };
+
+        for tx in &expected_txs {
+            app.runtime()
+                .handle()
+                .block_on(add_tx(&mempool_outbound, tx.clone()))
+                .expect("tx should be added");
+        }
+
+        let pending = app
+            .runtime()
+            .handle()
+            .block_on(pending_txs(&mempool_outbound));
+
+        assert_eq!(pending, expected_txs);
+
+        drop(app.runtime().handle().block_on(app.handle().shutdown()));
+        app.blocking_wait_finished()
+            .expect("No service should panic");
     });
 }
 
 #[test]
 fn test_mock_mempool() {
-    let recovery_file_path = get_test_random_path();
-    run_with_recovery_teardown(&recovery_file_path, || {
-        let exist = Arc::new(AtomicBool::new(false));
-        let exist2 = Arc::clone(&exist);
+    let exist = Arc::new(AtomicBool::new(false));
+    let exist2 = Arc::clone(&exist);
 
-        let predefined_messages = vec![
-            MockMessage {
-                payload: "This is foo".to_owned(),
-                content_topic: MOCK_TX_CONTENT_TOPIC,
-                version: 0,
-                timestamp: 0,
-            },
-            MockMessage {
-                payload: "This is bar".to_owned(),
-                content_topic: MOCK_TX_CONTENT_TOPIC,
-                version: 0,
-                timestamp: 0,
-            },
-        ];
+    let predefined_messages = vec![
+        MockMessage {
+            payload: "This is foo".to_owned(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        },
+        MockMessage {
+            payload: "This is bar".to_owned(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 0,
+        },
+    ];
 
+    run_with_mock_pool_node(predefined_messages.clone(), |settings, temp_dir| {
         let exp_txns: HashSet<MockMessage> = predefined_messages.iter().cloned().collect();
-
-        let (settings, _temp_dir) =
-            mock_pool_node_settings(&recovery_file_path, predefined_messages);
         let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
             .map_err(|e| eprintln!("Error encountered: {e}"))
             .unwrap();
@@ -503,7 +707,7 @@ fn test_mock_mempool() {
 
             // try to wait all ops to be stored in mempool
             loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
                 let (mtx, mrx) = tokio::sync::oneshot::channel();
                 mempool_outbound
                     .send(MempoolMsg::View {
@@ -529,21 +733,117 @@ fn test_mock_mempool() {
         });
 
         while !exist2.load(std::sync::atomic::Ordering::SeqCst) {
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(200));
         }
 
-        let recovery_backend = MockRecoveryBackend::from_settings(&TxMempoolSettings {
-            pool: (),
+        drop(app.runtime().handle().block_on(app.handle().shutdown()));
+        app.blocking_wait_finished()
+            .expect("No service should panic");
+
+        let recovery_data = load_recovery_data(rocksdb::RocksBackendSettings {
+            db_path: temp_dir.path().join("test_db"),
+            read_only: false,
+            column_family: None,
+        })
+        .expect("Should load recovery data from storage.");
+        let recovery_settings = TxMempoolSettings {
+            pool: MempoolSettings::default(),
             network_adapter: (),
-            recovery_path: recovery_file_path.clone(),
-        });
-        let recovered_state = recovery_backend
-            .load_state()
-            .expect("Should not fail to load the state.");
+            seen_items_subscription_channel_size: 64.try_into().unwrap(),
+            recovery_data,
+        };
+        let recovered_state =
+            <MockRecoveryBackend as RecoveryBackendTrait<RuntimeServiceId>>::load_state(
+                &recovery_settings,
+            )
+            .expect("Should not fail to load the state.")
+            .expect("Recovery state should exist.");
         assert_eq!(recovered_state.pool().unwrap().pending_items.len(), 2);
         assert!(recovered_state.pool().unwrap().last_item_timestamp > 0);
+    });
+}
+
+/// The prefix index is derived state, so the risk is that it drifts out of
+/// sync with the pending set. These drive the real service message end to end:
+/// index lookup, storage fetch, stream.
+#[test]
+fn prefix_lookup_tracks_the_pending_set() {
+    run_with_mock_pool_node(Vec::new(), |settings, _temp_dir| {
+        let app = OverwatchRunner::<MockPoolNode>::run(settings, None)
+            .map_err(|e| eprintln!("Error encountered: {e}"))
+            .unwrap();
+
+        drop(
+            app.runtime()
+                .handle()
+                .block_on(app.handle().start_all_services()),
+        );
+
+        let mempool_outbound = app
+            .runtime()
+            .handle()
+            .block_on(async { app.handle().relay::<MockMempoolService>().await.unwrap() });
+
+        let tx = MockTransaction::new(MockMessage {
+            payload: "indexed".to_owned(),
+            content_topic: MOCK_TX_CONTENT_TOPIC,
+            version: 0,
+            timestamp: 1,
+        });
+        let prefix = tx.id().key_prefix();
+
+        // Unknown prefix resolves to nothing.
+        assert!(
+            app.runtime()
+                .handle()
+                .block_on(txs_by_prefix(&mempool_outbound, prefix))
+                .is_empty(),
+            "a prefix with no transaction must resolve to no candidates"
+        );
+
+        app.runtime()
+            .handle()
+            .block_on(add_tx(&mempool_outbound, tx.clone()))
+            .expect("tx should be added");
+
+        assert_eq!(
+            app.runtime()
+                .handle()
+                .block_on(txs_by_prefix(&mempool_outbound, prefix)),
+            vec![tx.clone()],
+            "an added transaction must be reachable through its hash prefix"
+        );
+
+        // A prefix that no transaction carries stays empty.
+        let absent = TxHashPrefix([0xFFu8; _]);
+        if absent != prefix {
+            assert!(
+                app.runtime()
+                    .handle()
+                    .block_on(txs_by_prefix(&mempool_outbound, absent))
+                    .is_empty(),
+                "an unrelated prefix must not pick up candidates"
+            );
+        }
+
+        app.runtime().handle().block_on(async {
+            mempool_outbound
+                .send(MempoolMsg::Remove { ids: vec![tx.id()] })
+                .await
+                .unwrap();
+        });
+
+        // Removal must evict from the index, not just the pending set.
+        assert!(
+            app.runtime()
+                .handle()
+                .block_on(txs_by_prefix(&mempool_outbound, prefix))
+                .is_empty(),
+            "a removed transaction must no longer be reachable through its prefix"
+        );
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
     });
 }

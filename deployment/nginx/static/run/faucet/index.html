@@ -23,10 +23,9 @@
 
     <div id="response"></div>
 
-    <footer style="margin-top: 2rem; border-top: 1px solid #ccc; padding-top: 1rem; display: flex; gap: 10px; align-items: center;">
-        <a href="https://docs.google.com/document/d/1GOQTbBX152uVIrmXXW9TIoSJXCP5fsqh149jXZO_pLE/edit?usp=sharing" target="_blank" rel="noopener noreferrer" style="font-size: 0.9rem; color: #666; text-decoration: none;">Logos Testnet Terms & Conditions</a>
-        <span style="color: #ccc;">|</span>
-        <a href="https://docs.google.com/document/d/1qQ-eupBjqNnU0EfSWgCwiP164BmXsKWvMHJYyJqOUh8/edit?usp=sharing" target="_blank" rel="noopener noreferrer" style="font-size: 0.9rem; color: #666; text-decoration: none;">Logos Testnet Privacy Policy</a>
+    <footer style="margin-top: 2rem; border-top: 1px solid #ccc; padding-top: 1rem; display: flex; flex-direction: column; gap: 10px;">
+        <a href="https://docs.google.com/document/d/1GOQTbBX152uVIrmXXW9TIoSJXCP5fsqh149jXZO_pLE/edit?usp=sharing" target="_blank" rel="noopener noreferrer" style="font-size: 0.9rem; color: #666; text-decoration: none;">Logos Blockchain Testnet Terms & Conditions</a>
+        <a href="https://docs.google.com/document/d/1qQ-eupBjqNnU0EfSWgCwiP164BmXsKWvMHJYyJqOUh8/edit?usp=sharing" target="_blank" rel="noopener noreferrer" style="font-size: 0.9rem; color: #666; text-decoration: none;">Logos Blockchain Testnet Privacy Policy</a>
     </footer>
 
     <script>
@@ -51,13 +50,18 @@
                 respDiv.style.display = 'block';
                 
                 if (response.ok) {
-                    const data = JSON.parse(text); 
-                    const hash = data.hash;
-
                     respDiv.className = 'success';
                     respDiv.innerHTML = `
-                        <strong>Success!</strong><br>
-                        <p>Transaction hash: <code>${hash.substring(0, 8)}...</code></p>
+                        <strong>Request queued!</strong><br>
+                        <p>Your funds are on the way and should arrive within a few blocks.</p>
+                    `;
+                } else if (response.status === 429) {
+                    const data = JSON.parse(text);
+
+                    respDiv.className = 'error';
+                    respDiv.innerHTML = `
+                        <strong>Cooldown active</strong><br>
+                        <p>Please wait ${data.retry_after_secs} seconds before requesting again.</p>
                     `;
                 } else {
                     respDiv.className = 'error';

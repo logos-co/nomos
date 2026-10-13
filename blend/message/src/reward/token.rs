@@ -2,8 +2,8 @@ use blake2::{
     Blake2bVar,
     digest::{Update as _, VariableOutput as _},
 };
+use lb_binary_codec::bincode::SerializeOp as _;
 use lb_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
-use lb_core::codec::SerializeOp as _;
 use lb_key_management_system_keys::keys::Ed25519PublicKey;
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +85,11 @@ pub struct HammingDistance(u64);
 impl HammingDistance {
     pub const MAX: Self = Self(u64::MAX);
 
+    #[must_use]
+    pub const fn value(self) -> u64 {
+        self.0
+    }
+
     /// Computes the Hamming distance between two byte slices.
     /// (i.e. the number of differing bits)
     ///
@@ -144,7 +149,7 @@ mod tests {
         assert_eq!(output, hash(input, 3));
 
         // An empty output if the request size is zero.
-        assert!(hash(input, 0).is_empty());
+        assert_eq!(hash(input, 0), b"");
 
         // Output shouldn't be longer than the maximum size.
         let output = hash(input, Blake2bVar::MAX_OUTPUT_SIZE.checked_add(1).unwrap());

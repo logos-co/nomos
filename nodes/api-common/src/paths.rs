@@ -1,6 +1,9 @@
 pub const MANTLE_METRICS: &str = "/mantle/metrics";
 pub const MANTLE_STATUS: &str = "/mantle/status";
 pub const MANTLE_SDP_DECLARATIONS: &str = "/mantle/sdp/declarations";
+pub const MANTLE_SDP_SNAPSHOT: &str = "/mantle/sdp/snapshot";
+pub const MANTLE_GAS_PRICES: &str = "/mantle/gas-prices";
+pub const CHAIN_ID: &str = "/chain/id";
 pub const CRYPTARCHIA_INFO: &str = "/cryptarchia/info";
 pub const CRYPTARCHIA_HEADERS: &str = "/cryptarchia/headers";
 pub const CRYPTARCHIA_LIB_STREAM: &str = "/cryptarchia/lib-stream";
@@ -8,6 +11,8 @@ pub const TIME_INFO: &str = "/time/info";
 pub const NETWORK_INFO: &str = "/network/info";
 pub const BLEND_NETWORK_INFO: &str = "/blend/info";
 pub const BLEND_JOIN_NETWORK: &str = "/blend/join";
+pub const BLEND_DISPERSE_TRANSACTION: &str = "/blend/transactions/disperse";
+pub const BLEND_PENDING_TRANSACTIONS: &str = "/blend/transactions/pending";
 pub const MEMPOOL_ADD_TX: &str = "/mempool/add/tx";
 pub const CHANNEL: &str = "/channel/:id";
 pub const CHANNEL_DEPOSIT: &str = "/channel/deposit";
@@ -15,8 +20,17 @@ pub const SDP_POST_DECLARATION: &str = "/sdp/declaration";
 pub const SDP_POST_ACTIVITY: &str = "/sdp/activity";
 pub const SDP_POST_WITHDRAWAL: &str = "/sdp/withdrawal";
 pub const SDP_POST_SET_DECLARATION_ID: &str = "/sdp/set-declaration-id";
+pub const NODE_VERSION: &str = "/version";
+pub const POW_START_MINING: &str = "/pow/mining/start";
+pub const POW_STOP_MINING: &str = "/pow/mining/stop";
+pub const POW_START_AUTO_CLAIM: &str = "/pow/auto-claim/start";
+pub const POW_STOP_AUTO_CLAIM: &str = "/pow/auto-claim/stop";
+pub const POW_CLAIM: &str = "/pow/claim";
+pub const POW_CLAIMABLE_REWARDS: &str = "/pow/rewards/claimable";
+pub const POW_STATUS: &str = "/pow/status";
 pub const LEADER_CLAIM: &str = "/leader/claim";
 pub const LEADER_CLAIM_VOUCHERS: &str = "/leader/claim/vouchers";
+pub const LEADER_AGED_NOTES: &str = "/leader/aged-notes";
 
 // TODO: change prefix to `/chain` since `Block` is defined outside of
 // Cryptarchia
@@ -33,6 +47,7 @@ pub mod wallet {
     pub const TRANSACTIONS_TRANSFER_FUNDS: &str = "/wallet/transactions/transfer-funds";
     pub const SIGN_TX_ED25519: &str = "/wallet/sign/ed25519";
     pub const SIGN_TX_ZK: &str = "/wallet/sign/zk";
+    pub const FUND: &str = "/wallet/fund";
 }
 
 pub mod admin {

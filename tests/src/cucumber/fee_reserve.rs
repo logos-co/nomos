@@ -3,7 +3,7 @@ use std::{
     num::NonZero,
 };
 
-use lb_core::mantle::{NoteId, Utxo};
+use lb_core::mantle::{NoteId, Utxo, transactions::GENESIS_STORAGE_GAS_PRICE};
 use lb_testing_framework::configs::wallet::WalletAccount;
 use thiserror::Error;
 
@@ -14,7 +14,7 @@ use crate::{
     cucumber::{error::StepError, wallet::WalletStateView},
 };
 
-pub const DEFAULT_STORAGE_GAS_PRICE: u64 = 0;
+pub const DEFAULT_STORAGE_GAS_PRICE: u64 = GENESIS_STORAGE_GAS_PRICE.into_inner();
 pub const SCENARIO_FEE_ACCOUNT_NAME: &str = "__SCENARIO_FEE_ACCOUNT__";
 
 const SCENARIO_FEE_ACCOUNT_INDEX: u64 = 1 << 63;
@@ -25,7 +25,7 @@ pub struct SponsoredGenesisFeeAccount {
     pub token_value: NonZero<u64>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ScenarioFeeState {
     pub sponsored_genesis_account: Option<SponsoredGenesisFeeAccount>,
     pub wallet_account: Option<WalletAccount>,
@@ -56,6 +56,10 @@ impl ScenarioFeeState {
 
     pub fn clear_wallet_reservations(&mut self, wallet_name: &str) {
         self.reservations.clear_wallet(wallet_name);
+    }
+
+    pub fn clear_reservations(&mut self) {
+        self.reservations.clear();
     }
 
     #[must_use]
@@ -121,12 +125,12 @@ impl ScenarioFeeState {
 }
 
 /// Scenario fee UTXOs reserved while grouped transactions are being planned.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ScenarioFeeReservations {
     reserved_by_wallet: HashMap<String, ScenarioFeeReservation>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct ScenarioFeeReservation {
     group_key: String,
     utxos: Vec<Utxo>,
@@ -149,6 +153,10 @@ impl ScenarioFeeReservations {
 
     fn clear_wallet(&mut self, wallet_name: &str) {
         self.reserved_by_wallet.remove(wallet_name);
+    }
+
+    fn clear(&mut self) {
+        self.reserved_by_wallet.clear();
     }
 
     fn wallet_count(&self) -> usize {

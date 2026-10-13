@@ -5,14 +5,15 @@ mod ui;
 use std::{fs, path::Path};
 
 use clap::Parser;
-use lb_core::mantle::ops::channel::{ChannelId, inscribe::Inscription};
-use lb_key_management_system_service::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key};
+use lb_core::mantle::{
+    gas::GasCost,
+    ops::channel::{ChannelId, inscribe::Inscription},
+};
+use lb_key_management_system_service::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key, ZkPublicKey};
 use lb_zone_sdk::{
     CommonHttpClient,
     adapter::NodeHttpClient,
-    sequencer::{
-        ChannelUpdate, Event, FinalizedOp, FinalizedTx, InscriptionInfo, OrphanedTx, ZoneSequencer,
-    },
+    sequencer::{Event, FinalizedOp, FinalizedTx, FundingConfig, InscriptionInfo, ZoneSequencer},
 };
 use reqwest::Url;
 use tokio::sync::mpsc;
@@ -33,6 +34,16 @@ pub struct InscribeArgs {
     /// Path to the signing key file (created if it doesn't exist)
     #[arg(long, default_value = "sequencer.key", env = "KEY_PATH")]
     key_path: String,
+
+    /// Hex-encoded ZK public key of a funded key in the node's wallet. The
+    /// node spends this key's notes to pay each inscription's transaction fee.
+    #[arg(long, env = "FUNDING_PK", value_parser = parse_zk_public_key)]
+    funding_pk: ZkPublicKey,
+}
+
+fn parse_zk_public_key(hex_key: &str) -> Result<ZkPublicKey, String> {
+    serde_json::from_value(serde_json::Value::String(hex_key.to_owned()))
+        .map_err(|e| format!("invalid ZK public key: {e}"))
 }
 
 fn spawn_stdin_reader(ready: tokio::sync::oneshot::Receiver<()>) -> mpsc::Receiver<String> {

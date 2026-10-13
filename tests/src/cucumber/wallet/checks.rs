@@ -1,8 +1,11 @@
 use std::{collections::HashSet, fmt::Display, hash::BuildHasher, time::Duration};
 
-use lb_core::mantle::TxHash;
+use lb_core::mantle::transactions::hash::TxHash;
 use thiserror::Error;
-use tokio::time::{Instant, sleep};
+use tokio::{
+    sync::watch,
+    time::{Instant, sleep},
+};
 use tracing::{info, warn};
 
 use crate::{
@@ -12,6 +15,7 @@ use crate::{
         fee_reserve::SCENARIO_FEE_ACCOUNT_NAME,
         wallet::{
             TARGET,
+            best_node::{display_group_key, get_best_node_info},
             sync::{current_wallet_output_balance, current_wallet_state_for_key},
             wallet_output_state_label,
         },
@@ -116,30 +120,44 @@ enum WalletBalanceBoundsError {
     MissingBound,
 }
 
+/// Assert that TF's tracked wallet fees match the on-chain spend from the
+/// sponsored fee account.
+///
+/// This catches accounting drift between locally reserved/submitted wallet fees
+/// and the fee account balance observed from chain state.
 pub async fn assert_tracked_wallet_fees_equal_sponsored_fee_account_spend(
     world: &mut CucumberWorld,
     step_value: &str,
 ) -> StepResult {
-    let sponsored_genesis_account =
-        world
-            .fee_state
-            .sponsored_genesis_account
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!(
-                    "Step `{step_value}` error: no sponsored genesis fee account configured"
-                ),
-            })?;
+    let submitted_tx_hashes = world.with_wallets(TrackedWallets::submitted_tx_hashes)?;
+    wait_for_observed_transaction_hashes(
+        world,
+        step_value,
+        &submitted_tx_hashes,
+        Duration::from_mins(2),
+    )
+    .await?;
 
-    let fee_wallet_account =
-        world
-            .fee_state
-            .wallet_account
-            .clone()
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!(
-                    "Step `{step_value}` error: sponsored fee wallet account not initialized"
-                ),
-            })?;
+    let sponsored_genesis_account = world
+        .wallet_registry
+        .fee_state
+        .sponsored_genesis_account
+        .ok_or_else(|| StepError::LogicalError {
+            message: format!(
+                "Step `{step_value}` error: no sponsored genesis fee account configured"
+            ),
+        })?;
+
+    let fee_wallet_account = world
+        .wallet_registry
+        .fee_state
+        .wallet_account
+        .clone()
+        .ok_or_else(|| StepError::LogicalError {
+            message: format!(
+                "Step `{step_value}` error: sponsored fee wallet account not initialized"
+            ),
+        })?;
 
     let initial_sponsored_balance = (sponsored_genesis_account.token_count.get() as u64)
         * sponsored_genesis_account.token_value.get();
@@ -176,14 +194,46 @@ pub async fn assert_tracked_wallet_fees_equal_sponsored_fee_account_spend(
     Ok(())
 }
 
+/// Wait until the wallet scanner has observed all expected transaction
+/// hashes in blocks.
+///
+/// This checks inclusion through TF's observed-chain feed, not just successful
+/// transaction submission to a node.
 pub async fn wait_for_observed_transaction_hashes<S: BuildHasher + Sync>(
     world: &mut CucumberWorld,
     step: &str,
     expected_hashes: &HashSet<TxHash, S>,
     timeout: Duration,
 ) -> Result<(), StepError> {
-    world.ensure_wallet_block_feed().await?;
+    wait_for_observed_transaction_hashes_inner(world, step, expected_hashes, timeout, None).await
+}
 
+/// Wait for transaction inclusion while also stopping when the owning
+/// background task is cancelled.
+pub async fn wait_for_observed_transaction_hashes_cancellable<S: BuildHasher + Sync>(
+    world: &mut CucumberWorld,
+    step: &str,
+    expected_hashes: &HashSet<TxHash, S>,
+    timeout: Duration,
+    cancellation: &mut watch::Receiver<bool>,
+) -> Result<(), StepError> {
+    wait_for_observed_transaction_hashes_inner(
+        world,
+        step,
+        expected_hashes,
+        timeout,
+        Some(cancellation),
+    )
+    .await
+}
+
+async fn wait_for_observed_transaction_hashes_inner<S: BuildHasher + Sync>(
+    world: &CucumberWorld,
+    step: &str,
+    expected_hashes: &HashSet<TxHash, S>,
+    timeout: Duration,
+    mut cancellation: Option<&mut watch::Receiver<bool>>,
+) -> Result<(), StepError> {
     let start = Instant::now();
 
     loop {
@@ -202,12 +252,39 @@ pub async fn wait_for_observed_transaction_hashes<S: BuildHasher + Sync>(
             return Ok(());
         }
 
+        if cancellation
+            .as_ref()
+            .is_some_and(|receiver| *receiver.borrow())
+        {
+            return Err(StepError::BackgroundTaskCancelled);
+        }
+
         if start.elapsed() >= timeout {
             let missing_set = missing.into_iter().collect::<HashSet<_>>();
+            let scanner_status = world
+                .scanner
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .groups
+                .values()
+                .map(|group| {
+                    format!(
+                        "{}: source={:?} applied={} target={:?} status={:?} last_error={:?}",
+                        display_group_key(&group.group_id),
+                        group.source_node,
+                        group.applied_height,
+                        group.target_height,
+                        group.status,
+                        group.last_error
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" | ");
 
             let msg = format!(
                 "Step `{step}` transaction inclusion timeout: submitted={} \
-                chain_observed={observed} missing={}",
+                chain_observed={observed} missing={} scanner={scanner_status}",
                 expected_hashes.len(),
                 missing_set.len(),
             );
@@ -216,7 +293,18 @@ pub async fn wait_for_observed_transaction_hashes<S: BuildHasher + Sync>(
             return Err(StepError::Timeout { message: msg });
         }
 
-        sleep(Duration::from_millis(250)).await;
+        if let Some(receiver) = cancellation.as_deref_mut() {
+            tokio::select! {
+                changed = receiver.changed() => {
+                    if changed.is_err() || *receiver.borrow() {
+                        return Err(StepError::BackgroundTaskCancelled);
+                    }
+                }
+                () = sleep(Duration::from_millis(250)) => {}
+            }
+        } else {
+            sleep(Duration::from_millis(250)).await;
+        }
     }
 }
 
@@ -224,6 +312,10 @@ pub async fn wait_for_observed_transaction_hashes<S: BuildHasher + Sync>(
     clippy::too_many_arguments,
     reason = "This function is more readable with explicit arguments rather than packing them into structs or tuples."
 )]
+/// Wait until a wallet balance matches the requested output-count/value bounds.
+///
+/// The balance is read from tracked wallet state at the selected best node, so
+/// the assertion follows the same fork-group logic used by transaction steps.
 pub async fn wait_for_wallet_output_state(
     world: &mut CucumberWorld,
     step: &str,
@@ -247,6 +339,7 @@ pub async fn wait_for_wallet_output_state(
     })?;
 
     let wallet = world
+        .wallet_registry
         .wallet_info
         .get(&wallet_name)
         .ok_or(StepError::LogicalError {
@@ -258,8 +351,11 @@ pub async fn wait_for_wallet_output_state(
     let time_out = Duration::from_secs(time_out_seconds);
     let mut poll_count = 0usize;
     let wallet_state_label = wallet_output_state_label(wallet_state_type);
+    let mut last_msg = String::new();
 
     loop {
+        // Ensure we have a converged majority before proceeding
+        let _best_node_info = get_best_node_info(world, &wallet_name, Some(&mut last_msg)).await?;
         let balance =
             current_wallet_output_balance(world, step, &wallet, wallet_state_type).await?;
 
@@ -470,5 +566,72 @@ fn log_ranged_condition_match(
             {value_message}",
         ),
         (None, None) => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod observed_transaction_hash_tests {
+    use std::{collections::HashSet, time::Duration};
+
+    use lb_core::mantle::transactions::hash::TxHash;
+    use tokio::{sync::watch, task::yield_now, time::timeout};
+
+    use super::{
+        wait_for_observed_transaction_hashes, wait_for_observed_transaction_hashes_cancellable,
+    };
+    use crate::cucumber::{error::StepError, world::CucumberWorld};
+
+    #[tokio::test]
+    async fn cancellable_transaction_inclusion_wait_stops_promptly() {
+        let mut world = CucumberWorld::default();
+        let expected_hashes = HashSet::from([TxHash::default()]);
+        let (cancellation_sender, mut cancellation_receiver) = watch::channel(false);
+
+        let result = timeout(Duration::from_secs(1), async {
+            let wait = wait_for_observed_transaction_hashes_cancellable(
+                &mut world,
+                "cancellation regression",
+                &expected_hashes,
+                Duration::from_secs(600),
+                &mut cancellation_receiver,
+            );
+            tokio::pin!(wait);
+
+            tokio::select! {
+                biased;
+                result = &mut wait => panic!("inclusion wait returned before cancellation: {result:?}"),
+                () = yield_now() => {}
+            }
+
+            cancellation_sender
+                .send(true)
+                .expect("the inclusion wait should still hold the receiver");
+            wait.await
+        })
+        .await
+        .expect("cancelled inclusion wait should return promptly");
+
+        assert!(matches!(result, Err(StepError::BackgroundTaskCancelled)));
+    }
+
+    #[tokio::test]
+    async fn ordinary_transaction_inclusion_wait_keeps_timeout_diagnostics() {
+        let mut world = CucumberWorld::default();
+        let expected_hashes = HashSet::from([TxHash::default()]);
+
+        let error = wait_for_observed_transaction_hashes(
+            &mut world,
+            "foreground timeout regression",
+            &expected_hashes,
+            Duration::ZERO,
+        )
+        .await
+        .expect_err("unobserved transaction should time out");
+
+        assert!(matches!(
+            error,
+            StepError::Timeout { message }
+                if message.contains("transaction inclusion timeout: submitted=1 chain_observed=0 missing=1")
+        ));
     }
 }

@@ -1,58 +1,67 @@
 blend:
   common:
     num_blend_layers: 1
-    minimum_network_size: 32
-    protocol_name: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/blend/1.0.0
-    data_replication_factor: 0
+    minimum_network_size: 2
+    network_absorption_in_rounds: 2
+    data_replication_factor: 1
   core:
     scheduler:
       cover:
         message_frequency_per_round: 1.0
       delayer:
         maximum_release_delay_in_rounds: 1
-    minimum_messages_coefficient: 1
-    normalization_constant: 1.03
+    target_peering_degree: 4
+    verification_rate_per_second: 156
+    edge_node_send_deadline_in_rounds: 1
+    core_handshake_deadline_in_rounds: 2
     activity_threshold_sensitivity: 1
-network:
-  kademlia_protocol_name: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/kad/1.0.0
-  identify_protocol_name: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/identify/1.0.0
-  chain_sync_protocol_name: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/chainsync/1.0.0
 cryptarchia:
   epoch_config:
     epoch_stake_distribution_stabilization: 3
     epoch_period_nonce_buffer: 3
     epoch_period_nonce_stabilization: 4
-  security_param: 50
+  security_param: 1000
   slot_activation_coeff:
     numerator: 1
     denominator: 30
-  learning_rate: 0.5
+  learning_rate: 1.0
+  uncle_reference_window_in_block: 12
+  pow_config:
+    blend:
+      # BLEND_DIFFICULTY_BASE, as the exponent n in p / 2^n: the Blend PoW
+      # threshold at the reference load. Fixed by the EmPoWering
+      # specification from a measurement on the target hardware itself
+      # (Raspberry Pi 5, one core), at which one solution is around fifty
+      # seconds of work.
+      base_difficulty: 19
+      # The reference load the threshold is calibrated at, so it has to be the
+      # load the network actually carries: two transactions per block. A
+      # theoretical capacity here would pin the threshold off its calibrated
+      # point.
+      target_transactions_per_block: 12
+      max_step: 2
+      damping_num: 1
+      damping_den_offset: 1
+    reward:
+      reward_pool_genesis: 12600000000000 # 1.5 × 760 × 10⁹ / 0.90
+      epoch_reward_genesis: 2000000       # ⌊W₀ / (63 · 10 · 10,000)⌋, set by hand
+      target_claims_per_block: 10         # the retarget's T
+      rate_num: 1
+      rate_den: 63                        # ρ = 1/63: 97% paid out at 3 months
+      target_claim_per_block: 10          # the payout's T; must equal the line above
+      minimum_difficulty: 19
+      ema_smoothing_factor: 9
+      ema_smoothing_precision: 10
+      pow_share: 10
+      share_den: 100
+      slot_window: 600
   sdp_config:
     service_params:
       BN:
         inactivity_period: 2
-        retention_period: 1
         epoch: 0
     min_stake:
-      threshold: 1
+      threshold: 1000000000
       timestamp: 0
-  gossipsub_protocol: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/cryptarchia/1.0.0
-  genesis_block:
-    header:
-      version: Bedrock
-      parent_block: '0000000000000000000000000000000000000000000000000000000000000000'
-      slot: 0
-      block_root: b5f8787ac23674822414c70eea15d842da38f2e806ede1a73cf7b5cf0277da07
-      proof_of_leadership:
-        proof: '0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
-        entropy_contribution: '0000000000000000000000000000000000000000000000000000000000000000'
-        leader_key: '0000000000000000000000000000000000000000000000000000000000000000'
-        voucher_cm: '0000000000000000000000000000000000000000000000000000000000000000'
-    signature: '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
-    transactions: []
-  faucet_pk: 0000000000000000000000000000000000000000000000000000000000000000
 time:
   slot_duration: '1.000000000'
-mempool:
-  pubsub_topic: /logos-blockchain-ENV_PLACEHOLDER-VERSION_PLACEHOLDER/mempool/1.0.0
-

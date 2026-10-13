@@ -4,17 +4,18 @@ mod tests {
     use lb_key_management_system_keys::keys::Ed25519Key;
 
     use crate::{
-        block::{Block, tests::create_proof},
-        mantle::MantleTx,
+        block::{Block, BlockTransactions, UncleHeaders, tests::create_proof},
+        mantle::transactions::Ops,
     };
 
-    fn make_empty_block() -> Block<MantleTx> {
+    fn make_empty_block() -> Block<Ops> {
         let signing_key = Ed25519Key::from_bytes(&[0; 32]);
         Block::create(
             [0u8; 32].into(),
             Slot::from(1u64),
+            UncleHeaders::empty(),
             create_proof(),
-            vec![],
+            BlockTransactions::empty(),
             &signing_key,
         )
         .expect("block creation should succeed")
@@ -24,7 +25,7 @@ mod tests {
     fn test_json_round_trip() {
         let block = make_empty_block();
         let json = serde_json::to_string(&block).expect("JSON serialization should succeed");
-        let restored: Block<MantleTx> =
+        let restored: Block<Ops> =
             serde_json::from_str(&json).expect("JSON deserialization should succeed");
         assert_eq!(block.header().id(), restored.header().id());
         assert_eq!(block.signature(), restored.signature());
@@ -64,7 +65,7 @@ mod tests {
     fn test_bincode_round_trip() {
         let block = make_empty_block();
         let bytes = bincode::serialize(&block).expect("bincode serialization should succeed");
-        let restored: Block<MantleTx> =
+        let restored: Block<Ops> =
             bincode::deserialize(&bytes).expect("bincode deserialization should succeed");
         assert_eq!(block.header().id(), restored.header().id());
         assert_eq!(block.signature(), restored.signature());
@@ -72,20 +73,21 @@ mod tests {
 
     #[test]
     fn test_bincode_fixed_size_fields_have_no_length_prefix() {
-        const VERSION: usize = 1;
         const PARENT_BLOCK: usize = 32;
         const SLOT: usize = 8;
-        const BLOCK_ROOT: usize = 32;
+        const BODY_ROOT: usize = 32;
         const POL_PROOF: usize = 128;
         const ENTROPY_CONTRIBUTION: usize = 32;
         const LEADER_KEY: usize = 32;
         const VOUCHER_CM: usize = 32;
         const SIGNATURE: usize = 64;
         const TX_COUNT: usize = 8; // u64 Vec length (genuinely variable)
-        const EXPECTED: usize = VERSION
-            + PARENT_BLOCK
+        // bincode uses 8-byte for a length prefix, unlike the wire codec.
+        const UNCLE_HEADERS_COUNT: usize = 8;
+        const EXPECTED: usize = PARENT_BLOCK
             + SLOT
-            + BLOCK_ROOT
+            + BODY_ROOT
+            + UNCLE_HEADERS_COUNT
             + POL_PROOF
             + ENTROPY_CONTRIBUTION
             + LEADER_KEY

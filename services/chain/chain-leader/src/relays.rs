@@ -4,8 +4,13 @@ use std::fmt::Debug;
 use lb_chain_service::api::CryptarchiaServiceData;
 use lb_core::{
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, TxHash},
+    mantle::{
+        ledger::verification_mode::StandardMode,
+        traits::SignedMantleTx,
+        transactions::{hash::TxHash, states::Preverified},
+    },
 };
+use lb_storage_service::StorageService;
 use lb_time_service::{TimeService, TimeServiceMessage, backends::TimeBackend as TimeBackendTrait};
 use lb_tx_service::{
     MempoolMsg, TxMempoolService, backend::RecoverableMempool,
@@ -49,7 +54,7 @@ where
         + Send
         + Sync
         + 'static
-        + AuthenticatedMantleTx,
+        + SignedMantleTx<Preverified, StandardMode>,
     Mempool::Settings: Clone,
     MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
@@ -83,16 +88,17 @@ where
         Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
         Mempool::Settings: Sync,
         BlendService: lb_blend_service::ServiceComponents,
-        BlendService::BroadcastSettings: Send + Sync,
         <BlendService as ServiceData>::Message: Send + 'static,
         TimeBackend: TimeBackendTrait,
         TimeBackend::Settings: Clone + Send + Sync + 'static,
         RuntimeServiceId: Debug
+            + Clone
             + Sync
             + Send
             + Display
             + 'static
             + AsServiceId<BlendService>
+            + AsServiceId<StorageService<RuntimeServiceId>>
             + AsServiceId<
                 TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
             >

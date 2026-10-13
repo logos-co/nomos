@@ -1,16 +1,12 @@
-use lb_utils::blake_rng::BlakeRng;
-use tokio::sync::oneshot;
+use rand_chacha::ChaCha20Rng;
 
-use crate::{
-    core::{BlendService, backends::BlendBackend},
-    message::ServiceMessage,
-};
+use crate::core::{BlendService, backends::BlendBackend, dispatcher::PayloadDispatcher};
 
 /// Helper trait to help the Blend proxy service rely on the concrete types of
 /// the core Blend service without having to specify all the generics the core
 /// service expects.
 pub trait ServiceComponents<RuntimeServiceId> {
-    type NetworkAdapter;
+    type PayloadDispatcher: PayloadDispatcher<RuntimeServiceId>;
     type BackendSettings;
     type NodeId;
     type Rng;
@@ -27,6 +23,7 @@ impl<
     TimeBackend,
     ChainService,
     PolInfoProvider,
+    StateStorage,
     RuntimeServiceId,
 > ServiceComponents<RuntimeServiceId>
     for BlendService<
@@ -39,66 +36,42 @@ impl<
         TimeBackend,
         ChainService,
         PolInfoProvider,
+        StateStorage,
         RuntimeServiceId,
     >
 where
-    Backend: BlendBackend<NodeId, BlakeRng, RuntimeServiceId>,
-    Network: crate::core::network::NetworkAdapter<RuntimeServiceId>,
+    Backend: BlendBackend<NodeId, ChaCha20Rng, ProofsVerifier, RuntimeServiceId>,
+    Network: PayloadDispatcher<RuntimeServiceId>,
+    StateStorage: lb_services_utils::overwatch::recovery::RecoveryBackend<
+            RuntimeServiceId,
+            State = crate::core::state::RecoveryServiceState<Backend::Settings, Network::Settings>,
+        > + Send
+        + Sync,
 {
-    type NetworkAdapter = Network;
+    type PayloadDispatcher = Network;
     type BackendSettings = Backend::Settings;
     type NodeId = NodeId;
-    type Rng = BlakeRng;
+    type Rng = ChaCha20Rng;
     type ProofsGenerator = ProofsGenerator;
 }
 
-pub type NetworkBackendOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
-    RuntimeServiceId,
->>::NetworkAdapter as crate::core::network::NetworkAdapter<RuntimeServiceId>>::Backend;
+pub type NetworkBackendOfService<Service, RuntimeServiceId> =
+    <<Service as ServiceComponents<RuntimeServiceId>>::PayloadDispatcher as PayloadDispatcher<
+        RuntimeServiceId,
+    >>::Backend;
 pub type BlendBackendSettingsOfService<Service, RuntimeServiceId> =
     <Service as ServiceComponents<RuntimeServiceId>>::BackendSettings;
 
-use crate::message::NetworkInfo;
+/// The mempool service the core service's dispatcher hands transactions to.
+pub type MempoolOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
+    RuntimeServiceId,
+>>::PayloadDispatcher as PayloadDispatcher<RuntimeServiceId>>::MempoolService;
 
-pub trait MessageComponents<NodeId> {
-    type Payload;
-    type BroadcastSettings;
+pub type ChainNetworkOfService<Service, RuntimeServiceId> = <<Service as ServiceComponents<
+    RuntimeServiceId,
+>>::PayloadDispatcher as PayloadDispatcher<RuntimeServiceId>>::ChainNetworkService;
 
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings);
-
-    /// Try to extract a network info request from the message.
-    /// Returns `Ok(sender)` if the message is a `NetworkInfo` request,
-    /// or `Err(self)` if it is not.
-    fn try_into_network_info_request(
-        self,
-    ) -> Result<oneshot::Sender<Option<NetworkInfo<NodeId>>>, Self>
-    where
-        Self: Sized;
-}
-
-impl<BroadcastSettings, NodeId> MessageComponents<NodeId>
-    for ServiceMessage<BroadcastSettings, NodeId>
-{
-    type Payload = Vec<u8>;
-    type BroadcastSettings = BroadcastSettings;
-
-    fn into_components(self) -> (Self::Payload, Self::BroadcastSettings) {
-        match self {
-            Self::Blend(network_message) => {
-                (network_message.message, network_message.broadcast_settings)
-            }
-            Self::GetNetworkInfo { .. } => {
-                panic!("NetworkInfo messages should be handled before calling into_components")
-            }
-        }
-    }
-
-    fn try_into_network_info_request(
-        self,
-    ) -> Result<oneshot::Sender<Option<NetworkInfo<NodeId>>>, Self> {
-        match self {
-            Self::GetNetworkInfo { reply } => Ok(reply),
-            other @ Self::Blend(_) => Err(other),
-        }
-    }
-}
+pub type PayloadDispatcherSettingsOfService<Service, RuntimeServiceId> =
+    <<Service as ServiceComponents<RuntimeServiceId>>::PayloadDispatcher as PayloadDispatcher<
+        RuntimeServiceId,
+    >>::Settings;

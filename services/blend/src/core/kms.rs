@@ -11,7 +11,7 @@ use lb_key_management_system_service::{
     operators::blend::poq::PoQOperator,
 };
 use lb_log_targets::blend;
-use lb_poq::CorePathAndSelectors;
+use lb_poq::{CorePathAndSelectors, KeyIndex};
 use overwatch::services::AsServiceId;
 use tokio::sync::oneshot;
 
@@ -30,11 +30,6 @@ pub trait KmsPoQAdapter<RuntimeServiceId> {
         core_path_and_selectors: Box<CorePathAndSelectors>,
     ) -> Self::CorePoQGenerator;
 }
-
-pub type PreloadKmsServiceKeyId<RuntimeServiceId> = <KmsServiceApi<
-    PreloadKmsService<RuntimeServiceId>,
-    RuntimeServiceId,
-> as KmsPoQAdapter<RuntimeServiceId>>::KeyId;
 
 #[async_trait]
 impl<RuntimeServiceId> KmsPoQAdapter<RuntimeServiceId>
@@ -76,7 +71,7 @@ where
     fn generate_poq(
         &self,
         public_inputs: &PublicInputs,
-        key_index: u64,
+        key_index: KeyIndex,
     ) -> impl Future<Output = Result<(VerifiedProofOfQuota, ZkHash), quota::Error>> + Send + Sync
     {
         tracing::trace!(
@@ -89,39 +84,35 @@ where
         let core_path_and_selectors = self.core_path_and_selectors;
 
         async move {
-            let (res_sender, res_receiver) = oneshot::channel();
-
-            generate_and_send_kms_poq(
+            let poq = generate_kms_poq(
                 kms_api,
                 key_id,
                 public_inputs,
                 key_index,
                 &core_path_and_selectors,
-                res_sender,
             )
-            .await;
+            .await?;
 
-            let poq = res_receiver
-                .await
-                .expect("Should not fail to get PoQ generation result from KMS.")?;
             tracing::trace!(target: LOG_TARGET, "KMS-based PoQ generation succeeded.");
             Ok(poq)
         }
     }
 }
 
-async fn generate_and_send_kms_poq<RuntimeServiceId>(
+async fn generate_kms_poq<RuntimeServiceId>(
     kms_api: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     key_id: KeyId,
     public_inputs: &PublicInputs,
-    key_index: u64,
+    key_index: KeyIndex,
     core_path_and_selectors: &CorePathAndSelectors,
-    result_sender: oneshot::Sender<Result<(VerifiedProofOfQuota, ZkHash), quota::Error>>,
-) where
+) -> Result<(VerifiedProofOfQuota, ZkHash), quota::Error>
+where
     RuntimeServiceId:
         AsServiceId<PreloadKmsService<RuntimeServiceId>> + Debug + Display + Send + Sync + 'static,
 {
-    let () = kms_api
+    let (result_sender, result_receiver) = oneshot::channel();
+
+    kms_api
         .execute(
             key_id,
             KeyOperators::Zk(Box::new(PoQOperator::new(
@@ -132,5 +123,9 @@ async fn generate_and_send_kms_poq<RuntimeServiceId>(
             ))),
         )
         .await
-        .expect("Execute API should run successfully.");
+        .map_err(|error| quota::Error::InvalidInput(Box::new(error)))?;
+
+    result_receiver
+        .await
+        .map_err(|error| quota::Error::InvalidInput(Box::new(error)))?
 }

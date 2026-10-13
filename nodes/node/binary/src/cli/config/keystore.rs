@@ -23,14 +23,16 @@ impl KeyTitle {
     pub const BLEND_ZK: &str = "BlendZk";
     pub const LEADER_FUNDING: &str = "LeaderFunding";
     pub const NETWORK_SWARM: &str = "NetworkSwarm";
+    pub const POW_CLAIM: &str = "PoWClaim";
     pub const SDP_FUNDING: &str = "SdpFunding";
     pub const VAUCHER_MASTER: &str = "VaucherMaster";
     pub const STAKE: &str = "Stake";
 
     pub const PREDEFINED_ED25519: [&'static str; 2] = [Self::BLEND_SIGNING, Self::NETWORK_SWARM];
-    pub const PREDEFINED_ZK: [&'static str; 5] = [
+    pub const PREDEFINED_ZK: [&'static str; 6] = [
         Self::BLEND_ZK,
         Self::LEADER_FUNDING,
+        Self::POW_CLAIM,
         Self::SDP_FUNDING,
         Self::VAUCHER_MASTER,
         Self::STAKE,
@@ -123,19 +125,6 @@ impl Keystore {
                     Some((id, unsecured))
                 }
                 Key::Ed25519(_) => None,
-            })
-    }
-
-    pub fn get_all_ed25519(&self) -> impl Iterator<Item = (KeyId, UnsecuredEd25519Key)> + '_ {
-        self.secret_keys
-            .values()
-            .filter_map(|generic_key| match generic_key {
-                Key::Ed25519(inner_key) => {
-                    let id = key_id(generic_key);
-                    let unsecured = inner_key.clone().into_unsecured();
-                    Some((id, unsecured))
-                }
-                Key::Zk(_) => None,
             })
     }
 

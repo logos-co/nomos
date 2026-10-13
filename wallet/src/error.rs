@@ -3,10 +3,11 @@ use lb_core::{
     mantle::{
         gas::GasOverflow,
         ledger::{InputsError, OutputsError},
-        tx_builder::TxBuilderError,
+        transactions::builder::TxBuilderError,
     },
 };
-use lb_utils::bounded_vec::BoundedError;
+use lb_mmr::MerklePathError;
+use lb_utils::bounded::BoundedError;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -25,6 +26,10 @@ pub enum WalletError {
     InputsError(#[from] InputsError),
     #[error(transparent)]
     OutputsError(#[from] OutputsError),
+    #[error(transparent)]
+    InvalidVoucherPath(#[from] MerklePathError),
+    #[error("Voucher MMR is full")]
+    VoucherMmrFull,
 }
 
 impl From<TxBuilderError> for WalletError {

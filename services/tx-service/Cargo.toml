@@ -22,32 +22,36 @@ workspace = true
 [dependencies]
 async-trait        = { workspace = true }
 futures            = { workspace = true }
+indexmap           = { features = ["serde", "std"], workspace = true }
+lb-binary-codec    = { workspace = true }
 lb-core            = { workspace = true }
 lb-log-targets     = { workspace = true }
 lb-network-service = { workspace = true }
 lb-services-utils  = { workspace = true }
 lb-storage-service = { workspace = true }
 lb-tracing         = { workspace = true }
+lb-utils           = { features = ["tokio"], workspace = true }
 overwatch          = { workspace = true }
-rand               = { workspace = true }
 serde              = { workspace = true }
 serde_json         = { optional = true, workspace = true }
 thiserror          = { workspace = true }
 tokio              = { workspace = true }
 tokio-stream       = { workspace = true }
 tracing            = { workspace = true }
-utoipa             = { optional = true, workspace = true }
+utoipa             = { features = ["macros"], optional = true, workspace = true }
 
 [dev-dependencies]
 lb-tracing-service = { workspace = true }
-lb-tx-service      = { features = ["rocksdb-backend"], workspace = true }
-lb-utils           = { workspace = true }
 overwatch-derive   = { workspace = true }
 tempfile           = { workspace = true }
 
 [features]
-default         = []
-rocksdb-backend = ["lb-storage-service/rocksdb-backend"]
+default = []
 
 # enable to help generate OpenAPI
-openapi = ["dep:serde_json", "dep:utoipa"]
+openapi          = ["dep:serde_json", "dep:utoipa"]
+tokio-task-names = ["lb-utils/tokio-task-names"]
+
+[[test]]
+name = "mock"
+path = "tests/mock.rs"

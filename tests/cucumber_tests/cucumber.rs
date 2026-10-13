@@ -27,8 +27,8 @@ use cucumber::{
     writer::Verbosity,
 };
 use lb_testing_framework::{
-    hash_str, is_truthy_env, reap_all_stale_port_blocks, record_system_monitor_event,
-    register_system_monitor_output_file, release_reserved_port_block,
+    hash_str, is_truthy_env, record_system_monitor_event, register_system_monitor_output_file,
+    release_reserved_port_block, resolve_automatic_genesis_time,
     unregister_system_monitor_output_file,
 };
 use logos_blockchain_tests::cucumber::{
@@ -71,7 +71,6 @@ fn increment_attempts(
 
 #[tokio::main]
 async fn main() {
-    reap_all_stale_port_blocks();
     println!("args: {:?}", std::env::args());
 
     let deployer = selected_deployer();
@@ -94,8 +93,6 @@ async fn main() {
         .repeat_failed()
         // .fail_fast() // Remove comment to enable fail-fast behavior for development
         .max_concurrent_scenarios(get_max_concurrent_scenarios())
-        // Ensure that all the steps were covered.
-        .fail_on_skipped()
         // Replaces Writer.
         .with_writer(
             writer::Summarize::new(writer::Basic::new(
@@ -111,6 +108,9 @@ async fn main() {
             .tee::<CucumberWorld, _>(writer::JUnit::for_tee(junit_xml_file, 0))
             .normalized(),
         )
+        // Ensure that all the steps were covered. Keep this after `with_writer`, which replaces
+        // the runner's writer and would otherwise discard the skipped-step failure wrapper.
+        .fail_on_skipped()
         // Sets a hook, executed on each Scenario before running all its Steps, including Background
         // ones.
         .before(move |feature, _rule, scenario, world| {
@@ -152,7 +152,14 @@ async fn main() {
                 );
 
                 if let Some(world) = world {
-                    let path = world.scenario_base_dir.join("debug_dump_file.log");
+                    if let Err(error) = world.stop_background_activity().await {
+                        println!("Scenario background cleanup failed: {error}");
+                    }
+
+                    let path = world
+                        .lifecycle
+                        .scenario_base_dir
+                        .join("debug_dump_file.log");
                     if let Some(parent) = path.parent() {
                         let _unused = std::fs::create_dir_all(parent);
                     }
@@ -171,7 +178,10 @@ async fn main() {
                     }
 
                     unregister_system_monitor_output_file(
-                        &world.scenario_base_dir.join("system_stats.ndjson"),
+                        &world
+                            .lifecycle
+                            .scenario_base_dir
+                            .join("system_stats.ndjson"),
                     );
                 }
             })
@@ -181,7 +191,7 @@ async fn main() {
         .run(get_feature_path_for_deployer(deployer))
         .await;
 
-    // Clean up manually reserved handshake port block files for this process
+    // Release this process's reserved port block before exiting.
     release_reserved_port_block();
 
     if failed.execution_has_failed() {
@@ -228,6 +238,7 @@ fn prepare_world_for_scenario(
     scenario_name: &str,
 ) {
     world.set_deployer(deployer);
+    world.set_genesis_time(resolve_automatic_genesis_time());
 
     if let Err(err) = world.preflight(deployer) {
         println!("Preflight failed for scenario '{scenario_name}': {err}");
@@ -250,6 +261,7 @@ fn prepare_world_for_scenario(
     );
 
     world.set_scenario_base_dir(&scenario_dir, &deployer);
+    world.set_scenario_name(scenario_name);
     world.apply_deployment_config_override_path();
 
     let started_at_ns = SystemTime::now()

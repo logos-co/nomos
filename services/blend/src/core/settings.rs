@@ -1,26 +1,31 @@
-use std::{num::NonZeroU64, path::PathBuf};
+use core::time::Duration;
+use std::{num::NonZeroU64, sync::Arc};
 
 use lb_core::blend::core_quota;
 use lb_key_management_system_service::{backend::preload::KeyId, keys::UnsecuredEd25519Key};
-use lb_services_utils::overwatch::recovery::backends::FileBackendSettings;
-use lb_utils::math::NonNegativeF64;
+use lb_poq::Quota;
+use lb_services_utils::overwatch::{RecoveryData, StorageRecoverySettings};
+use lb_utils::math::PositiveF64;
+use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 
-use crate::settings::TimingSettings;
+use crate::settings::{TimingSettings, max_data_message_delay_in_rounds};
 
 #[derive(Clone, Debug)]
-pub struct StartingBlendConfig<BackendSettings> {
+pub struct StartingBlendConfig<BackendSettings, NetworkSettings> {
     pub backend: BackendSettings,
+    pub network: NetworkSettings,
     pub scheduler: SchedulerSettings,
     pub time: TimingSettings,
     pub zk: ZkSettings,
     pub non_ephemeral_signing_key_id: KeyId,
     pub num_blend_layers: NonZeroU64,
     pub minimum_network_size: NonZeroU64,
-    pub recovery_path: PathBuf,
+    pub recovery_data: RecoveryData,
     /// `R_c`: replication factor for data messages.
     pub data_replication_factor: u64,
     pub activity_threshold_sensitivity: u64,
+    pub abstain_on_failure: bool,
 }
 
 /// Same values as [`StartingBlendConfig`] but with the secret key exfiltrated
@@ -34,26 +39,42 @@ pub struct RunningBlendConfig<BackendSettings> {
     pub non_ephemeral_signing_key: UnsecuredEd25519Key,
     pub num_blend_layers: NonZeroU64,
     pub minimum_network_size: NonZeroU64,
-    pub recovery_path: PathBuf,
     pub data_replication_factor: u64,
     pub activity_threshold_sensitivity: u64,
+    pub pow_mining_pool: Arc<ThreadPool>,
+    pub abstain_on_failure: bool,
 }
 
 impl<BackendSettings> RunningBlendConfig<BackendSettings> {
-    pub fn epoch_core_quota(&self, membership_size: usize) -> u64 {
+    pub fn epoch_core_quota(&self, membership_size: usize) -> Quota {
         self.scheduler
             .cover
             .epoch_core_quota(self.num_blend_layers, &self.time, membership_size)
     }
 
-    pub const fn epoch_leadership_quota(&self) -> u64 {
+    pub fn epoch_pow_quota(&self) -> Quota {
+        self.num_blend_layers
+            .get()
+            .try_into()
+            .expect("PoW Quota must fit within the width the `PoQ` circuit allows.")
+    }
+
+    pub const fn epoch_leadership_quota(&self) -> Quota {
         let num_blend_layers = self.num_blend_layers.get();
         let additional_encapsulations = num_blend_layers
             .checked_mul(self.data_replication_factor)
             .expect("Overflow when computing total replication factor.");
-        num_blend_layers
+        let quota = num_blend_layers
             .checked_add(additional_encapsulations)
-            .expect("Overflow when computing leadership quota.")
+            .expect("Overflow when computing leadership quota.");
+        match Quota::try_new(quota) {
+            Ok(quota) => quota,
+            Err(_) => {
+                // Not using `expect` to keep the function a `const`, so this panics at compile
+                // time if called in a const context.
+                panic!("Leadership Quota must fit within the width the `PoQ` circuit allows.")
+            }
+        }
     }
 
     pub(super) const fn scheduler_settings(
@@ -61,16 +82,29 @@ impl<BackendSettings> RunningBlendConfig<BackendSettings> {
     ) -> lb_blend::scheduling::message_scheduler::Settings {
         lb_blend::scheduling::message_scheduler::Settings {
             maximum_release_delay_in_rounds: self.scheduler.delayer.maximum_release_delay_in_rounds,
-            round_duration: self.time.round_duration,
+            round_duration: Duration::from_secs(self.time.round_duration_in_seconds.get()),
             rounds_per_epoch: self.time.rounds_per_epoch,
             num_blend_layers: self.num_blend_layers,
         }
     }
+
+    #[must_use]
+    pub const fn max_data_message_delay_in_rounds(&self) -> NonZeroU64 {
+        max_data_message_delay_in_rounds(
+            self.num_blend_layers,
+            self.scheduler.delayer.maximum_release_delay_in_rounds,
+            self.time.network_absorption_in_rounds,
+        )
+    }
 }
 
-impl<BackendSettings> FileBackendSettings for StartingBlendConfig<BackendSettings> {
-    fn recovery_file(&self) -> &PathBuf {
-        &self.recovery_path
+impl<BackendSettings, NetworkSettings> StorageRecoverySettings
+    for StartingBlendConfig<BackendSettings, NetworkSettings>
+{
+    const RECOVERY_KEY_SUFFIX: &'static [u8] = b"blend/core";
+
+    fn recovery_data(&self) -> &RecoveryData {
+        &self.recovery_data
     }
 }
 
@@ -83,7 +117,7 @@ pub struct SchedulerSettings {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CoverTrafficSettings {
     /// `F_c`: frequency at which cover messages are generated per round.
-    pub message_frequency_per_round: NonNegativeF64,
+    pub message_frequency_per_round: PositiveF64,
 }
 
 #[cfg(test)]
@@ -102,7 +136,7 @@ impl CoverTrafficSettings {
         num_blend_layers: NonZeroU64,
         timings: &TimingSettings,
         membership_size: usize,
-    ) -> u64 {
+    ) -> Quota {
         core_quota(
             timings.rounds_per_epoch,
             self.message_frequency_per_round,

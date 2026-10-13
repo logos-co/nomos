@@ -4,15 +4,16 @@ use core::{
 };
 
 use futures::{StreamExt as _, task::noop_waker_ref};
+use lb_blend_proofs::quota::Quota;
 use lb_cryptarchia_engine::Epoch;
-use lb_utils::blake_rng::BlakeRng;
 use rand::SeedableRng as _;
+use rand_chacha::ChaCha20Rng;
 use tokio_stream::iter;
 
 use crate::{
     cover_traffic::EpochCoverTraffic,
     message_scheduler::{
-        EpochMessageScheduler, Settings,
+        EpochMessageScheduler, OldEpochMessageScheduler, Settings,
         epoch_info::EpochInfo,
         round_info::{Round, RoundInfo, RoundReleaseType},
     },
@@ -21,7 +22,7 @@ use crate::{
 
 #[tokio::test]
 async fn no_substream_ready_and_no_data_messages() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = EpochMessageScheduler::<_, (), ()>::with_test_values(
         // No cover messages to emit, tick will yield round `0`.
@@ -47,7 +48,7 @@ async fn no_substream_ready_and_no_data_messages() {
 
 #[tokio::test]
 async fn no_substream_ready_with_data_messages() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = EpochMessageScheduler::<_, (), u32>::with_test_values(
         // No cover messages to emit, tick will yield round `0`.
@@ -76,12 +77,12 @@ async fn no_substream_ready_with_data_messages() {
         }))
     );
     // We test that the released data messages have been removed from the queue.
-    assert!(scheduler.data_messages.is_empty());
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
 }
 
 #[tokio::test]
 async fn cover_traffic_substream_ready() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = EpochMessageScheduler::<_, (), u32>::with_test_values(
         // 1 cover message over 1 round: guaranteed emission.
@@ -112,7 +113,7 @@ async fn cover_traffic_substream_ready() {
 
 #[tokio::test]
 async fn release_delayer_substream_ready() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = EpochMessageScheduler::<_, u32, u32>::with_test_values(
         // No cover messages to emit.
@@ -143,7 +144,7 @@ async fn release_delayer_substream_ready() {
 
 #[tokio::test]
 async fn both_substreams_ready() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let mut scheduler = EpochMessageScheduler::<_, u32, ()>::with_test_values(
         // 1 cover message over 1 round: guaranteed emission.
@@ -175,7 +176,7 @@ async fn both_substreams_ready() {
 
 #[tokio::test]
 async fn round_change() {
-    let rng = BlakeRng::from_entropy();
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [
         Round::from(0),
         Round::from(1),
@@ -210,9 +211,9 @@ async fn round_change() {
             release_type: Some(RoundReleaseType::OnlyCoverMessage)
         }))
     );
-    assert!(scheduler.data_messages.is_empty());
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
 
-    scheduler.queue_data_message(3);
+    scheduler.queue_data_message_and_skip_cover_message(3);
 
     // Poll for round `1`: cover traffic release round (prob = 1/1 = 1.0) but
     // skipped due to unprocessed data message (threshold = 1/1 = 1.0, always
@@ -224,7 +225,7 @@ async fn round_change() {
             release_type: None
         }))
     );
-    assert!(scheduler.data_messages.is_empty());
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
 
     // Poll for round `2`: no cover (remaining_messages exhausted), no processed
     // messages, no data -> Pending.
@@ -238,12 +239,12 @@ async fn round_change() {
             release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![()]))
         }))
     );
-    assert!(scheduler.data_messages.is_empty());
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
 }
 
 #[tokio::test]
-async fn rotate_epoch_carries_over_queued_data_messages() {
-    let rng = BlakeRng::from_entropy();
+async fn rotate_epoch_leaves_queued_data_messages_with_the_old_epoch() {
+    let rng = ChaCha20Rng::from_entropy();
     let rounds = [Round::from(0)];
     let scheduler = EpochMessageScheduler::<_, (), u32>::with_test_values(
         EpochCoverTraffic::with_test_values(Box::new(iter(rounds)), 0, 1.into(), rng.clone(), 0),
@@ -259,14 +260,83 @@ async fn rotate_epoch_carries_over_queued_data_messages() {
         vec![1, 2],
     );
 
-    // Rotating into a new epoch must not silently drop the queued data messages.
-    let (new_scheduler, _old_scheduler) = scheduler.rotate_epoch(
+    // Rotating into a new epoch must not silently drop the queued data messages,
+    // but it must not hand them to the new epoch either: they carry the old
+    // epoch's `PoQ`, so publishing them under the new epoch's number would get
+    // the proof rejected and this node closed as malicious, and blacklisted.
+    let (new_scheduler, old_scheduler) = scheduler.rotate_epoch(
         EpochInfo {
-            core_quota: 1,
+            core_quota: Quota::ONE,
             epoch: Epoch::new(0),
         },
         Settings::default(),
     );
 
-    assert_eq!(new_scheduler.data_messages, vec![1, 2]);
+    assert_eq!(new_scheduler.data_messages, Vec::<u32>::new());
+    assert_eq!(old_scheduler.data_messages, vec![1, 2]);
+}
+
+/// Build an old-epoch scheduler whose round clock and release delayer both tick
+/// once, yielding round `0`.
+fn old_epoch_scheduler(
+    next_release_round: u128,
+    unreleased_processed_messages: Vec<u32>,
+    data_messages: Vec<u32>,
+) -> OldEpochMessageScheduler<ChaCha20Rng, u32, u32> {
+    let rounds = [Round::from(0)];
+    OldEpochMessageScheduler {
+        release_delayer: EpochProcessedMessageDelayer::with_test_values(
+            NonZeroU64::try_from(1).unwrap(),
+            next_release_round.into(),
+            ChaCha20Rng::from_entropy(),
+            Box::new(iter(rounds)),
+            unreleased_processed_messages,
+        ),
+        data_messages,
+        round_clock: Box::new(iter(rounds)),
+    }
+}
+
+#[tokio::test]
+async fn old_epoch_releases_leftover_data_messages_on_a_non_release_round() {
+    // Round `1` is scheduled for processed messages, so round `0` is not a release
+    // round for them. The leftover data messages must still go out: they are only
+    // deliverable while the old epoch's peers are still around.
+    let mut scheduler = old_epoch_scheduler(1, vec![], vec![1, 2]);
+    let mut cx = Context::from_waker(noop_waker_ref());
+
+    assert_eq!(
+        scheduler.poll_next_unpin(&mut cx),
+        Poll::Ready(Some(RoundInfo {
+            data_messages: vec![1, 2],
+            release_type: None
+        }))
+    );
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
+}
+
+#[tokio::test]
+async fn old_epoch_is_pending_on_a_non_release_round_without_data_messages() {
+    let mut scheduler = old_epoch_scheduler(1, vec![], vec![]);
+    let mut cx = Context::from_waker(noop_waker_ref());
+
+    assert!(scheduler.poll_next_unpin(&mut cx).is_pending());
+}
+
+#[tokio::test]
+async fn old_epoch_releases_data_and_processed_messages_on_the_same_round() {
+    // Round `0` is a release round for processed messages, and there are leftover
+    // data messages queued as well. Both go out together, and never as a cover
+    // release type: the old epoch generates no cover traffic.
+    let mut scheduler = old_epoch_scheduler(0, vec![1], vec![2]);
+    let mut cx = Context::from_waker(noop_waker_ref());
+
+    assert_eq!(
+        scheduler.poll_next_unpin(&mut cx),
+        Poll::Ready(Some(RoundInfo {
+            data_messages: vec![2],
+            release_type: Some(RoundReleaseType::OnlyProcessedMessages(vec![1]))
+        }))
+    );
+    assert_eq!(scheduler.data_messages, Vec::<u32>::new());
 }

@@ -3,7 +3,6 @@ use cfgsync_adapter::MaterializedArtifacts;
 use cfgsync_artifacts::ArtifactFile;
 use lb_core::{
     block::genesis::GenesisBlock,
-    mantle::GenesisTx as _,
     sdp::{Locator, ServiceType},
 };
 use lb_libp2p::{Multiaddr, Protocol};
@@ -15,7 +14,7 @@ use crate::{
     node::{
         NodePlan,
         configs::{
-            default_e2e_deployment_settings,
+            deployment_settings_for_topology,
             node_configs::consensus::{ProviderInfo, create_genesis_block_with_declarations},
         },
     },
@@ -88,19 +87,18 @@ fn deployment_settings(
         hostnames,
         topology.config().blend_core_nodes,
     )?;
-    let transfer_op = genesis_block
-        .transactions()
-        .next()
-        .expect("Genesis block should be valid")
-        .genesis_transfer()
-        .clone();
+    let transfer_op = genesis_block.genesis_tx().transfer().operation().clone();
     let genesis_block = create_genesis_block_with_declarations(
         transfer_op,
         providers,
         topology.config.test_context.as_deref(),
+        topology.config().genesis_time(),
     );
 
-    Ok(default_e2e_deployment_settings(&genesis_block))
+    Ok(deployment_settings_for_topology(
+        &genesis_block,
+        topology.config(),
+    ))
 }
 
 fn collect_runtime_blend_providers(
@@ -162,4 +160,66 @@ fn runtime_blend_locator(hostname: &str, port: u16) -> Locator {
     multiaddr.push(Protocol::QuicV1);
 
     Locator::new_unchecked(multiaddr)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU32;
+
+    use lb_utils::math::NonNegativeRatio;
+
+    use super::*;
+    use crate::{
+        framework::local::build_node_run_config,
+        node::configs::deployment::{DeploymentBuilder, TopologyConfig},
+    };
+
+    #[test]
+    fn cryptarchia_settings_are_shared_by_local_and_artifact_configs() {
+        let topology = DeploymentBuilder::new(TopologyConfig::with_node_numbers(1))
+            .with_security_param(NonZeroU32::new(5).unwrap())
+            .with_slot_activation_coeff(1, NonZeroU32::new(2).unwrap())
+            .build()
+            .expect("topology should build");
+
+        let local = build_node_run_config(&topology, &topology.nodes()[0], None)
+            .expect("local config should build");
+        let artifact = deployment_settings(&topology, &["node-0".to_owned()])
+            .expect("artifact config should build");
+
+        assert_eq!(
+            local
+                .deployment
+                .genesis_era_parameters()
+                .cryptarchia
+                .security_param
+                .get(),
+            5
+        );
+        assert_eq!(
+            artifact
+                .genesis_era_parameters()
+                .cryptarchia
+                .security_param
+                .get(),
+            5
+        );
+        let expected_coefficient =
+            NonNegativeRatio::new(1, NonZeroU32::new(2).expect("two is non-zero"));
+        assert_eq!(
+            local
+                .deployment
+                .genesis_era_parameters()
+                .cryptarchia
+                .slot_activation_coeff,
+            expected_coefficient
+        );
+        assert_eq!(
+            artifact
+                .genesis_era_parameters()
+                .cryptarchia
+                .slot_activation_coeff,
+            expected_coefficient
+        );
+    }
 }

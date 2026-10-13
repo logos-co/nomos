@@ -2,6 +2,11 @@ use generic_array::{
     GenericArray,
     typenum::{U32, U64},
 };
+use lb_binary_codec::{
+    bincode::BoundedSerializeOp,
+    canonical::{BinaryDecode, BinaryEncode, DecodeError},
+};
+use lb_groth16::COMPRESSED_PROOF_SIZE;
 use lb_zksign::ZkSignProof;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +37,35 @@ impl Signature {
     }
 }
 
+impl BinaryEncode for Signature {
+    fn encoded_length(&self) -> usize {
+        // The compressed Groth16 proof is a fixed-size blob; return the constant
+        // rather than serializing the proof just to measure it (the trait
+        // contract requires `encoded_length` to neither allocate nor encode).
+        COMPRESSED_PROOF_SIZE
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.as_proof().to_bytes());
+    }
+}
+
+impl BinaryDecode for Signature {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, inner) = <[u8; _]>::decode(input, &())?;
+        Ok((rest, Self::new(ZkSignProof::from_bytes(&inner))))
+    }
+}
+
+impl BoundedSerializeOp for Signature {
+    type Bytes = [u8; COMPRESSED_PROOF_SIZE];
+}
+
 macro_rules! declare_serde_generic_array {
     ($mod_name:ident, $size:ident) => {
         pub mod $mod_name {
@@ -39,7 +73,7 @@ macro_rules! declare_serde_generic_array {
                 GenericArray,
                 typenum::{Unsigned, $size},
             };
-            use serde::{Deserialize as _, Deserializer, Serializer};
+            use serde::{Deserializer, Serializer};
 
             pub fn serialize<S: Serializer>(
                 bytes: &GenericArray<u8, $size>,
@@ -62,60 +96,10 @@ macro_rules! declare_serde_generic_array {
             pub fn deserialize<'de, D: Deserializer<'de>>(
                 deserializer: D,
             ) -> Result<GenericArray<u8, $size>, D::Error> {
-                if deserializer.is_human_readable() {
-                    #[derive(serde::Deserialize)]
-                    #[serde(untagged)]
-                    enum StringOrSeq {
-                        Hex(String),
-                        Seq(Vec<u8>),
-                    }
-
-                    let bytes = match StringOrSeq::deserialize(deserializer)? {
-                        StringOrSeq::Hex(s) => hex::decode(&s).map_err(serde::de::Error::custom)?,
-                        StringOrSeq::Seq(b) => b,
-                    };
-
-                    if bytes.len() != $size::USIZE {
-                        return Err(serde::de::Error::custom(format!(
-                            "expected {} bytes, got {}",
-                            $size::USIZE,
-                            bytes.len()
-                        )));
-                    }
-
-                    GenericArray::try_from_iter(bytes)
-                        .map_err(|e| serde::de::Error::custom(e.to_string()))
-                } else {
-                    struct ArrayVisitor;
-
-                    impl<'de> serde::de::Visitor<'de> for ArrayVisitor {
-                        type Value = GenericArray<u8, $size>;
-
-                        fn expecting(
-                            &self,
-                            formatter: &mut core::fmt::Formatter,
-                        ) -> core::fmt::Result {
-                            write!(formatter, "an array of {} bytes", $size::USIZE)
-                        }
-
-                        fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                            self,
-                            mut seq: A,
-                        ) -> Result<Self::Value, A::Error> {
-                            let mut output = GenericArray::<u8, $size>::default();
-                            for (i, byte) in output.iter_mut().enumerate() {
-                                *byte = seq
-                                    .next_element()?
-                                    .ok_or_else(|| serde::de::Error::invalid_length(i, &self))?;
-                            }
-                            Ok(output)
-                        }
-                    }
-
-                    // Mirrors `serialize`: a fixed-size tuple read back
-                    // without a length prefix.
-                    deserializer.deserialize_tuple($size::USIZE, ArrayVisitor)
-                }
+                let bytes = lb_utils::serde::deserialize_bytes_array_or_seq::<{ $size::USIZE }, D>(
+                    deserializer,
+                )?;
+                Ok(GenericArray::from(bytes))
             }
         }
     };
@@ -126,9 +110,10 @@ declare_serde_generic_array!(serde_generic_array_u64, U64);
 
 #[cfg(test)]
 mod tests {
-    use lb_groth16::Fr;
+    use lb_binary_codec::bincode::{BoundedSerializeOp as _, SerializeOp};
+    use lb_groth16::{COMPRESSED_PROOF_SIZE, Fr};
     use lb_poseidon2::{Digest as _, Poseidon2Bn254Hasher};
-    use lb_zksign::{ZkSignPrivateKeysData, ZkSignWitnessInputs, prove, verify};
+    use lb_zksign::{ZkSignPrivateKeysData, ZkSignProof, ZkSignWitnessInputs, prove, verify};
     use num_bigint::BigUint;
     use rand_core::RngCore as _;
 
@@ -161,6 +146,29 @@ mod tests {
     }
 
     #[test]
+    fn signature_accepts_fixed_size_json_byte_arrays() {
+        let json = serde_json::json!({
+            "pi_a": vec![0u8; 32],
+            "pi_b": vec![0u8; 64],
+            "pi_c": vec![0u8; 32],
+        });
+
+        assert!(serde_json::from_value::<Signature>(json).is_ok());
+    }
+
+    #[test]
+    fn signature_rejects_oversized_json_byte_arrays() {
+        let json = serde_json::json!({
+            "pi_a": vec![0u8; 33],
+            "pi_b": vec![0u8; 64],
+            "pi_c": vec![0u8; 32],
+        });
+
+        let err = serde_json::from_value::<Signature>(json).unwrap_err();
+        assert!(err.to_string().contains("expected 32 bytes"));
+    }
+
+    #[test]
     fn zk_signature_json_roundtrip() {
         let sig = sig_generator();
 
@@ -178,6 +186,16 @@ mod tests {
         let decoded: Signature = serde_yaml::from_str(&encoded).unwrap();
 
         assert_eq!(sig, decoded);
+    }
+
+    #[test]
+    fn signature_has_exact_bincode_size() {
+        let signature = Signature::new(ZkSignProof::from_bytes(&[0x33; COMPRESSED_PROOF_SIZE]));
+        let ordinary = <Signature as SerializeOp>::to_bytes(&signature).unwrap();
+        let bounded = signature.to_bounded_bytes().unwrap();
+
+        assert_eq!(ordinary.len(), COMPRESSED_PROOF_SIZE);
+        assert_eq!(bounded.as_ref(), ordinary.as_ref());
     }
 
     fn sig_generator() -> Signature {

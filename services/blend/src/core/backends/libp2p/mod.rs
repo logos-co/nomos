@@ -5,11 +5,12 @@ use futures::{
     Stream, StreamExt as _,
     future::{AbortHandle, Abortable},
 };
-use lb_blend::message::encap::validated::{
-    EncapsulatedMessageWithVerifiedPublicHeader, EncapsulatedMessageWithVerifiedSignature,
+use lb_blend::message::encap::{
+    ProofsVerifier as ProofsVerifierTrait, validated::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use lb_chain_service::Epoch;
-use lb_log_targets::blend;
+use lb_log_targets::{blend, diagnostic::BLEND_REACHABILITY};
+use lb_utils::tokio::task::spawn_on;
 use libp2p::PeerId;
 use overwatch::overwatch::handle::OverwatchHandle;
 use rand::RngCore;
@@ -20,10 +21,7 @@ use crate::{
     core::{
         backends::{
             BackendEpochInfo, BlendBackend,
-            libp2p::{
-                swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
-                tokio_provider::ObservationWindowTokioIntervalProvider,
-            },
+            libp2p::swarm::{BlendSwarm, BlendSwarmMessage, SwarmParams},
         },
         settings::RunningBlendConfig as BlendConfig,
     },
@@ -36,8 +34,7 @@ const LOG_TARGET: &str = blend::backend::LIBP2P;
 pub(crate) mod behaviour;
 pub mod settings;
 pub use self::settings::Libp2pBlendBackendSettings;
-mod swarm;
-pub(crate) mod tokio_provider;
+pub(crate) mod swarm;
 
 #[cfg(test)]
 mod tests;
@@ -45,32 +42,36 @@ mod tests;
 pub(crate) use self::tests::utils as core_swarm_test_utils;
 
 /// A blend backend that uses the libp2p network stack.
-pub struct Libp2pBlendBackend {
+pub struct Libp2pBlendBackend<ProofsVerifier> {
     swarm_task_abort_handle: AbortHandle,
-    swarm_message_sender: mpsc::Sender<BlendSwarmMessage>,
-    incoming_message_sender: broadcast::Sender<(EncapsulatedMessageWithVerifiedSignature, Epoch)>,
+    swarm_message_sender: mpsc::Sender<BlendSwarmMessage<ProofsVerifier>>,
+    incoming_message_sender:
+        broadcast::Sender<(EncapsulatedMessageWithVerifiedPublicHeader, Epoch)>,
 }
 
 const CHANNEL_SIZE: usize = 64;
 
 #[async_trait]
-impl<Rng, RuntimeServiceId> BlendBackend<PeerId, Rng, RuntimeServiceId> for Libp2pBlendBackend
+impl<Rng, ProofsVerifier, RuntimeServiceId>
+    BlendBackend<PeerId, Rng, ProofsVerifier, RuntimeServiceId>
+    for Libp2pBlendBackend<ProofsVerifier>
 where
     Rng: RngCore + Clone + Send + 'static,
+    ProofsVerifier: ProofsVerifierTrait + Clone + Send + Sync + 'static,
 {
     type Settings = Libp2pBlendBackendSettings;
 
     fn new(
         config: BlendConfig<Self::Settings>,
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        current_epoch_info: BackendEpochInfo<PeerId>,
+        current_epoch_info: BackendEpochInfo<PeerId, ProofsVerifier>,
         rng: Rng,
     ) -> Self {
         let (swarm_message_sender, swarm_message_receiver) = mpsc::channel(CHANNEL_SIZE);
         let (incoming_message_sender, _) = broadcast::channel(CHANNEL_SIZE);
         let minimum_network_size = config.minimum_network_size.try_into().unwrap();
 
-        let swarm = BlendSwarm::<_, ObservationWindowTokioIntervalProvider>::new(SwarmParams {
+        let swarm = BlendSwarm::<_, _>::new(SwarmParams {
             config: &config,
             current_epoch_info,
             incoming_message_sender: incoming_message_sender.clone(),
@@ -80,9 +81,11 @@ where
         });
 
         let (swarm_task_abort_handle, swarm_task_abort_registration) = AbortHandle::new_pair();
-        overwatch_handle
-            .runtime()
-            .spawn(Abortable::new(swarm.run(), swarm_task_abort_registration));
+        spawn_on(
+            overwatch_handle.runtime(),
+            "logos/blend/libp2p-swarm",
+            Abortable::new(swarm.run(), swarm_task_abort_registration),
+        );
 
         Self {
             swarm_task_abort_handle,
@@ -108,11 +111,18 @@ where
             })
             .await
         {
-            tracing::error!(target: LOG_TARGET, "Failed to send message to BlendSwarm: {e}");
+            tracing::error!(
+                target: LOG_TARGET,
+                diagnostic = BLEND_REACHABILITY,
+                event = "blend_send_failure",
+                epoch = u32::from(intended_epoch),
+                error = %e,
+                "Failed to send message to BlendSwarm"
+            );
         }
     }
 
-    async fn rotate_epoch(&mut self, new_epoch_info: BackendEpochInfo<PeerId>) {
+    async fn rotate_epoch(&mut self, new_epoch_info: BackendEpochInfo<PeerId, ProofsVerifier>) {
         if let Err(e) = self
             .swarm_message_sender
             .send(BlendSwarmMessage::StartNewEpoch(new_epoch_info))
@@ -134,7 +144,8 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = (EncapsulatedMessageWithVerifiedSignature, Epoch)> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = (EncapsulatedMessageWithVerifiedPublicHeader, Epoch)> + Send>>
+    {
         Box::pin(
             BroadcastStream::new(self.incoming_message_sender.subscribe())
                 .filter_map(async |event| handle_incoming_broadcast_event(event)),
@@ -178,12 +189,13 @@ fn handle_incoming_broadcast_event<T>(event: Result<T, BroadcastStreamRecvError>
     }
 }
 
-impl Drop for Libp2pBlendBackend {
+impl<ProofsVerifier> Drop for Libp2pBlendBackend<ProofsVerifier> {
     fn drop(&mut self) {
         let Self {
             swarm_task_abort_handle,
             ..
         } = self;
         swarm_task_abort_handle.abort();
+        metrics::peers_negotiated_stop_reporting();
     }
 }

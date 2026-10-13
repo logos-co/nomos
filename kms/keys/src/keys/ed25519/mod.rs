@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use bytes::Bytes;
 use ed25519_dalek::SigningKey;
+use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
 use rand_core::CryptoRngCore;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
@@ -12,13 +13,13 @@ use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 mod private;
 pub use self::private::{KEY_SIZE as ED25519_SECRET_KEY_SIZE, UnsecuredEd25519Key};
 mod public;
-pub use self::public::{KEY_SIZE as ED25519_PUBLIC_KEY_SIZE, PublicKey};
+pub use self::public::{KEY_SIZE as ED25519_PUBLIC_KEY_SIZE, PublicKey, UnverifiedPublicKey};
 mod signature;
 
 mod x25519;
 pub use self::{
     signature::{SIGNATURE_SIZE as ED25519_SIGNATURE_SIZE, Signature},
-    x25519::{SharedKey, X25519PrivateKey, X25519PublicKey},
+    x25519::{SharedKey, UnverifiedX25519PublicKey, X25519PrivateKey},
 };
 
 /// An hardened Ed25519 secret key that only exposes methods to retrieve public
@@ -97,6 +98,57 @@ impl Debug for Ed25519Key {
 impl From<UnsecuredEd25519Key> for Ed25519Key {
     fn from(value: UnsecuredEd25519Key) -> Self {
         Self(value)
+    }
+}
+
+impl BinaryEncode for UnverifiedPublicKey {
+    fn encoded_length(&self) -> usize {
+        ED25519_PUBLIC_KEY_SIZE
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_bytes());
+    }
+}
+
+impl BinaryDecode for UnverifiedPublicKey {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, inner) = <[u8; _]>::decode(input, &())?;
+        let key = Self::from_bytes(&inner)
+            .map_err(|_| DecodeError::invalid_value::<Self>("not a valid Ed25519 public key"))?;
+        Ok((rest, key))
+    }
+}
+
+impl BinaryEncode for PublicKey {
+    fn encoded_length(&self) -> usize {
+        self.as_unverified().encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.as_unverified().encode_into(out);
+    }
+}
+
+impl BinaryDecode for PublicKey {
+    type Context = <UnverifiedPublicKey as BinaryDecode>::Context;
+
+    fn decode<'input>(
+        input: &'input [u8],
+        context: &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, unverified_public_key) = UnverifiedPublicKey::decode(input, context)?;
+        Ok((
+            rest,
+            Self::try_from(unverified_public_key).map_err(|_| {
+                DecodeError::invalid_value::<Self>("Not a valid Ed25519 public key.")
+            })?,
+        ))
     }
 }
 

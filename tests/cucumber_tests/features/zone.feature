@@ -11,6 +11,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias | data           |
@@ -19,11 +21,6 @@ Feature: Zone SDK
       | MSG_3 | Third message  |
     Then all zone messages are safe in 120 seconds
     And all zone messages are finalized in 180 seconds
-    And sequencer "SEQ_A" emits the full transaction lifecycle for zone messages in 30 seconds:
-      | alias |
-      | MSG_1 |
-      | MSG_2 |
-      | MSG_3 |
     And the zone indexer returns messages in this order:
       | alias |
       | MSG_1 |
@@ -34,6 +31,7 @@ Feature: Zone SDK
       | CHANNEL_CONFIG_1 | 0                 | 0               | SEQ_B                 |
     Then zone transaction "CHANNEL_CONFIG_1" is included in 180 seconds
     And zone transaction "CHANNEL_CONFIG_1" is finalized in 180 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -47,6 +45,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias | data      |
@@ -66,6 +66,7 @@ Feature: Zone SDK
       | MSG_2 |
       | MSG_3 |
       | MSG_4 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -79,6 +80,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias | data  |
@@ -106,10 +109,11 @@ Feature: Zone SDK
       | MSG_3 |
       | MSG_4 |
       | MSG_5 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
-  Scenario: Publishes issued while the node is down are accepted locally and posted on reconnect
+  Scenario: Publishes issued while the node is down fail fast and succeed after reconnect
     Given the genesis block has the following wallet resources:
       | account_index | token_count | token_amount |
       | 1             | 3           | 100000       |
@@ -118,18 +122,23 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     # Take the node down: the sequencer enters its reconnect loop, but its
-    # in-process SequencerClient stays alive.
+    # in-process SequencerClient stays alive. With funding configured,
+    # publishing needs the node's wallet, so publishes are rejected while
+    # it is down; a fresh Ready event fires once the reconnect completes.
     When I stop node "NODE_1"
-    And sequencer "SEQ_A" submits the following zone messages without waiting for inclusion:
-      | alias | data           |
-      | MSG_1 | While down (1) |
-      | MSG_2 | While down (2) |
-      | MSG_3 | While down (3) |
-    # Bring the node back; the locally-queued inscriptions are posted, mined
-    # and adopted, preserving publish order.
+    Then publishing zone message with data "while down" via sequencer "SEQ_A" fails while the node is down
+    # Bring the node back; publishes retry through the reconnect window and
+    # succeed once the sequencer re-emits Ready.
     When I restart node "NODE_1"
+    And sequencer "SEQ_A" publishes the following zone messages:
+      | alias | data           |
+      | MSG_1 | After down (1) |
+      | MSG_2 | After down (2) |
+      | MSG_3 | After down (3) |
     Then all zone messages are safe in 120 seconds
     And all zone messages are finalized in 180 seconds
     And the zone indexer returns messages in this order:
@@ -137,6 +146,7 @@ Feature: Zone SDK
       | MSG_1 |
       | MSG_2 |
       | MSG_3 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -153,17 +163,14 @@ Feature: Zone SDK
       | alias |
       | SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias | data |
       | MSG_1 | a1   |
       | MSG_2 | a2   |
       | MSG_3 | a3   |
-    And sequencer "SEQ_A" emits the full transaction lifecycle for zone messages in 30 seconds:
-      | alias |
-      | MSG_1 |
-      | MSG_2 |
-      | MSG_3 |
     Then the zone indexer returns messages in any order in 360 seconds:
       | alias |
       | MSG_1 |
@@ -202,6 +209,7 @@ Feature: Zone SDK
       | MSG_7 |
       | MSG_8 |
       | MSG_9 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -209,7 +217,7 @@ Feature: Zone SDK
   Scenario: Concurrent multi-sequencer publishing converges without duplicates
     Given the genesis block has the following wallet resources:
       | account_index | token_count | token_amount |
-      | 1             | 3           | 100000       |
+      | 1             | 3           | 1000000      |
     And I have a cluster with capacity of 1 nodes
     And I start nodes with wallet and sequencer resources:
       | node_name | account_index | wallet_name | connected_to | sequencers          |
@@ -219,6 +227,8 @@ Feature: Zone SDK
       | SEQ_B |
       | SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     When I stop zone sequencer "SEQ_A"
     And each listed zone sequencer publishes 20 generated zone messages concurrently with republish policy:
@@ -227,6 +237,7 @@ Feature: Zone SDK
       | SEQ_B     | b           |
       | SEQ_C     | c           |
     Then the zone indexer returns all zone messages exactly once in any order in 1200 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -240,6 +251,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
       | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
@@ -259,6 +272,63 @@ Feature: Zone SDK
       | SEQ_B     | MSG_9  | hh   |
       | SEQ_B     | MSG_10 | jj   |
     Then the zone indexer preserves per-sequencer order and converges without duplicates in 600 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  # End-to-end multi-sig driven by the sequencers' own drive loops: three
+  # sequencers run the reactive lifecycle policy, escalate the config
+  # single-signer -> 2-of-2 -> 2-of-3, then a deposit fires and they pin and
+  # withdraw it under 2-of-3, exchanging signatures over the shared bus.
+  Scenario: Multi-sig deposit lifecycle reacts across independent sequencers
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 100000       |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers          |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B, SEQ_C |
+    When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I do a coin split for "WALLET_1A" of 3 UTXOs valued at 5 LGO tokens each
+    # Each sequencer runs its own drive loop + policy, sharing one bus.
+    And I start multi-sig lifecycle zone sequencers with withdraw outputs "3":
+      | alias |
+      | SEQ_A |
+      | SEQ_B |
+      | SEQ_C |
+    # Config: single-signer -> 2-of-2 -> 2-of-3. Timeframe 15 lets a full
+    # prepare -> sign -> submit round land within a turn while still rotating.
+    And sequencer "SEQ_A" prepares zone config transaction "CHANNEL_CONFIG_1" with threshold 1 authorizing:
+      | alias |
+      | SEQ_A |
+    And sequencer "SEQ_A" submits prepared zone config transaction "CHANNEL_CONFIG_1"
+    Then zone transaction "CHANNEL_CONFIG_1" is finalized in 180 seconds
+    When sequencer "SEQ_A" prepares zone config transaction "CHANNEL_CONFIG_2" with threshold 2 authorizing:
+      | alias |
+      | SEQ_A |
+      | SEQ_B |
+    And sequencer "SEQ_A" signs prepared zone config transaction "CHANNEL_CONFIG_2"
+    And sequencer "SEQ_A" submits prepared zone config transaction "CHANNEL_CONFIG_2"
+    Then zone transaction "CHANNEL_CONFIG_2" is finalized in 180 seconds
+    When sequencer "SEQ_A" prepares zone config transaction "CHANNEL_CONFIG_3" with threshold 2 and posting timeframe 15 authorizing:
+      | alias |
+      | SEQ_A |
+      | SEQ_B |
+      | SEQ_C |
+    And sequencer "SEQ_B" signs prepared zone config transaction "CHANNEL_CONFIG_3"
+    And sequencer "SEQ_A" signs prepared zone config transaction "CHANNEL_CONFIG_3"
+    And sequencer "SEQ_B" submits prepared zone config transaction "CHANNEL_CONFIG_3"
+    Then zone transaction "CHANNEL_CONFIG_3" is finalized in 180 seconds
+    # Fire the deposit — the only external trigger; the sequencers react.
+    When I submit zone deposit transaction "DEPOSIT_1" into channel of "SEQ_A" of 5 with metadata "Mint 5 to channel"
+    # Exactly one pin + one withdraw finalized (no surviving double-publish), and
+    # the channel keeps only the value-2 change: proves 5 pinned, 3 withdrawn.
+    Then the zone indexer returns exactly one finalized pin and withdraw for deposit "DEPOSIT_1" in 300 seconds
+    And the channel wallet of "SEQ_A" has exactly 1 finalized and 0 unfinalized notes in 120 seconds
+    And the channel wallet of "SEQ_A" contains a finalized note of value 2 in 120 seconds
+    And the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -271,6 +341,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
       | SEQ_A | true    | 2                    | false                     |
@@ -301,11 +373,7 @@ Feature: Zone SDK
       | own_key_index | turn_to_write | pending_transactions | time_out |
       | 1             | NOT_OUR_TURN  | 3                    | 120      |
     # The first turn submits only the configured active depth, so two txs are posted but remain pending until finalized
-    And sequencer "SEQ_B" emits published events for queued zone messages on its turn in 180 seconds:
-      | alias  |
-      | MSG_B1 |
-      | MSG_B2 |
-    And sequencer "SEQ_B" observed mempool pending events for zone messages:
+    And zone messages queued by sequencer "SEQ_B" are included after its turn in 180 seconds:
       | alias  |
       | MSG_B1 |
       | MSG_B2 |
@@ -315,6 +383,7 @@ Feature: Zone SDK
       | alias  |
       | MSG_B1 |
       | MSG_B2 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -327,6 +396,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
       | SEQ_A | true    | unlimited            | false                     |
@@ -354,12 +425,7 @@ Feature: Zone SDK
     Then sequencer "SEQ_B" reaches sequencing state:
       | own_key_index | turn_to_write | pending_transactions | time_out |
       | 1             | NOT_OUR_TURN  | 3                    | 120      |
-    And sequencer "SEQ_B" emits published events for queued zone messages on its turn in 180 seconds:
-      | alias  |
-      | MSG_C1 |
-      | MSG_C2 |
-      | MSG_C3 |
-    And sequencer "SEQ_B" observed mempool pending events for zone messages:
+    And zone messages queued by sequencer "SEQ_B" are included after its turn in 180 seconds:
       | alias  |
       | MSG_C1 |
       | MSG_C2 |
@@ -371,6 +437,62 @@ Feature: Zone SDK
       | MSG_C2 |
       | MSG_C3 |
     Then sequencer "SEQ_B" has 0 pending publish txs in 180 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  # A config landing changes the channel view without moving the message tip, so
+  # the sequencer sheds its pending inscriptions (reports them orphaned). With
+  # orphan-republish on, they must be re-posted respecting lineage and end up
+  # indexed in order — i.e. a config that lands while messages are pending must
+  # not lose or reorder them. SEQ_B holds three messages pending (it is off
+  # turn) while SEQ_A lands a second config, which triggers the shed.
+  Scenario: A config landing orphans pending inscriptions which then re-adopt in order
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 100000       |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers   |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
+    When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I start zone sequencers:
+      | alias | indexer | pending_submit_depth | passive_republish_orphans |
+      | SEQ_A | true    | unlimited            | false                     |
+    And sequencer "SEQ_A" submits zone config transaction:
+      | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
+      | CHANNEL_CONFIG_1 | 2                 | 0               | SEQ_A, SEQ_B          |
+    Then zone transaction "CHANNEL_CONFIG_1" is finalized in 180 seconds
+    When I start zone sequencers:
+      | alias | indexer | pending_submit_depth | passive_republish_orphans |
+      | SEQ_B | false   | unlimited            | true                      |
+    Then sequencer "SEQ_B" reaches sequencing state:
+      | own_key_index | turn_to_write | pending_transactions | time_out |
+      | 1             | NOT_OUR_TURN  | 0                    | 120      |
+    # SEQ_B queues messages while off turn — they sit pending.
+    When sequencer "SEQ_B" submits the following zone messages to queue immediately:
+      | alias  | data          |
+      | MSG_B1 | cfg-orphan-b1 |
+      | MSG_B2 | cfg-orphan-b2 |
+      | MSG_B3 | cfg-orphan-b3 |
+    Then sequencer "SEQ_B" reaches sequencing state:
+      | own_key_index | turn_to_write | pending_transactions | time_out |
+      | 1             | NOT_OUR_TURN  | 3                    | 120      |
+    # A second config lands while SEQ_B's three messages are pending: the new
+    # config view sheds them, and orphan-republish must recover them.
+    When sequencer "SEQ_A" submits zone config transaction:
+      | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
+      | CHANNEL_CONFIG_2 | 2                 | 0               | SEQ_A, SEQ_B          |
+    Then zone transaction "CHANNEL_CONFIG_2" is finalized in 180 seconds
+    # The shed inscriptions survive: re-posted and indexed in lineage order.
+    And the zone indexer returns messages in this order:
+      | alias  |
+      | MSG_B1 |
+      | MSG_B2 |
+      | MSG_B3 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -383,6 +505,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
       | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
@@ -393,10 +517,11 @@ Feature: Zone SDK
     And sequencer "SEQ_B" is notified it is their turn to write in 120 seconds
     And sequencer "SEQ_A" is notified it is their turn to write in 120 seconds
     When I submit zone message "MSG_A1" to sequencer "SEQ_A" with data "decentralized-immediate-publish" immediately
-    Then sequencer "SEQ_A" publishes "MSG_A1" immediately while in turn in 120 seconds
+    Then zone message "MSG_A1" published by sequencer "SEQ_A" is included while in turn in 120 seconds
     And the zone indexer returns messages in any order in 360 seconds:
       | alias  |
       | MSG_A1 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -409,6 +534,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers          |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B, SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
       | SEQ_A | true    | default              | true                      |
@@ -440,15 +567,9 @@ Feature: Zone SDK
     When I submit zone message "MSG_A_2" to sequencer "SEQ_A" with data "seq_a-msg2" immediately
     When I submit zone message "MSG_B_2" to sequencer "SEQ_B" with data "seq_b-msg2" immediately
     When I submit zone message "MSG_C_2" to sequencer "SEQ_C" with data "seq_c-msg2" immediately
-    # Final check: all messages on chain, exact once.
-    Then the zone indexer returns messages in any order in 120 seconds:
-      | alias |
-      | MSG_A_1 |
-      | MSG_A_2 |
-      | MSG_B_1 |
-      | MSG_B_2 |
-      | MSG_C_1 |
-      | MSG_C_2 |
+    # Final check: all messages on chain, exactly once (catches duplicate republishes).
+    Then the zone indexer returns all zone messages exactly once in any order in 120 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -467,6 +588,8 @@ Feature: Zone SDK
       | bob     | 10      |
       | charlie | 10      |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
       | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
@@ -485,6 +608,7 @@ Feature: Zone SDK
       | SEQ_C     | c-bob     | bob     | -7    |
       | SEQ_C     | c-charlie | charlie | -1    |
     Then zone balance updates keep all accounts non-negative after 60 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -492,12 +616,14 @@ Feature: Zone SDK
   Scenario: Concurrent identical payloads converge to one inscription per publish
     Given the genesis block has the following wallet resources:
       | account_index | token_count | token_amount |
-      | 1             | 3           | 100000       |
+      | 1             | 3           | 1000000      |
     And I have a cluster with capacity of 1 nodes
     And I start nodes with wallet and sequencer resources:
       | node_name | account_index | wallet_name | connected_to | sequencers          |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B, SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
       | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
@@ -510,9 +636,47 @@ Feature: Zone SDK
       | SEQ_B     |
       | SEQ_C     |
     Then the zone indexer returns 30 copies of zone message "shared-message" in 600 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
+  # [zone-sdk channel wallet] a multi-input deposit's recreated notes surface in
+  # the sequencer's channel wallet with their exact per-note values, move to the
+  # finalized layer with LIB, and survive checkpoint restore and a fresh restart.
+  Scenario: Channel wallet tracks deposited notes with exact per-note values through finalization
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 100000       |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
+    When node "NODE_1" is at height 2 in 300 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I do a coin split for "WALLET_1A" of 1 UTXOs valued at 1 LGO tokens each
+    And I do a coin split for "WALLET_1A" of 1 UTXOs valued at 2 LGO tokens each
+    And I start zone sequencer "SEQ_A" with indexer
+    And sequencer "SEQ_A" publishes the following zone messages:
+      | alias | data                |
+      | MSG_1 | initial inscription |
+    Then all zone messages are safe in 120 seconds
+    When I submit zone deposit transaction "DEPOSIT_1" into channel of "SEQ_A" consuming notes valued "1,2" with metadata "Mint 1 and 2 into the channel"
+    Then zone transaction "DEPOSIT_1" is included in 120 seconds
+    And the channel wallet of "SEQ_A" contains a note of value 1 in 120 seconds
+    And the channel wallet of "SEQ_A" contains a note of value 2 in 120 seconds
+    And zone transaction "DEPOSIT_1" is finalized in 120 seconds
+    And the channel wallet of "SEQ_A" contains a finalized note of value 1 in 120 seconds
+    And the channel wallet of "SEQ_A" contains a finalized note of value 2 in 120 seconds
+    And the channel wallet of "SEQ_A" has exactly 2 finalized and 0 unfinalized notes in 120 seconds
+    When I save current checkpoint of sequencer "SEQ_A" as "WALLET_CHECKPOINT"
+    And I restart zone sequencer "SEQ_A" from checkpoint "WALLET_CHECKPOINT"
+    Then the channel wallet of "SEQ_A" has exactly 2 finalized and 0 unfinalized notes in 120 seconds
+    When I restart zone sequencer "SEQ_A" fresh
+    Then the channel wallet of "SEQ_A" has exactly 2 finalized and 0 unfinalized notes in 120 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
   # [tests/src/tests/zone_sdk/e2e.rs] test_subscribe_to_finalized_deposit
   Scenario: Finalized deposits are returned by the zone indexer
     Given the genesis block has the following wallet resources:
@@ -523,6 +687,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 2 in 300 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I do a coin split for "WALLET_1A" of 3 UTXOs valued at 1 LGO tokens each
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -533,6 +699,7 @@ Feature: Zone SDK
     Then zone transaction "DEPOSIT_1" is included in 120 seconds
     And zone transaction "DEPOSIT_1" is finalized in 120 seconds
     And the zone indexer returns finalized deposit "DEPOSIT_1" in 120 seconds
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -546,6 +713,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias | data                |
@@ -559,6 +728,7 @@ Feature: Zone SDK
       | alias |
       | MSG_1 |
       | MSG_2 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
@@ -572,6 +742,8 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 2 in 300 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I do a coin split for "WALLET_1A" of 3 UTXOs valued at 3 LGO tokens each
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -592,10 +764,14 @@ Feature: Zone SDK
       | alias |
       | MSG_1 |
       | MSG_2 |
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
 
   @zone_ci
-  Scenario: Atomic withdraw bundle finalizes alongside multi-sequencer publishing
+  # Deposit 5 → withdraw "1,1,2" leaves a value-1 change note that can only exist
+  # if both the integration inscription and the withdraw landed, so its
+  # finalization proves the whole reactive chain.
+  Scenario: Observed deposit is integrated then withdrawn without waiting for finalization
     Given the genesis block has the following wallet resources:
       | account_index | token_count | token_amount |
       | 1             | 3           | 100000       |
@@ -607,32 +783,187 @@ Feature: Zone SDK
       | alias |
       | SEQ_B |
     When node "NODE_1" is at height 2 in 300 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I do a coin split for "WALLET_1A" of 3 UTXOs valued at 5 LGO tokens each
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias    | data                |
       | MSG_INIT | initial inscription |
     Then all zone messages are finalized in 120 seconds
-    When I submit zone deposit transaction "DEPOSIT_1" into channel of "SEQ_A" of 5 with metadata "Mint 5 for atomic withdraw"
-    Then zone transaction "DEPOSIT_1" is finalized in 120 seconds
-    And the zone indexer returns finalized deposit "DEPOSIT_1" in 120 seconds
-    When I start zone sequencer "SEQ_B"
+    When I start zone sequencer "SEQ_B" pinning then withdrawing observed deposits with outputs "1,1,2"
     And sequencer "SEQ_A" publishes the following zone messages:
       | alias  | data |
       | MSG_A1 | a1   |
       | MSG_A2 | a2   |
-    And sequencer "SEQ_B" publishes atomic withdraw "BUNDLE_1" with inscription "MSG_BURN":
-      | withdraw    | outputs |
-      | WITHDRAW_1A | 1       |
-      | WITHDRAW_1B | 1,2     |
-    Then zone transaction "BUNDLE_1" is included in 240 seconds
-    And zone transaction "BUNDLE_1" is finalized in 240 seconds
-    And the zone indexer returns finalized withdraw "WITHDRAW_1A" in 120 seconds
-    And the zone indexer returns finalized withdraw "WITHDRAW_1B" in 120 seconds
-    And the zone indexer returns messages in any order in 240 seconds:
+    When I submit zone deposit transaction "DEPOSIT_1" into channel of "SEQ_A" of 5 with metadata "Mint 5 for atomic integration"
+    Then the channel wallet of "SEQ_B" contains a finalized note of value 1 in 300 seconds
+    And the zone indexer returns a finalized channel transfer consuming 1 inputs in 300 seconds
+    And the zone indexer returns messages in this order:
       | alias    |
       | MSG_INIT |
       | MSG_A1   |
       | MSG_A2   |
-      | MSG_BURN |
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  # A 10000 withdraw against a channel holding 255 dust notes (value 1) plus a
+  # single 10000 note exercises the Auto note-selection policy: it covers the
+  # amount with the big note and sweeps dust into the remaining input slots, up
+  # to the 255-input transaction limit — so the transfer consumes 255 inputs
+  # (the covering note + 254 swept dust) and compacts the channel wallet instead
+  # of leaving the dust unspent, while never exceeding the 255-input bound. The
+  # dust is minted by depositing one value-255 note and splitting it into 255
+  # value-1 notes in a single channel transfer (bounded by the 255-output
+  # limit), rather than one ZK-signed deposit per 32 notes (a deposit is capped
+  # at 32 inputs by the ZK signing-key limit).
+  # The withdraw is reactive: SEQ_A reacts to the big deposit and publishes the
+  # sweeping withdraw. Dust exists before the big deposit, so it is swept.
+  Scenario: Reactive withdrawal stays valid under a dust flood
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 1000000      |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
+    When node "NODE_1" is at height 2 in 300 seconds
+    And wallet "WALLET_1A" sends 60 notes of 2000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I do a coin split for "WALLET_1A" of 1 UTXOs valued at 255 LGO tokens each
+    And I do a coin split for "WALLET_1A" of 1 UTXOs valued at 10000 LGO tokens each
+    And I start zone sequencer "SEQ_A" withdrawing observed deposit of 10000 with outputs "10000"
+    And sequencer "SEQ_A" publishes the following zone messages:
+      | alias    | data                |
+      | MSG_INIT | initial inscription |
+    Then all zone messages are finalized in 120 seconds
+    When I submit zone deposit transaction "DEPOSIT_DUST_SEED" into channel of "SEQ_A" of 255 with metadata "Dust seed"
+    And the channel wallet of "SEQ_A" contains a note of value 255 in 240 seconds
+    When sequencer "SEQ_A" splits deposit "DEPOSIT_DUST_SEED" into 255 dust notes as "SPLIT_DUST"
+    Then zone transaction "SPLIT_DUST" is finalized in 240 seconds
+    When I submit zone deposit transaction "DEPOSIT_BIG" into channel of "SEQ_A" of 10000 with metadata "Big note"
+    Then the zone indexer returns a finalized channel transfer consuming 255 inputs in 300 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  Scenario: Concurrent custom multi-inscription transactions recover from conflicts
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 1000000      |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers   |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
+    When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I start zone sequencer "SEQ_A" with indexer
+    And sequencer "SEQ_A" submits zone config transaction:
+      | config_name      | posting_timeframe | posting_timeout | authorized_sequencers |
+      | CHANNEL_CONFIG_1 | 10                | 0               | SEQ_A, SEQ_B          |
+    Then zone transaction "CHANNEL_CONFIG_1" is finalized in 180 seconds
+    When I stop zone sequencer "SEQ_A"
+    And the following custom transactions are published concurrently with custom republish policy:
+      | sequencer | transactions | inscriptions |
+      | SEQ_A     | 5            | 5            |
+      | SEQ_B     | 5            | 5            |
+    Then the zone indexer returns all custom payloads in 600 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  # Config signatures must claim the signer's index in the current accredited
+  # list, not index 0 — CONFIG_BA below is signed by SEQ_B from index 1.
+  Scenario: Non-leading sequencer re-keys the channel and in-flight inscriptions recover
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 3           | 100000       |
+    And I have a cluster with capacity of 1 nodes
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers   |
+      | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
+    When node "NODE_1" is at height 1 in 120 seconds
+    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
+    And I start zone sequencers:
+      | alias | indexer | pending_submit_depth | passive_republish_orphans |
+      | SEQ_A | true    | default              | true                      |
+    And sequencer "SEQ_A" publishes the following zone messages:
+      | alias | data                      |
+      | MSG_1 | inscription before re-key |
+    And sequencer "SEQ_A" submits zone config transaction:
+      | config_name | posting_timeframe | posting_timeout | authorized_sequencers |
+      | CONFIG_AB   | 2                 | 0               | SEQ_A, SEQ_B          |
+    Then zone transaction "CONFIG_AB" is finalized in 180 seconds
+    When I start zone sequencers:
+      | alias | indexer | pending_submit_depth | passive_republish_orphans |
+      | SEQ_B | false   | default              | true                      |
+    And sequencer "SEQ_A" submits the following zone messages without waiting for inclusion:
+      | alias | data                    |
+      | MSG_2 | in flight during re-key |
+    And sequencer "SEQ_B" submits zone config transaction:
+      | config_name | posting_timeframe | posting_timeout | authorized_sequencers |
+      | CONFIG_BA   | 2                 | 0               | SEQ_B, SEQ_A          |
+    And sequencer "SEQ_B" submits the following zone messages without waiting for inclusion:
+      | alias | data               |
+      | MSG_3 | post re-key from B |
+    And sequencer "SEQ_A" submits the following zone messages without waiting for inclusion:
+      | alias | data               |
+      | MSG_4 | post re-key from A |
+    Then zone transaction "CONFIG_BA" is included in 180 seconds
+    And the zone indexer returns all zone messages exactly once in any order in 600 seconds
+    Then the channel view contract holds for all zone sequencers
+    And I stop all nodes
+
+  @zone_ci
+  Scenario: Zone sequencer re-funds a double-handed inscription after node restart
+    Given the genesis block has the following wallet resources:
+      | account_index | token_count | token_amount |
+      | 1             | 2           | 12500        |
+      | 4             | 4           | 25000        |
+    And I have a cluster with capacity of 2 nodes
+    # NODE_4 is only a fork-provider; SEQ_B is registered but never started, so
+    # the table's "at least one sequencer" rule is satisfied without running one
+    And I start nodes with wallet and sequencer resources:
+      | node_name | account_index | wallet_name | connected_to | sequencers |
+      | NODE_1    | 1             | WALLET_1A   | NODE_4       | SEQ_A      |
+      | NODE_4    | 4             | WALLET_4A   |              | SEQ_B      |
+    When node "NODE_1" is at height 2 in 240 seconds
+    # Starve the funding wallet to two distinct notes so the reused note is
+    # deterministic (largest-first selection picks 9000 for both publishes)
+    And I drain all node "NODE_1" wallets into "WALLET_1A"
+    And wallet "WALLET_1A" has 14000 or more LGO in 240 seconds
+    And wallet "WALLET_1A" sends 1 notes of 9000 LGO to node "NODE_1" funding wallet as "TOPUP_A"
+    And wallet "WALLET_1A" sends 1 notes of 8000 LGO to node "NODE_1" funding wallet as "TOPUP_B"
+    And transaction "TOPUP_A" is included on node "NODE_1" in 240 seconds
+    And transaction "TOPUP_B" is included on node "NODE_1" in 240 seconds
+    And I start zone sequencer "SEQ_A" with indexer
+    # Isolate NODE_4 before MSG_1 exists so its branch can never carry it
+    When I stop node "NODE_4"
+    And sequencer "SEQ_A" submits the following zone messages without waiting for inclusion:
+      | alias | data      |
+      | MSG_1 | message 1 |
+    And node "NODE_1" alone reaches height 8 in 240 seconds
+    # NODE_1 down wipes its wallet reservations; NODE_4 out-builds it blind
+    When I stop node "NODE_1"
+    And I restart node "NODE_4"
+    And node "NODE_4" alone reaches height 14 in 300 seconds
+    # NODE_1 rejoins, adopts NODE_4's longer branch, orphans MSG_1; SEQ_A
+    # reconnects and republishes MSG_1 byte-identically (its note is free again)
+    When I restart node "NODE_1"
+    And node "NODE_1" is at height 14 in 240 seconds
+    # The next publish double-hands MSG_1's note; the wedged inscription can
+    # only finalize via the sequencer's stale-refund rebuild
+    And sequencer "SEQ_A" submits the following zone messages without waiting for inclusion:
+      | alias | data      |
+      | MSG_2 | message 2 |
+    # The rebuild must work from a restored checkpoint too: the funding
+    # record travels with it
+    When I save current checkpoint of sequencer "SEQ_A" as "REFUND_CHECKPOINT"
+    And I restart zone sequencer "SEQ_A" from checkpoint "REFUND_CHECKPOINT"
+    Then the zone indexer returns all zone messages exactly once in any order in 600 seconds
+    And zone message "MSG_2" finalized under a different tx hash than submitted
+    Then the channel view contract holds for all zone sequencers
     And I stop all nodes
