@@ -1,8 +1,17 @@
-use std::{collections::HashMap, error::Error, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+    num::NonZeroU32,
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex},
+    time::Duration,
+};
 
+pub use lb_config::consensus::SdpFundingConfig;
 use lb_config::kms::key_id_for_preload_backend;
-use lb_core::block::genesis::GenesisBlock;
-use lb_node::config::RunConfig;
+use lb_core::{block::genesis::GenesisBlock, mantle::GenesisTime};
+use lb_node::config::{RunConfig, deployment::DeploymentSettings};
+use lb_utils::math::NonNegativeRatio;
 use rand::{Rng, SeedableRng as _};
 use testing_framework_core::topology::{DeploymentProvider, DeploymentSeed, DynTopologyError};
 use thiserror::Error;
@@ -12,17 +21,48 @@ use super::{
     wallet::{WalletConfig, WalletConfigError},
 };
 use crate::{
+    env::replace_default_env,
     get_reserved_available_udp_port,
     node::{
         DeploymentPlan, NodePlan,
-        configs::{Config, create_node_configs_from_ids, postprocess},
+        configs::{
+            Config,
+            create_node_configs_from_ids_with_additional_wallet_outputs_and_sdp_funding_config,
+            postprocess,
+        },
     },
 };
 
 pub type DynError = Box<dyn Error + Send + Sync + 'static>;
 const DEFAULT_SLOT_TIME_IN_SECS: u64 = 1;
-const DEFAULT_ACTIVE_SLOT_COEFF: f64 = 1.0;
-const DEFAULT_SECURITY_PARAM: u32 = 10;
+const DEFAULT_ACTIVE_SLOT_COEFF: NonNegativeRatio =
+    NonNegativeRatio::new(1, NonZeroU32::new(10).unwrap());
+const DEFAULT_SECURITY_PARAM: NonZeroU32 = NonZeroU32::new(20).unwrap();
+
+static RESERVED_AUTOMATIC_GENESIS_TIMES: LazyLock<Mutex<HashSet<GenesisTime>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Reserves a near-current genesis second for a new automatically configured
+/// deployment in this process.
+#[must_use]
+pub fn resolve_automatic_genesis_time() -> GenesisTime {
+    let requested = time::OffsetDateTime::now_utc()
+        .try_into()
+        .expect("current time should fit in GenesisTime");
+    let mut reserved = RESERVED_AUTOMATIC_GENESIS_TIMES
+        .lock()
+        .expect("automatic genesis time reservation lock should not be poisoned");
+
+    let mut candidate = requested;
+    while !reserved.insert(candidate) {
+        let next = time::OffsetDateTime::from(candidate) + time::Duration::seconds(1);
+        candidate = next
+            .try_into()
+            .expect("automatic genesis time should fit in GenesisTime");
+    }
+
+    candidate
+}
 
 #[derive(Debug, Error)]
 pub enum TopologyBuildError {
@@ -38,22 +78,59 @@ pub enum TopologyBuildError {
     InvalidWallet(#[from] WalletConfigError),
 }
 
+/// Defines the profile of the node binary to be used in the deployment.
+#[derive(Default, Clone, Eq, PartialEq)]
+pub enum NodeBinaryProfile {
+    #[default]
+    Normal,
+    TokioConsole,
+}
+
+/// Environment variable name for the node binary profile.
+pub const NODE_BINARY_PROFILE: &str = "NODE_BINARY_PROFILE";
+///  Environment variable value for the normal node binary profile.
+const NODE_BINARY_PROFILE_NORMAL: &str = "normal";
+/// Environment variable value for the tokio-console node binary profile.
+const NODE_BINARY_PROFILE_TOKIO_CONSOLE: &str = "tokio-console";
+
+impl NodeBinaryProfile {
+    #[must_use]
+    pub fn from_string(s: &str) -> Self {
+        match s {
+            NODE_BINARY_PROFILE_TOKIO_CONSOLE => Self::TokioConsole,
+            _ => Self::Normal,
+        }
+    }
+
+    #[must_use]
+    pub const fn to_string(&self) -> &'static str {
+        match self {
+            Self::Normal => NODE_BINARY_PROFILE_NORMAL,
+            Self::TokioConsole => NODE_BINARY_PROFILE_TOKIO_CONSOLE,
+        }
+    }
+}
+
 /// High-level topology settings used to generate node configs for a scenario.
 #[derive(Clone)]
 pub struct TopologyConfig {
     pub n_nodes: usize,
     pub blend_core_nodes: usize,
+    pub sdp_funding_config: SdpFundingConfig,
     pub network_params: Arc<NetworkParams>,
     pub wallet_config: WalletConfig,
     pub scenario_base_dir: PathBuf,
     pub genesis_block: Option<GenesisBlock>,
+    requested_genesis_time: Option<GenesisTime>,
+    genesis_time: Option<GenesisTime>,
     pub slot_duration: Option<Duration>,
-    pub active_slot_coeff: f64,
-    pub security_param: u32,
+    pub active_slot_coeff: NonNegativeRatio,
+    pub security_param: NonZeroU32,
     node_config_overrides: HashMap<usize, RunConfig>,
     allow_multiple_genesis_tokens: bool,
     allow_zero_value_genesis_tokens: bool,
     pub test_context: Option<String>,
+    node_binary_profile: NodeBinaryProfile,
 }
 
 impl TopologyConfig {
@@ -84,6 +161,28 @@ impl TopologyConfig {
     }
 
     #[must_use]
+    pub const fn with_genesis_time(mut self, genesis_time: GenesisTime) -> Self {
+        self.requested_genesis_time = Some(genesis_time);
+        self
+    }
+
+    /// Returns the genesis time resolved while building this deployment.
+    #[must_use]
+    pub const fn genesis_time(&self) -> GenesisTime {
+        self.genesis_time
+            .expect("genesis time is available only on a built deployment")
+    }
+
+    #[must_use]
+    pub const fn with_node_binary_profile(
+        mut self,
+        node_binary_profile: NodeBinaryProfile,
+    ) -> Self {
+        self.node_binary_profile = node_binary_profile;
+        self
+    }
+
+    #[must_use]
     pub fn empty() -> Self {
         Self::with_node_count(0)
     }
@@ -100,8 +199,20 @@ impl TopologyConfig {
     }
 
     #[must_use]
+    pub const fn with_sdp_funding_config(mut self, sdp_funding_config: SdpFundingConfig) -> Self {
+        self.sdp_funding_config = sdp_funding_config;
+        self
+    }
+
+    #[must_use]
     pub fn node_config_override(&self, index: usize) -> Option<&RunConfig> {
         self.node_config_overrides.get(&index)
+    }
+
+    pub(crate) const fn apply_deployment_overrides(&self, settings: &mut DeploymentSettings) {
+        let cryptarchia = &mut settings.genesis_era_parameters_mut().cryptarchia;
+        cryptarchia.security_param = self.security_param;
+        cryptarchia.slot_activation_coeff = self.active_slot_coeff;
     }
 }
 
@@ -110,10 +221,13 @@ impl Default for TopologyConfig {
         Self {
             n_nodes: 0,
             blend_core_nodes: 0,
+            sdp_funding_config: SdpFundingConfig::default(),
             network_params: Arc::new(NetworkParams::default()),
             wallet_config: WalletConfig::default(),
             scenario_base_dir: std::env::temp_dir(),
             genesis_block: None,
+            requested_genesis_time: None,
+            genesis_time: None,
             slot_duration: Some(Duration::from_secs(DEFAULT_SLOT_TIME_IN_SECS)),
             active_slot_coeff: DEFAULT_ACTIVE_SLOT_COEFF,
             security_param: DEFAULT_SECURITY_PARAM,
@@ -121,6 +235,7 @@ impl Default for TopologyConfig {
             allow_multiple_genesis_tokens: false,
             allow_zero_value_genesis_tokens: false,
             test_context: None,
+            node_binary_profile: NodeBinaryProfile::default(),
         }
     }
 }
@@ -141,12 +256,6 @@ impl DeploymentBuilder {
     #[must_use]
     pub const fn with_deployment_seed(mut self, seed: DeploymentSeed) -> Self {
         self.seed = Some(seed);
-        self
-    }
-
-    #[must_use]
-    pub fn with_node_config_override(mut self, index: usize, config: RunConfig) -> Self {
-        self.config.node_config_overrides.insert(index, config);
         self
     }
 
@@ -181,13 +290,43 @@ impl DeploymentBuilder {
         self
     }
 
+    /// Overrides the node deployment's Cryptarchia security parameter.
+    #[must_use]
+    pub const fn with_security_param(mut self, security_param: NonZeroU32) -> Self {
+        self.config.security_param = security_param;
+        self
+    }
+
+    /// Overrides the node deployment's Cryptarchia slot activation coefficient.
+    #[must_use]
+    pub const fn with_slot_activation_coeff(
+        mut self,
+        numerator: u32,
+        denominator: NonZeroU32,
+    ) -> Self {
+        self.config.active_slot_coeff = NonNegativeRatio::new(numerator, denominator);
+        self
+    }
+
     #[must_use]
     pub fn with_test_context(mut self, test_context: &str) -> Self {
         self.config.test_context = Some(test_context.to_owned());
         self
     }
 
+    #[must_use]
+    pub const fn with_genesis_time(mut self, genesis_time: GenesisTime) -> Self {
+        self.config.requested_genesis_time = Some(genesis_time);
+        self
+    }
+
     pub fn build(mut self) -> Result<DeploymentPlan, TopologyBuildError> {
+        let genesis_time = self
+            .config
+            .requested_genesis_time
+            .unwrap_or_else(resolve_automatic_genesis_time);
+        self.config.genesis_time = Some(genesis_time);
+
         self.config.wallet_config.validate(
             self.config.allow_multiple_genesis_tokens,
             self.config.allow_zero_value_genesis_tokens,
@@ -206,15 +345,6 @@ impl DeploymentBuilder {
 
         let ids = generate_node_ids(node_count, self.seed.as_ref());
 
-        let blend_ports = allocate_blend_ports(node_count)?;
-        let (mut node_configs, genesis_block) = create_node_configs_from_ids(
-            &ids,
-            &blend_ports,
-            self.config.blend_core_nodes,
-            self.config.network_params.as_ref(),
-            self.config.test_context.as_deref(),
-        );
-
         let wallet_accounts = self
             .config
             .wallet_config
@@ -223,6 +353,19 @@ impl DeploymentBuilder {
             .map(|account| (account.secret_key.clone(), account.value))
             .collect::<Vec<_>>();
 
+        let blend_ports = allocate_blend_ports(node_count)?;
+        let (mut node_configs, genesis_block) =
+            create_node_configs_from_ids_with_additional_wallet_outputs_and_sdp_funding_config(
+                &ids,
+                &blend_ports,
+                self.config.blend_core_nodes,
+                self.config.network_params.as_ref(),
+                self.config.test_context.as_deref(),
+                wallet_accounts.len(),
+                self.config.sdp_funding_config,
+                genesis_time,
+            );
+
         let genesis_block = postprocess::apply_wallet_genesis_overrides(
             &mut node_configs,
             &genesis_block,
@@ -230,10 +373,22 @@ impl DeploymentBuilder {
             &wallet_accounts,
             key_id_for_preload_backend,
             self.config.test_context.as_deref(),
+            self.config.sdp_funding_config,
+            genesis_time,
         );
 
         let nodes = build_node_plans(node_count, &ids, &node_configs)?;
         self.config.genesis_block = Some(genesis_block);
+
+        if self.config.node_binary_profile == NodeBinaryProfile::Normal {
+            let _unused =
+                replace_default_env(NODE_BINARY_PROFILE, NodeBinaryProfile::Normal.to_string());
+        } else {
+            let _unused = replace_default_env(
+                NODE_BINARY_PROFILE,
+                NodeBinaryProfile::TokioConsole.to_string(),
+            );
+        }
 
         Ok(DeploymentPlan::new(self.config, nodes))
     }
@@ -318,5 +473,41 @@ impl DeploymentProvider<DeploymentPlan> for DeploymentBuilder {
         builder
             .build()
             .map_err(|error| Box::new(error) as DynTopologyError)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_genesis_times_are_unique_within_a_process() {
+        let first = DeploymentBuilder::new(TopologyConfig::empty())
+            .build()
+            .expect("first deployment should build");
+        let second = DeploymentBuilder::new(TopologyConfig::empty())
+            .build()
+            .expect("second deployment should build");
+
+        assert_ne!(
+            first.config().genesis_time(),
+            second.config().genesis_time()
+        );
+    }
+
+    #[test]
+    fn explicit_genesis_times_can_be_shared() {
+        let genesis_time = GenesisTime::new(1_000);
+        let first = DeploymentBuilder::new(TopologyConfig::empty())
+            .with_genesis_time(genesis_time)
+            .build()
+            .expect("first deployment should build");
+        let second = DeploymentBuilder::new(TopologyConfig::empty())
+            .with_genesis_time(genesis_time)
+            .build()
+            .expect("second deployment should build");
+
+        assert_eq!(first.config().genesis_time(), genesis_time);
+        assert_eq!(second.config().genesis_time(), genesis_time);
     }
 }

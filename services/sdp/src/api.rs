@@ -1,22 +1,22 @@
 use std::fmt::{Debug, Display};
 
-use lb_core::sdp::{DeclarationId, DeclarationMessage};
+use lb_core::sdp::DeclarationMessage;
 use overwatch::{
     DynError,
     overwatch::OverwatchHandle,
     services::{
         AsServiceId, ServiceData,
-        relay::{OutboundRelay, RelayError},
+        relay::{OutboundRelay, OutboundRelayError},
     },
 };
 use tokio::sync::{oneshot, oneshot::error::RecvError};
 
-use crate::SdpMessage;
+use crate::{SdpMessage, SdpSubmission};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Failed to send a message to the SDP service: {0}")]
-    RelaySend(#[from] RelayError),
+    RelaySend(#[from] OutboundRelayError<SdpMessage>),
     #[error("Failed to receive a message from the SDP service: {0}")]
     RelayReceive(#[from] RecvError),
     #[error(transparent)]
@@ -53,16 +53,13 @@ where
     }
 
     pub async fn publish(&self, message: SdpMessage) -> Result<(), Error> {
-        self.relay
-            .send(message)
-            .await
-            .map_err(|(error, _)| Error::RelaySend(error))
+        self.relay.send(message).await.map_err(Error::RelaySend)
     }
 
     pub async fn post_declaration(
         &self,
         declaration: DeclarationMessage,
-    ) -> Result<DeclarationId, Error> {
+    ) -> Result<SdpSubmission, Error> {
         let (reply_channel, receiver) = oneshot::channel();
         let declaration = Box::new(declaration);
         self.publish(SdpMessage::PostDeclaration {

@@ -1,6 +1,10 @@
 use core::hash::{Hash, Hasher};
 
 use ed25519_dalek::SIGNATURE_LENGTH;
+use lb_binary_codec::{
+    bincode::BoundedSerializeOp,
+    canonical::{BinaryDecode, BinaryEncode, DecodeError},
+};
 use lb_utils::serde::{deserialize_bytes_array, serialize_bytes_array};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -23,6 +27,9 @@ impl<'de> Deserialize<'de> for Signature {
 }
 
 impl Signature {
+    /// The fixed-size canonical representation of an Ed25519 signature.
+    pub const CANONICAL_ENCODED_SIZE: usize = SIGNATURE_SIZE;
+
     #[must_use]
     pub fn from_bytes(bytes: &[u8; SIGNATURE_SIZE]) -> Self {
         Self(ed25519_dalek::Signature::from_bytes(bytes))
@@ -68,5 +75,48 @@ impl From<Signature> for ed25519_dalek::Signature {
 impl From<[u8; SIGNATURE_SIZE]> for Signature {
     fn from(bytes: [u8; SIGNATURE_SIZE]) -> Self {
         Self::from_bytes(&bytes)
+    }
+}
+
+impl BinaryEncode for Signature {
+    fn encoded_length(&self) -> usize {
+        SIGNATURE_SIZE
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_bytes());
+    }
+}
+
+impl BinaryDecode for Signature {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, inner) = <[u8; _]>::decode(input, &())?;
+        Ok((rest, Self::from_bytes(&inner)))
+    }
+}
+
+impl BoundedSerializeOp for Signature {
+    type Bytes = [u8; SIGNATURE_SIZE];
+}
+
+#[cfg(test)]
+mod tests {
+    use lb_binary_codec::bincode::{BoundedSerializeOp as _, SerializeOp};
+
+    use super::Signature;
+
+    #[test]
+    fn signature_has_exact_bincode_size() {
+        let signature = Signature::from_bytes(&[0x22; 64]);
+        let ordinary = <Signature as SerializeOp>::to_bytes(&signature).unwrap();
+        let bounded = signature.to_bounded_bytes().unwrap();
+
+        assert_eq!(ordinary.len(), 64);
+        assert_eq!(bounded.as_ref(), ordinary.as_ref());
     }
 }

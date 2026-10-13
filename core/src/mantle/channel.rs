@@ -1,24 +1,28 @@
 use std::sync::Arc;
 
+use lb_binary_codec::canonical::BinaryCodec;
 use lb_cryptarchia_engine::Slot;
-use nom::IResult;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    events::Events,
+    events::TxEvent,
     mantle::{
-        Value,
-        ledger::{self, Operation as _},
-        nom::{NomDecode, NomEncode},
-        ops::channel::{
-            ChannelId, ChannelKeyIndex, MsgId,
-            config::Keys,
-            inscribe::{InscriptionExecutionContext, InscriptionOp},
+        NoteId,
+        channel_notes::{self, ChannelNotes},
+        gas::ThresholdSource,
+        ledger::{self, verification_mode::GenesisMode},
+        ops::{
+            SignedOperation,
+            channel::{
+                ChannelId, ChannelKeyIndex, MsgId, UnverifiedChannelKeys,
+                inscribe::{InscriptionExecutionContext, InscriptionOp},
+            },
         },
+        transactions::states::Verified,
     },
 };
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash, BinaryCodec)]
 pub struct SlotTimeframe(u32);
 
 impl From<u32> for SlotTimeframe {
@@ -33,22 +37,7 @@ impl From<SlotTimeframe> for u32 {
     }
 }
 
-impl NomEncode for SlotTimeframe {
-    fn encode(&self) -> Vec<u8> {
-        self.0.encode()
-    }
-}
-
-impl NomDecode for SlotTimeframe {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> IResult<&[u8], Self::Output> {
-        let (bytes, inner) = u32::decode(bytes)?;
-        Ok((bytes, Self(inner)))
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash, BinaryCodec)]
 pub struct SlotTimeout(u32);
 
 impl From<u32> for SlotTimeout {
@@ -60,21 +49,6 @@ impl From<u32> for SlotTimeout {
 impl From<SlotTimeout> for u32 {
     fn from(slot: SlotTimeout) -> Self {
         slot.0
-    }
-}
-
-impl NomEncode for SlotTimeout {
-    fn encode(&self) -> Vec<u8> {
-        self.0.encode()
-    }
-}
-
-impl NomDecode for SlotTimeout {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> IResult<&[u8], Self::Output> {
-        let (bytes, inner) = u32::decode(bytes)?;
-        Ok((bytes, Self(inner)))
     }
 }
 
@@ -91,6 +65,8 @@ pub enum Error {
         channel_id: ChannelId,
         signer: String,
     },
+    #[error("Invalid signer")]
+    InvalidSigner,
     #[error("Invalid signature")]
     InvalidSignature,
     #[error(
@@ -103,16 +79,12 @@ pub enum Error {
     },
     #[error("Channel {channel_id:?} not found")]
     ChannelNotFound { channel_id: ChannelId },
-    #[error("Insufficient funds")]
-    InsufficientFunds,
-    #[error("Balance overflow")]
-    BalanceOverflow,
-    #[error("The withdraw nonce doesn't correspond to the channel state")]
-    InvalidWithdrawNonce,
-    #[error("The Channel Config isn't well formed")]
+    #[error("The Channel Config isn't well-formed")]
     InvalidChannelConfig,
-    #[error("Withdraw Nonce overflow")]
-    WithdrawNonceOverflow,
+    #[error("Channel transfer inputs and outputs have different total value")]
+    UnbalancedTransfer,
+    #[error(transparent)]
+    ChannelNotes(#[from] channel_notes::Error),
     #[error("Inputs error: {0}")]
     Inputs(#[from] ledger::InputsError),
     #[error("Outputs error: {0}")]
@@ -130,18 +102,23 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Channels {
     pub channels: rpds::HashTrieMapSync<ChannelId, ChannelState>,
+    channel_notes: ChannelNotes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChannelState {
+    // We cannot use verified Ed25519 public keys here because genesis creates a channel with a key
+    // of all `0`s, which would otherwise fail to deserialize here.
     // Channel Configuration
-    pub accredited_keys: Arc<Keys>, // keys.len() <= ChannelKeyIndex::MAX
-    pub configuration_threshold: u16, /* indicating how many keys are required to update
-                                     * the
-                                     * configuration */
+    pub accredited_keys: Arc<UnverifiedChannelKeys>, // keys.len() <= ChannelKeyIndex::MAX
+    pub configuration_threshold: u16,                /* indicating how many keys are required to
+                                                      * update
+                                                      * the
+                                                      * configuration */
 
     // Message Ordering
-    pub tip_message: MsgId,
+    pub tip_message: MsgId,     // last message of the channel
+    pub config_tip_hash: MsgId, // last configuration of the channel
 
     // Decentralized Sequencing
     pub tip_slot: Slot,
@@ -152,14 +129,12 @@ pub struct ChannelState {
     pub posting_timeout: SlotTimeout,     // number of slots (0 = no timeout)
 
     // Bridging
-    pub balance: Value,
-    pub withdrawal_nonce: u32,
-    pub withdraw_threshold: ChannelKeyIndex, /* indicating how many keys are required to
-                                              * withdraw
-                                              * funds from the channel */
+    pub transfer_threshold: ChannelKeyIndex, /* indicating how many keys are required to
+                                              * transfer or withdraw funds from the
+                                              * channel */
 }
 
-pub(crate) const DEFAULT_WITHDRAW_THRESHOLD: ChannelKeyIndex = 1;
+pub(crate) const DEFAULT_TRANSFER_THRESHOLD: ChannelKeyIndex = 1;
 
 impl Default for Channels {
     fn default() -> Self {
@@ -167,19 +142,38 @@ impl Default for Channels {
     }
 }
 
+impl ThresholdSource for Channels {
+    fn configuration_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex {
+        self.channels
+            .get(channel)
+            .map_or(0, |channel| channel.configuration_threshold)
+    }
+
+    fn transfer_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex {
+        self.channels
+            .get(channel)
+            .map_or(0, |channel| channel.transfer_threshold)
+    }
+}
+
 impl Channels {
-    pub fn from_genesis(op: &InscriptionOp) -> Result<(Self, Events), Error> {
-        let (ctx, events) = op.execute(InscriptionExecutionContext {
-            channels: Self::default(),
-            block_slot: Slot::default(),
-        })?;
-        Ok((ctx.channels, events))
+    pub fn from_genesis(
+        signed_operation: SignedOperation<InscriptionOp, Verified, GenesisMode>,
+    ) -> Result<(Self, Vec<TxEvent>), Error> {
+        let (context, events) = signed_operation
+            .execute(InscriptionExecutionContext {
+                channels: Self::default(),
+                block_slot: Slot::default(),
+            })
+            .map_err(|(_signed_operation, error)| error)?;
+        Ok((context.channels, events))
     }
 
     #[must_use]
     pub fn new() -> Self {
         Self {
             channels: rpds::HashTrieMapSync::new_sync(),
+            channel_notes: ChannelNotes::new(),
         }
     }
 
@@ -187,15 +181,48 @@ impl Channels {
     pub fn channel_state(&self, channel_id: &ChannelId) -> Option<&ChannelState> {
         self.channels.get(channel_id)
     }
+
+    /// Returns `true` if `note_id` is owned by any channel.
+    #[must_use]
+    pub fn is_channel_note(&self, note_id: &NoteId) -> bool {
+        self.channel_notes.contains(note_id)
+    }
+
+    /// Returns `true` if `note_id` is a channel note owned by `channel_id`.
+    #[must_use]
+    pub(crate) fn is_channel_note_of(&self, note_id: &NoteId, channel_id: &ChannelId) -> bool {
+        self.channel_notes.is_a_channel(note_id, channel_id)
+    }
+
+    /// Registers `note_id` as a channel note owned by `channel_id`.
+    pub(crate) fn register_channel_note(
+        mut self,
+        note_id: &NoteId,
+        channel_id: &ChannelId,
+    ) -> Result<Self, channel_notes::Error> {
+        self.channel_notes = self.channel_notes.into_channel(note_id, channel_id)?;
+        Ok(self)
+    }
+
+    /// Unregisters `note_id`, releasing it from `channel_id`'s ownership.
+    pub(crate) fn unregister_channel_note(
+        mut self,
+        note_id: &NoteId,
+        channel_id: &ChannelId,
+    ) -> Result<Self, channel_notes::Error> {
+        self.channel_notes = self.channel_notes.into_bedrock(note_id, channel_id)?;
+        Ok(self)
+    }
 }
 
 impl ChannelState {
     // Returns the new sequencer index and its starting slot
     #[must_use]
     pub fn round_robin(&self, block_slot: Slot) -> (u16, Slot) {
-        let elapsed_slot_since_last_tip = (block_slot.saturating_sub(self.tip_slot)).into_inner();
-        let tip_sequencer_duration =
-            (block_slot.saturating_sub(self.tip_sequencer_starting_slot)).into_inner();
+        let elapsed_slot_since_last_tip = block_slot.saturating_sub(self.tip_slot).into_inner();
+        let tip_sequencer_duration = block_slot
+            .saturating_sub(self.tip_sequencer_starting_slot)
+            .into_inner();
         let posting_timeframe = u64::from(self.posting_timeframe.0);
         let posting_timeout = u64::from(self.posting_timeout.0);
         let num_sequencers = self.accredited_keys.len() as u64; // bounded by ChannelKeyIndex::MAX
@@ -229,37 +256,51 @@ impl ChannelState {
             .unwrap_or(self.tip_sequencer_starting_slot);
         (index, starting_slot)
     }
+
+    /// The first slot after `slot` at which [`Self::round_robin`] can change
+    /// hands. Before the timeout rotation is active: the next timeframe
+    /// multiple from the tip sequencer's starting slot, or the slot the
+    /// timeout kicks in, whichever comes first. Once it is active only the
+    /// timeout grid from the tip slot moves the turn. `None` when neither
+    /// period is set.
+    #[must_use]
+    pub fn next_round_robin_boundary(&self, slot: Slot) -> Option<Slot> {
+        let current = slot.into_inner();
+        let next_on_grid = |anchor: Slot, period: u32| -> Option<u64> {
+            if period == 0 {
+                return None;
+            }
+            let (anchor, period) = (anchor.into_inner(), u64::from(period));
+            let periods_elapsed = current.saturating_sub(anchor) / period;
+            anchor.checked_add(periods_elapsed.checked_add(1)?.checked_mul(period)?)
+        };
+        let by_timeout = next_on_grid(self.tip_slot, self.posting_timeout.0);
+        let timed_out = self.posting_timeout.0 != 0
+            && current.saturating_sub(self.tip_slot.into_inner())
+                >= u64::from(self.posting_timeout.0);
+        if timed_out {
+            return by_timeout.map(Slot::from);
+        }
+        let by_timeframe = next_on_grid(self.tip_sequencer_starting_slot, self.posting_timeframe.0);
+        by_timeframe
+            .into_iter()
+            .chain(by_timeout)
+            .min()
+            .map(Slot::from)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::AdditiveGroup as _;
-    use lb_groth16::Fr;
-    use lb_key_management_system_keys::keys::{Ed25519Key, ZkKey, ZkPublicKey};
-    use lb_utils::blake_rng::RngCore as _;
-    use rand::thread_rng;
+    use lb_key_management_system_keys::keys::{Ed25519Key, UnverifiedEd25519PublicKey};
 
     use super::*;
-    use crate::{
-        events::{Event, EventPayload},
-        mantle::{
-            Note, Utxo,
-            ledger::{Outputs, Utxos},
-            ops::{
-                OpId as _,
-                channel::{
-                    Ed25519PublicKey as PublicKey,
-                    deposit::{DepositExecutionContext, DepositOp, Metadata},
-                    withdraw::{ChannelWithdrawOp, WithdrawExecutionContext},
-                },
-            },
-            tx::{GasPrices, MantleTxGasContext},
-        },
-        sdp::locked_notes::LockedNotes,
-    };
+    use crate::mantle::transactions::{GasPrices, tx_list::ops::OpsGasContext};
 
-    fn test_public_key(seed: u8) -> PublicKey {
-        Ed25519Key::from_bytes(&[seed; 32]).public_key()
+    fn test_public_key(seed: u8) -> UnverifiedEd25519PublicKey {
+        Ed25519Key::from_bytes(&[seed; 32])
+            .public_key()
+            .into_unverified()
     }
 
     fn make_channel(
@@ -276,63 +317,20 @@ mod tests {
             tip_sequencer_starting_slot: Slot::new(tip_sequencer_starting_slot),
             posting_timeframe: SlotTimeframe(posting_timeframe),
             posting_timeout: SlotTimeout(posting_timeout),
-            balance: 0,
-            withdrawal_nonce: 0,
-            accredited_keys: Keys::try_from((0..num_keys).map(test_public_key).collect::<Vec<_>>())
-                .unwrap()
-                .into(),
+            accredited_keys: UnverifiedChannelKeys::try_from(
+                (0..num_keys).map(test_public_key).collect::<Vec<_>>(),
+            )
+            .unwrap()
+            .into(),
             configuration_threshold: 0,
             tip_message: MsgId::root(),
-            withdraw_threshold: 0,
-        }
-    }
-
-    fn utxo(value: Value) -> (ZkKey, Utxo) {
-        let mut op_id = [0u8; 32];
-        thread_rng().fill_bytes(&mut op_id);
-        let zk_sk = ZkKey::from(Fr::ZERO);
-        let utxo = Utxo {
-            op_id,
-            output_index: 0,
-            note: Note::new(value, zk_sk.to_public_key()),
-        };
-        (zk_sk, utxo)
-    }
-
-    fn utxo_tree(utxos: Vec<Utxo>) -> Utxos {
-        let mut utxo_tree = Utxos::new();
-        for utxo in utxos {
-            (utxo_tree, _) = utxo_tree.insert(utxo.id(), utxo);
-        }
-        utxo_tree
-    }
-
-    impl Channels {
-        #[must_use]
-        pub fn with_balance(channel_id: ChannelId, balance: Value) -> Self {
-            Self {
-                channels: rpds::HashTrieMapSync::new_sync().insert(
-                    channel_id,
-                    ChannelState {
-                        accredited_keys: Keys::from(test_public_key(7)).into(),
-                        configuration_threshold: 1,
-                        tip_message: MsgId::root(),
-                        tip_slot: Slot::default(),
-                        tip_sequencer: 0,
-                        tip_sequencer_starting_slot: Slot::default(),
-                        posting_timeframe: 0u32.into(),
-                        balance,
-                        withdraw_threshold: 1,
-                        withdrawal_nonce: 0,
-                        posting_timeout: 0u32.into(),
-                    },
-                ),
-            }
+            config_tip_hash: MsgId::root(),
+            transfer_threshold: 0,
         }
     }
 
     #[test]
-    fn channels_to_gas_context_tracks_withdraw_thresholds() {
+    fn channels_to_gas_context_tracks_transfer_thresholds() {
         let first_id = ChannelId::from([1u8; 32]);
         let second_id = ChannelId::from([2u8; 32]);
         let missing_id = ChannelId::from([0u8; 32]);
@@ -342,184 +340,45 @@ mod tests {
                 .insert(
                     first_id,
                     ChannelState {
-                        accredited_keys: Keys::from(test_public_key(11)).into(),
+                        accredited_keys: UnverifiedChannelKeys::from(test_public_key(11)).into(),
                         configuration_threshold: 1,
                         tip_message: MsgId::root(),
+                        config_tip_hash: MsgId::root(),
                         tip_slot: Slot::default(),
                         tip_sequencer: 0,
                         tip_sequencer_starting_slot: Slot::default(),
                         posting_timeframe: 0u32.into(),
-                        balance: 5,
-                        withdraw_threshold: 1,
-                        withdrawal_nonce: 0,
+                        transfer_threshold: 1,
                         posting_timeout: 0u32.into(),
                     },
                 )
                 .insert(
                     second_id,
                     ChannelState {
-                        accredited_keys: Keys::from([test_public_key(22), test_public_key(23)])
-                            .into(),
+                        accredited_keys: UnverifiedChannelKeys::from([
+                            test_public_key(22),
+                            test_public_key(23),
+                        ])
+                        .into(),
                         configuration_threshold: 1,
                         tip_message: MsgId::root(),
+                        config_tip_hash: MsgId::root(),
                         tip_slot: Slot::default(),
                         tip_sequencer: 0,
                         tip_sequencer_starting_slot: Slot::default(),
                         posting_timeframe: 0.into(),
-                        balance: 9,
-                        withdraw_threshold: 2,
-                        withdrawal_nonce: 0,
+                        transfer_threshold: 2,
                         posting_timeout: 0.into(),
                     },
                 ),
+            channel_notes: ChannelNotes::new(),
         };
 
-        let gas_context = MantleTxGasContext::from_channels(&channels, GasPrices::new(0, 0));
+        let gas_context = OpsGasContext::from_channels(&channels, GasPrices::new(0, 0));
 
-        assert_eq!(gas_context.withdraw_threshold(&first_id), Some(1));
-        assert_eq!(gas_context.withdraw_threshold(&second_id), Some(2));
-        assert_eq!(gas_context.withdraw_threshold(&missing_id), None);
-    }
-
-    #[test]
-    fn deposit_increases_channel_balance() {
-        let channel_id = ChannelId::from([0u8; 32]);
-        let channels = Channels::with_balance(channel_id, 10);
-
-        let (_, utxo) = utxo(6u64);
-
-        let deposit_op = DepositOp {
-            channel_id,
-            inputs: [utxo.id()].into(),
-            metadata: Metadata::empty(),
-        };
-
-        let utxo_tree = utxo_tree(vec![utxo]);
-
-        let (updated, events) = deposit_op
-            .execute(DepositExecutionContext {
-                channels,
-                locked_notes: LockedNotes::new(),
-                utxos: utxo_tree,
-                tx_hash: [0; 32].into(),
-            })
-            .expect("execution should succeed");
-
-        assert_eq!(
-            updated.channels.channel_state(&channel_id).unwrap().balance,
-            16
-        );
-
-        assert_eq!(events.len(), 1);
-        let Some(Event::Tx {
-            tx_hash,
-            op_id,
-            payload:
-                EventPayload::Deposit {
-                    channel_id: event_channel_id,
-                    amount,
-                    metadata,
-                },
-        }) = events.iter().find(|event| {
-            matches!(
-                event,
-                Event::Tx {
-                    payload: EventPayload::Deposit { .. },
-                    ..
-                }
-            )
-        })
-        else {
-            panic!("events should include deposit event")
-        };
-        assert_eq!(*tx_hash, [0; 32].into());
-        assert_eq!(*op_id, deposit_op.op_id());
-        assert_eq!(*event_channel_id, deposit_op.channel_id);
-        assert_eq!(*amount, utxo.note.value);
-        assert_eq!(*metadata, deposit_op.metadata);
-    }
-
-    #[test]
-    fn withdraw_decreases_channel_balance() {
-        let channel_id = ChannelId::from([0u8; 32]);
-        let channels = Channels::with_balance(channel_id, 10);
-
-        let (_, utxo) = utxo(6u64);
-
-        let withdraw_op = ChannelWithdrawOp {
-            channel_id,
-            outputs: Outputs::new([Note {
-                value: 6,
-                pk: ZkPublicKey::zero(),
-            }]),
-            withdraw_nonce: 0,
-        };
-
-        let utxo_tree = utxo_tree(vec![utxo]);
-
-        let (updated, events) = withdraw_op
-            .execute(WithdrawExecutionContext {
-                channels,
-                utxos: utxo_tree,
-            })
-            .expect("execution should succeed");
-
-        assert_eq!(
-            updated.channels.channel_state(&channel_id).unwrap().balance,
-            4
-        );
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn withdraw_fails_with_insufficient_funds() {
-        let channel_id = ChannelId::from([0u8; 32]);
-        let channels = Channels::with_balance(channel_id, 3);
-
-        let (_, utxo) = utxo(6u64);
-
-        let withdraw_op = ChannelWithdrawOp {
-            channel_id,
-            outputs: Outputs::new([Note {
-                value: 6,
-                pk: ZkPublicKey::zero(),
-            }]),
-            withdraw_nonce: 0,
-        };
-
-        let utxo_tree = utxo_tree(vec![utxo]);
-
-        let result = withdraw_op.execute(WithdrawExecutionContext {
-            channels,
-            utxos: utxo_tree,
-        });
-
-        assert!(matches!(result, Err(Error::InsufficientFunds)));
-    }
-
-    #[test]
-    fn withdraw_fails_for_missing_channel() {
-        let channel_id = ChannelId::from([0u8; 32]);
-        let channels = Channels::new();
-        let (_, utxo) = utxo(6u64);
-
-        let withdraw_op = ChannelWithdrawOp {
-            channel_id,
-            outputs: Outputs::new([Note {
-                value: 6,
-                pk: ZkPublicKey::zero(),
-            }]),
-            withdraw_nonce: 0,
-        };
-
-        let utxo_tree = utxo_tree(vec![utxo]);
-
-        let result = withdraw_op.execute(WithdrawExecutionContext {
-            channels,
-            utxos: utxo_tree,
-        });
-
-        assert!(matches!(result, Err(Error::ChannelNotFound { .. })));
+        assert_eq!(gas_context.transfer_threshold(&first_id), Some(1));
+        assert_eq!(gas_context.transfer_threshold(&second_id), Some(2));
+        assert_eq!(gas_context.transfer_threshold(&missing_id), None);
     }
 
     // 1. Infinite timeframe (timeframe=0): sequencer holds indefinitely unless
@@ -547,6 +406,93 @@ mod tests {
     fn infinite_timeframe_multiple_timeouts() {
         let channel = make_channel(100, 1, 90, 0, 50, 4);
         assert_eq!(channel.round_robin(220.into()), (3, 200.into()));
+    }
+
+    #[test]
+    fn next_boundary_none_without_periods() {
+        let channel = make_channel(100, 2, 80, 0, 0, 5);
+        assert_eq!(channel.next_round_robin_boundary(100.into()), None);
+    }
+
+    #[test]
+    fn next_boundary_follows_timeout_grid_from_tip_slot() {
+        let channel = make_channel(100, 1, 90, 0, 50, 4);
+        assert_eq!(
+            channel.next_round_robin_boundary(100.into()),
+            Some(150.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(149.into()),
+            Some(150.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(150.into()),
+            Some(200.into())
+        );
+    }
+
+    #[test]
+    fn next_boundary_follows_timeframe_grid_from_starting_slot() {
+        let channel = make_channel(100, 0, 95, 10, 0, 3);
+        assert_eq!(
+            channel.next_round_robin_boundary(100.into()),
+            Some(105.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(105.into()),
+            Some(115.into())
+        );
+    }
+
+    #[test]
+    fn next_boundary_ignores_the_timeframe_grid_once_timed_out() {
+        // timeframe grid 3, 8, 13, 18, 23, 28, 33; timeout kicks in at 22 and
+        // then rotates at 34, 46, ...
+        let channel = make_channel(10, 0, 3, 5, 12, 4);
+        assert_eq!(
+            channel.next_round_robin_boundary(18.into()),
+            Some(22.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(21.into()),
+            Some(22.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(22.into()),
+            Some(34.into())
+        );
+        assert_eq!(
+            channel.next_round_robin_boundary(33.into()),
+            Some(34.into())
+        );
+    }
+
+    /// Every reported boundary is the first slot where `round_robin` moves,
+    /// and every move is reported by the slot before it.
+    #[test]
+    fn next_boundary_matches_round_robin_transitions() {
+        let channels = [
+            make_channel(100, 1, 90, 0, 50, 4),
+            make_channel(100, 0, 95, 10, 0, 3),
+            make_channel(100, 0, 95, 10, 7, 3),
+            make_channel(100, 2, 100, 3, 8, 2),
+            make_channel(10, 0, 3, 5, 12, 4),
+        ];
+        for channel in &channels {
+            for slot in 10u64..200 {
+                let boundary = channel
+                    .next_round_robin_boundary(slot.into())
+                    .unwrap()
+                    .into_inner();
+                let here = channel.round_robin(slot.into());
+                for between in slot..boundary {
+                    assert_eq!(channel.round_robin(between.into()), here, "slot {between}");
+                }
+                if channel.round_robin((slot + 1).into()) != here {
+                    assert_eq!(boundary, slot + 1, "transition after slot {slot}");
+                }
+            }
+        }
     }
 
     // 2. Normal timeframe rotation (no timeout triggered)

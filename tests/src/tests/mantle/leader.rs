@@ -3,13 +3,14 @@ use std::{collections::HashSet, num::NonZero, path::PathBuf, time::Duration};
 use futures::StreamExt as _;
 use lb_api_service::http::consensus::leader::LeaderClaimResponseBody;
 use lb_common_http_client::ProcessedBlockEvent;
+use lb_core::mantle::transactions::hash::TxHash;
 use lb_groth16::fr_to_bytes;
 use lb_http_api_common::bodies::wallet::{
     balance::WalletBalanceResponseBody, claimable_vouchers::WalletClaimableVouchersResponseBody,
 };
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_node::{
-    Transaction as _, TxHash,
+    Hashable as _,
     config::{RunConfig, cryptarchia::deployment::EpochConfig},
 };
 use lb_testing_framework::{
@@ -56,15 +57,30 @@ async fn leader_claim() {
 }
 
 fn test_config(mut config: RunConfig, leader_funding_pk: ZkPublicKey) -> RunConfig {
-    config.deployment.time.slot_duration = Duration::from_secs(1);
-    config.deployment.cryptarchia.epoch_config = EpochConfig {
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .time
+        .slot_duration = Duration::from_secs(1);
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .cryptarchia
+        .epoch_config = EpochConfig {
         epoch_stake_distribution_stabilization: 1.try_into().unwrap(),
         epoch_period_nonce_buffer: 1.try_into().unwrap(),
         epoch_period_nonce_stabilization: 1.try_into().unwrap(),
     };
-    config.deployment.cryptarchia.security_param = NonZero::new(2).unwrap();
-    config.deployment.cryptarchia.slot_activation_coeff =
-        NonNegativeRatio::new(1, 2.try_into().unwrap());
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .cryptarchia
+        .security_param = NonZero::new(2).unwrap();
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .cryptarchia
+        .slot_activation_coeff = NonNegativeRatio::new(1, 2.try_into().unwrap());
     config.user.cryptarchia.leader.wallet.funding_pk = leader_funding_pk;
 
     config
@@ -96,6 +112,18 @@ async fn wait_for_claimable_vouchers(node: &NodeHttpClient, duration: Duration) 
             let claimable_vouchers = get_claimable_vouchers(node).await;
 
             if !claimable_vouchers.vouchers.is_empty() {
+                assert!(
+                    claimable_vouchers.reward_amount > 0,
+                    "claimable vouchers should pay a positive reward, got {}",
+                    claimable_vouchers.reward_amount,
+                );
+                let expected_total = claimable_vouchers.reward_amount
+                    * u64::try_from(claimable_vouchers.vouchers.len())
+                        .expect("voucher count should fit in u64");
+                assert_eq!(
+                    claimable_vouchers.total_claimable, expected_total,
+                    "total claimable should be reward_amount * vouchers.len()",
+                );
                 return;
             }
 
@@ -121,7 +149,6 @@ async fn claim_leader_rewards(node: &NodeHttpClient, duration: Duration) -> TxHa
 }
 
 #[tokio::test]
-#[ignore = "Blocked on zero-fee transaction funding fix in https://github.com/logos-blockchain/logos-blockchain/pull/2970"]
 async fn concurrent_leader_claims() {
     let (_base, nodes, leader_funding_pk) = setup_test_nodes("concurrent_leader_claims").await;
     let node = &nodes[0];

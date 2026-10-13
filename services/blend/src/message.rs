@@ -1,10 +1,10 @@
 use core::fmt::{self, Debug, Formatter};
 
+use lb_binary_codec::{bincode::SerializeOp, canonical::BinaryEncode};
+pub use lb_blend::message::MAX_PAYLOAD_BODY_SIZE;
 use lb_blend::message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader;
-use lb_core::{
-    mantle::NoteId,
-    sdp::{DeclarationId, Locator},
-};
+use lb_core::{mantle::NoteId, sdp::Locator};
+use lb_sdp_service::SdpSubmission;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -29,8 +29,8 @@ pub enum ProxyServiceMessage<InnerMessage> {
     Inner(InnerMessage),
     JoinAsCore {
         locator: Locator,
-        locked_note_id: NoteId,
-        reply: oneshot::Sender<Result<DeclarationId, lb_sdp_service::api::Error>>,
+        service_note_id: NoteId,
+        reply: oneshot::Sender<Result<SdpSubmission, lb_sdp_service::api::Error>>,
     },
 }
 
@@ -41,68 +41,177 @@ impl<InnerMessage> From<InnerMessage> for ProxyServiceMessage<InnerMessage> {
 }
 
 /// A message that is handled by [`BlendService`].
-pub enum ServiceMessage<BroadcastSettings, NodeId> {
-    /// To send a message to the blend network and eventually broadcast it to
-    /// the [`NetworkService`].
-    Blend(NetworkMessage<BroadcastSettings>),
+pub enum ServiceMessage<NodeId> {
+    /// To send a payload through the blend network, for the exit node to
+    /// hand over to whichever local service owns that kind of payload.
+    Blend(DataPayload),
     /// Request the current blend network info (connected peers).
     GetNetworkInfo {
         reply: oneshot::Sender<Option<NetworkInfo<NodeId>>>,
     },
+    /// Request the transactions still waiting for a `PoW` solution to back
+    /// their layer proofs, oldest first.
+    // TODO: Change this to be tx IDs once we have strong types at the API level and we don't blend
+    // `Vec<u8>`s but actual `SignedOps`s.
+    GetPendingTransactions {
+        reply: oneshot::Sender<Vec<Vec<u8>>>,
+    },
 }
 
-impl<BroadcastSettings, NodeId> Debug for ServiceMessage<BroadcastSettings, NodeId>
-where
-    BroadcastSettings: Debug,
-{
+impl<NodeId> Debug for ServiceMessage<NodeId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Blend(msg) => f.debug_tuple("Blend").field(msg).finish(),
             Self::GetNetworkInfo { .. } => f.debug_struct("GetNetworkInfo").finish(),
+            Self::GetPendingTransactions { .. } => {
+                f.debug_struct("GetPendingTransactions").finish()
+            }
         }
     }
 }
 
-/// A message that is sent to the blend network.
-///
-/// To eventually broadcast the message to the network service,
-/// [`BroadcastSettings`] must be included in the [`NetworkMessage`].
-/// [`BroadcastSettings`] is a generic type defined by [`NetworkAdapter`].
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct NetworkMessage<BroadcastSettings> {
-    pub message: Vec<u8>,
-    pub broadcast_settings: BroadcastSettings,
+impl<NodeId> From<DataPayload> for ServiceMessage<NodeId> {
+    fn from(value: DataPayload) -> Self {
+        Self::Blend(value)
+    }
 }
 
-impl<BroadcastSettings> Debug for NetworkMessage<BroadcastSettings>
-where
-    BroadcastSettings: Debug,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NetworkMessage")
-            .field("message", &format_args!("{} bytes", self.message.len()))
-            .field("broadcast_settings", &self.broadcast_settings)
-            .finish()
+/// The plaintext body of a Blend data message, tagged with what it carries.
+// TODO: Replace with strong types for each message type Blend supports.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum DataPayload {
+    BlockProposal(Vec<u8>),
+    Transaction(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum DataPayloadType {
+    BlockProposal,
+    Transaction,
+}
+
+impl AsRef<str> for DataPayloadType {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::BlockProposal => "block_proposal",
+            Self::Transaction => "transaction",
+        }
     }
+}
+
+impl DataPayload {
+    /// Encodes a transaction for blending, refusing one that could never fit.
+    // TODO: This will go once we move away from `Vec<u8>` and into strong types
+    // for each message type Blend supports. Then we can also implement `TryFrom`
+    // directly.
+    pub fn try_from_transaction<Tx>(transaction: &Tx) -> Result<Self, TransactionNotBlendable>
+    where
+        Tx: SerializeOp,
+    {
+        let encoded_tx = transaction.to_bytes()?.to_vec();
+        if encoded_tx.len() > MAX_PAYLOAD_BODY_SIZE {
+            return Err(TransactionNotBlendable::TooLarge {
+                size: encoded_tx.len(),
+                maximum: MAX_PAYLOAD_BODY_SIZE,
+            });
+        }
+        Ok(Self::Transaction(encoded_tx))
+    }
+
+    /// Encodes a proposal for blending, refusing one that could never fit.
+    // TODO: This will go once we move away from `Vec<u8>` and into strong types
+    // for each message type Blend supports. Then we can also implement `TryFrom`
+    // directly.
+    pub fn try_from_proposal<Proposal>(proposal: &Proposal) -> Result<Self, ProposalNotBlendable>
+    where
+        Proposal: BinaryEncode,
+    {
+        if proposal.encoded_length() > MAX_PAYLOAD_BODY_SIZE {
+            return Err(ProposalNotBlendable::TooLarge {
+                size: proposal.encoded_length(),
+                maximum: MAX_PAYLOAD_BODY_SIZE,
+            });
+        }
+        let encoded_proposal = proposal.encode_to_vec();
+        Ok(Self::BlockProposal(encoded_proposal))
+    }
+
+    /// The wire discriminant this payload travels under.
+    #[must_use]
+    pub const fn payload_type(&self) -> DataPayloadType {
+        match self {
+            Self::BlockProposal(_) => DataPayloadType::BlockProposal,
+            Self::Transaction(_) => DataPayloadType::Transaction,
+        }
+    }
+
+    #[must_use]
+    pub fn body(&self) -> &[u8] {
+        match self {
+            Self::BlockProposal(body) | Self::Transaction(body) => body,
+        }
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.body().len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.body().is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lb_utils::bounded::UpperBoundedVec;
+
+    use super::*;
+
+    #[test]
+    fn proposal_payload_guard_rejects_one_byte_over_the_bound() {
+        let proposal: UpperBoundedVec<u8, { MAX_PAYLOAD_BODY_SIZE + 1 }> =
+            UpperBoundedVec::new_unchecked(vec![0; MAX_PAYLOAD_BODY_SIZE - 1]);
+        let result = DataPayload::try_from_proposal(&proposal);
+
+        assert!(matches!(
+            result,
+            Err(ProposalNotBlendable::TooLarge { size, maximum })
+                if size == MAX_PAYLOAD_BODY_SIZE + 1 && maximum == MAX_PAYLOAD_BODY_SIZE
+        ));
+    }
+}
+
+/// Why a transaction cannot be carried by the Blend network.
+#[derive(Debug, thiserror::Error)]
+pub enum TransactionNotBlendable {
+    #[error("Transaction of {size} bytes exceeds the {maximum} a Blend payload can carry.")]
+    TooLarge { size: usize, maximum: usize },
+    #[error("Transaction cannot be encoded: {0}")]
+    Encoding(#[from] lb_binary_codec::bincode::Error),
+}
+
+/// Why a proposal cannot be carried by the Blend network.
+#[derive(Debug, thiserror::Error)]
+pub enum ProposalNotBlendable {
+    #[error("Proposal of {size} bytes exceeds the {maximum} a Blend payload can carry.")]
+    TooLarge { size: usize, maximum: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum ProcessedMessage<BroadcastSettings> {
-    Network(NetworkMessage<BroadcastSettings>),
+pub enum ProcessedMessage {
+    Decapsulated(DataPayload),
     Encapsulated(Box<EncapsulatedMessageWithVerifiedPublicHeader>),
 }
 
-impl<BroadcastSettings> From<NetworkMessage<BroadcastSettings>>
-    for ProcessedMessage<BroadcastSettings>
-{
-    fn from(value: NetworkMessage<BroadcastSettings>) -> Self {
-        Self::Network(value)
+impl From<DataPayload> for ProcessedMessage {
+    fn from(value: DataPayload) -> Self {
+        Self::Decapsulated(value)
     }
 }
 
-impl<BroadcastSettings> From<EncapsulatedMessageWithVerifiedPublicHeader>
-    for ProcessedMessage<BroadcastSettings>
-{
+impl From<EncapsulatedMessageWithVerifiedPublicHeader> for ProcessedMessage {
     fn from(value: EncapsulatedMessageWithVerifiedPublicHeader) -> Self {
         Self::Encapsulated(Box::new(value))
     }

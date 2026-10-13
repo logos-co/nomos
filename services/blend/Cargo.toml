@@ -17,7 +17,9 @@ async-trait                      = { workspace = true }
 fork_stream                      = { workspace = true }
 futures                          = { workspace = true }
 hex                              = { workspace = true }
+lb-binary-codec                  = { workspace = true }
 lb-blend                         = { workspace = true }
+lb-chain-network-service         = { workspace = true }
 lb-chain-service                 = { workspace = true }
 lb-core                          = { workspace = true }
 lb-cryptarchia-engine            = { workspace = true }
@@ -30,13 +32,17 @@ lb-network-service               = { workspace = true }
 lb-poq                           = { workspace = true }
 lb-sdp-service                   = { workspace = true }
 lb-services-utils                = { workspace = true }
+lb-storage-service               = { workspace = true }
 lb-time-service                  = { workspace = true }
 lb-tracing                       = { workspace = true }
+lb-tx-service                    = { workspace = true }
 lb-utils                         = { workspace = true }
 libp2p                           = { features = ["dns"], workspace = true }
 libp2p-stream                    = { workspace = true }
 overwatch                        = { workspace = true }
-rand                             = { workspace = true }
+rand                             = { features = ["getrandom"], workspace = true }
+rand_chacha                      = { workspace = true }
+rayon                            = { workspace = true }
 serde                            = { workspace = true }
 serde_with                       = { workspace = true }
 thiserror                        = { workspace = true }
@@ -48,8 +54,9 @@ tracing                          = { workspace = true }
 lb-blend          = { features = ["unsafe-test-functions"], workspace = true }
 libp2p            = { features = ["plaintext", "tcp", "yamux"], workspace = true }
 libp2p-swarm-test = { workspace = true }
-tempfile          = { workspace = true }
 test-log          = { features = ["trace"], workspace = true }
+tokio             = { features = ["test-util"], workspace = true }
 
 [features]
-default = []
+default          = []
+tokio-task-names = ["lb-utils/tokio-task-names"]

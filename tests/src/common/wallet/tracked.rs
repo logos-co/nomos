@@ -1,10 +1,14 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use lb_core::mantle::{NoteId, TxHash, Utxo};
+use lb_core::mantle::{TxHash, Utxo};
+use serde::{Deserialize, Serialize};
 
 use super::{
-    TrackedWallet, WalletId, WalletReservedInputs, WalletStateView,
-    chain::{state::TrackedWalletKeys, state_cache::WalletChainStateCache},
+    TrackedWallet, TrackedWalletState, WalletId, WalletReservedInputs, WalletStateView,
+    chain::{
+        state::{TrackedWalletKeys, WalletUtxos},
+        state_cache::WalletChainStateCache,
+    },
 };
 
 /// Collection of wallets tracked from a chain view.
@@ -15,7 +19,7 @@ use super::{
 #[derive(Debug, Default)]
 pub struct TrackedWallets {
     wallets: HashMap<WalletId, TrackedWallet>,
-    chain_state_cache: WalletChainStateCache<WalletId>,
+    chain_state_cache: WalletChainStateCache,
     submitted_tx_hashes: HashMap<WalletId, Vec<TxHash>>,
 }
 
@@ -42,6 +46,42 @@ impl TrackedWallets {
         }
     }
 
+    pub(crate) fn record_wallet_reservations(
+        &mut self,
+        wallet_id: impl Into<WalletId>,
+        submissions: impl IntoIterator<Item = (TxHash, WalletReservedInputs, u64)>,
+    ) -> Vec<Utxo> {
+        let wallet_id = wallet_id.into();
+        let mut sender_inputs = Vec::new();
+        let mut fee_sponsor_inputs = Vec::new();
+        let mut tx_hashes = Vec::new();
+        let mut spent_fees = Vec::new();
+
+        for (tx_hash, reserved_inputs, spent_fee) in submissions {
+            let (sender, fee_sponsor) = reserved_inputs.into_sender_and_fee_sponsor_inputs();
+            sender_inputs.extend(sender);
+            fee_sponsor_inputs.extend(fee_sponsor);
+            tx_hashes.push(tx_hash);
+            spent_fees.push(spent_fee);
+        }
+
+        if tx_hashes.is_empty() {
+            return fee_sponsor_inputs;
+        }
+
+        let wallet = self.wallets.entry(wallet_id.clone()).or_default();
+        wallet.reserve_utxos(sender_inputs);
+        for spent_fee in spent_fees {
+            wallet.record_fee_spent(spent_fee);
+        }
+        self.submitted_tx_hashes
+            .entry(wallet_id)
+            .or_default()
+            .extend(tx_hashes);
+
+        fee_sponsor_inputs
+    }
+
     pub fn clear_encumbrances(&mut self, wallet_name: &str) {
         self.clear_pending_state(wallet_name);
     }
@@ -51,6 +91,14 @@ impl TrackedWallets {
         self.submitted_tx_hashes
             .get(wallet_name)
             .map_or(&[], Vec::as_slice)
+    }
+
+    #[must_use]
+    pub fn submitted_tx_hashes(&self) -> HashSet<TxHash> {
+        self.submitted_tx_hashes
+            .values()
+            .flat_map(|hashes| hashes.iter().copied())
+            .collect()
     }
 
     #[must_use]
@@ -113,13 +161,35 @@ impl TrackedWallets {
         }
     }
 
-    pub(crate) fn ensure_wallets_from_tracked_keys(
-        &mut self,
-        tracked_wallets: &[TrackedWalletKeys],
-    ) {
-        for tracked_wallet in tracked_wallets {
-            self.ensure_wallet(tracked_wallet.wallet_id().clone());
+    /// Export tracked wallet state for persistence by higher-level test code.
+    ///
+    /// The exported state intentionally omits transient chain sync caches;
+    /// those are rebuilt from subsequent block observations after restore.
+    #[must_use]
+    pub fn to_state(&self) -> TrackedWalletsState {
+        TrackedWalletsState {
+            wallets: self
+                .wallets
+                .iter()
+                .map(|(wallet_id, wallet)| (wallet_id.clone(), wallet.to_state()))
+                .collect(),
+            submitted_tx_hashes: self.submitted_tx_hashes.clone(),
         }
+    }
+
+    /// Replace tracked wallet state from a previously exported state value.
+    ///
+    /// Chain sync caches are cleared because they are runtime-derived, while
+    /// wallet UTXOs, reservations, fees, and submitted transaction hashes are
+    /// restored from `state`.
+    pub fn replace_from_state(&mut self, state: TrackedWalletsState) {
+        self.wallets = state
+            .wallets
+            .into_iter()
+            .map(|(wallet_id, wallet)| (wallet_id, TrackedWallet::from_state(wallet)))
+            .collect();
+        self.submitted_tx_hashes = state.submitted_tx_hashes;
+        self.chain_state_cache = WalletChainStateCache::default();
     }
 
     pub(crate) fn record_observed_wallets_utxos(
@@ -158,12 +228,6 @@ impl TrackedWallets {
     pub(crate) fn record_header_height(&mut self, node_name: &str, header_id: &str, height: u64) {
         self.chain_state_cache
             .record_header_height(node_name, header_id, height);
-    }
-
-    pub(crate) fn release_spent_note(&mut self, wallet_id: &WalletId, spent: NoteId) {
-        if let Some(wallet) = self.wallet_mut(wallet_id.as_str()) {
-            wallet.release_spent_note(spent);
-        }
     }
 
     #[must_use]
@@ -284,6 +348,69 @@ pub struct WalletDiagnostics {
     pub header_heights: Vec<(String, Vec<u64>)>,
 }
 
+/// Serializable state for all tracked wallets.
+///
+/// This is the wallet module's export/import shape. Snapshot-specific code may
+/// store it, but the type itself is not tied to any snapshot store.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TrackedWalletsState {
+    wallets: HashMap<WalletId, TrackedWalletState>,
+    submitted_tx_hashes: HashMap<WalletId, Vec<TxHash>>,
+}
+
+impl TrackedWalletsState {
+    #[must_use]
+    pub fn from_wallet_utxos(wallet_utxos: WalletUtxos) -> Self {
+        Self {
+            wallets: wallet_utxos
+                .into_iter()
+                .map(|(wallet_id, utxos)| {
+                    let mut wallet = TrackedWallet::new();
+                    wallet.replace_on_chain_utxos(utxos);
+                    (wallet_id, wallet.to_state())
+                })
+                .collect(),
+            submitted_tx_hashes: HashMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn to_wallet_utxos(&self) -> WalletUtxos {
+        self.wallets
+            .iter()
+            .map(|(wallet_id, wallet)| {
+                (
+                    wallet_id.clone(),
+                    TrackedWallet::from_state(wallet.clone()).on_chain_utxos(),
+                )
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn filtered_to_wallets(&self, wallet_ids: &HashSet<WalletId>) -> Self {
+        Self {
+            wallets: self
+                .wallets
+                .iter()
+                .filter(|(wallet_id, _)| wallet_ids.contains(*wallet_id))
+                .map(|(wallet_id, wallet)| (wallet_id.clone(), wallet.clone()))
+                .collect(),
+            submitted_tx_hashes: self
+                .submitted_tx_hashes
+                .iter()
+                .filter(|(wallet_id, _)| wallet_ids.contains(*wallet_id))
+                .map(|(wallet_id, tx_hashes)| (wallet_id.clone(), tx_hashes.clone()))
+                .collect(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.wallets.is_empty() && self.submitted_tx_hashes.is_empty()
+    }
+}
+
 pub struct WalletPendingStateDiagnostics {
     pub wallet_id: WalletId,
     pub reserved_utxos: usize,
@@ -294,4 +421,85 @@ pub struct WalletUtxoSnapshotDiagnostics {
     pub block_hash: String,
     pub header_id: String,
     pub non_empty_wallets: Vec<(WalletId, usize)>,
+}
+
+#[cfg(test)]
+mod tests {
+    use lb_core::mantle::Note;
+    use lb_key_management_system_service::keys::ZkPublicKey;
+
+    use super::*;
+
+    fn utxo(value: u64, output_index: usize) -> Utxo {
+        Utxo::new(
+            [output_index as u8; 32],
+            output_index,
+            Note::new(value, ZkPublicKey::zero()),
+        )
+    }
+
+    fn reserved_count(wallets: &TrackedWallets) -> usize {
+        wallets
+            .diagnostics()
+            .pending_states
+            .into_iter()
+            .find(|state| state.wallet_id.as_str() == "sender")
+            .expect("sender wallet should have pending state")
+            .reserved_utxos
+    }
+
+    #[test]
+    fn batched_wallet_bookkeeping_matches_per_submission_semantics() {
+        let sender_a = utxo(10, 0);
+        let sender_b = utxo(20, 1);
+        let sender_c = utxo(30, 2);
+        let sponsor_a = utxo(40, 3);
+        let sponsor_b = utxo(50, 4);
+        let submissions = vec![
+            (
+                TxHash([1; 32]),
+                WalletReservedInputs::new(vec![sender_a, sender_b], vec![sponsor_a]),
+                7,
+            ),
+            (
+                TxHash([2; 32]),
+                WalletReservedInputs::new(vec![sender_b, sender_c], vec![sponsor_b]),
+                11,
+            ),
+        ];
+
+        let mut per_submission = TrackedWallets::default();
+        let mut expected_sponsors = Vec::new();
+        for (tx_hash, reserved_inputs, spent_fee) in &submissions {
+            expected_sponsors.extend(
+                per_submission
+                    .record_wallet_reservation(
+                        "sender",
+                        *tx_hash,
+                        reserved_inputs.clone(),
+                        *spent_fee,
+                    )
+                    .into_fee_sponsor_reserved_inputs(),
+            );
+        }
+
+        let mut batched = TrackedWallets::default();
+        let actual_sponsors = batched.record_wallet_reservations("sender", submissions);
+
+        assert_eq!(
+            per_submission.submitted_tx_hashes_for("sender"),
+            batched.submitted_tx_hashes_for("sender")
+        );
+        assert_eq!(per_submission.total_tracked_spent_fees(), 18);
+        assert_eq!(
+            per_submission.total_tracked_spent_fees(),
+            batched.total_tracked_spent_fees()
+        );
+        assert_eq!(reserved_count(&per_submission), 3);
+        assert_eq!(reserved_count(&batched), 3);
+        assert_eq!(
+            expected_sponsors.iter().map(Utxo::id).collect::<Vec<_>>(),
+            actual_sponsors.iter().map(Utxo::id).collect::<Vec<_>>()
+        );
+    }
 }

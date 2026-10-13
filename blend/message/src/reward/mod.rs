@@ -7,13 +7,55 @@ use std::collections::HashSet;
 pub use activity::ActivityProof;
 pub use epoch::EpochInfo;
 use lb_cryptarchia_engine::Epoch;
-use lb_log_targets::blend;
+use lb_log_targets::{blend, diagnostic::BLEND_REACHABILITY};
 use serde::{Deserialize, Serialize};
 pub use token::{BlendingToken, HammingDistance};
 
+use crate::reward::epoch::TokenEvaluation;
 pub use crate::reward::epoch::{BlendingTokenEvaluation, EpochRandomness, Error};
 
 const LOG_TARGET: &str = blend::message::REWARD;
+
+#[derive(Debug)]
+struct ActivityTokenEvaluationDiagnostic {
+    proof_epoch: u32,
+    activity_threshold: u64,
+    candidate_hamming_distances: Vec<u64>,
+}
+
+impl ActivityTokenEvaluationDiagnostic {
+    fn new(collector: &OldEpochBlendingTokenCollector) -> Option<Self> {
+        tracing::enabled!(target: LOG_TARGET, tracing::Level::DEBUG).then(|| Self {
+            proof_epoch: u32::from(collector.collector.epoch()),
+            activity_threshold: collector
+                .collector
+                .token_evaluation
+                .activity_threshold()
+                .value(),
+            candidate_hamming_distances: Vec::new(),
+        })
+    }
+
+    fn record(&mut self, evaluation: TokenEvaluation) {
+        self.candidate_hamming_distances
+            .push(evaluation.distance.value());
+    }
+
+    fn log(self, activity_proof_generated: bool) {
+        let candidate_blending_token_count = self.candidate_hamming_distances.len();
+        tracing::debug!(
+            target: LOG_TARGET,
+            diagnostic = BLEND_REACHABILITY,
+            event = "blend_activity_token_evaluation",
+            proof_epoch = self.proof_epoch,
+            candidate_blending_token_count,
+            activity_threshold = self.activity_threshold,
+            candidate_hamming_distances = ?self.candidate_hamming_distances,
+            activity_proof_generated,
+            "Evaluated Blend activity tokens"
+        );
+    }
+}
 
 /// Holds blending tokens collected during a single epoch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,39 +124,34 @@ impl OldEpochBlendingTokenCollector {
     pub fn compute_activity_proof(self) -> Option<ActivityProof> {
         // Find the blending token with the smallest Hamming distance,
         // which is <= activity threshold.
-        tracing::trace!(
-            LOG_TARGET,
-            "Computing activity proof for epoch {} with activity threshold {:?} and next epoch randomness {:?} for {} candidate tokens",
-            self.collector.epoch(),
-            self.collector.token_evaluation.activity_threshold(),
-            self.next_epoch_randomness,
-            self.collector.tokens.len()
-        );
-        let (winning_activity_proof, distance) = self
+        let mut diagnostic = ActivityTokenEvaluationDiagnostic::new(&self);
+        let winning_activity_proof_with_distance = self
             .collector
             .tokens
             .into_iter()
             .filter_map(|token| {
-                let token_signing_key = *token.signing_key();
-
-                let distance = self
+                let evaluation = self
                     .collector
                     .token_evaluation
-                    .evaluate(&token, self.next_epoch_randomness)
-                    .map(|distance| (token, distance));
-
-                tracing::trace!(
-                    LOG_TARGET,
-                    "Evaluated token {token_signing_key:?} with distance {distance:?}",
-                );
-
-                distance
+                    .evaluate_token(&token, self.next_epoch_randomness);
+                if let Some(diagnostic) = &mut diagnostic {
+                    diagnostic.record(evaluation);
+                }
+                evaluation
+                    .satisfies_activity_threshold
+                    .then_some((token, evaluation.distance))
             })
             .min_by_key(|(_, distance)| *distance)
-            .map(|(token, distance)| (ActivityProof::new(self.collector.epoch, token), distance))?;
+            .map(|(token, distance)| (ActivityProof::new(self.collector.epoch, token), distance));
+
+        if let Some(diagnostic) = diagnostic {
+            diagnostic.log(winning_activity_proof_with_distance.is_some());
+        }
+
+        let (winning_activity_proof, distance) = winning_activity_proof_with_distance?;
 
         tracing::trace!(
-            LOG_TARGET,
+            target: LOG_TARGET,
             "Computed activity proof for epoch {}: {winning_activity_proof:?} with Hamming distance {distance:?}",
             self.collector.epoch,
         );
@@ -134,15 +171,10 @@ impl OldEpochBlendingTokenCollector {
     }
 }
 
-#[must_use]
-pub const fn evaluate_hamming_distance(distance: u64, activity_threshold: u64) -> bool {
-    distance <= activity_threshold
-}
-
 #[cfg(test)]
 mod tests {
     use lb_blend_proofs::{
-        quota::{PROOF_OF_QUOTA_SIZE, VerifiedProofOfQuota},
+        quota::{PROOF_OF_QUOTA_SIZE, Quota, VerifiedProofOfQuota},
         selection::{PROOF_OF_SELECTION_SIZE, VerifiedProofOfSelection},
     };
     use lb_core::crypto::ZkHash;
@@ -153,14 +185,14 @@ mod tests {
     #[test_log::test(test)]
     fn test_blending_token_collector() {
         let num_core_nodes = 2;
-        let core_quota = 15;
+        let core_quota = Quota::new::<15>();
         let epoch_info =
             EpochInfo::new(1.into(), &ZkHash::from(1), num_core_nodes, core_quota, 1).unwrap();
         let mut tokens = EpochBlendingTokenCollector::new(&epoch_info);
         assert!(tokens.tokens().is_empty());
 
         // Insert `total_core_quota-1` tokens.
-        let total_core_quota = core_quota.checked_mul(num_core_nodes).unwrap();
+        let total_core_quota = core_quota.get().checked_mul(num_core_nodes).unwrap();
         let mut i = 0;
         for _ in 0..(total_core_quota.checked_sub(1).unwrap()) {
             let signing_key: u8 = i.try_into().unwrap();

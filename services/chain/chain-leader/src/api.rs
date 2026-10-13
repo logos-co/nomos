@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use lb_core::mantle::TxHash;
+use lb_core::mantle::transactions::hash::TxHash;
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use tokio::sync::oneshot;
 
@@ -37,9 +37,7 @@ where
         self.relay
             .send(LeaderMsg::Claim { sender: resp_tx })
             .await
-            .map_err(|(relay_err, _)| {
-                ApiError::CommsFailure(format!("{relay_err} while sending Claim"))
-            })?;
+            .map_err(|error| ApiError::CommsFailure(format!("{error} while sending Claim")))?;
 
         resp_rx
             .await

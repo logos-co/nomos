@@ -1,14 +1,21 @@
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
+    time::Instant,
 };
 
 use futures::{StreamExt as _, stream};
-use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use lb_chain_service::{
+    EpochStateQueryResult,
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+};
 use lb_core::{
     header::HeaderId,
     mantle::Utxo,
-    proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate, LeaderPublic},
+    proofs::leader_proof::{
+        Error as LeaderProofError, Groth16LeaderProof, LeaderPrivate, LeaderPublic,
+    },
+    sdp::blend::{PolEpochState, PolEpochStateSource},
 };
 use lb_cryptarchia_engine::{Epoch, Slot};
 use lb_key_management_system_service::{
@@ -16,24 +23,34 @@ use lb_key_management_system_service::{
     operators::zk::leader::BuildPrivateInputsWithLeaderKey,
 };
 use lb_ledger::{EpochState, UtxoTree};
+use lb_log_targets::{chain, diagnostic::BLEND_REACHABILITY};
 use lb_time_service::{EpochSlotTickStream, SlotTick, TimeServiceMessage};
+use lb_utils::tokio::task::spawn_blocking;
 use lb_wallet_service::{
     UtxoWithKeyId,
-    api::{WalletApi, WalletServiceData},
+    api::{WalletApi, WalletApiError, WalletServiceData},
 };
 use overwatch::services::{AsServiceId, relay::OutboundRelay};
+#[cfg(test)]
+pub use pol_tests::test_config;
 use rand::rngs::OsRng;
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    sync::{mpsc, oneshot},
+    task::JoinError,
+};
 
 use crate::{
-    LOG_TARGET, WinningPolEpochSlots, WinningPolSlotStream, WinningSlotFuture,
+    WinningPolEpochSlots, WinningPolSlotStream, WinningSlotFuture,
     kms::{KmsAdapter, PreloadKmsService},
+    metrics,
 };
+
+const LOG_TARGET: &str = chain::leader::LEADERSHIP;
 
 /// Return a leadership proof and signing key if the current slot is a winning
 /// one for any of the eligible UTXOs, for use in a block proposal.
 ///
-/// If the slot is not a winning one, it returns `None`.
+/// If the slot is not a winning one, it returns `Ok(None)`.
 #[expect(
     clippy::cognitive_complexity,
     reason = "TODO: address this in a dedicated refactor"
@@ -45,33 +62,41 @@ pub async fn build_proof_for<Wallet, RuntimeServiceId>(
     slot: Slot,
     wallet: &WalletApi<Wallet, RuntimeServiceId>,
     kms: &(impl KmsAdapter<RuntimeServiceId, KeyId = KeyId> + Sync),
-) -> Option<(Groth16LeaderProof, Ed25519Key)>
+) -> Result<Option<(Groth16LeaderProof, Ed25519Key)>, BuildProofError>
 where
     Wallet: WalletServiceData,
     RuntimeServiceId: Debug + Display + Sync + AsServiceId<Wallet>,
 {
+    let (mut non_winning_utxos, mut winning_utxos, start) = (0usize, 0usize, Instant::now());
     for UtxoWithKeyId { utxo, key_id } in utxos {
         let public_inputs = public_inputs_for_slot(epoch_state, slot, latest_tree);
-        let winning = kms
+        let winning = match kms
             .check_winning_with_key(key_id.clone(), utxo, &public_inputs)
-            .await;
+            .await
+        {
+            Ok(winning) => winning,
+            Err(e) => {
+                metrics::consensus_proposals_create_failed("leadership_check");
+                tracing::error!(
+                    target: LOG_TARGET,
+                    "Failed to check winning utxo {:?} for {slot:?}: {e:?}",
+                    utxo.id(),
+                );
+                continue;
+            }
+        };
+
         if winning {
+            winning_utxos += 1;
             tracing::debug!(
+                target: LOG_TARGET,
                 "leader for slot {:?}, {:?}/{:?}",
                 slot,
                 utxo.note.value,
                 epoch_state.total_stake()
             );
 
-            let voucher_cm = match wallet.generate_new_voucher().await {
-                Ok(voucher_cm) => voucher_cm,
-                Err(e) => {
-                    tracing::error!("Failed to generate voucher: {e:?}");
-                    continue;
-                }
-            };
-
-            let private_inputs_result = kms
+            let (private_inputs, leader_signing_key) = match kms
                 .build_private_inputs_for_winning_utxo_and_slot(
                     key_id.clone(),
                     utxo,
@@ -79,11 +104,13 @@ where
                     public_inputs,
                     latest_tree,
                 )
-                .await;
-            let (private_inputs, leader_signing_key) = match private_inputs_result {
+                .await
+            {
                 Ok(result) => result,
                 Err(e) => {
+                    metrics::consensus_proposals_create_failed("private_inputs");
                     tracing::error!(
+                        target: LOG_TARGET,
                         "Failed to build private inputs for winning utxo {:?} for {slot:?}: {e:?}",
                         utxo.id(),
                     );
@@ -91,30 +118,57 @@ where
                 }
             };
 
-            let res = tokio::task::spawn_blocking(move || {
+            let voucher_cm = match wallet.generate_new_voucher().await {
+                Ok(voucher_cm) => voucher_cm,
+                Err(e) => {
+                    metrics::consensus_proposals_create_failed("voucher_generation");
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Failed to generate voucher for winning utxo {:?} for {slot:?}: {e:?}",
+                        utxo.id(),
+                    );
+                    continue;
+                }
+            };
+
+            let res = spawn_blocking("logos/chain/leader-proof-blocking", move || {
                 Groth16LeaderProof::prove(private_inputs, voucher_cm)
             })
             .await;
             match res {
-                Ok(Ok(proof)) => return Some((proof, leader_signing_key)),
+                Ok(Ok(proof)) => return Ok(Some((proof, leader_signing_key))),
                 Ok(Err(e)) => {
-                    tracing::error!("Failed to build proof: {:?}", e);
+                    metrics::consensus_proposals_create_failed("proof_generation");
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Failed to build proof for winning utxo {:?} for {slot:?}: {e:?}",
+                        utxo.id(),
+                    );
                 }
                 Err(e) => {
-                    tracing::error!("Failed to wait thread to build proof: {:?}", e);
+                    metrics::consensus_proposals_create_failed("proof_task");
+                    tracing::error!(
+                        target: LOG_TARGET,
+                        "Failed to wait for proof task for winning utxo {:?} for {slot:?}: {e:?}",
+                        utxo.id(),
+                    );
                 }
             }
         } else {
-            tracing::trace!(
-                "Not a leader for slot {:?}, {:?}/{:?}",
-                slot,
-                utxo.note.value,
-                epoch_state.total_stake()
-            );
+            non_winning_utxos += 1;
         }
     }
 
-    None
+    tracing::trace!(
+        target: LOG_TARGET,
+        "Leadership scan completed in {:.2?} - slot: {}, eligible: {}, winning: {winning_utxos}, \
+        non winning: {non_winning_utxos}",
+        start.elapsed(),
+        slot.into_inner(),
+        utxos.len(),
+    );
+
+    Ok(None)
 }
 
 pub fn operator_for_private_inputs_arguments_for_winning_utxo_and_slot(
@@ -176,6 +230,22 @@ pub enum PrivateInputsError {
     AgedNoteNotFound,
     #[error("Latest note not found from merkle tree")]
     LatestNoteNotFound,
+    #[error("KMS API error: {0}")]
+    KmsApi(#[from] overwatch::DynError),
+    #[error("KMS API did not respond")]
+    KmsResponse,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum BuildProofError {
+    #[error("Wallet API error: {0}")]
+    Wallet(#[from] WalletApiError),
+    #[error("Private input generation failed: {0}")]
+    PrivateInputs(#[from] PrivateInputsError),
+    #[error("Proof generation failed: {0}")]
+    Proof(#[from] LeaderProofError),
+    #[error("Proof generation task failed: {0}")]
+    ProofTask(#[from] JoinError),
 }
 
 /// The per-epoch chain state needed to check winning slots, shared by the
@@ -188,9 +258,12 @@ pub enum PrivateInputsError {
 /// per slot; the Blend winning-slot scan does not, since the leadership quota
 /// proof only attests that a note was aged, not that it is unspent.
 pub struct SlotContext {
-    pub tip: HeaderId,
+    /// Tip explicitly passed to `get_leader_aged_notes` for the wallet query.
+    pub wallet_tip: HeaderId,
     pub epoch_state: EpochState,
     pub eligible_aged: Vec<UtxoWithKeyId>,
+    /// Tip/LIB provenance of the chain-derived epoch state.
+    pub source: PolEpochStateSource,
 }
 
 /// Per-subscriber background task that hands one lazy winning-slot stream per
@@ -209,14 +282,14 @@ pub struct SlotContext {
     reason = "TODO: address this in a dedicated refactor"
 )]
 pub async fn search_for_winning_slots<CryptarchiaService, Wallet, RuntimeServiceId>(
-    cryptarchia_api: CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+    cryptarchia_api: CryptarchiaServiceApi<CryptarchiaService>,
     wallet_api: WalletApi<Wallet, RuntimeServiceId>,
     kms: KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
     time_relay: OutboundRelay<TimeServiceMessage>,
     ledger_config: lb_ledger::Config,
     epoch_handoff_sender: mpsc::Sender<WinningPolEpochSlots>,
 ) where
-    CryptarchiaService: CryptarchiaServiceData<Tx: Send + Sync>,
+    CryptarchiaService: CryptarchiaServiceData<Tx: Send>,
     Wallet: WalletServiceData,
     RuntimeServiceId: AsServiceId<Wallet>
         + AsServiceId<PreloadKmsService<RuntimeServiceId>>
@@ -256,6 +329,38 @@ pub async fn search_for_winning_slots<CryptarchiaService, Wallet, RuntimeService
             continue;
         };
 
+        let SlotContext {
+            wallet_tip,
+            epoch_state,
+            eligible_aged,
+            source,
+        } = slot_context;
+        let state = PolEpochState {
+            nonce: epoch_state.nonce,
+            aged_utxo_root: epoch_state.utxo_merkle_root(),
+            lottery_0: epoch_state.lottery_0,
+            lottery_1: epoch_state.lottery_1,
+            source,
+        };
+        tracing::debug!(
+            target: LOG_TARGET,
+            diagnostic = BLEND_REACHABILITY,
+            event = "pol_epoch_state_frozen",
+            epoch = u32::from(epoch),
+            slot = u64::from(slot),
+            wallet_tip_id = %wallet_tip,
+            source_tip_id = %state.source.tip_id,
+            source_tip_slot = u64::from(state.source.tip_slot),
+            source_lib_id = %state.source.lib_id,
+            source_lib_slot = u64::from(state.source.lib_slot),
+            wallet_tip_matches_epoch_state_source = wallet_tip == state.source.tip_id,
+            nonce = ?state.nonce,
+            aged_utxo_root = ?state.aged_utxo_root,
+            lottery_0 = ?state.lottery_0,
+            lottery_1 = ?state.lottery_1,
+            "Frozen ChainLeader epoch state for winning PoL slots"
+        );
+
         // Hand the subscriber a *lazy* stream over this epoch's slot range. No
         // slot is scanned until the subscriber drives the stream, and it decides
         // how far ahead to pre-compute, so the whole epoch is never materialized
@@ -263,14 +368,15 @@ pub async fn search_for_winning_slots<CryptarchiaService, Wallet, RuntimeService
         // the subscriber just stops polling it once it moves to the next epoch.
         let winning_slots_stream = epoch_winning_slots_stream(
             &ledger_config,
-            slot_context.epoch_state,
-            &slot_context.eligible_aged,
+            epoch_state,
+            &eligible_aged,
             kms.clone(),
             slot,
         );
         if epoch_handoff_sender
             .send(WinningPolEpochSlots {
                 epoch,
+                state,
                 slots: winning_slots_stream,
             })
             .await
@@ -308,19 +414,33 @@ async fn next_epoch_tick(
 /// slot's epoch state, and the wallet's eligible leader UTXOs (with the faucet
 /// UTXO filtered out). Returns `None` if any lookup fails.
 pub async fn fetch_slot_context<CryptarchiaService, Wallet, RuntimeServiceId>(
-    cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+    cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService>,
     wallet_api: &WalletApi<Wallet, RuntimeServiceId>,
     ledger_config: &lb_ledger::Config,
     slot: Slot,
 ) -> Option<SlotContext>
 where
-    CryptarchiaService: CryptarchiaServiceData<Tx: Send + Sync>,
+    CryptarchiaService: CryptarchiaServiceData<Tx: Send>,
     Wallet: WalletServiceData,
     RuntimeServiceId: AsServiceId<Wallet> + Debug + Display + Sync,
 {
-    let tip = cryptarchia_api.info().await.ok()?.cryptarchia_info.tip;
-    let epoch_state = cryptarchia_api.get_epoch_state(slot).await.ok()?.ok()?;
-    let eligible_utxos = wallet_api.get_leader_aged_notes(Some(tip)).await.ok()?;
+    let wallet_tip = cryptarchia_api.info().await.ok()?.cryptarchia_info.tip;
+    let EpochStateQueryResult {
+        epoch_state,
+        source_tip_id,
+        source_tip_slot,
+        source_lib_id,
+        source_lib_slot,
+        ..
+    } = cryptarchia_api
+        .get_epoch_state_with_source(slot)
+        .await
+        .ok()?
+        .ok()?;
+    let eligible_utxos = wallet_api
+        .get_leader_aged_notes(Some(wallet_tip))
+        .await
+        .ok()?;
     let eligible = match &ledger_config.faucet_pk {
         Some(faucet_pk) => eligible_utxos
             .response
@@ -330,9 +450,15 @@ where
         None => eligible_utxos.response,
     };
     Some(SlotContext {
-        tip,
+        wallet_tip,
         epoch_state,
         eligible_aged: eligible,
+        source: PolEpochStateSource {
+            tip_id: source_tip_id,
+            tip_slot: source_tip_slot,
+            lib_id: source_lib_id,
+            lib_slot: source_lib_slot,
+        },
     })
 }
 
@@ -389,10 +515,21 @@ fn epoch_winning_slots_stream<RuntimeServiceId>(
         let is_slot_winning_task: WinningSlotFuture = Box::pin(async move {
             let public_inputs = public_inputs_for_slot(&epoch_state, slot.into(), &epoch_state.utxos);
             for (utxo, key_id) in eligible_aged.iter() {
-                if !kms
+                let winning = match kms
                     .check_winning_with_key(key_id.clone(), utxo, &public_inputs)
                     .await
                 {
+                    Ok(winning) => winning,
+                    Err(e) => {
+                        tracing::error!(
+                            target: LOG_TARGET,
+                            "Failed to check winning utxo {:?} at slot {slot}: {e:?}",
+                            utxo.id(),
+                        );
+                        continue;
+                    }
+                };
+                if !winning {
                     continue;
                 }
                 tracing::trace!(target: LOG_TARGET, "Found winning utxo with ID {:?} for slot {slot}", utxo.id());
@@ -438,10 +575,13 @@ mod pol_tests {
     use lb_cryptarchia_engine::EpochConfig;
     use lb_groth16::{Fr, fr_from_bytes_unchecked};
     use lb_key_management_system_service::keys::{UnsecuredZkKey, ZkKey};
-    use lb_ledger::mantle::sdp::{
-        Config as SdpConfig, ServiceRewardsParameters, rewards::blend::RewardsParameters,
+    use lb_ledger::{
+        config::{BlendPoWConfig, ModulusShift, PoWConfig, RewardPoWConfig},
+        mantle::sdp::{
+            Config as SdpConfig, ServiceRewardsParameters, rewards::blend::RewardsParameters,
+        },
     };
-    use lb_utils::math::{NonNegativeF64, NonNegativeRatio};
+    use lb_utils::math::{NonNegativeRatio, PositiveF64};
     use lb_wallet_service::{WalletMsg, WalletServiceSettings};
     use overwatch::services::{
         ServiceData,
@@ -478,6 +618,7 @@ mod pol_tests {
         let epoch_state = EpochState {
             epoch: 1.into(),
             nonce: Fr::from(999u64),
+            blend_pow_difficulty: Fr::from(0u64),
             utxos: aged_tree.clone(),
             total_stake,
             lottery_0,
@@ -535,6 +676,7 @@ mod pol_tests {
                 kms,
             )
             .await
+            .expect("proof build should not fail")
             {
                 return Some((proof, slot));
             }
@@ -569,6 +711,7 @@ mod pol_tests {
         let epoch_state = EpochState {
             epoch: 1.into(),
             nonce: Fr::from(999u64),
+            blend_pow_difficulty: Fr::from(0u64),
             utxos: aged_tree,
             total_stake,
             lottery_0,
@@ -644,7 +787,26 @@ mod pol_tests {
         );
     }
 
-    fn test_config() -> lb_ledger::Config {
+    /// A reward config with claiming disabled, standing in for a real
+    /// deployment config in tests.
+    fn disabled_reward_config() -> RewardPoWConfig {
+        RewardPoWConfig {
+            reward_pool_genesis: 1_000_000_000,
+            epoch_reward_genesis: 1_000_000,
+            minimum_difficulty: ModulusShift::new::<26>(),
+            ema_smoothing_factor: 9,
+            ema_smoothing_precision: core::num::NonZeroU64::new(10).unwrap(),
+            target_claims_per_block: 100,
+            rate_num: 0,
+            rate_den: core::num::NonZeroU64::MIN,
+            target_claim_per_block: core::num::NonZeroU64::MIN,
+            pow_share: 0,
+            share_den: core::num::NonZeroU64::MIN,
+            slot_window: core::num::NonZeroU64::new(100).unwrap(),
+        }
+    }
+
+    pub fn test_config() -> lb_ledger::Config {
         lb_ledger::Config {
             epoch_config: EpochConfig {
                 epoch_stake_distribution_stabilization: NonZero::new(3u8).unwrap(),
@@ -655,6 +817,7 @@ mod pol_tests {
                 NonZero::new(5).unwrap(),
                 NonNegativeRatio::new(1, 10.try_into().unwrap()),
                 1f64.try_into().expect("1 > 0"),
+                NonZero::new(12).unwrap(),
             ),
             sdp_config: SdpConfig {
                 service_params: Arc::new(
@@ -662,7 +825,6 @@ mod pol_tests {
                         ServiceType::BlendNetwork,
                         ServiceParameters {
                             inactivity_period: 20.try_into().unwrap(),
-                            retention_period: 100.into(),
                             epoch: 0.into(),
                         },
                     )]
@@ -671,7 +833,7 @@ mod pol_tests {
                 service_rewards_params: ServiceRewardsParameters {
                     blend: RewardsParameters {
                         rounds_per_epoch: NonZero::new(10u64).unwrap(),
-                        message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                        message_frequency_per_round: PositiveF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZero::new(3u64).unwrap(),
                         minimum_network_size: NonZero::new(1u64).unwrap(),
                         data_replication_factor: 0,
@@ -684,6 +846,16 @@ mod pol_tests {
                 },
             },
             faucet_pk: None,
+            pow_config: PoWConfig {
+                blend: BlendPoWConfig {
+                    base_difficulty: ModulusShift::new::<19>(),
+                    damping_den_offset: 0,
+                    damping_num: 1.try_into().unwrap(),
+                    max_step: 1.try_into().unwrap(),
+                    target_transactions_per_block: 1.try_into().unwrap(),
+                },
+                reward: disabled_reward_config(),
+            },
         }
     }
 
@@ -698,9 +870,14 @@ mod pol_tests {
             _: Self::KeyId,
             utxo: &Utxo,
             leader_public: &LeaderPublic,
-        ) -> bool {
+        ) -> Result<bool, overwatch::DynError> {
             let sk = ZkKey::new(Fr::from(0u64));
-            check_winning(*utxo, *leader_public, &sk.to_public_key(), Fr::from(0u64))
+            Ok(check_winning(
+                *utxo,
+                *leader_public,
+                &sk.to_public_key(),
+                Fr::from(0u64),
+            ))
         }
 
         async fn build_private_inputs_for_winning_utxo_and_slot(
@@ -745,7 +922,6 @@ mod pol_tests {
         type Kms = ();
         type Cryptarchia = ();
         type Tx = ();
-        type Storage = ();
     }
 
     impl DummyWallet {
@@ -755,7 +931,7 @@ mod pol_tests {
             tokio::spawn(async move {
                 while let Some(msg) = msg_receiver.recv().await {
                     if let WalletMsg::GenerateNewVoucherSecret { resp_tx } = msg {
-                        let _ = resp_tx.send(dummy_voucher_cm());
+                        drop(resp_tx.send(Ok(dummy_voucher_cm())));
                     }
                 }
             });

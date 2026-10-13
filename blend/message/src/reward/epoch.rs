@@ -1,13 +1,17 @@
 use core::fmt::{self, Debug, Formatter};
 use std::ops::Add as _;
 
+use lb_blend_proofs::quota::Quota;
 use lb_core::crypto::ZkHash;
 use lb_cryptarchia_engine::Epoch;
 use lb_groth16::{Fr, FrBytes, fr_to_bytes};
+use lb_log_targets::{blend, diagnostic::BLEND_REACHABILITY};
 use lb_utils::math::{F64Ge1, NonNegativeF64};
 use serde::{Deserialize, Serialize};
 
 use crate::reward::{BlendingToken, activity, token::HammingDistance};
+
+const LOG_TARGET: &str = blend::message::REWARD;
 
 /// Epoch-specific information to compute an activity proof.
 pub struct EpochInfo {
@@ -21,12 +25,12 @@ impl EpochInfo {
         epoch: Epoch,
         pol_epoch_nonce: &ZkHash,
         num_core_nodes: u64,
-        core_quota: u64,
+        node_core_quota: Quota,
         activity_threshold_sensitivity: u64,
     ) -> Result<Self, Error> {
         let epoch_randomness = (*pol_epoch_nonce).into();
         let token_evaluation = BlendingTokenEvaluation::new(
-            core_quota,
+            node_core_quota,
             num_core_nodes,
             activity_threshold_sensitivity,
         )?;
@@ -53,11 +57,11 @@ pub struct BlendingTokenEvaluation {
 
 impl BlendingTokenEvaluation {
     pub fn new(
-        core_quota: u64,
+        node_core_quota: Quota,
         num_core_nodes: u64,
         activity_threshold_sensitivity: u64,
     ) -> Result<Self, Error> {
-        let expected_token_count_bit_len = token_count_bit_len(core_quota, num_core_nodes)?;
+        let expected_token_count_bit_len = token_count_bit_len(node_core_quota, num_core_nodes)?;
         let activity_threshold = activity_threshold(
             expected_token_count_bit_len,
             num_core_nodes,
@@ -79,18 +83,59 @@ impl BlendingTokenEvaluation {
         token: &BlendingToken,
         next_epoch_randomness: EpochRandomness,
     ) -> Option<HammingDistance> {
-        let distance = token.hamming_distance(self.token_count_byte_len, next_epoch_randomness);
+        let evaluation = self.evaluate_token(token, next_epoch_randomness);
+        evaluation
+            .satisfies_activity_threshold
+            .then_some(evaluation.distance)
+    }
+
+    /// Evaluates a token once and retains both the distance and the threshold
+    /// decision for callers that need to select a proof and report that same
+    /// decision.
+    #[must_use]
+    pub(super) fn evaluate_token(
+        &self,
+        token: &BlendingToken,
+        next_epoch_randomness: EpochRandomness,
+    ) -> TokenEvaluation {
+        let distance = self.distance(token, next_epoch_randomness);
+        let satisfies_activity_threshold = distance <= self.activity_threshold;
         tracing::trace!(
-            "Evaluated blending token {:?} for activity proof. Calculated Hamming distance = {distance:?}",
-            token.signing_key()
+            target: LOG_TARGET,
+            diagnostic = BLEND_REACHABILITY,
+            event = "blend_activity_token_distance",
+            signing_key = ?token.signing_key(),
+            hamming_distance = distance.value(),
+            activity_threshold = self.activity_threshold.value(),
+            satisfies_activity_threshold,
+            "Evaluated blending token for activity proof"
         );
-        (distance <= self.activity_threshold).then_some(distance)
+
+        TokenEvaluation {
+            distance,
+            satisfies_activity_threshold,
+        }
+    }
+
+    #[must_use]
+    pub fn distance(
+        &self,
+        token: &BlendingToken,
+        next_epoch_randomness: EpochRandomness,
+    ) -> HammingDistance {
+        token.hamming_distance(self.token_count_byte_len, next_epoch_randomness)
     }
 
     #[must_use]
     pub const fn activity_threshold(&self) -> HammingDistance {
         self.activity_threshold
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(super) struct TokenEvaluation {
+    pub(super) distance: HammingDistance,
+    pub(super) satisfies_activity_threshold: bool,
 }
 
 /// Deterministic unbiased randomness for an epoch.
@@ -126,8 +171,9 @@ pub enum Error {
 
 /// The number of bits that can represent the maximum number of blending
 /// tokens generated during a single epoch.
-pub fn token_count_bit_len(core_quota: u64, num_core_nodes: u64) -> Result<u64, Error> {
-    let total_core_quota = core_quota
+pub fn token_count_bit_len(node_core_quota: Quota, num_core_nodes: u64) -> Result<u64, Error> {
+    let total_core_quota = node_core_quota
+        .get()
         .checked_mul(num_core_nodes)
         .ok_or(Error::TotalCoreQuotaTooLarge(u64::MAX))?;
     let total_core_quota: NonNegativeF64 = total_core_quota
@@ -191,19 +237,19 @@ mod tests {
 
     #[test]
     fn test_token_count_bit_len() {
-        let core_quota = 5;
+        let core_quota: Quota = Quota::new::<5>();
         let num_core_nodes = 2;
         // ceil(log2(10 + 1))
         assert_eq!(token_count_bit_len(core_quota, num_core_nodes).unwrap(), 4);
 
-        let core_quota = 0;
+        let core_quota: Quota = Quota::ZERO;
         // ceil(log2(0 + 1))
         assert_eq!(token_count_bit_len(core_quota, num_core_nodes).unwrap(), 0);
     }
 
     #[test]
     fn test_token_evaluation() {
-        let evaluation = BlendingTokenEvaluation::new(2000, 2, 1).unwrap();
+        let evaluation = BlendingTokenEvaluation::new(Quota::new::<2000>(), 2, 1).unwrap();
         // token_count_bit_len = ceil(log2((2000*2) + 1)) = 12
         // token_count_byte_len = ceil(token_count_bit_len / 8) = 2
         assert_eq!(evaluation.token_count_byte_len, 2);

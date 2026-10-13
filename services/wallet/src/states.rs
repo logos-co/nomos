@@ -1,15 +1,23 @@
-use std::collections::HashMap;
+use std::{
+    borrow::Borrow,
+    collections::{HashMap, HashSet},
+};
 
 use lb_core::{
     header::HeaderId,
-    mantle::ops::leader_claim::{VoucherCm, VoucherNullifier},
+    mantle::{
+        GasProfile, NoteId,
+        ops::leader_claim::{VoucherCm, VoucherNullifier},
+        transactions::{MantleTxBuilder, tx_list::ops::OpsContext},
+    },
 };
+use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_ledger::LedgerState;
 use lb_log_targets::wallet;
 use lb_wallet::{Voucher, Vouchers, WalletBlock, WalletError, WalletState};
 use overwatch::services::state::StateUpdater;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{KeyId, WalletServiceError, WalletServiceSettings};
 
@@ -108,6 +116,86 @@ impl PendingClaims {
     }
 }
 
+/// Notes handed out as funding for transactions that have been built but not
+/// yet observed on chain. Ephemeral: rebuilt empty on restart; entries are
+/// dropped once the note is observed spent in a block, or expire after enough
+/// LIB progress (mirroring [`PendingClaims`]).
+///
+/// Unlike claim reservations, which must hold until the claim is finalised,
+/// funded notes are released as soon as they are observed spent in a tip
+/// block; eviction only covers transactions that never land. Releasing too
+/// early merely reintroduces a conflicting tx, the same failure mode as
+/// having no reservation at all.
+#[derive(Debug, Default)]
+struct PendingNotes {
+    notes: HashMap<NoteId, u64>,
+}
+
+impl PendingNotes {
+    fn reserve(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
+        for note_id in note_ids {
+            debug!(
+                target: wallet::SERVICE,
+                ?note_id,
+                "Reserved pending note"
+            );
+            self.notes.insert(note_id, 0);
+        }
+    }
+
+    fn release(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
+        for note_id in note_ids {
+            if self.notes.remove(&note_id).is_some() {
+                debug!(
+                    target: wallet::SERVICE,
+                    ?note_id,
+                    "Released pending note reservation"
+                );
+            }
+        }
+    }
+
+    fn note_ids(&self) -> HashSet<NoteId> {
+        self.notes.keys().copied().collect()
+    }
+
+    /// Evict reservations whose LIB-progress age reached the configured limit.
+    ///
+    /// Each LIB update adds `new_immutable_blocks_count` to every reservation's
+    /// counter. A reservation expires once that counter reaches
+    /// `max_immutable_blocks_since_reservation`.
+    fn evict_expired(
+        &mut self,
+        new_immutable_blocks_count: u64,
+        max_immutable_blocks_since_reservation: u64,
+    ) {
+        if new_immutable_blocks_count == 0 {
+            return;
+        }
+
+        self.notes
+            .retain(|note_id, immutable_blocks_since_reservation| {
+                *immutable_blocks_since_reservation =
+                    immutable_blocks_since_reservation.saturating_add(new_immutable_blocks_count);
+
+                let expired =
+                    *immutable_blocks_since_reservation >= max_immutable_blocks_since_reservation;
+
+                if expired {
+                    debug!(
+                        target: wallet::SERVICE,
+                        ?note_id,
+                        immutable_blocks_since_reservation,
+                        max_immutable_blocks_since_reservation,
+                        "Removing pending note reservation after LIB progress"
+                    );
+                }
+
+                !expired
+            });
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryState {
     next_new_voucher_index: VoucherIndex,
@@ -142,6 +230,8 @@ pub struct ServiceState<'u> {
     lib: HeaderId,
     updater: &'u StateUpdater<Option<RecoveryState>>,
     pending_claims: PendingClaims,
+    pending_notes: PendingNotes,
+    pending_note_expiry_blocks: u64,
     security_param: u64,
 }
 
@@ -184,6 +274,8 @@ impl<'u> ServiceState<'u> {
             lib: wallet_lib,
             updater,
             pending_claims,
+            pending_notes: PendingNotes::default(),
+            pending_note_expiry_blocks: settings.pending_note_expiry_blocks,
             security_param,
         }
     }
@@ -192,20 +284,21 @@ impl<'u> ServiceState<'u> {
         self.lib
     }
 
-    pub fn get_and_inc_next_new_voucher_index(&mut self) -> VoucherIndex {
-        let index = self.next_new_voucher_index;
-        self.next_new_voucher_index += 1;
-        self.update_state();
-        index
+    pub const fn next_new_voucher_index(&self) -> VoucherIndex {
+        self.next_new_voucher_index
     }
 
-    pub fn add_known_voucher(&mut self, cm: VoucherCm, nf: VoucherNullifier, id: VoucherId) {
+    pub fn add_next_known_voucher(&mut self, cm: VoucherCm, nf: VoucherNullifier, key_id: KeyId) {
+        let id = (key_id, self.next_new_voucher_index);
+        self.next_new_voucher_index += 1;
         self.wallet.add_known_voucher(cm, nf, id);
         self.update_state();
     }
 
     pub fn apply_block(&mut self, block: &WalletBlock) -> Result<(), WalletError> {
         self.wallet.apply_block(block)?;
+        // Note reservations are released after `pending_note_expiry_blocks`
+        // (see `evict_expired`), not on spent.
         self.update_state();
         Ok(())
     }
@@ -217,11 +310,29 @@ impl<'u> ServiceState<'u> {
         new_immutable_blocks_count: u64,
         pruned_nullifiers: impl IntoIterator<Item = VoucherNullifier>,
     ) {
+        // The wallet must already hold a `WalletState` for `new_lib`, otherwise
+        // `update_state` cannot persist the recovery state. The service backfills
+        // up to `new_lib` before calling us; if it still isn't present (e.g. the
+        // block is not yet in storage) we skip advancing rather than panicking,
+        // keeping `self.lib` pointing at a block whose state exists. A later
+        // block application or LIB update advances the LIB once the gap is filled.
+        if !self.wallet.has_processed_block(new_lib) {
+            warn!(
+                target: wallet::SERVICE,
+                ?new_lib,
+                current_lib = ?self.lib,
+                "Skipping LIB advance: wallet has not applied the new LIB block yet"
+            );
+            return;
+        }
+
         self.lib = new_lib;
         self.wallet.prune_states(pruned_blocks);
         self.wallet.prune_vouchers(pruned_nullifiers);
         self.pending_claims
             .evict_expired(new_immutable_blocks_count, self.security_param);
+        self.pending_notes
+            .evict_expired(new_immutable_blocks_count, self.pending_note_expiry_blocks);
         self.update_state();
     }
 
@@ -262,6 +373,39 @@ impl<'u> ServiceState<'u> {
         self.pending_claims.release(nullifier);
     }
 
+    /// Fund `tx_builder` from the wallet's UTXOs at `tip`, excluding notes
+    /// already reserved for in-flight transactions. `priority_fee_percent`
+    /// reserves that percentage of the final mandatory fee, including both
+    /// execution and storage cost. Only the unused reserve becomes an
+    /// effective priority tip, and the percentage is not capped at 100.
+    pub fn fund_tx<G: GasProfile>(
+        &self,
+        tip: HeaderId,
+        tx_builder: &MantleTxBuilder,
+        change_pk: ZkPublicKey,
+        funding_pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+        context: &OpsContext,
+        priority_fee_percent: u64,
+    ) -> Result<MantleTxBuilder, WalletError> {
+        self.wallet.fund_tx::<G>(
+            tip,
+            tx_builder,
+            change_pk,
+            funding_pks,
+            context,
+            &self.pending_notes.note_ids(),
+            priority_fee_percent,
+        )
+    }
+
+    pub fn reserve_pending_notes(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
+        self.pending_notes.reserve(note_ids);
+    }
+
+    pub fn release_pending_notes(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
+        self.pending_notes.release(note_ids);
+    }
+
     fn update_state(&self) {
         let lib_wallet_state = self
             .wallet()
@@ -279,6 +423,8 @@ impl<'u> ServiceState<'u> {
 
 #[cfg(test)]
 mod tests {
+    use lb_groth16::{Field as _, Fr};
+
     use super::*;
 
     const EXPIRY_BLOCKS: u64 = 4;
@@ -305,5 +451,181 @@ mod tests {
 
         pending_claims.evict_expired(1, EXPIRY_BLOCKS);
         assert!(!pending_claims.is_reserved(&nullifier));
+    }
+
+    #[test]
+    fn pending_note_does_not_expire_without_lib_progress() {
+        let note_id = NoteId::from(Fr::ONE);
+        let mut pending_notes = PendingNotes::default();
+
+        pending_notes.reserve([note_id]);
+        pending_notes.evict_expired(0, EXPIRY_BLOCKS);
+
+        assert!(pending_notes.note_ids().contains(&note_id));
+    }
+
+    #[test]
+    fn pending_note_expires_after_enough_lib_progress() {
+        let note_id = NoteId::from(Fr::ONE);
+        let mut pending_notes = PendingNotes::default();
+
+        pending_notes.reserve([note_id]);
+        pending_notes.evict_expired(EXPIRY_BLOCKS - 1, EXPIRY_BLOCKS);
+        assert!(pending_notes.note_ids().contains(&note_id));
+
+        pending_notes.evict_expired(1, EXPIRY_BLOCKS);
+        assert!(!pending_notes.note_ids().contains(&note_id));
+    }
+
+    #[test]
+    fn released_pending_note_becomes_available() {
+        let note_id = NoteId::from(Fr::ONE);
+        let mut pending_notes = PendingNotes::default();
+
+        pending_notes.reserve([note_id]);
+        pending_notes.release([note_id]);
+
+        assert!(pending_notes.note_ids().is_empty());
+    }
+
+    fn ledger_config() -> lb_ledger::Config {
+        use std::{
+            num::{NonZero, NonZeroU64},
+            sync::Arc,
+        };
+
+        use lb_core::sdp::{MinStake, ServiceParameters, ServiceType};
+        use lb_cryptarchia_engine::EpochConfig;
+        use lb_ledger::{
+            config::{BlendPoWConfig, ModulusShift, PoWConfig, RewardPoWConfig},
+            mantle::sdp::{ServiceRewardsParameters, rewards},
+        };
+        use lb_utils::math::{NonNegativeRatio, PositiveF64};
+
+        let epoch_config = EpochConfig {
+            epoch_stake_distribution_stabilization: NonZero::new(1).unwrap(),
+            epoch_period_nonce_buffer: NonZero::new(1).unwrap(),
+            epoch_period_nonce_stabilization: NonZero::new(1).unwrap(),
+        };
+        let consensus_config = lb_cryptarchia_engine::Config::new(
+            NonZero::new(1).unwrap(),
+            NonNegativeRatio::new(1, 10.try_into().unwrap()),
+            1f64.try_into().expect("1 > 0"),
+            NonZero::new(12).unwrap(),
+        );
+        let epoch_length = epoch_config.epoch_length(consensus_config.base_period_length());
+
+        lb_ledger::Config {
+            epoch_config,
+            consensus_config,
+            sdp_config: lb_ledger::mantle::sdp::Config {
+                service_params: Arc::new(
+                    [(
+                        ServiceType::BlendNetwork,
+                        ServiceParameters {
+                            inactivity_period: 20.try_into().unwrap(),
+                            epoch: 0.into(),
+                        },
+                    )]
+                    .into(),
+                ),
+                service_rewards_params: ServiceRewardsParameters {
+                    blend: rewards::blend::RewardsParameters {
+                        rounds_per_epoch: epoch_length.try_into().unwrap(),
+                        message_frequency_per_round: PositiveF64::try_from(1.0).unwrap(),
+                        num_blend_layers: NonZeroU64::new(3).unwrap(),
+                        minimum_network_size: NonZeroU64::new(1).unwrap(),
+                        data_replication_factor: 0,
+                        activity_threshold_sensitivity: 1,
+                    },
+                },
+                min_stake: MinStake {
+                    threshold: 1,
+                    timestamp: 0,
+                },
+            },
+            faucet_pk: None,
+            pow_config: PoWConfig {
+                blend: BlendPoWConfig {
+                    base_difficulty: ModulusShift::new::<19>(),
+                    damping_den_offset: 0,
+                    damping_num: 1.try_into().unwrap(),
+                    max_step: 1.try_into().unwrap(),
+                    target_transactions_per_block: 1.try_into().unwrap(),
+                },
+                reward: RewardPoWConfig {
+                    reward_pool_genesis: 1_000_000_000,
+                    epoch_reward_genesis: 1_000_000,
+                    minimum_difficulty: ModulusShift::new::<26>(),
+                    ema_smoothing_factor: 9,
+                    ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
+                    target_claims_per_block: 100,
+                    rate_num: 0,
+                    rate_den: NonZeroU64::MIN,
+                    target_claim_per_block: NonZeroU64::MIN,
+                    pow_share: 0,
+                    share_den: NonZeroU64::MIN,
+                    slot_window: NonZeroU64::new(100).unwrap(),
+                },
+            },
+        }
+    }
+
+    /// Regression test for the wallet-service crash seen the first time a
+    /// bootstrapping node switches to Online:
+    ///
+    /// During bootstrap the engine never advances the LIB, so no `LibUpdate`
+    /// is broadcast and the wallet's `state.lib` stays at its starting point.
+    /// `switch_to_online()` then jumps the chain LIB to the tip's k-th
+    /// ancestor without broadcasting a `LibUpdate`. The first block processed
+    /// afterwards broadcasts a `LibUpdate` whose `new_lib` can be a block the
+    /// wallet has not applied yet (its frontier lags during IBD).
+    ///
+    /// The service backfills up to `new_lib` before advancing (see
+    /// `handle_lib_update`). This test covers the `advance_lib` safety net for
+    /// the case the block is still missing: it must skip the advance and keep
+    /// the current LIB rather than panicking with
+    /// "`WalletState` at LIB must exist: `UnknownBlock(...)`".
+    #[test]
+    fn lib_update_for_unapplied_block_skips_advance() {
+        use std::sync::Arc;
+
+        use lb_services_utils::overwatch::RecoveryData;
+
+        let settings = WalletServiceSettings {
+            known_keys: HashMap::new(),
+            voucher_master_key_id: "voucher-master".into(),
+            recovery_data: RecoveryData::default(),
+            pending_note_expiry_blocks: 10,
+        };
+
+        // Fresh wallet: initialized from the LIB ledger state at genesis.
+        let recovery = RecoveryState {
+            next_new_voucher_index: 0,
+            vouchers: Vouchers::default(),
+            lib_wallet_state: None,
+            pending_claims: PendingClaims::default(),
+        };
+
+        let genesis = HeaderId::from([0; 32]);
+        let ledger = LedgerState::from_utxos([], &ledger_config());
+        let (sender, _receiver) = tokio::sync::watch::channel(None);
+        let updater = StateUpdater::new(Arc::new(sender));
+
+        let mut state = ServiceState::new(recovery, &settings, genesis, &ledger, &updater, 5);
+
+        // The first post-online LibUpdate delivers a new_lib the wallet never
+        // applied (the silent bootstrap->online LIB jump outran the wallet).
+        let unseen_lib = HeaderId::from([42; 32]);
+        state.advance_lib(
+            unseen_lib,
+            Vec::<HeaderId>::new(),
+            1,
+            Vec::<VoucherNullifier>::new(),
+        );
+
+        // No panic: the advance is skipped and the LIB stays at a block whose
+        // WalletState exists.
+        assert_eq!(state.lib(), genesis);
     }
 }

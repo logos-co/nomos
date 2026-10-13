@@ -1,12 +1,13 @@
 use std::ffi::{CString, c_char};
 
-use lb_node::{RocksBackend, RuntimeServiceId, SignedMantleTx};
+use lb_c_macros::panic_to_error;
+use lb_core::mantle::{ledger::verification_mode::StandardMode, transactions::states::Unverified};
+use lb_node::{RuntimeServiceId, SignedOps};
 
 use crate::{
-    LogosBlockchainNode,
+    LogosBlockchainNode, OperationStatus,
     api::cryptarchia::{HeaderId, TxHash, into_tx_hash},
-    errors::OperationStatus,
-    logging,
+    errors::OperationStatusCode,
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
 };
@@ -25,37 +26,48 @@ use crate::{
 ///
 /// A `Result` containing a JSON string representation of `Block` on success,
 /// or an [`OperationStatus`] error on failure. Returns
-/// [`OperationStatus::NotFound`] if no block with the given header ID exists.
+/// [`OperationStatusCode::NotFound`] if no block with the given header ID
+/// exists.
 pub(crate) fn get_block_sync(
     node: &LogosBlockchainNode,
     header_id: HeaderId,
 ) -> StatusResult<CString> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     let overwatch_handle = node.get_overwatch_handle();
 
     let block = runtime_handle
         .block_on(lb_api_service::http::mantle::get_block::<
-            SignedMantleTx,
-            RocksBackend,
+            SignedOps<Unverified, StandardMode>,
             RuntimeServiceId,
         >(
             overwatch_handle,
             lb_core::header::HeaderId::from(header_id),
         ))
         .map_err(|e| {
-            logging::error!("get_block_sync", "Failed to get block: {e}");
-            OperationStatus::RelayError
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get block: {e}"),
+            )
         })?
-        .ok_or(OperationStatus::NotFound)?;
+        .ok_or_else(|| {
+            OperationStatus::error(
+                OperationStatusCode::NotFound,
+                format!("No block found for header id {header_id:?}"),
+            )
+        })?;
 
     let json = serde_json::to_string(&block).map_err(|e| {
-        logging::error!("get_block_sync", "Failed to serialize block: {e}");
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to serialize block: {e}"),
+        )
     })?;
 
     CString::new(json).map_err(|e| {
-        logging::error!("get_block_sync", "Failed to create CString: {e}");
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to create CString: {e}"),
+        )
     })
 }
 
@@ -76,7 +88,8 @@ pub type FfiGetBlockResult = FfiStatusResult<*mut c_char>;
 ///
 /// A [`FfiGetBlockResult`] containing a pointer to an allocated C string (JSON
 /// block) on success, or an [`OperationStatus`] error on failure. Returns
-/// [`OperationStatus::NotFound`] if no block with the given header ID exists.
+/// [`OperationStatusCode::NotFound`] if no block with the given header ID
+/// exists.
 ///
 /// # Safety
 ///
@@ -89,13 +102,14 @@ pub type FfiGetBlockResult = FfiStatusResult<*mut c_char>;
 ///
 /// This function allocates memory for the output C string. The caller must
 /// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_block(
     node: *const LogosBlockchainNode,
     header_id: *const HeaderId,
 ) -> FfiGetBlockResult {
-    return_error_if_null_pointer!("get_block", node);
-    return_error_if_null_pointer!("get_block", header_id);
+    return_error_if_null_pointer!(node);
+    return_error_if_null_pointer!(header_id);
 
     let header_id = unsafe { *header_id };
     let node = unsafe { &*node };
@@ -116,38 +130,46 @@ pub unsafe extern "C" fn get_block(
 /// # Returns
 ///
 /// A `Result` containing a JSON string of the transaction on success, or an
-/// [`OperationStatus`] error on failure. Returns [`OperationStatus::NotFound`]
-/// if no transaction with the given hash exists.
+/// [`OperationStatus`] error on failure. Returns
+/// [`OperationStatusCode::NotFound`] if no transaction with the given hash
+/// exists.
 pub(crate) fn get_transaction_sync(
     node: &LogosBlockchainNode,
     tx_hash: lb_core::mantle::TxHash,
 ) -> StatusResult<CString> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     let overwatch_handle = node.get_overwatch_handle();
 
     let tx = runtime_handle
         .block_on(lb_api_service::http::mantle::get_transaction::<
-            SignedMantleTx,
-            RocksBackend,
+            SignedOps<Unverified, StandardMode>,
             RuntimeServiceId,
         >(overwatch_handle, tx_hash))
         .map_err(|e| {
-            logging::error!("get_transaction_sync", "Failed to get transaction: {e}");
-            OperationStatus::RuntimeError
+            OperationStatus::error(
+                OperationStatusCode::RuntimeError,
+                format!("Failed to get transaction: {e}"),
+            )
         })?
-        .ok_or(OperationStatus::NotFound)?;
+        .ok_or_else(|| {
+            OperationStatus::error(
+                OperationStatusCode::NotFound,
+                format!("No transaction found for hash {tx_hash:?}"),
+            )
+        })?;
 
     let json = serde_json::to_string(&tx).map_err(|e| {
-        logging::error!(
-            "get_transaction_sync",
-            "Failed to serialize transaction: {e}"
-        );
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to serialize transaction: {e}"),
+        )
     })?;
 
     CString::new(json).map_err(|e| {
-        logging::error!("get_transaction_sync", "Failed to create CString: {e}");
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to create CString: {e}"),
+        )
     })
 }
 
@@ -169,8 +191,8 @@ pub type FfiGetTransactionResult = FfiStatusResult<*mut c_char>;
 ///
 /// A [`FfiGetTransactionResult`] containing a pointer to an allocated C string
 /// (JSON transaction) on success, or an [`OperationStatus`] error on failure.
-/// Returns [`OperationStatus::NotFound`] if no transaction with the given hash
-/// exists.
+/// Returns [`OperationStatusCode::NotFound`] if no transaction with the given
+/// hash exists.
 ///
 /// # Safety
 ///
@@ -183,13 +205,14 @@ pub type FfiGetTransactionResult = FfiStatusResult<*mut c_char>;
 ///
 /// This function allocates memory for the output C string. The caller must
 /// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_transaction(
     node: *const LogosBlockchainNode,
     tx_hash: *const TxHash,
 ) -> FfiGetTransactionResult {
-    return_error_if_null_pointer!("get_transaction", node);
-    return_error_if_null_pointer!("get_transaction", tx_hash);
+    return_error_if_null_pointer!(node);
+    return_error_if_null_pointer!(tx_hash);
 
     let node = unsafe { &*node };
     let tx_hash = unsafe { into_tx_hash(tx_hash) };
@@ -217,28 +240,33 @@ pub(crate) fn get_blocks_sync(
     from_slot: usize,
     to_slot: usize,
 ) -> StatusResult<CString> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     let overwatch_handle = node.get_overwatch_handle();
 
     let blocks = runtime_handle
         .block_on(lb_api_service::http::mantle::get_immutable_blocks::<
-            SignedMantleTx,
-            RocksBackend,
+            SignedOps<Unverified, StandardMode>,
             RuntimeServiceId,
         >(overwatch_handle, from_slot, to_slot))
         .map_err(|e| {
-            logging::error!("get_blocks_sync", "Failed to get blocks: {e}");
-            OperationStatus::RelayError
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get blocks: {e}"),
+            )
         })?;
 
     let json = serde_json::to_string(&blocks).map_err(|e| {
-        logging::error!("get_blocks_sync", "Failed to serialize blocks: {e}");
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to serialize blocks: {e}"),
+        )
     })?;
 
     CString::new(json).map_err(|e| {
-        logging::error!("get_blocks_sync", "Failed to create CString: {e}");
-        OperationStatus::RuntimeError
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to create CString: {e}"),
+        )
     })
 }
 
@@ -272,21 +300,26 @@ pub type FfiGetBlocksResult = FfiStatusResult<*mut c_char>;
 ///
 /// This function allocates memory for the output C string. The caller must
 /// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_blocks(
     node: *const LogosBlockchainNode,
     from_slot: u64,
     to_slot: u64,
 ) -> FfiGetBlocksResult {
-    return_error_if_null_pointer!("get_blocks", node);
+    return_error_if_null_pointer!(node);
 
     let Ok(from_slot) = usize::try_from(from_slot) else {
-        logging::error!("get_blocks", "from_slot overflow");
-        return FfiGetBlocksResult::err(OperationStatus::ValidationError);
+        return FfiGetBlocksResult::err(OperationStatus::error(
+            OperationStatusCode::ValidationError,
+            "from_slot overflow.",
+        ));
     };
     let Ok(to_slot) = usize::try_from(to_slot) else {
-        logging::error!("get_blocks", "to_slot overflow");
-        return FfiGetBlocksResult::err(OperationStatus::ValidationError);
+        return FfiGetBlocksResult::err(OperationStatus::error(
+            OperationStatusCode::ValidationError,
+            "to_slot overflow.",
+        ));
     };
 
     let node = unsafe { &*node };

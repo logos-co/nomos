@@ -5,33 +5,44 @@ use std::{
     hash::BuildHasher,
     num::NonZero,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Mutex, atomic::AtomicUsize},
+    time::{Duration, Instant},
 };
 
 use cucumber::World;
-use derivative::Derivative;
+use educe::Educe;
+use lb_binary_codec::bincode::DeserializeOp as _;
 use lb_core::{
-    codec::DeserializeOp as _,
+    header::HeaderId,
     mantle::{
-        SignedMantleTx, TxHash, Utxo, Value,
+        GenesisTime, SignedOps, Utxo, Value,
+        ledger::verification_mode::StandardMode,
         ops::channel::{
             ChannelId, deposit::DepositOp, inscribe::Inscription, withdraw::ChannelWithdrawOp,
         },
+        transactions::{
+            hash::TxHash,
+            states::{Preverified, VerificationState},
+        },
     },
+    proofs::channel_multi_sig_proof::IndexedSignatures,
 };
 use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
-use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey};
+use lb_key_management_system_service::keys::{Ed25519Key, Ed25519PublicKey, ZkPublicKey};
 use lb_libp2p::{Multiaddr, PeerId};
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
-    BlockFeed, LbcEnv, LbcK8sManualCluster, LbcManualCluster, NodeHttpClient, ScenarioBuilder,
-    ScenarioBuilderExt as _, configs::wallet::WalletAccount, workloads,
+    LbcClusterBackend, LbcEnv, LbcK8sManualCluster, LbcScenario, NodeHttpClient, ScenarioBuilder,
+    ScenarioBuilderExt as _,
+    configs::{deployment::SdpFundingConfig, wallet::WalletAccount},
+    env::set_default_env,
+    workloads,
 };
-use lb_zone_sdk::{adapter::NodeHttpClient as ZoneNodeHttpClient, indexer::ZoneIndexer};
 use reqwest::Url;
-use testing_framework_core::scenario::{
-    NodeControlCapability, PeerSelection, Scenario, StartedNode,
+use testing_framework_app::DeployedApp;
+use testing_framework_core::{
+    scenario::{ClusterHandle, PeerSelection, StartedNode},
+    topology::DeploymentSeed,
 };
 use tokio::task::JoinHandle;
 use tracing::warn;
@@ -39,25 +50,33 @@ use tracing::warn;
 use crate::{
     BIN_PATH_RELEASE,
     common::wallet::{
-        TrackedWalletKeysBySource, TrackedWallets, WalletBlockFeedTracker, WalletDiagnostics,
-        WalletFeedTrackingBatch,
+        TrackedWalletKeys, TrackedWalletKeysBySource, TrackedWallets, WalletDiagnostics,
+        scanner::{
+            ScannerSeed, SharedWalletScannerState, WalletScannerRuntime, WalletScannerState,
+            build_fork_group_scanner_configs, start_wallet_scanners, wait_for_scanner_catch_up,
+        },
     },
     cucumber::{
         TARGET,
+        background_tasks::{
+            BackgroundBestNodeSelection, BackgroundTasks, ContinuousTransactionLoadProgress,
+        },
         defaults::{
             CUCUMBER_NODE_CONFIG_OVERRIDE, LOGOS_BLOCKCHAIN_NODE_BIN, init_node_log_dir_defaults,
-            set_default_env,
         },
         error::{StepError, StepResult},
         fee_reserve::{SCENARIO_FEE_ACCOUNT_NAME, ScenarioFeeState},
-        steps::manual_zone::runner::{
-            Event, InscriptionId, SequencerCheckpoint, SequencerClient, TxStatusUpdate,
+        logos_sql::LogosSqlState,
+        steps::{
+            nodes::{BlendRelayRegistry, restore_all_blend_reachability},
+            tokio_console::profile::TokioConsoleProfile,
+            zone::runner::{
+                Event, IndexedSignature, InscriptionId, PreparedChannelConfig, SequencerCheckpoint,
+                SequencerClient,
+            },
         },
         utils::{make_builder, shared_host_bin_path},
-        wallet::{
-            feed::{CucumberWalletBlockFeed, CucumberWalletBlockFeedError},
-            sync::track_wallet_feed_batches_with_backfill,
-        },
+        wallet::snapshot::WalletSnapshot,
     },
     non_zero,
 };
@@ -65,7 +84,6 @@ use crate::{
 type ScenarioBuilderWith = ScenarioBuilder;
 type ConsensusLiveness = workloads::ConsensusLiveness;
 pub type SharedTrackedWallets = Arc<Mutex<TrackedWallets>>;
-pub type SharedWalletBlockFeedTracker = Arc<Mutex<WalletBlockFeedTracker>>;
 pub type SharedObservedTransactionHashes = Arc<Mutex<HashSet<TxHash>>>;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -111,6 +129,24 @@ pub enum ManualClusterKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BlendDiagnosticPhase {
+    Baseline,
+    Outage,
+    Recovery,
+}
+
+impl BlendDiagnosticPhase {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Outage => "outage",
+            Self::Recovery => "recovery",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ManualClusterSpec {
     pub kind: ManualClusterKind,
     pub capacity: usize,
@@ -119,7 +155,11 @@ pub struct ManualClusterSpec {
 impl ManualNodeConfigOverrides {
     pub const fn apply_to(&self, config: &mut RunConfig) {
         if let Some(security_param) = self.cryptarchia_security_param {
-            config.deployment.cryptarchia.security_param = security_param;
+            config
+                .deployment
+                .genesis_era_parameters_mut()
+                .cryptarchia
+                .security_param = security_param;
         }
 
         if let Some(prolonged_bootstrap_period) = self.prolonged_bootstrap_period {
@@ -147,6 +187,9 @@ pub struct ZonePublishedMessage {
 }
 
 pub type ZoneDiscardedPayloads = Arc<tokio::sync::Mutex<HashSet<Inscription>>>;
+/// The first channel-view contract violation a sequencer's drive loop
+/// recorded, shared with the checker that writes it.
+pub type ZoneViewViolation = Arc<Mutex<Option<String>>>;
 
 pub struct ZoneSequencerIdentity {
     signing_key: Ed25519Key,
@@ -160,10 +203,8 @@ pub struct ZoneSequencerRuntime {
     task: JoinHandle<()>,
     events: tokio::sync::broadcast::Receiver<Event>,
     checkpoint_rx: tokio::sync::watch::Receiver<Option<SequencerCheckpoint>>,
-    ready_rx: tokio::sync::watch::Receiver<bool>,
     channel_view_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::SequencerChannelView>,
     turn_to_write_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::TurnNotification>,
-    tx_status_rx: Option<tokio::sync::broadcast::Receiver<TxStatusUpdate>>,
     discarded_payloads: Option<ZoneDiscardedPayloads>,
 }
 
@@ -179,24 +220,45 @@ pub struct ZoneSequencerStartup {
     pub passive_republish_orphans: bool,
 }
 
+/// Connection info for the read-only channel observer of the "zone indexer"
+/// steps.
+///
+/// Each assertion cold-starts a fresh `ZoneSequencer` from this config with a
+/// random signing key that is not part of the channel rotation — such a
+/// sequencer can never publish or repost (inscription posting is turn-gated),
+/// it only replays and observes finalized history.
+#[derive(Clone)]
+pub struct ZoneReaderConfig {
+    pub channel_id: ChannelId,
+    pub node_url: Url,
+}
+
 #[derive(Default)]
 pub struct ZoneState {
     node_name: Option<String>,
-    indexer: Option<ZoneIndexer<ZoneNodeHttpClient>>,
+    indexer: Option<ZoneReaderConfig>,
     sequencers: HashMap<String, ZoneSequencerIdentity>,
     runtimes: HashMap<String, ZoneSequencerRuntime>,
+    /// One per run of the sequencer alias, so a violation survives a restart.
+    view_violations: HashMap<String, Vec<ZoneViewViolation>>,
     default_sequencer_alias: Option<String>,
     published_messages: HashMap<String, ZonePublishedMessage>,
     submitted_deposits: HashMap<String, (DepositOp, Value)>,
+    /// The channel notes each deposit re-created, keyed by deposit alias — so a
+    /// later channel split transfer can spend them without waiting on the
+    /// indexer.
+    deposit_channel_notes: HashMap<String, Vec<Utxo>>,
     submitted_withdraws: HashMap<String, ChannelWithdrawOp>,
     account_balances: HashMap<String, i64>,
     published_order: Vec<String>,
     saved_checkpoints: HashMap<String, SequencerCheckpoint>,
     latest_checkpoints: HashMap<String, SequencerCheckpoint>,
+    prepared_configs: HashMap<String, PreparedChannelConfig>,
+    prepared_config_signatures: HashMap<String, IndexedSignatures>,
     sequencer_startups: HashMap<String, ZoneSequencerStartup>,
-    observed_mempool_pending: HashMap<String, HashSet<InscriptionId>>,
     sorted_total_payloads: Option<usize>,
     sorted_expected_by_sequencer: Option<HashMap<String, Vec<Inscription>>>,
+    expected_custom_payloads: Vec<Inscription>,
 }
 
 impl ZoneState {
@@ -267,10 +329,10 @@ impl ZoneState {
             })
     }
 
-    pub fn default_sequencer_signing_key(&self) -> Result<&Ed25519Key, StepError> {
-        let alias = self.default_sequencer_alias()?.to_owned();
-
-        self.sequencer_signing_key(&alias)
+    /// A registered sequencer's public key, without touching its private key.
+    pub fn sequencer_public_key(&self, alias: &str) -> Result<Ed25519PublicKey, StepError> {
+        self.sequencer_signing_key(alias)
+            .map(Ed25519Key::public_key)
     }
 
     pub fn sequencer_channel_id(&self, alias: &str) -> Result<ChannelId, StepError> {
@@ -280,12 +342,6 @@ impl ZoneState {
             .ok_or(StepError::LogicalError {
                 message: format!("Zone sequencer '{alias}' is not registered"),
             })
-    }
-
-    pub fn default_channel_id(&self) -> Result<ChannelId, StepError> {
-        let alias = self.default_sequencer_alias()?.to_owned();
-
-        self.sequencer_channel_id(&alias)
     }
 
     #[must_use]
@@ -368,6 +424,24 @@ impl ZoneState {
         self.submitted_deposits.insert(alias, (deposit, amount));
     }
 
+    pub fn remember_deposit_channel_notes(&mut self, alias: String, channel_notes: Vec<Utxo>) {
+        self.deposit_channel_notes.insert(alias, channel_notes);
+    }
+
+    pub fn resolve_deposit_channel_notes(
+        &self,
+        alias: impl AsRef<str>,
+    ) -> Result<&[Utxo], StepError> {
+        let alias = alias.as_ref();
+
+        self.deposit_channel_notes
+            .get(alias)
+            .map(Vec::as_slice)
+            .ok_or(StepError::LogicalError {
+                message: format!("Zone deposit channel notes for alias '{alias}' not found"),
+            })
+    }
+
     pub fn resolve_submitted_deposit(
         &self,
         alias: impl AsRef<str>,
@@ -445,6 +519,14 @@ impl ZoneState {
             .collect()
     }
 
+    pub fn published_message(&self, alias: &str) -> Result<&ZonePublishedMessage, StepError> {
+        self.published_messages
+            .get(alias)
+            .ok_or_else(|| StepError::LogicalError {
+                message: format!("Zone message alias '{alias}' is not tracked"),
+            })
+    }
+
     pub fn message_tx_hashes_for_aliases(
         &self,
         aliases: &[String],
@@ -464,28 +546,6 @@ impl ZoneState {
             .collect()
     }
 
-    pub fn record_mempool_pending(
-        &mut self,
-        sequencer_alias: impl Into<String>,
-        tx_hashes: impl IntoIterator<Item = InscriptionId>,
-    ) {
-        self.observed_mempool_pending
-            .entry(sequencer_alias.into())
-            .or_default()
-            .extend(tx_hashes);
-    }
-
-    #[must_use]
-    pub fn has_observed_mempool_pending(
-        &self,
-        sequencer_alias: &str,
-        tx_hash: &InscriptionId,
-    ) -> bool {
-        self.observed_mempool_pending
-            .get(sequencer_alias)
-            .is_some_and(|observed| observed.contains(tx_hash))
-    }
-
     pub fn published_message_payloads(&self) -> Result<Vec<Inscription>, StepError> {
         self.message_payloads_for_aliases(&self.published_order)
     }
@@ -497,6 +557,41 @@ impl ZoneState {
 
     pub fn remember_checkpoint(&mut self, alias: String, checkpoint: SequencerCheckpoint) {
         self.saved_checkpoints.insert(alias, checkpoint);
+    }
+
+    pub fn remember_prepared_config(&mut self, alias: String, prepared: PreparedChannelConfig) {
+        self.prepared_configs.insert(alias, prepared);
+    }
+
+    pub fn prepared_config(&self, alias: &str) -> Result<&PreparedChannelConfig, StepError> {
+        self.prepared_configs
+            .get(alias)
+            .ok_or(StepError::LogicalError {
+                message: format!("No prepared zone config transaction '{alias}'"),
+            })
+    }
+
+    pub fn add_prepared_config_signature(
+        &mut self,
+        alias: String,
+        IndexedSignature {
+            channel_key_index,
+            signature,
+        }: IndexedSignature,
+    ) {
+        self.prepared_config_signatures
+            .entry(alias)
+            .or_default()
+            .try_insert(channel_key_index, signature)
+            .unwrap();
+    }
+
+    #[must_use]
+    pub fn prepared_config_signatures(&self, alias: &str) -> IndexedSignatures {
+        self.prepared_config_signatures
+            .get(alias)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn set_latest_checkpoint_for(
@@ -556,24 +651,6 @@ impl ZoneState {
             .map(|runtime| runtime.checkpoint_rx.clone())
     }
 
-    pub fn take_sequencer_tx_status_rx(
-        &mut self,
-        sequencer_alias: &str,
-    ) -> Result<tokio::sync::broadcast::Receiver<TxStatusUpdate>, StepError> {
-        self.runtimes
-            .get_mut(sequencer_alias)
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!("Zone sequencer '{sequencer_alias}' is not running"),
-            })?
-            .tx_status_rx
-            .take()
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!(
-                    "Zone sequencer '{sequencer_alias}' tx-status receiver was already consumed"
-                ),
-            })
-    }
-
     pub fn resolve_checkpoint(
         &self,
         alias: impl AsRef<str>,
@@ -600,15 +677,18 @@ impl ZoneState {
         sequencer_task: JoinHandle<()>,
         sequencer_events: tokio::sync::broadcast::Receiver<Event>,
         checkpoint_rx: tokio::sync::watch::Receiver<Option<SequencerCheckpoint>>,
-        ready_rx: tokio::sync::watch::Receiver<bool>,
         channel_view_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::SequencerChannelView>,
         turn_to_write_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::TurnNotification>,
-        tx_status_rx: tokio::sync::broadcast::Receiver<TxStatusUpdate>,
         discarded_payloads: Option<ZoneDiscardedPayloads>,
+        view_violation: ZoneViewViolation,
     ) {
         if let Some(runtime) = self.runtimes.remove(&alias) {
             runtime.abort_tasks();
         }
+        self.view_violations
+            .entry(alias.clone())
+            .or_default()
+            .push(view_violation);
 
         self.runtimes.insert(
             alias,
@@ -617,25 +697,11 @@ impl ZoneState {
                 task: sequencer_task,
                 events: sequencer_events,
                 checkpoint_rx,
-                ready_rx,
                 channel_view_rx,
                 turn_to_write_rx,
-                tx_status_rx: Some(tx_status_rx),
                 discarded_payloads,
             },
         );
-    }
-
-    pub fn sequencer_ready_rx(
-        &self,
-        alias: &str,
-    ) -> Result<tokio::sync::watch::Receiver<bool>, StepError> {
-        self.runtimes
-            .get(alias)
-            .map(|runtime| runtime.ready_rx.clone())
-            .ok_or(StepError::LogicalError {
-                message: format!("Zone sequencer '{alias}' is not running"),
-            })
     }
 
     pub fn sequencer_channel_view_rx(
@@ -662,6 +728,26 @@ impl ZoneState {
             .ok_or(StepError::LogicalError {
                 message: format!("Zone sequencer '{alias}' is not running"),
             })
+    }
+
+    /// Channel-view contract violations recorded by any run of any sequencer,
+    /// as `(alias, message)`.
+    #[must_use]
+    pub fn view_violations(&self) -> Vec<(String, String)> {
+        let mut violations: Vec<(String, String)> = self
+            .view_violations
+            .iter()
+            .flat_map(|(alias, runs)| {
+                runs.iter().filter_map(|run| {
+                    run.lock()
+                        .ok()
+                        .and_then(|violation| violation.clone())
+                        .map(|message| (alias.clone(), message))
+                })
+            })
+            .collect();
+        violations.sort();
+        violations
     }
 
     pub fn stop_sequencer(&mut self, alias: &str) -> Result<(), StepError> {
@@ -731,11 +817,11 @@ impl ZoneState {
             })
     }
 
-    pub fn set_indexer(&mut self, indexer: ZoneIndexer<ZoneNodeHttpClient>) {
+    pub fn set_indexer(&mut self, indexer: ZoneReaderConfig) {
         self.indexer = Some(indexer);
     }
 
-    pub fn indexer(&self) -> Result<&ZoneIndexer<ZoneNodeHttpClient>, StepError> {
+    pub fn indexer(&self) -> Result<&ZoneReaderConfig, StepError> {
         self.indexer.as_ref().ok_or(StepError::LogicalError {
             message: "Zone indexer is not initialized".to_owned(),
         })
@@ -774,17 +860,31 @@ impl ZoneState {
         self.sequencers.clear();
         self.published_messages.clear();
         self.submitted_deposits.clear();
+        self.deposit_channel_notes.clear();
         self.submitted_withdraws.clear();
         self.account_balances.clear();
         self.published_order.clear();
         self.saved_checkpoints.clear();
         self.latest_checkpoints.clear();
+        self.prepared_configs.clear();
+        self.prepared_config_signatures.clear();
+        self.expected_custom_payloads.clear();
+        self.view_violations.clear();
+    }
+
+    pub fn remember_expected_custom_payloads(&mut self, payloads: Vec<Inscription>) {
+        self.expected_custom_payloads = payloads;
+    }
+
+    #[must_use]
+    pub fn expected_custom_payloads(&self) -> &[Inscription] {
+        &self.expected_custom_payloads
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct PublicCryptarchiaEndpointPeer {
-    pub url: String,
+    pub base_url: String,
     pub username: String,
     pub password: String,
 }
@@ -831,15 +931,25 @@ pub struct ConsensusLivenessSpec {
     pub lag_allowance: Option<NonZero<u64>>,
 }
 
-#[derive(World, Derivative)]
-#[derivative(Default)]
-pub struct CucumberWorld {
+/// This default slots per epoch value will be overwritten by scraping the
+/// started node's deployment settings
+const DEFAULT_SLOTS_PER_EPOCH: NonZero<u64> = NonZero::new(1).expect("one is non-zero");
+
+/// Scenario identity and lifecycle configuration resolved by hooks and the
+/// automated workload steps.
+#[derive(Default)]
+pub struct ScenarioLifecycle {
     /// The deployer kind that this scenario is configured for.
     pub deployer: Option<DeployerKind>,
     /// A unique per-scenario context string used to isolate runtime resources.
     pub test_context: Option<String>,
+    /// Resolved genesis time for this Cucumber scenario attempt. It is set in
+    /// the scenario hook and reused by every deployment build or rebuild.
+    pub genesis_time: Option<GenesisTime>,
     /// Base directory for scenario artifacts like logs and generated configs.
     pub scenario_base_dir: PathBuf,
+    /// Cucumber scenario name used in scenario-local diagnostic artifacts.
+    pub scenario_name: Option<String>,
     /// Automated: Scenario specification
     pub spec: ScenarioSpec,
     /// Automated: Runtime state for the scenario.
@@ -850,62 +960,179 @@ pub struct CucumberWorld {
     /// Automated: Whether to perform readiness checks on nodes after starting
     /// them.
     pub readiness_checks: bool,
+    /// Monotonic stop completion times used to enforce a brief grace period
+    /// before Cucumber restarts nodes.
+    pub node_stopped_at: HashMap<String, Instant>,
+}
+
+/// Chain and genesis parameters captured at cluster build time.
+#[derive(Educe)]
+#[educe(Default)]
+pub struct ChainParameters {
     /// Manual: List of genesis block UTXOs allocated in the genesis
     /// configuration.
     pub genesis_block_utxos: Vec<Utxo>,
+    /// Manual: Header id of the locally generated genesis block, when the
+    /// cluster deployment carries one.
+    pub genesis_block_id: Option<HeaderId>,
+    /// Manual: List of genesis tokens allocated to wallets accounts.
+    pub genesis_tokens: Vec<GenesisTokens>,
+    /// Effective epoch length, populated from the first launched node's
+    /// deployment config.
+    #[educe(Default(expression = DEFAULT_SLOTS_PER_EPOCH))]
+    pub slots_per_epoch: NonZero<u64>,
+}
+
+/// Manual-cluster deployment state: cluster instances, build recipe, and
+/// node-level deployment facts.
+#[derive(Default)]
+pub struct ClusterState {
     /// Manual: Optional local cluster instance for scenarios that use the local
     /// deployer.
-    #[derivative(Default(value = "None"))]
-    /// Manual: Mapping of logical node names to their corresponding node
-    /// information, which includes the started node instance and any relevant
-    /// metadata.
-    pub local_cluster: Option<LbcManualCluster>,
+    pub local_cluster: Option<DeployedApp<ClusterHandle<LbcEnv>>>,
     /// Manual: Optional k8s manual cluster instance for scenarios that use the
     /// k8s deployer.
     pub k8s_manual_cluster: Option<LbcK8sManualCluster>,
-    /// Manual: List of nodes with their info.
-    pub nodes_info: HashMap<String, NodeInfo>,
-    /// Manual: List of genesis tokens allocated to wallets accounts.
-    pub genesis_tokens: Vec<GenesisTokens>,
-    /// Manual: Mapping of logical wallet names to their corresponding
-    /// wallet resources.
-    pub wallet_info: WalletInfoMap,
-    /// Manual: Mapping of wallet account indices to their corresponding wallet
-    /// account in the cluster.
-    pub wallet_accounts: HashMap<usize, WalletAccount>,
-    /// Manual: Scenario-level fee sponsor configuration and accounting.
-    pub fee_state: ScenarioFeeState,
-    /// Manual: Scenario-local wallet read model.
-    ///
-    /// Chain-derived UTXOs are tracked by the wallet block-feed tracker.
-    /// Step code still records local intent, such as reserved inputs and
-    /// submitted transaction hashes, directly in this state.
-    pub wallets: SharedTrackedWallets,
-    /// Manual: Runtime block feed used by wallet observation in manual
-    /// scenarios.
-    pub wallet_block_feed: Option<CucumberWalletBlockFeed>,
-    /// Manual: Per-source wallet state advanced from the block feed.
-    pub wallet_feed_tracker: SharedWalletBlockFeedTracker,
-    /// Manual: Mapping of scenario transaction aliases to submitted hashes.
-    pub submitted_transactions: HashMap<String, TxHash>,
-    /// Manual: Exact signed transactions prepared for later submission.
-    pub prepared_transactions: HashMap<String, SignedMantleTx>,
-    /// Manual: Transaction hashes observed in blocks by the wallet block feed.
-    pub observed_transaction_hashes: SharedObservedTransactionHashes,
-    /// Manual: Mapping of logical node names to their corresponding libp2p peer
-    /// IDs.
-    pub node_peer_ids: HashMap<String, PeerId>,
-    /// Manual: `group_name` -> set of `node_names`. Empty means "no groups
-    /// defined" and all nodes participate.
-    pub node_groups: HashMap<String, BTreeSet<String>>,
-    /// Manual: `node_name` -> `group_name` reverse lookup.
-    pub node_to_group: HashMap<String, String>,
-    /// Manual: Number of leading nodes declared as blend providers in the
-    /// generated deployment. Defaults to all nodes when unset.
-    pub blend_core_nodes: Option<usize>,
     /// Manual: Pending manual-cluster build recipe used to rebuild the local
     /// cluster when deployment-shape steps change before any nodes start.
     pub manual_cluster_spec: Option<ManualClusterSpec>,
+    /// Manual: Stable deployment seed reused when the same scenario rebuilds a
+    /// manual cluster, for example after restoring from a node snapshot.
+    pub manual_cluster_deployment_seed: Option<DeploymentSeed>,
+    /// Manual: Number of leading nodes declared as blend providers in the
+    /// generated deployment. Defaults to all nodes when unset.
+    pub blend_core_nodes: Option<usize>,
+    /// Manual: Mapping of logical node names to their corresponding libp2p peer
+    /// IDs.
+    pub node_peer_ids: HashMap<String, PeerId>,
+    /// Manual: SDP funding profile used by generated deployments.
+    pub sdp_funding_config: SdpFundingConfig,
+}
+
+/// Named node heights captured for comparisons in later scenario steps.
+#[derive(Default)]
+pub struct NodeHeightSnapshots {
+    recorded_heights: HashMap<String, u64>,
+}
+
+impl NodeHeightSnapshots {
+    /// Records a node height under a scenario-defined name.
+    pub fn record_height(&mut self, alias: String, height: u64) -> StepResult {
+        if self.recorded_heights.contains_key(&alias) {
+            return Err(StepError::LogicalError {
+                message: format!("node height alias '{alias}' is already recorded"),
+            });
+        }
+
+        self.recorded_heights.insert(alias, height);
+
+        Ok(())
+    }
+
+    /// Resolves a previously recorded node height.
+    pub fn height(&self, alias: &str) -> Result<u64, StepError> {
+        self.recorded_heights
+            .get(alias)
+            .copied()
+            .ok_or_else(|| StepError::LogicalError {
+                message: format!("node height alias '{alias}' is not recorded"),
+            })
+    }
+
+    #[must_use]
+    fn len(&self) -> usize {
+        self.recorded_heights.len()
+    }
+}
+
+impl ClusterState {
+    pub fn local_cluster(&self) -> Option<&ClusterHandle<LbcEnv>> {
+        self.local_cluster.as_ref().map(DeployedApp::handle)
+    }
+}
+
+/// Runtime observations collected by the tagged Blend/TSI diagnostic
+/// scenarios.
+#[derive(Default)]
+pub struct BlendDiagnosticState {
+    /// Shared phase and provider reachability state. Background diagnostics
+    /// can update it without borrowing the Cucumber world.
+    pub reachability: BlendDiagnosticReachability,
+    /// Node whose Time-service clock drives the diagnostic observation.
+    pub reference_node: Option<String>,
+    /// Number of epoch-observation steps completed by the scenario.
+    pub observation_count: u32,
+    /// Nodes successfully stopped during the diagnostic outage phase.
+    pub stopped_nodes: HashSet<String>,
+    /// Whether this scenario has written its diagnostic timeline header.
+    pub timeline_header_written: Arc<Mutex<bool>>,
+}
+
+#[derive(Clone, Default)]
+pub struct BlendDiagnosticReachability {
+    inner: Arc<Mutex<BlendDiagnosticReachabilityState>>,
+}
+
+#[derive(Default)]
+struct BlendDiagnosticReachabilityState {
+    phase: Option<BlendDiagnosticPhase>,
+    /// Nodes whose Blend endpoint is intentionally unreachable while their
+    /// processes remain running.
+    unreachable_nodes: HashSet<String>,
+}
+
+impl BlendDiagnosticReachability {
+    #[must_use]
+    pub fn phase(&self) -> Option<BlendDiagnosticPhase> {
+        self.lock().phase
+    }
+
+    pub fn set_phase(&self, phase: Option<BlendDiagnosticPhase>) {
+        self.lock().phase = phase;
+    }
+
+    pub fn set_reachable(&self, node_name: &str, reachable: bool) {
+        let mut state = self.lock();
+        if reachable {
+            state.unreachable_nodes.remove(node_name);
+            if state.phase == Some(BlendDiagnosticPhase::Outage) {
+                state.phase = Some(BlendDiagnosticPhase::Recovery);
+            }
+        } else {
+            if state.unreachable_nodes.is_empty() {
+                state.phase = Some(BlendDiagnosticPhase::Outage);
+            }
+            state.unreachable_nodes.insert(node_name.to_owned());
+        }
+    }
+
+    #[must_use]
+    pub fn unreachable_nodes(&self) -> HashSet<String> {
+        self.lock().unreachable_nodes.clone()
+    }
+
+    pub fn replace_unreachable_nodes(
+        &self,
+        unreachable_nodes: HashSet<String>,
+        phase: BlendDiagnosticPhase,
+    ) {
+        let mut state = self.lock();
+        state.unreachable_nodes = unreachable_nodes;
+        state.phase = Some(phase);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BlendDiagnosticReachabilityState> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// Node-startup configuration written by steps before nodes start and consumed
+/// at node launch. Settings persist for the whole scenario so several node
+/// starts and restarts can reuse them.
+#[derive(Default)]
+pub struct NodeStartupConfig {
     /// Manual: Whether to populate the IBD peers for each node after starting
     /// them,
     pub populate_ibd_peers_from_initial_peers: Option<bool>,
@@ -926,44 +1153,249 @@ pub struct CucumberWorld {
     /// Manual: If set, nodes use a `DeploymentSettings` loaded from disk
     /// bypassing generated genesis/test deployment.
     pub deployment_config_override_path: Option<PathBuf>,
-    /// Manual: If set, all running nodes are copied into a named snapshot when
-    /// the scenario stops them.
-    pub blockchain_snapshot_name_on_stop: Option<String>,
-    /// Manual: If set, dynamically started nodes should initialize their chain
-    /// state from this named snapshot. This is a scenario-wide startup seeding
-    /// setting.
-    pub blockchain_snapshot_on_startup: Option<NodeSnapshot>,
     /// Manual: Whether to have dynamically started nodes join the external
     /// network
     pub join_external_network: Option<bool>,
     /// Manual: Runtime state for node-control extensions added outside the
     /// legacy generic step files.
     pub manual_node_config_overrides: ManualNodeConfigOverrides,
+}
+
+/// Snapshot work configured for the scenario: what to save when nodes stop,
+/// what to restore before nodes start, and startup chain-state seeding.
+#[derive(Debug, Default, Clone)]
+pub struct SnapshotConfig {
+    /// Manual: Snapshot work to perform when the scenario stops nodes.
+    pub save: SnapshotSaveConfig,
+    /// Manual: Snapshot work to perform before starting nodes from a snapshot.
+    pub restore: SnapshotRestoreConfig,
+    /// Manual: If set, dynamically started nodes should initialize their chain
+    /// state from this named snapshot. This is a scenario-wide startup seeding
+    /// setting.
+    pub node_snapshot_on_startup: Option<NodeSnapshot>,
+}
+
+/// Transaction aliases tracked across steps: prepared and submitted
+/// transactions plus their submission outcomes. All access goes through
+/// `CucumberWorld` methods.
+#[derive(Default)]
+pub struct TransactionState {
+    /// Manual: Mapping of scenario transaction aliases to submitted hashes.
+    submitted_transactions: HashMap<String, TxHash>,
+    /// Manual: Outcome of a transaction submission attempt, keyed by scenario
+    /// alias, for scenarios that assert on submission being rejected rather
+    /// than on later inclusion.
+    submission_outcomes: HashMap<String, Result<(), String>>,
+    /// Manual: Exact signed transactions prepared for later submission.
+    prepared_transactions: HashMap<String, SignedOps<Preverified, StandardMode>>,
+    /// Manual: Initial fee arithmetic for percentage-funded transactions
+    /// prepared by the fee-market steps.
+    prepared_priority_fees: HashMap<String, PreparedPriorityFee>,
+}
+
+/// Wallet resources and funding state for the scenario.
+#[derive(Default)]
+pub struct WalletRegistry {
+    /// Manual: Mapping of logical wallet names to their corresponding
+    /// wallet resources.
+    pub wallet_info: WalletInfoMap,
+    /// Manual: Mapping of wallet account indices to their corresponding wallet
+    /// account in the cluster.
+    pub wallet_accounts: HashMap<usize, WalletAccount>,
+    /// Manual: Public keys of wallet accounts whose secret keys are
+    /// provisioned into node KMS configs at cluster build time.
+    ///
+    /// Node wallet services only index notes for keys they hold, so node-side
+    /// wallet queries can be answered only for these keys. Accounts without
+    /// genesis tokens are never provisioned and are absent here.
+    pub node_provisioned_wallet_pks: HashSet<ZkPublicKey>,
+    /// Manual: Scenario-level fee sponsor configuration and accounting.
+    pub fee_state: ScenarioFeeState,
+    /// Manual: Scenario-local wallet read model.
+    ///
+    /// This shared state contains wallet balances/UTXOs observed during a test
+    /// scenario. Chain-derived UTXOs are updated exclusively by the
+    /// background wallet scanner; step code must treat this state as
+    /// read-only. Stored behind `Arc<Mutex<_>>` so scanner tasks and step
+    /// code can safely share a single synchronized view for the scenario
+    /// lifetime.
+    pub wallets: SharedTrackedWallets,
     /// Manual: Faucet base URL configuration for manual transactions, if
     /// applicable.
     pub faucet_base_url: Option<String>,
-    /// Manual: Faucet username configuration for manual transactions, if
-    /// applicable.
-    pub faucet_username: Option<String>,
-    /// Manual: Faucet password configuration for manual transactions, if
-    /// applicable.
-    pub faucet_password: Option<String>,
     /// Manual: Task handles for dynamically spawned faucet funding tasks.
-    #[derivative(Default(value = "None"))]
     pub faucet_task_handles: Option<Vec<JoinHandle<()>>>,
-    /// Manual: Zone-specific state for SDK/sequencer scenarios.
-    pub zone: ZoneState,
 }
 
-impl Drop for CucumberWorld {
-    fn drop(&mut self) {
-        self.zone.clear();
-
+impl WalletRegistry {
+    fn shutdown(&mut self) {
         if let Some(handles) = self.faucet_task_handles.take() {
             for handle in handles {
                 handle.abort();
             }
         }
+    }
+}
+
+/// Background wallet scanner ownership: shared diagnostics state, runtime task
+/// handles, restore seeds, and chain observations.
+#[derive(Default)]
+pub struct WalletScanner {
+    /// Manual: Background wallet scanner diagnostics state.
+    pub state: SharedWalletScannerState,
+    /// Manual: Background wallet scanner runtime.
+    pub runtime: Option<WalletScannerRuntime>,
+    /// Manual: Restored snapshot seeds available to wallet scanner startup,
+    /// keyed by runtime node name.
+    pub seeds: HashMap<String, ScannerSeed>,
+    /// Manual: Transaction hashes observed in blocks by the wallet scanner.
+    pub observed_transaction_hashes: SharedObservedTransactionHashes,
+    /// The scanner runtime is owned by another `CucumberWorld` view.
+    pub(super) runtime_is_shared: bool,
+}
+
+impl WalletScanner {
+    fn shutdown(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.cancel();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct BlendChurnProgress {
+    pub(super) rows_applied: Arc<AtomicUsize>,
+    pub(super) total_rows: usize,
+}
+
+/// Fork-group assignment of nodes: a forward map plus a reverse lookup kept in
+/// lockstep. Empty means "no groups defined" and all nodes participate.
+#[derive(Clone, Default)]
+pub struct ForkGroups {
+    /// `group_name` -> set of `node_names`.
+    node_groups: HashMap<String, BTreeSet<String>>,
+    /// `node_name` -> `group_name` reverse lookup.
+    node_to_group: HashMap<String, String>,
+}
+
+impl ForkGroups {
+    /// Replace all group assignments atomically, rejecting nodes assigned to
+    /// more than one group.
+    pub fn replace_all(
+        &mut self,
+        assignments: impl IntoIterator<Item = (String, String)>,
+    ) -> Result<(), StepError> {
+        let mut node_groups: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut node_to_group: HashMap<String, String> = HashMap::new();
+
+        for (group_name, node_name) in assignments {
+            if let Some(existing_group) = node_to_group.get(&node_name) {
+                return Err(StepError::LogicalError {
+                    message: format!(
+                        "Node `{node_name}` appears in both group `{existing_group}` and `{group_name}`"
+                    ),
+                });
+            }
+
+            node_groups
+                .entry(group_name.clone())
+                .or_default()
+                .insert(node_name.clone());
+            node_to_group.insert(node_name, group_name);
+        }
+
+        self.node_groups = node_groups;
+        self.node_to_group = node_to_group;
+
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.node_groups.is_empty()
+    }
+
+    #[must_use]
+    pub const fn groups(&self) -> &HashMap<String, BTreeSet<String>> {
+        &self.node_groups
+    }
+
+    #[must_use]
+    pub const fn mapping(&self) -> &HashMap<String, String> {
+        &self.node_to_group
+    }
+}
+
+#[derive(World, Default)]
+pub struct CucumberWorld {
+    /// Scenario identity and lifecycle configuration.
+    pub lifecycle: ScenarioLifecycle,
+    /// Chain and genesis parameters for the deployed cluster.
+    pub chain: ChainParameters,
+    /// Manual-cluster deployment state.
+    pub cluster: ClusterState,
+    /// Manual: List of nodes with their info.
+    pub nodes_info: HashMap<String, NodeInfo>,
+    /// Node heights captured for comparisons in later scenario steps.
+    pub node_height_snapshots: NodeHeightSnapshots,
+    /// Node-startup configuration overrides.
+    pub startup: NodeStartupConfig,
+    /// Snapshot save/restore configuration.
+    pub snapshots: SnapshotConfig,
+    /// Transaction aliases tracked across steps.
+    txs: TransactionState,
+    /// Wallet resources and funding state.
+    pub wallet_registry: WalletRegistry,
+    /// Background wallet scanner ownership.
+    pub scanner: WalletScanner,
+    /// Fork-group assignment of nodes.
+    pub fork_groups: ForkGroups,
+    /// Runtime observations for the tagged Blend/TSI diagnostics.
+    pub blend_diagnostics: BlendDiagnosticState,
+    /// Opt-in test-owned UDP relays for controllable Blend reachability tests.
+    pub(crate) blend_relays: BlendRelayRegistry,
+    /// Manual: Zone-specific state for SDK/sequencer scenarios.
+    pub zone: ZoneState,
+    /// Logos SQL runtimes and writes owned by this scenario.
+    pub logos_sql: LogosSqlState,
+    /// Manual: Per-node Tokio console profiling requested by Cucumber steps.
+    pub tokio_console_profile: TokioConsoleProfile,
+    /// Manual: Per-block gas prices recorded by the fee-market steps,
+    /// verified against the fee-market spec reference.
+    pub recorded_gas_prices: Vec<crate::common::fee_spec::GasPriceRecord>,
+    /// Manual: Wallet balances captured under a label, so a later step can
+    /// assert a wallet's balance strictly increased relative to the recorded
+    /// baseline (used by the `PoW` mining test to prove the reward landed).
+    pub recorded_wallet_balances: HashMap<String, u64>,
+    /// Manual: Per-node key that mined `PoW` rewards are claimed to, recorded
+    /// when the node's mining wallet is declared. The claim step names it on
+    /// each request, since the node no longer carries a claim address in its
+    /// configuration.
+    pub mining_claim_addresses: HashMap<String, ZkPublicKey>,
+    /// Manual: Per-node `pow.auto_claim` overrides, staged by the auto-claim
+    /// configuration step and applied when that node starts. Auto-claim must be
+    /// configured before the node boots, since it validates its targets against
+    /// the wallet's known keys at startup; the override is per-node because a
+    /// target key a node's wallet does not track aborts that node's startup.
+    pub auto_claim_overrides: HashMap<String, Vec<ConfigOverride>>,
+    /// Scenario-owned background diagnostics and transaction workloads.
+    pub(super) background_tasks: BackgroundTasks,
+    /// Progress for the currently scheduled per-epoch Blend churn rows.
+    pub(super) blend_churn_progress: Option<BlendChurnProgress>,
+    /// Completed-batch counters for the continuous next-wallet load task.
+    pub(super) continuous_transaction_load_progress: Option<ContinuousTransactionLoadProgress>,
+    /// Best-node polling settings for a scenario-owned background workload.
+    pub(super) background_best_node_selection: BackgroundBestNodeSelection,
+}
+
+impl Drop for CucumberWorld {
+    fn drop(&mut self) {
+        self.logos_sql.clear();
+        self.zone.clear();
+        self.background_tasks.abort_all();
+        self.blend_relays.shutdown();
+        self.scanner.shutdown();
+        self.wallet_registry.shutdown();
     }
 }
 
@@ -976,6 +1408,25 @@ pub struct NodeSnapshot {
     /// The node name that this snapshot corresponds to. This is used to
     /// determine which node's data directory will be used.
     pub node: String,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SnapshotSaveConfig {
+    /// If set, all running node state is copied into this snapshot when nodes
+    /// stop.
+    pub node_state: Option<String>,
+    /// If set, test-framework extension state is saved into this snapshot when
+    /// nodes stop.
+    pub extensions: Option<String>,
+    /// Wallet extension payload prepared before node shutdown.
+    pub prepared_wallet_snapshot: Option<WalletSnapshot>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct SnapshotRestoreConfig {
+    /// If set, test-framework extension state is restored from this snapshot
+    /// before nodes start.
+    pub extensions: Option<String>,
 }
 
 impl Debug for CucumberWorld {
@@ -996,119 +1447,211 @@ impl Debug for CucumberWorld {
             .map_or(0, |diagnostics| diagnostics.header_height_node_count);
 
         f.debug_struct("CucumberWorld")
-            .field("deployer", &format!("{:?}", self.deployer))
-            .field("test_context", &format!("{:?}", self.test_context))
-            .field("scenario_base_dir", &self.scenario_base_dir)
-            .field("spec", &format!("{:?}", self.spec))
-            .field("run", &format!("{:?}", self.run))
-            .field("membership_check", &self.membership_check)
-            .field("readiness_checks", &self.readiness_checks)
+            .field("deployer", &format!("{:?}", self.lifecycle.deployer))
+            .field(
+                "test_context",
+                &format!("{:?}", self.lifecycle.test_context),
+            )
+            .field("genesis_time", &self.lifecycle.genesis_time)
+            .field("scenario_base_dir", &self.lifecycle.scenario_base_dir)
+            .field("spec", &format!("{:?}", self.lifecycle.spec))
+            .field("run", &format!("{:?}", self.lifecycle.run))
+            .field("membership_check", &self.lifecycle.membership_check)
+            .field("readiness_checks", &self.lifecycle.readiness_checks)
             .field(
                 "join_external_network",
-                &format!("{:?}", self.join_external_network),
+                &format!("{:?}", self.startup.join_external_network),
             )
             .field(
                 "populate_ibd_peers",
-                &format!("{:?}", self.populate_ibd_peers_from_initial_peers),
+                &format!("{:?}", self.startup.populate_ibd_peers_from_initial_peers),
             )
             .field(
                 "require_all_peers_mode_online_at_startup",
-                &format!("{:?}", self.require_all_peers_mode_online_at_startup),
+                &format!(
+                    "{:?}",
+                    self.startup.require_all_peers_mode_online_at_startup
+                ),
             )
             .field(
                 "genesis_block_utxos",
-                &format!("{:?}", self.genesis_block_utxos),
+                &format!("{:?}", self.chain.genesis_block_utxos),
             )
+            .field("genesis_block_id", &self.chain.genesis_block_id)
+            .field("slots_per_epoch", &self.chain.slots_per_epoch)
             .field("local_cluster", {
-                if self.local_cluster.is_some() {
-                    &"Has LbcManualCluster"
+                if self.cluster.local_cluster.is_some() {
+                    &"Has local app cluster"
                 } else {
                     &"None"
                 }
             })
             .field("k8s_manual_cluster", {
-                if self.k8s_manual_cluster.is_some() {
+                if self.cluster.k8s_manual_cluster.is_some() {
                     &"Has LbcK8sManualCluster"
                 } else {
                     &"None"
                 }
             })
             .field("nodes_info", &self.nodes_info.len())
-            .field("genesis_tokens", &self.genesis_tokens.len())
-            .field("wallet_info", &self.wallet_info.len())
-            .field("faucet_base_url", &format!("{:?}", self.faucet_base_url))
-            .field("faucet_username", &format!("{:?}", self.faucet_username))
-            .field("faucet_password", &format!("{:?}", self.faucet_password))
+            .field("genesis_tokens", &self.chain.genesis_tokens.len())
+            .field("wallet_info", &self.wallet_registry.wallet_info.len())
+            .field(
+                "faucet_base_url",
+                &format!("{:?}", self.wallet_registry.faucet_base_url),
+            )
             .field(
                 "faucet_task_handles",
-                &format!("{}", self.faucet_task_handles.as_ref().map_or(0, Vec::len)),
+                &format!(
+                    "{}",
+                    self.wallet_registry
+                        .faucet_task_handles
+                        .as_ref()
+                        .map_or(0, Vec::len)
+                ),
             )
-            .field("wallet_accounts", &self.wallet_accounts.len())
-            .field("scenario_fee_state", &fee_state_summary(&self.fee_state))
+            .field(
+                "wallet_accounts",
+                &self.wallet_registry.wallet_accounts.len(),
+            )
+            .field(
+                "node_provisioned_wallet_pks",
+                &self.wallet_registry.node_provisioned_wallet_pks.len(),
+            )
+            .field(
+                "scenario_fee_state",
+                &fee_state_summary(&self.wallet_registry.fee_state),
+            )
             .field("wallets", &"SharedTrackedWallets")
-            .field("wallet_block_feed", &self.wallet_block_feed.is_some())
-            .field("wallet_feed_tracker", &"WalletBlockFeedTracker")
-            .field("submitted_transactions", &self.submitted_transactions.len())
-            .field("prepared_transactions", &self.prepared_transactions.len())
+            .field(
+                "submitted_transactions",
+                &self.txs.submitted_transactions.len(),
+            )
+            .field(
+                "recorded_wallet_balances",
+                &self.recorded_wallet_balances.len(),
+            )
+            .field("mining_claim_addresses", &self.mining_claim_addresses.len())
+            .field("auto_claim_overrides", &self.auto_claim_overrides.len())
+            .field("submission_outcomes", &self.txs.submission_outcomes.len())
+            .field(
+                "prepared_transactions",
+                &self.txs.prepared_transactions.len(),
+            )
+            .field(
+                "prepared_priority_fees",
+                &self.txs.prepared_priority_fees.len(),
+            )
             .field(
                 "observed_transaction_hashes",
                 &self.observed_transaction_hashes_len(),
             )
+            .field(
+                "wallet_scanner_groups",
+                &self
+                    .scanner
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .groups
+                    .len(),
+            )
+            .field("wallet_scanner_runtime", &self.scanner.runtime.is_some())
+            .field("wallet_scanner_seeds", &self.scanner.seeds.len())
             .field("wallet_utxos_by_block", &wallet_utxo_snapshot_count)
             .field("wallet_pending_states", &wallet_pending_count)
             .field(
                 "scenario_fee_encumbered_tokens",
-                &self.fee_state.reserved_wallet_count(),
+                &self.wallet_registry.fee_state.reserved_wallet_count(),
             )
             .field("node_header_heights", &wallet_header_height_node_count)
-            .field("node_peer_ids", &self.node_peer_ids.len())
-            .field("node_groups", &self.node_groups.len())
-            .field("node_to_group", &self.node_to_group.len())
-            .field("blend_core_nodes", &self.blend_core_nodes)
-            .field("manual_cluster_spec", &self.manual_cluster_spec)
+            .field("node_peer_ids", &self.cluster.node_peer_ids.len())
+            .field("node_groups", &self.fork_groups.groups().len())
+            .field("node_to_group", &self.fork_groups.mapping().len())
+            .field("blend_core_nodes", &self.cluster.blend_core_nodes)
+            .field("manual_cluster_spec", &self.cluster.manual_cluster_spec)
+            .field(
+                "manual_cluster_deployment_seed",
+                &self.cluster.manual_cluster_deployment_seed.is_some(),
+            )
             .field(
                 "manual_node_config_overrides",
-                &self.manual_node_config_overrides,
+                &self.startup.manual_node_config_overrides,
             )
             .field("zone", &self.zone.debug_summary())
+            .field("logos_sql", &self.logos_sql)
+            .field("recorded_node_heights", &self.node_height_snapshots.len())
             .field(
                 "initial_override_peers_display",
-                &initial_peers_override_display(self.initial_peers_override.as_ref()),
+                &initial_peers_override_display(self.startup.initial_peers_override.as_ref()),
             )
             .field(
                 "ibd_peers_override_display",
-                &ibd_peers_override_display(self.ibd_peers_override.as_ref()),
+                &ibd_peers_override_display(self.startup.ibd_peers_override.as_ref()),
             )
             .field(
                 "public_cryptarchia_endpoint_peers",
                 &public_cryptarchia_endpoint_peers_display(
-                    self.public_cryptarchia_endpoint_peers.as_ref(),
+                    self.startup.public_cryptarchia_endpoint_peers.as_ref(),
                 ),
             )
             .field(
                 "user_config_overrides",
-                &user_config_overrides_display(&self.user_config_overrides),
+                &user_config_overrides_display(&self.startup.user_config_overrides),
             )
             .field(
                 "deployment_config_overrides",
-                &user_config_overrides_display(&self.deployment_config_overrides),
+                &user_config_overrides_display(&self.startup.deployment_config_overrides),
             )
+            .field(
+                "blend_diagnostic_phase",
+                &self.blend_diagnostics.reachability.phase(),
+            )
+            .field(
+                "blend_diagnostic_reference_node",
+                &self.blend_diagnostics.reference_node,
+            )
+            .field(
+                "blend_diagnostic_observation_count",
+                &self.blend_diagnostics.observation_count,
+            )
+            .field(
+                "blend_diagnostic_stopped_nodes",
+                &self.blend_diagnostics.stopped_nodes,
+            )
+            .field(
+                "blend_diagnostic_unreachable_nodes",
+                &self.blend_diagnostics.reachability.unreachable_nodes(),
+            )
+            .field("blend_relays", &self.blend_relays.is_enabled().ok())
+            .field("background_tasks", &self.background_tasks)
+            .field("blend_churn_progress", &self.blend_churn_progress)
+            .field(
+                "continuous_transaction_load_progress",
+                &self
+                    .continuous_transaction_load_progress
+                    .as_ref()
+                    .map(ContinuousTransactionLoadProgress::snapshot),
+            )
+            .field(
+                "background_best_node_selection",
+                &self.background_best_node_selection,
+            )
+            .field("sdp_funding_config", &self.cluster.sdp_funding_config)
             .field(
                 "deployment_config_override_path",
                 &deployment_config_override_path_display(
-                    self.deployment_config_override_path.as_ref(),
+                    self.startup.deployment_config_override_path.as_ref(),
                 ),
             )
+            .field("snapshot_save_config", &self.snapshots.save)
+            .field("snapshot_restore_config", &self.snapshots.restore)
             .field(
-                "blockchain_snapshot_name_on_stop",
-                &self.blockchain_snapshot_name_on_stop,
+                "node_snapshot_on_startup",
+                &node_snapshot_on_startup_display(self.snapshots.node_snapshot_on_startup.as_ref()),
             )
-            .field(
-                "blockchain_snapshot_name_on_startup",
-                &blockchain_snapshot_on_startup_display(
-                    self.blockchain_snapshot_on_startup.as_ref(),
-                ),
-            )
+            .field("tokio_console_profile", &self.tokio_console_profile)
+            .field("recorded_gas_prices_len", &self.recorded_gas_prices.len())
             .finish()
     }
 }
@@ -1127,18 +1670,55 @@ pub struct GenesisTokens {
     pub token_amount: u64,
 }
 
-/// The wallet type can either be ussr defined or funding.
+/// Fee values captured when a percentage-funded transaction is prepared.
 #[derive(Clone, Debug)]
+pub struct PreparedPriorityFee {
+    pub percent: u64,
+    pub initial_mandatory_fee: u64,
+    pub initial_reserve: u64,
+    pub funded_fee: u64,
+    pub initial_execution_price: u64,
+    pub initial_storage_price: u64,
+}
+
+/// A scenario wallet is either user-owned or backed by a node wallet key.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum NodeWalletKeyRole {
+    Funding,
+    VoucherMaster,
+    BlendZk,
+    General,
+}
+
+impl NodeWalletKeyRole {
+    #[must_use]
+    pub const fn priority(self) -> u8 {
+        match self {
+            Self::Funding => 0,
+            Self::VoucherMaster => 1,
+            Self::BlendZk => 2,
+            Self::General => 3,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NodeWalletKey {
+    pub wallet_pk: String,
+    pub role: NodeWalletKeyRole,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WalletType {
-    /// User defined wallets with are not tied to a specific node
+    /// User-defined wallets are signed and tracked by the Cucumber harness.
     User { wallet_account: WalletAccount },
-    /// Funding wallets are tied to a node and participate in consensus
-    Funding { wallet_pk: String },
+    /// Funding wallets are keys owned by a node and served by its wallet API.
+    Funding { key: NodeWalletKey },
 }
 
 /// Information about a wallet resource created in the world, which can be used
 /// to track and reference wallets across steps.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct WalletInfo {
     /// Logical name of the wallet resource, used for referencing in steps.
     pub wallet_name: String,
@@ -1149,22 +1729,29 @@ pub struct WalletInfo {
     pub wallet_type: WalletType,
 }
 
+/// A recipient accepted by transaction steps, with a display label for logs.
+#[derive(Clone, Debug)]
+pub struct WalletRecipient {
+    pub label: String,
+    pub public_key: ZkPublicKey,
+}
+
 impl WalletInfo {
     /// Helper to get the wallet's public key as `String` type (default hex).
     #[must_use]
     pub fn public_key_hex(&self) -> String {
         match &self.wallet_type {
-            WalletType::User { wallet_account, .. } => wallet_account.public_key_hex(),
-            WalletType::Funding { wallet_pk } => wallet_pk.clone(),
+            WalletType::User { wallet_account } => wallet_account.public_key_hex(),
+            WalletType::Funding { key } => key.wallet_pk.clone(),
         }
     }
 
     /// Helper to get the wallet's public key as a `ZkPublicKey` type.
     pub fn public_key(&self) -> Result<ZkPublicKey, StepError> {
         match &self.wallet_type {
-            WalletType::User { wallet_account, .. } => Ok(wallet_account.public_key()),
-            WalletType::Funding { wallet_pk } => {
-                Ok(ZkPublicKey::from_bytes(&hex::decode(wallet_pk)?)?)
+            WalletType::User { wallet_account } => Ok(wallet_account.public_key()),
+            WalletType::Funding { key } => {
+                Ok(ZkPublicKey::from_bytes(&hex::decode(&key.wallet_pk)?)?)
             }
         }
     }
@@ -1177,8 +1764,26 @@ impl WalletInfo {
 
     /// Helper to determine if this wallet is a funding wallet.
     #[must_use]
-    pub const fn is_funding_wallet(&self) -> bool {
+    pub const fn is_node_wallet(&self) -> bool {
         matches!(self.wallet_type, WalletType::Funding { .. })
+    }
+
+    #[must_use]
+    pub const fn is_node_funding_wallet(&self) -> bool {
+        matches!(
+            self.wallet_type,
+            WalletType::Funding {
+                key: NodeWalletKey {
+                    role: NodeWalletKeyRole::Funding,
+                    ..
+                }
+            }
+        )
+    }
+
+    #[must_use]
+    pub const fn is_scanner_tracked_wallet(&self) -> bool {
+        self.is_user_wallet() || self.is_node_funding_wallet()
     }
 }
 
@@ -1189,6 +1794,7 @@ pub type ChainInfoMap = HashMap<u64, String>;
 pub type WalletInfoMap = HashMap<String, WalletInfo>;
 
 /// Information about a started node in the world
+#[derive(Clone)]
 pub struct NodeInfo {
     /// Node name
     pub name: String,
@@ -1228,18 +1834,58 @@ impl NodeInfo {
 }
 
 impl CucumberWorld {
+    /// Join scenario-owned tasks, restore provider reachability, then close
+    /// controllable Blend relays. The Cucumber after-hook also calls this so
+    /// failed scenarios do not leave background work running into the next.
+    pub async fn stop_background_activity(&mut self) -> StepResult {
+        let mut errors = Vec::new();
+        if let Err(error) = self.stop_all_background_tasks().await {
+            errors.push(error.to_string());
+        }
+        self.continuous_transaction_load_progress = None;
+        self.blend_churn_progress = None;
+        if let Err(error) = restore_all_blend_reachability(self).await {
+            errors.push(error.to_string());
+        }
+        self.blend_relays.shutdown();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(StepError::StepFail {
+                message: errors.join("; "),
+            })
+        }
+    }
+
+    /// Return the stable deployment seed for this manual-cluster scenario,
+    /// generating it on first use.
+    pub fn manual_cluster_deployment_seed(&mut self) -> DeploymentSeed {
+        self.cluster
+            .manual_cluster_deployment_seed
+            .get_or_insert_with(|| DeploymentSeed::new(rand::random()))
+            .clone()
+    }
+
     /// Set a scenario-wide cryptarchia security parameter override for
     /// manual-cluster nodes.
     pub const fn set_cryptarchia_security_param(&mut self, security_param: NonZero<u32>) {
-        self.manual_node_config_overrides
+        self.startup
+            .manual_node_config_overrides
             .set_cryptarchia_security_param(security_param);
     }
 
     /// Set a scenario-wide prolonged bootstrap period override for
     /// manual-cluster nodes.
     pub const fn set_prolonged_bootstrap_period(&mut self, period: Duration) {
-        self.manual_node_config_overrides
+        self.startup
+            .manual_node_config_overrides
             .set_prolonged_bootstrap_period(period);
+    }
+
+    /// Set the SDP funding profile for generated manual-cluster deployments.
+    pub const fn set_sdp_funding_config(&mut self, config: SdpFundingConfig) {
+        self.cluster.sdp_funding_config = config;
     }
 
     /// Get the best known height for the given node, if any. This is based on
@@ -1257,7 +1903,7 @@ impl CucumberWorld {
 
     /// Set the deployer kind for this scenario.
     pub const fn set_deployer(&mut self, deployer: DeployerKind) {
-        self.deployer = Some(deployer);
+        self.lifecycle.deployer = Some(deployer);
     }
 
     /// Set the directory where scenario artifacts should be stored.
@@ -1265,25 +1911,34 @@ impl CucumberWorld {
         let log_dir = PathBuf::from(log_dir);
         init_node_log_dir_defaults(deployer, Some(&log_dir));
 
-        self.scenario_base_dir.clone_from(&log_dir);
-        if let Some(topology) = self.spec.topology.as_mut() {
+        self.lifecycle.scenario_base_dir.clone_from(&log_dir);
+        if let Some(topology) = self.lifecycle.spec.topology.as_mut() {
             topology.scenario_base_dir = log_dir;
         }
     }
 
+    /// Set the name of the current Cucumber scenario.
+    pub fn set_scenario_name(&mut self, scenario_name: &str) {
+        self.lifecycle.scenario_name = Some(scenario_name.to_owned());
+    }
+
     pub fn set_test_context(&mut self, test_context: String) {
-        self.test_context = Some(test_context);
+        self.lifecycle.test_context = Some(test_context);
+    }
+
+    pub const fn set_genesis_time(&mut self, genesis_time: GenesisTime) {
+        self.lifecycle.genesis_time = Some(genesis_time);
     }
 
     /// Remove all scenario artifacts from the scenario base directory. This is
     /// useful for ensuring a clean state before starting a new scenario.
     pub fn clear_scenario_artifacts(&self) -> StepResult {
-        if self.scenario_base_dir.is_dir() {
-            std::fs::remove_dir_all(&self.scenario_base_dir).map_err(|e| {
+        if self.lifecycle.scenario_base_dir.is_dir() {
+            std::fs::remove_dir_all(&self.lifecycle.scenario_base_dir).map_err(|e| {
                 StepError::LogicalError {
                     message: format!(
                         "Failed to clear scenario artifacts in '{}': {e}",
-                        self.scenario_base_dir.display()
+                        self.lifecycle.scenario_base_dir.display()
                     ),
                 }
             })?;
@@ -1295,7 +1950,11 @@ impl CucumberWorld {
         &self,
         action: impl FnOnce(&TrackedWallets) -> R,
     ) -> Result<R, StepError> {
-        let wallets = self.wallets.lock().map_err(|_| wallet_state_lock_error())?;
+        let wallets = self
+            .wallet_registry
+            .wallets
+            .lock()
+            .map_err(|_| wallet_state_lock_error())?;
 
         Ok(action(&wallets))
     }
@@ -1304,145 +1963,87 @@ impl CucumberWorld {
         &self,
         action: impl FnOnce(&mut TrackedWallets) -> R,
     ) -> Result<R, StepError> {
-        let mut wallets = self.wallets.lock().map_err(|_| wallet_state_lock_error())?;
+        let mut wallets = self
+            .wallet_registry
+            .wallets
+            .lock()
+            .map_err(|_| wallet_state_lock_error())?;
 
         Ok(action(&mut wallets))
-    }
-
-    pub fn with_wallet_feed_state_mut<R>(
-        &self,
-        action: impl FnOnce(&mut WalletBlockFeedTracker, &mut TrackedWallets) -> R,
-    ) -> Result<R, StepError> {
-        let mut tracker = self
-            .wallet_feed_tracker
-            .lock()
-            .map_err(|_| wallet_feed_tracker_lock_error())?;
-        let mut wallets = self.wallets.lock().map_err(|_| wallet_state_lock_error())?;
-
-        Ok(action(&mut tracker, &mut wallets))
     }
 
     fn wallet_diagnostics_for_debug(&self) -> Result<WalletDiagnostics, StepError> {
         self.with_wallets(TrackedWallets::diagnostics)
     }
 
-    pub async fn ensure_wallet_block_feed(&mut self) -> StepResult {
-        if self.wallet_block_feed.is_some() {
+    pub async fn ensure_wallet_scanner_started(&mut self) -> StepResult {
+        if self.scanner.runtime.is_some() || self.scanner.runtime_is_shared {
+            tokio::task::yield_now().await;
             return Ok(());
         }
 
-        let feed = CucumberWalletBlockFeed::start(
-            Arc::clone(&self.wallets),
-            Arc::clone(&self.wallet_feed_tracker),
-            Arc::clone(&self.observed_transaction_hashes),
-            self.genesis_block_utxos.clone(),
-        )
-        .await
-        .map_err(|error| wallet_block_feed_error(&error))?;
+        let scanner_state = Arc::new(Mutex::new(WalletScannerState::default()));
+        let configs = build_fork_group_scanner_configs(self, Arc::clone(&scanner_state))?;
+        let runtime = start_wallet_scanners(configs);
 
-        for (node_name, node_info) in &self.nodes_info {
-            feed.register_source(node_name, node_info.started_node.client.clone())
-                .map_err(|error| wallet_block_feed_error(&error))?;
-        }
-
-        self.wallet_block_feed = Some(feed);
-        self.track_known_wallets_with_block_feed().await?;
-
+        self.scanner.state = scanner_state;
+        self.scanner.runtime = Some(runtime);
+        tokio::task::yield_now().await;
         Ok(())
     }
 
-    pub async fn register_wallet_block_feed_source(
+    pub async fn wait_for_wallet_scanner_catch_up(&mut self, timeout: Duration) -> StepResult {
+        self.ensure_wallet_scanner_started().await?;
+        wait_for_scanner_catch_up(&self.scanner.state, timeout).await
+    }
+
+    pub fn reset_wallet_scanner(&mut self) {
+        if let Some(runtime) = self.scanner.runtime.take() {
+            runtime.cancel();
+        }
+        self.scanner.state = Arc::new(Mutex::new(WalletScannerState::default()));
+    }
+
+    pub async fn reset_wallet_scanner_after_current_iteration(&mut self) {
+        if let Some(runtime) = self.scanner.runtime.take() {
+            runtime.shutdown_after_current_iteration().await;
+        }
+        self.scanner.state = Arc::new(Mutex::new(WalletScannerState::default()));
+    }
+
+    pub(crate) fn wallet_tracking_keys_for_source(
         &self,
-        node_name: &str,
-        client: NodeHttpClient,
-    ) -> StepResult {
-        let Some(feed) = &self.wallet_block_feed else {
-            return Ok(());
+        source_node_name: &str,
+    ) -> Result<Vec<TrackedWalletKeys>, StepError> {
+        let wallets_by_source = self.wallets_by_source_with_unique_public_keys()?;
+        let Some(wallets) = wallets_by_source.get(source_node_name) else {
+            return Ok(Vec::new());
         };
 
-        feed.register_source(node_name, client)
-            .map_err(|error| wallet_block_feed_error(&error))?;
-        self.track_known_wallets_with_block_feed().await
-    }
+        let group_key = self
+            .fork_groups
+            .mapping()
+            .get(source_node_name)
+            .cloned()
+            .unwrap_or_default();
 
-    pub fn wallet_block_feed(&self) -> Result<BlockFeed, StepError> {
-        self.wallet_block_feed
-            .as_ref()
-            .map(CucumberWalletBlockFeed::feed)
-            .ok_or_else(|| StepError::LogicalError {
-                message: "Wallet block feed is not running".to_owned(),
-            })
-    }
-
-    pub fn reset_wallet_block_feed(&mut self) {
-        self.wallet_block_feed = None;
-        self.wallet_feed_tracker = Arc::new(Mutex::new(WalletBlockFeedTracker::default()));
-    }
-
-    /// Register currently known, unambiguous wallets with their owning feed
-    /// source.
-    ///
-    /// This makes the feed tracker keep wallet state current in the
-    /// background without letting unrelated fork sources overwrite the same
-    /// wallet. Legacy sync-style steps can still add best-node tracking
-    /// explicitly when needed.
-    pub async fn track_known_wallets_with_block_feed(&self) -> StepResult {
-        if self.wallet_block_feed.is_none()
-            || self.nodes_info.is_empty()
-            || self.wallet_info.is_empty()
-        {
-            return Ok(());
+        let mut wallet_keys = TrackedWalletKeysBySource::new();
+        for (wallet_name, public_key) in wallets {
+            wallet_keys.add_wallet(&group_key, wallet_name, *public_key);
         }
 
-        let tracking_batches = self.known_wallet_tracking_batches()?;
-        if tracking_batches.is_empty() {
-            return Ok(());
+        if let Some(fee_wallet_account) = self.wallet_registry.fee_state.wallet_account.clone() {
+            wallet_keys.add_wallet(
+                &group_key,
+                SCENARIO_FEE_ACCOUNT_NAME,
+                fee_wallet_account.public_key(),
+            );
         }
 
-        let genesis_utxos = self.genesis_block_utxos.clone();
-        track_wallet_feed_batches_with_backfill(self, &tracking_batches, &genesis_utxos).await
-    }
-
-    fn known_wallet_tracking_batches(&self) -> Result<Vec<WalletFeedTrackingBatch>, StepError> {
-        let wallets_by_source = self.wallets_by_source_with_unique_public_keys()?;
-        if wallets_by_source.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut tracking_batches = Vec::new();
-        for (source_node_name, wallets) in wallets_by_source {
-            if !self.nodes_info.contains_key(&source_node_name) {
-                continue;
-            }
-
-            let group_key = self
-                .node_to_group
-                .get(&source_node_name)
-                .cloned()
-                .unwrap_or_default();
-
-            let mut wallet_keys = TrackedWalletKeysBySource::new();
-            for (wallet_name, public_key) in wallets {
-                wallet_keys.add_wallet(&group_key, wallet_name, public_key);
-            }
-
-            if let Some(fee_wallet_account) = self.fee_state.wallet_account.clone() {
-                wallet_keys.add_wallet(
-                    &group_key,
-                    SCENARIO_FEE_ACCOUNT_NAME,
-                    fee_wallet_account.public_key(),
-                );
-            }
-
-            tracking_batches.extend(wallet_keys.batches().map(|wallet_keys_for_group| {
-                WalletFeedTrackingBatch::new(
-                    source_node_name.clone(),
-                    wallet_keys_for_group.wallet_keys().iter().cloned(),
-                )
-            }));
-        }
-
-        Ok(tracking_batches)
+        Ok(wallet_keys
+            .batches()
+            .flat_map(|batch| batch.wallet_keys().to_vec())
+            .collect())
     }
 
     fn wallets_by_source_with_unique_public_keys(
@@ -1451,7 +2052,12 @@ impl CucumberWorld {
         let mut wallets_by_source_and_key: HashMap<String, HashMap<ZkPublicKey, Vec<String>>> =
             HashMap::new();
 
-        for wallet in self.wallet_info.values() {
+        for wallet in self
+            .wallet_registry
+            .wallet_info
+            .values()
+            .filter(|wallet| wallet.is_scanner_tracked_wallet())
+        {
             wallets_by_source_and_key
                 .entry(wallet.node_name.clone())
                 .or_default()
@@ -1471,7 +2077,7 @@ impl CucumberWorld {
                 } else {
                     warn!(
                         target: TARGET,
-                        "Skipping automatic wallet feed tracking for aliases on `{}` with the same public key: {}",
+                        "Skipping automatic scanner state tracking for aliases on `{}` with the same public key: {}",
                         source_node_name,
                         wallet_names.join(", ")
                     );
@@ -1484,23 +2090,23 @@ impl CucumberWorld {
 
     /// Configure the scenario topology (number of nodes and network layout).
     pub fn set_topology(&mut self, nodes: usize, network: NetworkKind) -> StepResult {
-        self.spec.topology = Some(TopologySpec {
+        self.lifecycle.spec.topology = Some(TopologySpec {
             nodes: non_zero!("nodes", nodes)?,
             network,
-            scenario_base_dir: self.scenario_base_dir.clone(),
+            scenario_base_dir: self.lifecycle.scenario_base_dir.clone(),
         });
         Ok(())
     }
 
     /// Configure the scenario run duration in seconds.
     pub fn set_run_duration(&mut self, seconds: u64) -> StepResult {
-        self.spec.duration_secs = Some(non_zero!("duration", seconds)?);
+        self.lifecycle.spec.duration_secs = Some(non_zero!("duration", seconds)?);
         Ok(())
     }
 
     // Configure the scenario wallets with total funds and number of users.
     pub fn set_wallets(&mut self, total_funds: u64, users: usize) -> StepResult {
-        self.spec.wallets = Some(WalletSpec {
+        self.lifecycle.spec.wallets = Some(WalletSpec {
             total_funds,
             users: non_zero!("wallet users", users)?,
         });
@@ -1514,13 +2120,13 @@ impl CucumberWorld {
         rate_per_block: u64,
         users: Option<usize>,
     ) -> StepResult {
-        if self.spec.transactions.is_some() {
+        if self.lifecycle.spec.transactions.is_some() {
             return Err(StepError::InvalidArgument {
                 message: "transactions workload already configured".to_owned(),
             });
         }
 
-        self.spec.transactions = Some(TransactionSpec {
+        self.lifecycle.spec.transactions = Some(TransactionSpec {
             rate_per_block: non_zero!("transactions rate", rate_per_block)?,
             users: match users {
                 Some(val) => Some(non_zero!("transactions users", val)?),
@@ -1532,8 +2138,8 @@ impl CucumberWorld {
 
     /// Enable the consensus liveness expectation for this scenario.
     pub const fn enable_consensus_liveness(&mut self) {
-        if self.spec.consensus_liveness.is_none() {
-            self.spec.consensus_liveness = Some(ConsensusLivenessSpec {
+        if self.lifecycle.spec.consensus_liveness.is_none() {
+            self.lifecycle.spec.consensus_liveness = Some(ConsensusLivenessSpec {
                 lag_allowance: None,
             });
         }
@@ -1543,39 +2149,34 @@ impl CucumberWorld {
     /// far behind the target height the nodes are allowed to be while still
     /// satisfying the expectation.
     pub fn set_consensus_liveness_lag_allowance(&mut self, blocks: u64) -> StepResult {
-        self.spec.consensus_liveness = Some(ConsensusLivenessSpec {
+        self.lifecycle.spec.consensus_liveness = Some(ConsensusLivenessSpec {
             lag_allowance: Some(non_zero!("lag allowance", blocks)?),
         });
 
         Ok(())
     }
 
+    /// Check if Tokio console profiling is enabled for this scenario. This is
+    /// determined by whether any profiling nodes have been configured in the
+    /// `tokio_console_profile` field of the world.
+    #[must_use]
+    pub fn tokio_console_profile_enabled(&self) -> bool {
+        !self.tokio_console_profile.profile_nodes.is_empty()
+    }
+
     /// Build a scenario for local deployment based on the current world
     /// configuration. This performs necessary preflight checks and returns
     /// a built scenario ready for deployment.
-    pub fn build_local_scenario(&self) -> Result<Scenario<LbcEnv>, StepError> {
+    pub fn build_local_scenario(&self) -> Result<LbcScenario, StepError> {
         let builder = self.make_builder_for_deployer(DeployerKind::Local)?;
         builder
             .build()
             .map_err(|source| StepError::ScenarioBuild { source })
     }
 
-    /// Build a scenario for compose deployment based on the current world
-    /// configuration. This performs necessary preflight checks and returns
-    /// a built scenario ready for deployment.
-    pub fn build_compose_scenario(
-        &self,
-    ) -> Result<Scenario<LbcEnv, NodeControlCapability>, StepError> {
-        let builder = self.make_builder_for_deployer(DeployerKind::Compose)?;
-        builder
-            .enable_node_control()
-            .build()
-            .map_err(|source| StepError::ScenarioBuild { source })
-    }
-
     /// Build a scenario for k8s deployment based on the current world
     /// configuration.
-    pub fn build_k8s_scenario(&self) -> Result<Scenario<LbcEnv>, StepError> {
+    pub fn build_k8s_scenario(&self) -> Result<LbcScenario, StepError> {
         let builder = self.make_builder_for_deployer(DeployerKind::K8s)?;
         builder
             .build()
@@ -1605,24 +2206,31 @@ impl CucumberWorld {
         self.ensure_expected_deployer(expected)?;
 
         let topology = self
+            .lifecycle
             .spec
             .topology
             .clone()
             .ok_or(StepError::MissingTopology)?;
         let duration_secs = self
+            .lifecycle
             .spec
             .duration_secs
             .ok_or(StepError::MissingRunDuration)?
             .get();
 
-        let mut builder: ScenarioBuilderWith = make_builder(&topology);
+        let mut builder: ScenarioBuilderWith = make_builder(&topology, self.lifecycle.genesis_time)
+            .with_backend(match expected {
+                DeployerKind::Local => LbcClusterBackend::Local,
+                DeployerKind::Compose => LbcClusterBackend::Compose,
+                DeployerKind::K8s => LbcClusterBackend::K8s,
+            });
 
         builder = builder.with_run_duration(Duration::from_secs(duration_secs));
-        if let Some(wallets) = self.spec.wallets {
+        if let Some(wallets) = self.lifecycle.spec.wallets {
             builder = builder.initialize_wallet(wallets.total_funds, wallets.users.get());
         }
 
-        if let Some(tx) = self.spec.transactions {
+        if let Some(tx) = self.lifecycle.spec.transactions {
             builder = builder.transactions_with(|flow| {
                 let mut flow = flow.rate(tx.rate_per_block.get());
                 if let Some(users) = tx.users {
@@ -1632,7 +2240,7 @@ impl CucumberWorld {
             });
         }
 
-        if let Some(liveness) = self.spec.consensus_liveness {
+        if let Some(liveness) = self.lifecycle.spec.consensus_liveness {
             if let Some(lag) = liveness.lag_allowance {
                 builder = builder
                     .with_expectation(ConsensusLiveness::default().with_lag_allowance(lag.get()));
@@ -1645,7 +2253,7 @@ impl CucumberWorld {
     }
 
     fn ensure_expected_deployer(&self, expected: DeployerKind) -> Result<(), StepError> {
-        let actual = self.deployer.ok_or(StepError::MissingDeployer)?;
+        let actual = self.lifecycle.deployer.ok_or(StepError::MissingDeployer)?;
 
         if actual != expected {
             return Err(StepError::DeployerMismatch { expected, actual });
@@ -1691,6 +2299,7 @@ impl CucumberWorld {
     /// is associated with.
     pub fn resolve_wallet_node_name(&self, wallet_name: &str) -> Result<String, StepError> {
         Ok(self
+            .wallet_registry
             .wallet_info
             .get(wallet_name)
             .ok_or(StepError::LogicalError {
@@ -1702,6 +2311,7 @@ impl CucumberWorld {
 
     /// Helper to check if a node is configured for immediate start (not
     /// awaiting network readiness)
+    #[must_use]
     pub fn network_immediate_start(&self, node_name: &str) -> bool {
         self.nodes_info
             .get(node_name)
@@ -1721,6 +2331,7 @@ impl CucumberWorld {
 
     /// Helper to resolve a list of node names to their corresponding started
     /// node names.
+    #[must_use]
     pub fn resolve_named_peers(&self, initial_peers: &[String]) -> Vec<String> {
         initial_peers
             .iter()
@@ -1769,37 +2380,97 @@ impl CucumberWorld {
     }
 
     /// Helper to retrieve all node names.
+    #[must_use]
     pub fn all_node_names(&self) -> Vec<String> {
         self.nodes_info.keys().cloned().collect::<Vec<_>>()
     }
 
-    pub fn any_started_node(&self) -> Result<&NodeInfo, StepError> {
-        self.nodes_info
-            .values()
-            .next()
-            .ok_or_else(|| StepError::LogicalError {
-                message: "No started nodes available in world".to_owned(),
-            })
-    }
-
     /// Helper to resolve all user wallet names to the actual wallet
     /// information.
+    #[must_use]
     pub fn all_user_wallets(&self) -> Vec<WalletInfo> {
-        self.wallet_info
+        self.wallet_registry
+            .wallet_info
             .values()
             .filter(|w| matches!(w.wallet_type, WalletType::User { .. }))
             .cloned()
             .collect::<Vec<_>>()
     }
 
-    /// Helper to resolve all funding wallet names to the actual wallet
-    /// information.
-    pub fn all_funding_wallets(&self) -> Vec<WalletInfo> {
-        self.wallet_info
+    /// Helper to resolve all node-owned wallet keys.
+    #[must_use]
+    pub fn all_node_wallets(&self) -> Vec<WalletInfo> {
+        let mut wallets = self
+            .wallet_registry
+            .wallet_info
             .values()
-            .filter(|w| matches!(w.wallet_type, WalletType::Funding { .. }))
+            .filter(|wallet| wallet.is_node_wallet())
             .cloned()
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        wallets.sort_by(|left, right| left.wallet_name.cmp(&right.wallet_name));
+        wallets
+    }
+
+    /// Resolve the node key configured to fund node service transactions.
+    pub fn funding_wallet(&self, node_name: &str) -> Result<WalletInfo, StepError> {
+        let mut wallets = self
+            .wallet_registry
+            .wallet_info
+            .values()
+            .filter(|wallet| wallet.node_name == node_name && wallet.is_node_funding_wallet())
+            .cloned()
+            .collect::<Vec<_>>();
+        wallets.sort_by(|left, right| left.wallet_name.cmp(&right.wallet_name));
+        match wallets.as_slice() {
+            [wallet] => Ok(wallet.clone()),
+            [] => Err(StepError::LogicalError {
+                message: format!("Node `{node_name}` has no funding wallet"),
+            }),
+            _ => Err(StepError::LogicalError {
+                message: format!("Node `{node_name}` has multiple funding wallets"),
+            }),
+        }
+    }
+
+    /// Resolve a scenario wallet name or a bare hexadecimal public key.
+    pub fn resolve_recipient(&self, value: &str) -> Result<WalletRecipient, StepError> {
+        if let Ok(wallet) = self.resolve_wallet(value) {
+            let public_key = wallet.public_key()?;
+            return Ok(WalletRecipient {
+                label: wallet.wallet_name,
+                public_key,
+            });
+        }
+
+        let public_key = ZkPublicKey::from_bytes(&hex::decode(value).map_err(|_| {
+            StepError::InvalidArgument {
+                message: format!(
+                    "Recipient `{value}` must be a scenario wallet name or bare hexadecimal public key"
+                ),
+            }
+        })?)
+        .map_err(|_| StepError::InvalidArgument {
+            message: format!("Recipient `{value}` is not a valid public key"),
+        })?;
+
+        let mut matching_wallets = self
+            .wallet_registry
+            .wallet_info
+            .values()
+            .filter(|wallet| wallet.public_key().ok().as_ref() == Some(&public_key))
+            .collect::<Vec<_>>();
+        matching_wallets.sort_by(|left, right| {
+            left.is_node_wallet()
+                .cmp(&right.is_node_wallet())
+                .then_with(|| left.wallet_name.cmp(&right.wallet_name))
+        });
+
+        Ok(WalletRecipient {
+            label: matching_wallets
+                .first()
+                .map_or_else(|| value.to_owned(), |wallet| wallet.wallet_name.clone()),
+            public_key,
+        })
     }
 
     /// Helper to resolve a wallet name to the actual wallet information.
@@ -1811,12 +2482,44 @@ impl CucumberWorld {
     }
 
     pub fn remember_submitted_transaction(&mut self, alias: String, tx_hash: TxHash) {
-        self.submitted_transactions.insert(alias, tx_hash);
+        self.txs.submitted_transactions.insert(alias, tx_hash);
+    }
+
+    /// All remembered submitted transactions whose alias starts with `prefix`,
+    /// sorted by alias for deterministic reporting.
+    #[must_use]
+    pub fn submitted_transactions_with_prefix(&self, prefix: &str) -> Vec<(String, TxHash)> {
+        let mut txs: Vec<_> = self
+            .txs
+            .submitted_transactions
+            .iter()
+            .filter(|(alias, _)| alias.starts_with(prefix))
+            .map(|(alias, tx_hash)| (alias.clone(), *tx_hash))
+            .collect();
+        txs.sort();
+        txs
+    }
+
+    pub fn remember_submission_outcome(&mut self, alias: String, outcome: Result<(), String>) {
+        self.txs.submission_outcomes.insert(alias, outcome);
+    }
+
+    pub fn resolve_submission_outcome(
+        &self,
+        alias: &str,
+    ) -> Result<&Result<(), String>, StepError> {
+        self.txs
+            .submission_outcomes
+            .get(alias)
+            .ok_or_else(|| StepError::LogicalError {
+                message: format!("Submission outcome for alias '{alias}' not found in world state"),
+            })
     }
 
     #[must_use]
     pub fn observed_transaction_hashes_len(&self) -> usize {
-        self.observed_transaction_hashes
+        self.scanner
+            .observed_transaction_hashes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .len()
@@ -1827,6 +2530,7 @@ impl CucumberWorld {
         expected: &HashSet<TxHash, S>,
     ) -> Vec<TxHash> {
         let observed_transaction_hashes = self
+            .scanner
             .observed_transaction_hashes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1839,7 +2543,8 @@ impl CucumberWorld {
     }
 
     pub fn resolve_submitted_transaction(&self, alias: &str) -> Result<TxHash, StepError> {
-        self.submitted_transactions
+        self.txs
+            .submitted_transactions
             .get(alias)
             .copied()
             .ok_or(StepError::LogicalError {
@@ -1847,12 +2552,36 @@ impl CucumberWorld {
             })
     }
 
-    pub fn remember_prepared_transaction(&mut self, alias: String, signed_tx: SignedMantleTx) {
-        self.prepared_transactions.insert(alias, signed_tx);
+    pub fn remember_prepared_transaction(
+        &mut self,
+        alias: String,
+        signed_tx: SignedOps<Preverified, StandardMode>,
+    ) {
+        self.txs.prepared_transactions.insert(alias, signed_tx);
     }
 
-    pub fn resolve_prepared_transaction(&self, alias: &str) -> Result<SignedMantleTx, StepError> {
-        self.prepared_transactions
+    pub fn remember_prepared_priority_fee(&mut self, alias: String, fee: PreparedPriorityFee) {
+        self.txs.prepared_priority_fees.insert(alias, fee);
+    }
+
+    pub fn resolve_prepared_priority_fee(
+        &self,
+        alias: &str,
+    ) -> Result<&PreparedPriorityFee, StepError> {
+        self.txs
+            .prepared_priority_fees
+            .get(alias)
+            .ok_or(StepError::LogicalError {
+                message: format!("Prepared priority fee alias '{alias}' not found in world state"),
+            })
+    }
+
+    pub fn resolve_prepared_transaction(
+        &self,
+        alias: &str,
+    ) -> Result<SignedOps<Preverified, StandardMode>, StepError> {
+        self.txs
+            .prepared_transactions
             .get(alias)
             .cloned()
             .ok_or(StepError::LogicalError {
@@ -1866,7 +2595,8 @@ impl CucumberWorld {
         wallet_names
             .iter()
             .map(|w| {
-                self.wallet_info
+                self.wallet_registry
+                    .wallet_info
                     .get(w)
                     .cloned()
                     .ok_or(StepError::LogicalError {
@@ -1878,12 +2608,15 @@ impl CucumberWorld {
 
     /// Helper to submit a transaction to the node associated with the given
     /// wallet.
-    pub async fn submit_transaction(
+    pub async fn submit_transaction<State>(
         &self,
         wallet: &WalletInfo,
-        signed_tx: &SignedMantleTx,
+        signed_tx: &SignedOps<State, StandardMode>,
         node_client: &NodeHttpClient,
-    ) -> Result<(), StepError> {
+    ) -> Result<(), StepError>
+    where
+        State: VerificationState + Clone + Send + Sync + 'static,
+    {
         tokio::time::timeout(
             Duration::from_secs(10),
             node_client.submit_transaction(signed_tx),
@@ -1936,7 +2669,7 @@ impl CucumberWorld {
     /// will be used when starting nodes, bypassing the generated
     /// genesis/test deployment.
     pub fn apply_deployment_config_override_path(&mut self) {
-        self.deployment_config_override_path = env::var(CUCUMBER_NODE_CONFIG_OVERRIDE)
+        self.startup.deployment_config_override_path = env::var(CUCUMBER_NODE_CONFIG_OVERRIDE)
             .ok()
             .map(PathBuf::from);
     }
@@ -1957,7 +2690,8 @@ impl CucumberWorld {
 
     #[expect(
         clippy::too_many_lines,
-        reason = "Debug output intentionally enumerates world state fields for diagnostics"
+        reason = "Flat field-by-field dump of the whole world state; splitting it would not \
+                  improve readability"
     )]
     pub fn full_debug_info(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let wallet_diagnostics = self
@@ -1965,59 +2699,82 @@ impl CucumberWorld {
             .unwrap_or_else(|_| empty_wallet_diagnostics());
 
         f.debug_struct("CucumberWorld")
-            .field("deployer", &format!("{:?}", self.deployer))
-            .field("scenario_base_dir", &self.scenario_base_dir)
-            .field("spec", &format!("{:?}", self.spec))
-            .field("run", &format!("{:?}", self.run))
-            .field("membership_check", &self.membership_check)
-            .field("readiness_checks", &self.readiness_checks)
+            .field("deployer", &format!("{:?}", self.lifecycle.deployer))
+            .field("scenario_base_dir", &self.lifecycle.scenario_base_dir)
+            .field("spec", &format!("{:?}", self.lifecycle.spec))
+            .field("run", &format!("{:?}", self.lifecycle.run))
+            .field("membership_check", &self.lifecycle.membership_check)
+            .field("readiness_checks", &self.lifecycle.readiness_checks)
             .field(
                 "join_external_network",
-                &format!("{:?}", self.join_external_network),
+                &format!("{:?}", self.startup.join_external_network),
             )
             .field("zone", &self.zone.debug_summary())
             .field(
                 "populate_ibd_peers",
-                &format!("{:?}", self.populate_ibd_peers_from_initial_peers),
+                &format!("{:?}", self.startup.populate_ibd_peers_from_initial_peers),
             )
             .field(
                 "require_all_peers_mode_online_at_startup",
-                &format!("{:?}", self.require_all_peers_mode_online_at_startup),
+                &format!(
+                    "{:?}",
+                    self.startup.require_all_peers_mode_online_at_startup
+                ),
             )
             .field(
                 "genesis_block_utxos",
-                &format!("{:?}", self.genesis_block_utxos),
+                &format!("{:?}", self.chain.genesis_block_utxos),
             )
+            .field("genesis_block_id", &self.chain.genesis_block_id)
             .field("local_cluster", {
-                if self.local_cluster.is_some() {
-                    &"Has LbcManualCluster"
+                if self.cluster.local_cluster.is_some() {
+                    &"Has local app cluster"
                 } else {
                     &"None"
                 }
             })
             .field("k8s_manual_cluster", {
-                if self.k8s_manual_cluster.is_some() {
+                if self.cluster.k8s_manual_cluster.is_some() {
                     &"Has LbcK8sManualCluster"
                 } else {
                     &"None"
                 }
             })
             .field("nodes_info", &nodes_info_display(&self.nodes_info))
-            .field("genesis_tokens", &format!("{:?}", self.genesis_tokens))
-            .field("wallet_info", &wallet_info_display(&self.wallet_info))
-            .field("faucet_base_url", &format!("{:?}", self.faucet_base_url))
-            .field("faucet_username", &format!("{:?}", self.faucet_username))
-            .field("faucet_password", &format!("{:?}", self.faucet_password))
+            .field(
+                "genesis_tokens",
+                &format!("{:?}", self.chain.genesis_tokens),
+            )
+            .field(
+                "wallet_info",
+                &wallet_info_display(&self.wallet_registry.wallet_info),
+            )
+            .field(
+                "faucet_base_url",
+                &format!("{:?}", self.wallet_registry.faucet_base_url),
+            )
             .field(
                 "faucet_task_handles",
-                &format!("{}", self.faucet_task_handles.as_ref().map_or(0, Vec::len)),
+                &format!(
+                    "{}",
+                    self.wallet_registry
+                        .faucet_task_handles
+                        .as_ref()
+                        .map_or(0, Vec::len)
+                ),
             )
-            .field("test_context", &format!("{:?}", self.test_context))
+            .field(
+                "test_context",
+                &format!("{:?}", self.lifecycle.test_context),
+            )
             .field(
                 "wallet_accounts",
-                &wallet_accounts_display(&self.wallet_accounts),
+                &wallet_accounts_display(&self.wallet_registry.wallet_accounts),
             )
-            .field("scenario_fee_state", &fee_state_summary(&self.fee_state))
+            .field(
+                "scenario_fee_state",
+                &fee_state_summary(&self.wallet_registry.fee_state),
+            )
             .field(
                 "observed_transaction_hashes",
                 &self.observed_transaction_hashes_len(),
@@ -2034,32 +2791,38 @@ impl CucumberWorld {
                 "node_header_heights",
                 &node_header_heights_display(&wallet_diagnostics),
             )
-            .field("node_peer_ids", &node_peer_ids_display(&self.node_peer_ids))
-            .field("node_groups", &self.node_groups)
-            .field("node_to_group", &self.node_to_group)
-            .field("blend_core_nodes", &format!("{:?}", self.blend_core_nodes))
+            .field(
+                "node_peer_ids",
+                &node_peer_ids_display(&self.cluster.node_peer_ids),
+            )
+            .field("node_groups", &self.fork_groups.groups())
+            .field("node_to_group", &self.fork_groups.mapping())
+            .field(
+                "blend_core_nodes",
+                &format!("{:?}", self.cluster.blend_core_nodes),
+            )
             .field(
                 "initial_override_peers_display",
-                &initial_peers_override_display(self.initial_peers_override.as_ref()),
+                &initial_peers_override_display(self.startup.initial_peers_override.as_ref()),
             )
             .field(
                 "ibd_peers_override_display",
-                &ibd_peers_override_display(self.ibd_peers_override.as_ref()),
+                &ibd_peers_override_display(self.startup.ibd_peers_override.as_ref()),
             )
             .field(
                 "public_cryptarchia_endpoint_peers",
                 &public_cryptarchia_endpoint_peers_display(
-                    self.public_cryptarchia_endpoint_peers.as_ref(),
+                    self.startup.public_cryptarchia_endpoint_peers.as_ref(),
                 ),
             )
             .field(
                 "user_config_overrides",
-                &user_config_overrides_display(&self.user_config_overrides),
+                &user_config_overrides_display(&self.startup.user_config_overrides),
             )
             .field(
                 "deployment_config_override_path",
                 &deployment_config_override_path_display(
-                    self.deployment_config_override_path.as_ref(),
+                    self.startup.deployment_config_override_path.as_ref(),
                 ),
             )
             .finish()
@@ -2109,21 +2872,9 @@ fn running_in_ci() -> bool {
     env::var_os("CI").is_some() || env::var_os("GITHUB_ACTIONS").is_some()
 }
 
-fn wallet_block_feed_error(error: &CucumberWalletBlockFeedError) -> StepError {
-    StepError::LogicalError {
-        message: error.to_string(),
-    }
-}
-
 fn wallet_state_lock_error() -> StepError {
     StepError::LogicalError {
         message: "wallet state lock is poisoned".to_owned(),
-    }
-}
-
-fn wallet_feed_tracker_lock_error() -> StepError {
-    StepError::LogicalError {
-        message: "wallet feed tracker lock is poisoned".to_owned(),
     }
 }
 
@@ -2287,7 +3038,7 @@ fn ibd_peers_override_display(ibd_peers_override: Option<&HashSet<PeerId>>) -> S
     )
 }
 
-fn blockchain_snapshot_on_startup_display(node_snapshot: Option<&NodeSnapshot>) -> String {
+fn node_snapshot_on_startup_display(node_snapshot: Option<&NodeSnapshot>) -> String {
     node_snapshot.as_ref().map_or_else(
         || "None".to_owned(),
         |snapshot| format!("Some(NodeSnapshot({}-{}))", snapshot.name, snapshot.node),
@@ -2302,7 +3053,7 @@ fn public_cryptarchia_endpoint_peers_display(
         |&peers| {
             let peers_str = peers
                 .iter()
-                .map(|peer| format!("{} (user: {})", peer.url, peer.username))
+                .map(|peer| format!("{} (user: {})", peer.base_url, peer.username))
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("Vec<PublicCryptarchiaEndpointPeer>({peers_str})")
@@ -2329,4 +3080,143 @@ fn user_config_overrides_display(overrides: &[ConfigOverride]) -> String {
         .map(|override_item| format!("{}={:?}", override_item.path, override_item.value))
         .collect::<Vec<_>>();
     format!("[{}]", values.join(", "))
+}
+
+#[cfg(test)]
+mod node_wallet_tests {
+    use super::{NodeWalletKey, NodeWalletKeyRole, WalletInfo, WalletType};
+
+    fn node_wallet(role: NodeWalletKeyRole) -> WalletInfo {
+        WalletInfo {
+            wallet_name: "NODE_1_WALLET".to_owned(),
+            node_name: "NODE_1".to_owned(),
+            wallet_type: WalletType::Funding {
+                key: NodeWalletKey {
+                    wallet_pk: "00".repeat(32),
+                    role,
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn scanner_tracks_only_the_node_funding_role() {
+        assert!(node_wallet(NodeWalletKeyRole::Funding).is_scanner_tracked_wallet());
+        assert!(!node_wallet(NodeWalletKeyRole::VoucherMaster).is_scanner_tracked_wallet());
+        assert!(!node_wallet(NodeWalletKeyRole::BlendZk).is_scanner_tracked_wallet());
+        assert!(!node_wallet(NodeWalletKeyRole::General).is_scanner_tracked_wallet());
+    }
+}
+
+#[cfg(test)]
+mod blend_diagnostic_reachability_tests {
+    use super::{BlendDiagnosticPhase, BlendDiagnosticReachability};
+
+    #[test]
+    fn cloned_handle_tracks_relay_churn_and_recovery() {
+        let reachability = BlendDiagnosticReachability::default();
+        let background_handle = reachability.clone();
+        reachability.set_phase(Some(BlendDiagnosticPhase::Baseline));
+        background_handle.set_phase(Some(BlendDiagnosticPhase::Outage));
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Outage));
+
+        background_handle.set_reachable("NODE_1", false);
+        background_handle.set_reachable("NODE_3", false);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Outage));
+        let unreachable = reachability.unreachable_nodes();
+        assert_eq!(unreachable.len(), 2);
+        assert!(unreachable.contains("NODE_1"));
+        assert!(unreachable.contains("NODE_3"));
+
+        background_handle.set_reachable("NODE_1", true);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Recovery));
+        assert_eq!(
+            reachability
+                .unreachable_nodes()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["NODE_3".to_owned()]
+        );
+
+        background_handle.set_reachable("NODE_3", true);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Recovery));
+        assert!(reachability.unreachable_nodes().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod fork_groups_tests {
+    use super::ForkGroups;
+
+    fn assignments(rows: &[(&str, &str)]) -> Vec<(String, String)> {
+        rows.iter()
+            .map(|(group, node)| ((*group).to_owned(), (*node).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn replace_all_populates_both_maps() {
+        let mut fork_groups = ForkGroups::default();
+
+        fork_groups
+            .replace_all(assignments(&[
+                ("A", "NODE_1"),
+                ("A", "NODE_2"),
+                ("B", "NODE_3"),
+            ]))
+            .expect("valid assignments are accepted");
+
+        assert!(!fork_groups.is_empty());
+        assert_eq!(fork_groups.groups().len(), 2);
+        assert!(fork_groups.groups()["A"].contains("NODE_1"));
+        assert!(fork_groups.groups()["A"].contains("NODE_2"));
+        assert!(fork_groups.groups()["B"].contains("NODE_3"));
+        assert_eq!(fork_groups.mapping()["NODE_1"], "A");
+        assert_eq!(fork_groups.mapping()["NODE_2"], "A");
+        assert_eq!(fork_groups.mapping()["NODE_3"], "B");
+    }
+
+    #[test]
+    fn replace_all_replaces_previous_assignments() {
+        let mut fork_groups = ForkGroups::default();
+
+        fork_groups
+            .replace_all(assignments(&[("A", "NODE_1")]))
+            .expect("valid assignments are accepted");
+        fork_groups
+            .replace_all(assignments(&[("B", "NODE_2")]))
+            .expect("valid assignments are accepted");
+
+        assert!(!fork_groups.groups().contains_key("A"));
+        assert!(!fork_groups.mapping().contains_key("NODE_1"));
+        assert_eq!(fork_groups.mapping()["NODE_2"], "B");
+    }
+
+    #[test]
+    fn replace_all_rejects_node_assigned_to_two_groups() {
+        let mut fork_groups = ForkGroups::default();
+
+        let error = fork_groups
+            .replace_all(assignments(&[("A", "NODE_1"), ("B", "NODE_1")]))
+            .expect_err("duplicate node assignment is rejected");
+
+        assert!(error.to_string().contains("NODE_1"));
+    }
+
+    #[test]
+    fn rejected_replace_all_preserves_previous_state() {
+        let mut fork_groups = ForkGroups::default();
+
+        fork_groups
+            .replace_all(assignments(&[("A", "NODE_1")]))
+            .expect("valid assignments are accepted");
+        fork_groups
+            .replace_all(assignments(&[("B", "NODE_2"), ("C", "NODE_2")]))
+            .expect_err("duplicate node assignment is rejected");
+
+        assert_eq!(fork_groups.groups().len(), 1);
+        assert!(fork_groups.groups()["A"].contains("NODE_1"));
+        assert_eq!(fork_groups.mapping()["NODE_1"], "A");
+        assert!(!fork_groups.mapping().contains_key("NODE_2"));
+    }
 }

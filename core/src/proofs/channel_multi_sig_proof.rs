@@ -1,25 +1,25 @@
-use std::{cmp::Ordering, collections::HashSet};
-
+use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
 use lb_key_management_system_keys::keys::Ed25519Signature;
+use lb_utils::bounded::UpperBoundedBTreeMap;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::mantle::ops::channel::ChannelKeyIndex;
 
+/// A signature together with the index of the channel key that made it, as a
+/// key holder hands it over before the signatures are gathered into a
+/// [`ChannelMultiSigProof`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexedSignature {
-    pub channel_key_index: ChannelKeyIndex, /* Using ChannelKeyIndex ensures indices are
-                                             * bounded, and MAX provides an upper limit for the
-                                             * number of unique signatures (one per index) */
     pub signature: Ed25519Signature,
+    pub channel_key_index: ChannelKeyIndex,
 }
 
 impl IndexedSignature {
     #[must_use]
     pub const fn new(channel_key_index: ChannelKeyIndex, signature: Ed25519Signature) -> Self {
         Self {
-            channel_key_index,
             signature,
+            channel_key_index,
         }
     }
 }
@@ -30,95 +30,109 @@ impl From<(ChannelKeyIndex, Ed25519Signature)> for IndexedSignature {
     }
 }
 
-impl PartialOrd<Self> for IndexedSignature {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+impl From<IndexedSignature> for (ChannelKeyIndex, Ed25519Signature) {
+    fn from(
+        IndexedSignature {
+            signature,
+            channel_key_index,
+        }: IndexedSignature,
+    ) -> Self {
+        (channel_key_index, signature)
     }
 }
 
-impl Ord for IndexedSignature {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.channel_key_index
-            .cmp(&other.channel_key_index)
-            .then_with(|| self.signature.to_bytes().cmp(&other.signature.to_bytes()))
-    }
-}
+pub const MAX_SIGNATURES: usize = u16::MAX as usize;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Duplicate indices found: {0:?}.")]
-    DuplicateIndices(Vec<ChannelKeyIndex>),
-    #[error("Too many signatures: got {actual}, maximum allowed is {maximum}.")]
-    TooManySignatures { actual: usize, maximum: usize },
-}
+/// Signatures keyed by the index of the channel key that made them.
+///
+/// Being a map, it holds at most one signature per key and lists them in
+/// ascending index order, as the spec requires of a proof. Its canonical
+/// decoding rejects a repeated or out-of-order index, so each proof has a
+/// single encoding.
+pub type IndexedSignatures =
+    UpperBoundedBTreeMap<ChannelKeyIndex, Ed25519Signature, MAX_SIGNATURES>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChannelMultiSigProof {
-    // Invariant: signatures are sorted by index (then signature) with no duplicates
-    signatures: Vec<IndexedSignature>,
+    signatures: IndexedSignatures,
 }
 
 impl ChannelMultiSigProof {
-    pub fn new(signatures: Vec<IndexedSignature>) -> Result<Self, Error> {
-        let signatures = Self::normalize_signatures(signatures);
-        Self::validate_well_formedness(&signatures)?;
-        Ok(Self { signatures })
+    #[must_use]
+    pub const fn new(signatures: IndexedSignatures) -> Self {
+        Self { signatures }
     }
 
-    /// Sorts and removes duplicate signatures.
-    ///
-    /// This is required for the Proof to be well-formed, but it's not
-    /// sufficient for the Proof to be valid.
-    fn normalize_signatures(mut signatures: Vec<IndexedSignature>) -> Vec<IndexedSignature> {
-        signatures.sort_unstable();
-        signatures.dedup();
-        signatures
-    }
-
-    /// Validates that the proof is structurally well-formed.
-    ///
-    /// Must be called after [`Self::normalize_signatures`].
-    ///
-    /// # Checks
-    ///
-    /// - No duplicate indices (each index appears at most once)
-    /// - Signature count doesn't exceed `ChannelKeyIndex::MAX`
-    ///
-    /// # Note
-    ///
-    /// This validates structural correctness only. Cryptographic validity
-    /// (e.g.: signature verification, threshold requirements, index-to-key
-    /// correspondence) must be checked separately.
-    fn validate_well_formedness(signatures: &[IndexedSignature]) -> Result<(), Error> {
-        let mut seen = HashSet::with_capacity(signatures.len());
-        for sig in signatures {
-            if !seen.insert(sig.channel_key_index) {
-                return Err(Error::DuplicateIndices(
-                    signatures.iter().map(|s| s.channel_key_index).collect(),
-                ));
-            }
-        }
-        let max_signatures_allowed = usize::from(ChannelKeyIndex::MAX) + 1;
-        if signatures.len() > max_signatures_allowed {
-            return Err(Error::TooManySignatures {
-                actual: signatures.len(),
-                maximum: max_signatures_allowed,
-            });
-        }
-        Ok(())
+    /// The proof without signatures, which configures a channel that no key
+    /// has claimed yet.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self::new(IndexedSignatures::empty())
     }
 
     #[must_use]
-    pub const fn signatures(&self) -> &Vec<IndexedSignature> {
+    pub const fn signatures(&self) -> &IndexedSignatures {
         &self.signatures
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    #[must_use]
+    pub fn sample_with_signatures(signature_count: u16) -> Self {
+        let signatures = IndexedSignatures::try_from_iter((0..signature_count).map(|index| {
+            let [low, _] = index.to_le_bytes();
+            (index, Ed25519Signature::from_bytes(&[low; 64]))
+        }))
+        .expect("`signature_count` is bounded by `MAX_SIGNATURES`");
+
+        Self::new(signatures)
     }
 }
 
-impl TryFrom<Vec<IndexedSignature>> for ChannelMultiSigProof {
-    type Error = Error;
+impl BinaryEncode for ChannelMultiSigProof {
+    fn encoded_length(&self) -> usize {
+        self.signatures.encoded_length()
+    }
 
-    fn try_from(value: Vec<IndexedSignature>) -> Result<Self, Self::Error> {
-        Self::new(value)
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.signatures.encode_into(out);
+    }
+}
+
+impl BinaryDecode for ChannelMultiSigProof {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, signatures) = IndexedSignatures::decode(input, &((), ()))?;
+        Ok((rest, Self::new(signatures)))
+    }
+}
+
+pub mod codec {
+    use lb_key_management_system_keys::keys::ED25519_SIGNATURE_SIZE;
+
+    use crate::mantle::ops::channel::ChannelKeyIndex;
+
+    #[must_use]
+    pub const fn calculate_channel_multi_sig_proof_byte_size(threshold: ChannelKeyIndex) -> usize {
+        // Encoding: u16 signature count + N * (u16 key index + Ed25519 sig)
+        2 + (threshold as usize) * (2 + ED25519_SIGNATURE_SIZE)
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod sample {
+    use crate::{
+        mantle::ops::op_proof::samples::SampleProof,
+        proofs::channel_multi_sig_proof::ChannelMultiSigProof,
+    };
+
+    impl SampleProof for ChannelMultiSigProof {
+        fn sample() -> Self {
+            Self::sample_with_signatures(2)
+        }
     }
 }
 
@@ -130,39 +144,98 @@ mod tests {
         Ed25519Signature::from_bytes(&[byte; 64])
     }
 
+    fn signature_json(byte: u8) -> String {
+        serde_json::to_string(&sig(byte)).unwrap()
+    }
+
+    /// Encodes `entries` as a proof would, keeping their order and repeats,
+    /// so the bytes can describe a proof that cannot be built.
+    fn encode_entries(entries: &[(ChannelKeyIndex, u8)]) -> Vec<u8> {
+        let count = u16::try_from(entries.len()).expect("a handful of entries");
+        let mut bytes = count.to_le_bytes().to_vec();
+        for (index, byte) in entries {
+            bytes.extend_from_slice(&index.to_le_bytes());
+            bytes.extend_from_slice(&[*byte; 64]);
+        }
+        bytes
+    }
+
     #[test]
-    fn rejects_same_index_with_different_signatures() {
-        // Same index, distinct signatures: survives `dedup` (full-equality), so
-        // `validate_well_formedness` must reject it.
-        let signatures = vec![
-            IndexedSignature::new(0, sig(1)),
-            IndexedSignature::new(0, sig(2)),
-        ];
+    fn encodes_signatures_in_ascending_index_order() {
+        let proof = ChannelMultiSigProof::new(
+            IndexedSignatures::try_from([(7, sig(2)), (0, sig(1))]).unwrap(),
+        );
+
+        assert_eq!(proof.encode_to_vec(), encode_entries(&[(0, 1), (7, 2)]));
+    }
+
+    #[test]
+    fn decode_rejects_repeated_index() {
+        let bytes = encode_entries(&[(0, 1), (0, 2)]);
+
         assert!(matches!(
-            ChannelMultiSigProof::new(signatures),
-            Err(Error::DuplicateIndices(_))
+            ChannelMultiSigProof::decode(&bytes, &()),
+            Err(DecodeError::DuplicateItem { index: 1, .. })
         ));
     }
 
     #[test]
-    fn accepts_distinct_indices() {
-        let signatures = vec![
-            IndexedSignature::new(0, sig(1)),
-            IndexedSignature::new(1, sig(2)),
-        ];
-        let proof =
-            ChannelMultiSigProof::new(signatures).expect("distinct indices are well-formed");
-        assert_eq!(proof.signatures().len(), 2);
+    fn decode_rejects_out_of_order_indices() {
+        let bytes = encode_entries(&[(1, 1), (0, 2)]);
+
+        assert!(matches!(
+            ChannelMultiSigProof::decode(&bytes, &()),
+            Err(DecodeError::OutOfOrderItem { index: 1, .. })
+        ));
     }
 
+    /// Regression test for #2985: a proof read through serde must be as
+    /// well-formed as one built in code. The signatures are a map keyed by
+    /// index, so they come back in ascending index order whatever order the
+    /// input lists them in.
     #[test]
-    fn deduplicates_identical_signatures() {
-        let signatures = vec![
-            IndexedSignature::new(0, sig(1)),
-            IndexedSignature::new(0, sig(1)),
-        ];
-        let proof =
-            ChannelMultiSigProof::new(signatures).expect("identical signatures are deduplicated");
+    fn deserialize_orders_signatures_by_index() {
+        let proof = ChannelMultiSigProof::new(
+            IndexedSignatures::try_from([(0, sig(1)), (7, sig(2))]).unwrap(),
+        );
+
+        let reversed = format!(
+            "{{\"signatures\":{{\"7\":{},\"0\":{}}}}}",
+            signature_json(2),
+            signature_json(1)
+        );
+        assert_eq!(
+            serde_json::from_str::<ChannelMultiSigProof>(&reversed).unwrap(),
+            proof
+        );
+        assert_eq!(
+            serde_json::to_string(&proof).unwrap(),
+            format!(
+                "{{\"signatures\":{{\"0\":{},\"7\":{}}}}}",
+                signature_json(1),
+                signature_json(2)
+            )
+        );
+    }
+
+    /// A key counts at most once towards a threshold, however a proof read
+    /// through serde lists it: index 0 given twice reads back as a single
+    /// signature, the later one, as a `BTreeMap` keeps it. One key holder
+    /// therefore cannot meet a threshold of 2 alone by repeating their index.
+    #[test]
+    fn deserialize_keeps_one_signature_per_index() {
+        let repeated = format!(
+            "{{\"signatures\":{{\"0\":{},\"0\":{}}}}}",
+            signature_json(1),
+            signature_json(2)
+        );
+
+        let proof = serde_json::from_str::<ChannelMultiSigProof>(&repeated).unwrap();
+
         assert_eq!(proof.signatures().len(), 1);
+        assert_eq!(
+            proof,
+            ChannelMultiSigProof::new(IndexedSignatures::from((0, sig(2))))
+        );
     }
 }

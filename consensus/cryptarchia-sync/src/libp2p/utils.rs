@@ -1,16 +1,17 @@
 use futures::AsyncWriteExt as _;
+use lb_binary_codec::bincode::BoundedSerializeOp;
 use libp2p::{PeerId, Stream, StreamProtocol};
 use libp2p_stream::Control;
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
 use crate::libp2p::{errors::ChainSyncError, packing::pack_to_writer};
 
-pub async fn send_message<M: Serialize + DeserializeOwned + Sync>(
+pub async fn send_message<M: BoundedSerializeOp + DeserializeOwned + Sync>(
     peer_id: PeerId,
-    mut stream: &mut Stream,
+    stream: &mut Stream,
     message: &M,
 ) -> Result<(), ChainSyncError> {
-    pack_to_writer(message, &mut stream)
+    pack_to_writer(message, stream)
         .await
         .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 

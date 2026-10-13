@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lb_core::mantle::{NoteId, Utxo};
+use serde::{Deserialize, Serialize};
 
 use super::WalletId;
 
@@ -126,6 +127,8 @@ impl TrackedWallet {
         self.utxos_by_note.clear();
         self.utxos_by_note
             .extend(utxos.into_iter().map(|utxo| (utxo.id(), utxo)));
+        self.pending_state
+            .retain_reserved_note_ids(&self.utxos_by_note.keys().copied().collect());
     }
 
     pub fn reserve_utxos(&mut self, reserved_utxos: Vec<Utxo>) {
@@ -143,15 +146,15 @@ impl TrackedWallet {
 
     #[must_use]
     pub fn state_view(&self, wallet_id: impl Into<WalletId>) -> WalletStateView {
-        WalletStateView::new(
-            wallet_id,
-            self.on_chain_utxos(),
-            self.pending_state.reserved_utxos().to_vec(),
-        )
-    }
+        let reserved_utxos = self
+            .pending_state
+            .reserved_utxos()
+            .iter()
+            .copied()
+            .filter(|utxo| self.utxos_by_note.contains_key(&utxo.id()))
+            .collect();
 
-    pub fn release_spent_note(&mut self, note_id: NoteId) {
-        self.pending_state.release_spent_note(note_id);
+        WalletStateView::new(wallet_id, self.on_chain_utxos(), reserved_utxos)
     }
 
     pub fn clear_pending_state(&mut self) {
@@ -175,6 +178,33 @@ impl TrackedWallet {
             tracked_spent_fees: self.pending_state.tracked_spent_fees(),
         }
     }
+
+    /// Export this tracked wallet's durable read-model state.
+    #[must_use]
+    pub fn to_state(&self) -> TrackedWalletState {
+        TrackedWalletState {
+            on_chain_utxos: self.on_chain_utxos(),
+            reserved_utxos: self.pending_state.reserved_utxos().to_vec(),
+            tracked_spent_fees: self.pending_state.tracked_spent_fees(),
+        }
+    }
+
+    /// Recreate a tracked wallet from exported read-model state.
+    #[must_use]
+    pub fn from_state(state: TrackedWalletState) -> Self {
+        Self {
+            utxos_by_note: state
+                .on_chain_utxos
+                .into_iter()
+                .map(|utxo| (utxo.id(), utxo))
+                .collect(),
+            pending_state: PendingWalletState {
+                reserved_note_ids: state.reserved_utxos.iter().map(Utxo::id).collect(),
+                reserved_utxos: state.reserved_utxos,
+                tracked_spent_fees: state.tracked_spent_fees,
+            },
+        }
+    }
 }
 
 impl Default for TrackedWallet {
@@ -188,26 +218,40 @@ pub struct TrackedWalletPendingSummary {
     pub tracked_spent_fees: u64,
 }
 
+/// Serializable state for one tracked wallet.
+///
+/// Contains the latest observed on-chain UTXOs plus local pending state that is
+/// not directly derivable from a single block observation.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TrackedWalletState {
+    on_chain_utxos: Vec<Utxo>,
+    reserved_utxos: Vec<Utxo>,
+    tracked_spent_fees: u64,
+}
+
 /// Local wallet state for transactions that were submitted but are not yet
 /// reflected by the chain view.
 #[derive(Debug, Default, Clone)]
 struct PendingWalletState {
     reserved_utxos: Vec<Utxo>,
+    reserved_note_ids: HashSet<NoteId>,
     tracked_spent_fees: u64,
 }
 
 impl PendingWalletState {
     fn reserve_utxos(&mut self, utxos: impl IntoIterator<Item = Utxo>) {
-        let mut reserved_note_ids = self
-            .reserved_utxos
-            .iter()
-            .map(Utxo::id)
-            .collect::<HashSet<_>>();
-        self.reserved_utxos.extend(
-            utxos
-                .into_iter()
-                .filter(|utxo| reserved_note_ids.insert(utxo.id())),
-        );
+        for utxo in utxos {
+            if self.reserved_note_ids.insert(utxo.id()) {
+                self.reserved_utxos.push(utxo);
+            }
+        }
+    }
+
+    fn retain_reserved_note_ids(&mut self, on_chain_note_ids: &HashSet<NoteId>) {
+        self.reserved_utxos
+            .retain(|utxo| on_chain_note_ids.contains(&utxo.id()));
+        self.reserved_note_ids
+            .retain(|note_id| on_chain_note_ids.contains(note_id));
     }
 
     const fn record_spent_fee(&mut self, spent_fee: u64) {
@@ -225,8 +269,53 @@ impl PendingWalletState {
     fn reserved_utxos(&self) -> &[Utxo] {
         &self.reserved_utxos
     }
+}
 
-    fn release_spent_note(&mut self, spent: NoteId) {
-        self.reserved_utxos.retain(|utxo| utxo.id() != spent);
+#[cfg(test)]
+mod tests {
+    use lb_key_management_system_service::keys::ZkPublicKey;
+
+    use super::*;
+
+    fn utxo(value: u64, output_index: usize) -> Utxo {
+        Utxo::new(
+            [output_index as u8; 32],
+            output_index,
+            lb_core::mantle::Note::new(value, ZkPublicKey::zero()),
+        )
+    }
+
+    #[test]
+    fn reservation_index_matches_vector_deduplication_and_chain_retention() {
+        let first = utxo(10, 0);
+        let second = utxo(20, 1);
+        let third = utxo(30, 2);
+        let mut pending = PendingWalletState::default();
+
+        pending.reserve_utxos([first, second]);
+        pending.reserve_utxos([second, third]);
+        assert_eq!(
+            pending
+                .reserved_utxos()
+                .iter()
+                .map(Utxo::id)
+                .collect::<Vec<_>>(),
+            vec![first.id(), second.id(), third.id()]
+        );
+        assert_eq!(pending.reserved_note_ids.len(), 3);
+
+        pending.retain_reserved_note_ids(&HashSet::from([first.id(), third.id()]));
+        assert_eq!(
+            pending
+                .reserved_utxos()
+                .iter()
+                .map(Utxo::id)
+                .collect::<Vec<_>>(),
+            vec![first.id(), third.id()]
+        );
+        assert_eq!(
+            pending.reserved_note_ids,
+            HashSet::from([first.id(), third.id()])
+        );
     }
 }

@@ -14,9 +14,10 @@ workspace = true
 
 [dependencies]
 blake2                        = { workspace = true }
-derivative                    = { workspace = true }
+educe                         = { features = ["Debug"], workspace = true }
 hex                           = { workspace = true }
 itertools                     = { workspace = true }
+lb-binary-codec               = { workspace = true }
 lb-blend-crypto               = { workspace = true }
 lb-blend-proofs               = { workspace = true }
 lb-core                       = { workspace = true }
@@ -24,7 +25,9 @@ lb-cryptarchia-engine         = { workspace = true }
 lb-groth16                    = { workspace = true }
 lb-key-management-system-keys = { workspace = true }
 lb-log-targets                = { workspace = true }
-lb-utils                      = { features = ["rng"], workspace = true }
+lb-utils                      = { workspace = true }
+rand                          = { features = ["getrandom"], workspace = true }
+rand_chacha                   = { workspace = true }
 serde                         = { workspace = true }
 serde_with                    = { features = ["alloc"], workspace = true }
 thiserror                     = { workspace = true }
@@ -32,7 +35,13 @@ tracing                       = { workspace = true }
 zeroize                       = { workspace = true }
 
 [dev-dependencies]
+bincode  = { workspace = true }
+divan    = { workspace = true }
 test-log = { features = ["trace"], workspace = true }
 
 [features]
 unsafe-test-functions = []
+
+[[bench]]
+harness = false
+name    = "verify_public_header"

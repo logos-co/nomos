@@ -2,24 +2,43 @@
 # check=skip=SecretsUsedInArgOrEnv
 # Ignore warnings about sensitive information as this is test data.
 
-ARG LB_NODE_VERSION=0.1.3
-ARG LB_CIRCUITS_VERSION=v0.5.1
+ARG LC_CORE_VERSION=X.Y.Z
+ARG LB_NODE_VERSION=X.Y.Z
 
 # ===========================
 # BUILD IMAGE
 # ===========================
 
-FROM alpine:latest AS builder
+FROM debian:trixie-slim AS builder
 
+ARG LC_CORE_VERSION
 ARG LB_NODE_VERSION
-ARG LB_CIRCUITS_VERSION
+
+ENV LOGOSCTL_CONFIG_DIR=/logos-blockchain/session
 
 WORKDIR /logos-blockchain
 COPY . .
 
-RUN apk add --no-cache curl bash
-RUN scripts/setup-logos-blockchain-circuits.sh "$LB_CIRCUITS_VERSION" "linux-$(uname -m)"
-RUN scripts/setup-logos-blockchain-node.sh "$LB_NODE_VERSION" "linux-$(uname -m)"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN scripts/setup-logos-core.sh "$LC_CORE_VERSION" "$(uname -m)-linux"
+
+# Patch the AppImage magic bytes to restore standard ELF matching for QEMU
+RUN dd if=/dev/zero of=logosctl bs=1 count=3 seek=8 conv=notrunc
+
+RUN ./logosctl --appimage-extract && mv squashfs-root ext-logosctl
+
+RUN ./ext-logosctl/AppRun daemon start --detach && \
+    ./ext-logosctl/AppRun catalog add \
+    https://raw.githubusercontent.com/logos-blockchain/blockchain-modules-release/refs/heads/main/logos-repo.json && \
+    ./ext-logosctl/AppRun catalog refresh && \
+    ./ext-logosctl/AppRun package download blockchain_module \
+    --version "$LB_NODE_VERSION" --output ./ && \
+    ./ext-logosctl/AppRun install "./blockchain_module-${LB_NODE_VERSION}.lgx" -y && \
+    ./ext-logosctl/AppRun daemon stop
 
 # ===========================
 # NODE IMAGE
@@ -36,13 +55,19 @@ LABEL maintainer="augustinas@status.im" \
 RUN apt-get update && apt-get install -y --no-install-recommends curl yq && \
     rm -rf /var/lib/apt/lists/*
 
-# Copies the entire cache dir.
-# We only need the circuits, but this is currently much simpler than just copying the circuits subdir.
-# This might be addressed later, after the circuits directories structure is standardised.
-RUN mkdir -p /home/runner/.cache/logos/blockchain/
-COPY --from=builder /opt/circuits /home/runner/.cache/logos/blockchain/
-COPY --from=builder /usr/local/bin/logos-blockchain-node /usr/local/bin/logos-blockchain-node
+COPY --from=builder /logos-blockchain/ext-logosctl /opt/logosctl
+COPY --from=builder /logos-blockchain/session/modules /opt/modules
+
+RUN ln -s /opt/logosctl/AppRun /usr/local/bin/logosctl
+
+# `modules_dirs` is the replacement for `logoscore -m`, read-only directory
+# for modules.
+ENV LOGOSCTL_CONFIG_DIR=/opt/logos-session
+
+RUN printf 'version: 2\nmodules_dirs:\n  - /opt/modules\n' > /tmp/daemon.yaml && \
+    logosctl daemon config set /tmp/daemon.yaml && \
+    rm /tmp/daemon.yaml
 
 EXPOSE 3000 8080 9000 60000
 
-ENTRYPOINT ["logos-blockchain-node"]
+ENTRYPOINT ["logosctl", "daemon", "start"]

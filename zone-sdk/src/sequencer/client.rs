@@ -1,19 +1,24 @@
-use lb_core::mantle::{
-    MantleTx, SignedMantleTx,
-    channel::{SlotTimeframe, SlotTimeout},
-    encoding::Ops,
-    ops::channel::{MsgId, config::Keys, inscribe::Inscription},
+use lb_core::{
+    mantle::{
+        SignedOps,
+        channel::{SlotTimeframe, SlotTimeout},
+        ledger::{NoteId, verification_mode::StandardMode},
+        ops::channel::{MsgId, VerifiedChannelKeys, inscribe::Inscription},
+        transactions::{Ops, states::Unverified},
+    },
+    proofs::channel_multi_sig_proof::IndexedSignatures,
 };
 use lb_key_management_system_service::keys::Ed25519Signature;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use super::{
     types::{
-        Error, Event, PublishResult, SequencerChannelView, SequencerCheckpoint, TurnNotification,
-        TxStatusUpdate, WithdrawArg,
+        ChannelWalletView, Error, Event, PreparedAtomicBundle, PreparedChannelConfig,
+        SequencerChannelView, SequencerCheckpoint, TurnNotification, WithdrawArg, WithdrawInputs,
     },
     zone_sequencer::ActorRequest,
 };
+use crate::sequencer::zone_sequencer::PublishReceipt;
 
 /// Cheap-to-clone client for driving the sequencer from any task.
 ///
@@ -37,7 +42,6 @@ pub struct SequencerClient {
     channel_view_tx: watch::Sender<SequencerChannelView>,
     turn_to_write_tx: watch::Sender<TurnNotification>,
     checkpoint_tx: watch::Sender<Option<SequencerCheckpoint>>,
-    tx_status_tx: broadcast::Sender<TxStatusUpdate>,
 }
 
 impl SequencerClient {
@@ -48,7 +52,6 @@ impl SequencerClient {
         channel_view_tx: watch::Sender<SequencerChannelView>,
         turn_to_write_tx: watch::Sender<TurnNotification>,
         checkpoint_tx: watch::Sender<Option<SequencerCheckpoint>>,
-        tx_status_tx: broadcast::Sender<TxStatusUpdate>,
     ) -> Self {
         Self {
             request_tx,
@@ -57,17 +60,13 @@ impl SequencerClient {
             channel_view_tx,
             turn_to_write_tx,
             checkpoint_tx,
-            tx_status_tx,
         }
     }
 
     /// Enqueue an inscription onto the zone's channel.
     ///
     /// Async counterpart of [`super::SequencerHandle::publish`].
-    pub async fn publish(
-        &self,
-        data: Inscription,
-    ) -> Result<(PublishResult, SequencerCheckpoint), Error> {
+    pub async fn publish(&self, data: Inscription) -> Result<PublishReceipt, Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::Publish { data, response_tx })?;
         Self::recv(response_rx).await?
@@ -81,11 +80,32 @@ impl SequencerClient {
         &self,
         inscribe: Inscription,
         withdraws: Vec<WithdrawArg>,
-    ) -> Result<(PublishResult, SequencerCheckpoint), Error> {
+        inputs: WithdrawInputs,
+    ) -> Result<PublishReceipt, Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::PublishAtomicWithdraw {
             inscribe,
             withdraws,
+            inputs,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Publish an atomic inscription+transfer bundle pinning an observed
+    /// deposit.
+    ///
+    /// Async counterpart of
+    /// [`super::SequencerHandle::publish_pin_deposit`].
+    pub async fn publish_pin_deposit(
+        &self,
+        inscribe: Inscription,
+        consumed_notes: Vec<NoteId>,
+    ) -> Result<PublishReceipt, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::PublishPinDeposit {
+            inscribe,
+            consumed_notes,
             response_tx,
         })?;
         Self::recv(response_rx).await?
@@ -96,32 +116,123 @@ impl SequencerClient {
     /// Async counterpart of [`super::SequencerHandle::channel_config`].
     pub async fn channel_config(
         &self,
-        keys: Keys,
+        keys: VerifiedChannelKeys,
         posting_timeframe: SlotTimeframe,
         posting_timeout: SlotTimeout,
         configuration_threshold: u16,
-        withdraw_threshold: u16,
-    ) -> Result<(PublishResult, SequencerCheckpoint, SignedMantleTx), Error> {
+        transfer_threshold: u16,
+    ) -> Result<(PublishReceipt, SignedOps<Unverified, StandardMode>), Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::ChannelConfig {
             keys,
             posting_timeframe,
             posting_timeout,
             configuration_threshold,
-            withdraw_threshold,
+            transfer_threshold,
             response_tx,
         })?;
         Self::recv(response_rx).await?
     }
 
-    /// Enqueue a pre-signed [`SignedMantleTx`] for posting.
+    /// Build and fund a channel-config tx for external multi-sig signing.
+    ///
+    /// Async counterpart of
+    /// [`super::SequencerHandle::prepare_channel_config`].
+    pub async fn prepare_channel_config(
+        &self,
+        keys: VerifiedChannelKeys,
+        posting_timeframe: SlotTimeframe,
+        posting_timeout: SlotTimeout,
+        configuration_threshold: u16,
+        transfer_threshold: u16,
+    ) -> Result<PreparedChannelConfig, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::PrepareChannelConfig {
+            keys,
+            posting_timeframe,
+            posting_timeout,
+            configuration_threshold,
+            transfer_threshold,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Submit a [`PreparedChannelConfig`] with its externally-collected
+    /// signatures.
+    ///
+    /// Async counterpart of
+    /// [`super::SequencerHandle::submit_channel_config`].
+    pub async fn submit_channel_config(
+        &self,
+        prepared: PreparedChannelConfig,
+        signatures: IndexedSignatures,
+    ) -> Result<PublishReceipt, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::SubmitChannelConfig {
+            prepared: Box::new(prepared),
+            signatures,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Build and fund an atomic withdraw bundle for external multi-sig signing.
+    pub async fn prepare_atomic_withdraw(
+        &self,
+        inscribe: Inscription,
+        withdraws: Vec<WithdrawArg>,
+        inputs: WithdrawInputs,
+    ) -> Result<PreparedAtomicBundle, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::PrepareAtomicWithdraw {
+            inscribe,
+            withdraws,
+            inputs,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Build and fund a pin-deposit bundle for external multi-sig signing.
+    pub async fn prepare_pin_deposit(
+        &self,
+        inscribe: Inscription,
+        consumed_notes: Vec<NoteId>,
+    ) -> Result<PreparedAtomicBundle, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::PreparePinDeposit {
+            inscribe,
+            consumed_notes,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Submit a [`PreparedAtomicBundle`] with its externally-collected
+    /// signatures.
+    pub async fn submit_atomic_bundle(
+        &self,
+        prepared: PreparedAtomicBundle,
+        signatures: IndexedSignatures,
+    ) -> Result<PublishReceipt, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::SubmitAtomicBundle {
+            prepared: Box::new(prepared),
+            signatures,
+            response_tx,
+        })?;
+        Self::recv(response_rx).await?
+    }
+
+    /// Enqueue a pre-signed [`SignedOps`] for posting.
     ///
     /// Async counterpart of [`super::SequencerHandle::submit_signed_tx`].
     pub async fn submit_signed_tx(
         &self,
-        tx: SignedMantleTx,
+        tx: SignedOps<Unverified, StandardMode>,
         msg_id: MsgId,
-    ) -> Result<(PublishResult, SequencerCheckpoint), Error> {
+    ) -> Result<PublishReceipt, Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::SubmitSignedTx {
             tx,
@@ -131,14 +242,14 @@ impl SequencerClient {
         Self::recv(response_rx).await?
     }
 
-    /// Build a [`MantleTx`] for the given ops and an inscription message.
+    /// Build an [`Ops`] for the given ops and an inscription message.
     ///
     /// Async counterpart of [`super::SequencerHandle::prepare_tx`].
     pub async fn prepare_tx(
         &self,
         ops: Ops,
         data: Inscription,
-    ) -> Result<(MantleTx, MsgId, Ed25519Signature), Error> {
+    ) -> Result<(Ops, MsgId, Ed25519Signature), Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::PrepareTx {
             ops,
@@ -148,11 +259,11 @@ impl SequencerClient {
         Self::recv(response_rx).await?
     }
 
-    /// Sign a [`MantleTx`] using the sequencer's key.
+    /// Sign an [`Ops`] using the sequencer's key.
     ///
     /// Async counterpart of [`super::SequencerHandle::sign_tx`]. Clones `tx`
     /// internally so the call site can keep its borrow.
-    pub async fn sign_tx(&self, tx: &MantleTx) -> Result<Ed25519Signature, Error> {
+    pub async fn sign_tx(&self, tx: &Ops) -> Result<Ed25519Signature, Error> {
         let (response_tx, response_rx) = oneshot::channel();
         self.send(ActorRequest::SignTx {
             tx: tx.clone(),
@@ -161,7 +272,20 @@ impl SequencerClient {
         Self::recv(response_rx).await?
     }
 
+    /// The channel's tracked note set, served by the drive task — see
+    /// [`super::ZoneSequencer::channel_wallet`].
+    pub async fn channel_wallet(&self) -> Result<ChannelWalletView, Error> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.send(ActorRequest::ChannelWallet { response_tx })?;
+        Self::recv(response_rx).await
+    }
+
     /// Subscribe to the broadcast channel of events.
+    ///
+    /// The broadcast carries exactly the events
+    /// [`super::ZoneSequencer::next_event`] returns, once each and in the
+    /// same order, sent at the moment the drive loop returns them. Nothing is
+    /// broadcast while the sequencer is not driven.
     ///
     /// Late subscribers see events emitted from this point on (not the full
     /// history).
@@ -201,12 +325,6 @@ impl SequencerClient {
         let mut rx = self.checkpoint_tx.subscribe();
         rx.mark_changed();
         rx
-    }
-
-    /// Subscribe to tx-status changes.
-    #[must_use]
-    pub fn subscribe_tx_status(&self) -> broadcast::Receiver<TxStatusUpdate> {
-        self.tx_status_tx.subscribe()
     }
 
     fn send(&self, request: ActorRequest) -> Result<(), Error> {

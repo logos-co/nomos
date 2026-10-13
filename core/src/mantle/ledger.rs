@@ -1,37 +1,86 @@
-use std::{collections::HashSet, sync::LazyLock};
+use std::{collections::HashSet, slice::IterMut, sync::LazyLock};
 
 use ark_ff::PrimeField as _;
 use bytes::Bytes;
+use lb_binary_codec::canonical::BinaryCodec;
 use lb_groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_poseidon2::Digest as _;
-use lb_utils::bounded_vec::BoundedError;
+use lb_utils::bounded::{BoundedError, UpperBoundedOrderedSet, UpperBoundedVec};
 use lb_utxotree::UtxoTree;
-use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
     crypto::{Hash, ZkHasher},
-    events::Events,
+    events::TxEvent,
     mantle::{
-        encoding::{BoundedInputs, BoundedOutputs, NomInputs},
-        nom::{NomDecode, NomEncode},
-        ops::OpId,
+        batch::DeferredZkpVerification,
+        channel::Channels,
+        ledger::verification_mode::VerificationMode,
+        ops::{OpId, channel::ChannelId},
     },
-    sdp::{Declaration, DeclarationId, locked_notes::LockedNotes},
+    sdp::{Declaration, DeclarationId, service_notes::ServiceNotes},
 };
 
-pub trait Operation<ValidationContext> {
-    type ExecutionContext<'a>
-    where
-        Self: 'a;
+// ==============================================================================
+// Memory Safety Limits
+// ==============================================================================
+// These limits are not designed to mimic system limits, but rather to prevent
+// unbounded memory usage from malicious inputs. They prevent memory
+// over-allocation attacks where untrusted input specifies allocation sizes.
+// Values are chosen to not limit normal operations while preventing excessive
+// memory usage (e.g., 68GB allocation). As an example, if the network currently
+// limits maximum transaction size to 1MiB, for memory safety limits we can
+// allow 4MiB.
+pub const MAX_TRANSACTION_INPUTS: usize = u8::MAX as usize;
+const MAX_TRANSACTION_OUTPUTS: usize = u8::MAX as usize;
+pub type BoundedUtxos = UpperBoundedVec<Utxo, MAX_TRANSACTION_INPUTS>;
+pub type BoundedInputs = UpperBoundedOrderedSet<NoteId, MAX_TRANSACTION_INPUTS>;
+pub type BoundedOutputs = UpperBoundedVec<Note, MAX_TRANSACTION_OUTPUTS>;
+
+pub mod verification_mode {
+    pub trait VerificationMode {}
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct GenesisMode;
+    impl VerificationMode for GenesisMode {}
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct StandardMode;
+    impl VerificationMode for StandardMode {}
+}
+
+pub trait ProvableOperation {
+    type Proof;
+    const CODE: u8;
+}
+
+pub trait PreverifiableOperation<Mode: VerificationMode> {
+    type Context<'a>;
     type Error;
-    fn validate(&self, ctx: &ValidationContext) -> Result<(), Self::Error>;
-    fn execute(
+
+    fn preverify(&self, context: &Self::Context<'_>) -> Result<(), Self::Error>;
+}
+
+pub trait VerifiableOperation<Mode: VerificationMode> {
+    type Context<'a>;
+    type Error;
+
+    fn verify(
         &self,
-        ctx: Self::ExecutionContext<'_>,
-    ) -> Result<(Self::ExecutionContext<'_>, Events), Self::Error>;
+        context: &Self::Context<'_>,
+    ) -> Result<Option<DeferredZkpVerification>, Self::Error>;
+}
+
+pub trait ExecutableOperation {
+    type Context<'a>;
+    type Error;
+
+    fn execute<'a>(
+        &self,
+        context: Self::Context<'a>,
+    ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error>;
 }
 
 pub type Utxos = UtxoTree<NoteId, Utxo, ZkHasher>;
@@ -43,8 +92,14 @@ pub type Value = u64;
 pub enum InputsError {
     #[error("Note: {0:?} isn't in the ledger")]
     InexistingNote(NoteId),
-    #[error("Locked note: {0:?}")]
-    LockedNote(NoteId),
+    #[error("Service note: {0:?}")]
+    ServiceNote(NoteId),
+    #[error("Channel note: {0:?}")]
+    ChannelNote(NoteId),
+    #[error("Note is not a channel note of the expected channel: {0:?}")]
+    NotAChannelNote(NoteId),
+    #[error("Inputs cannot be empty")]
+    EmptyInputs,
     #[error("Inputs contain try to double spend the same NoteId")]
     DoubleSpend,
     #[error("Sum of input values overflows")]
@@ -71,7 +126,7 @@ pub enum LedgerError {
     Outputs(#[from] OutputsError),
 }
 
-#[derive(Clone, Eq, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, Debug, PartialEq, Serialize, Deserialize, BinaryCodec)]
 pub struct Outputs(BoundedOutputs);
 
 impl Outputs {
@@ -147,6 +202,14 @@ impl Outputs {
     pub fn iter(&self) -> impl Iterator<Item = &Note> {
         <&Self as IntoIterator>::into_iter(self)
     }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, Note> {
+        self.0.iter_mut()
+    }
+
+    pub fn try_push(&mut self, note: Note) -> Result<(), BoundedError> {
+        self.0.try_push(note)
+    }
 }
 
 impl AsRef<BoundedOutputs> for Outputs {
@@ -155,9 +218,21 @@ impl AsRef<BoundedOutputs> for Outputs {
     }
 }
 
-impl AsMut<BoundedOutputs> for Outputs {
-    fn as_mut(&mut self) -> &mut BoundedOutputs {
-        &mut self.0
+impl<'a> IntoIterator for &'a mut Outputs {
+    type Item = &'a mut Note;
+    type IntoIter = IterMut<'a, Note>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
+impl<I> From<I> for Outputs
+where
+    I: Into<BoundedOutputs>,
+{
+    fn from(value: I) -> Self {
+        Self(value.into())
     }
 }
 
@@ -170,7 +245,7 @@ impl<'output> IntoIterator for &'output Outputs {
     }
 }
 
-#[derive(Clone, Eq, Debug, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Eq, Debug, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct Inputs(BoundedInputs);
 
 impl Inputs {
@@ -196,12 +271,12 @@ impl Inputs {
     }
 
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.len()
     }
 
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
@@ -213,17 +288,73 @@ impl Inputs {
         <&Self as IntoIterator>::into_iter(self)
     }
 
-    pub fn validate(&self, locked_notes: &LockedNotes, utxos: &Utxos) -> Result<(), InputsError> {
-        // Check that there is no duplicate
+    pub fn preverify(&self) -> Result<(), InputsError> {
+        if self.is_empty() {
+            return Err(InputsError::EmptyInputs);
+        }
+        Ok(())
+    }
+
+    /// Validates that every input is spendable as a regular note: unique,
+    /// not in service, not owned by a channel, and present in the ledger.
+    ///
+    /// This is the `assert_spendable(inputs, None)` case of the spec.
+    pub fn validate_not_in_channel(
+        &self,
+        service_notes: &ServiceNotes,
+        channels: &Channels,
+        utxos: &Utxos,
+    ) -> Result<(), InputsError> {
+        self.validate_uniqueness()?;
+        self.validate_not_in_service_and_present(service_notes, utxos)?;
+        for input in &self.0 {
+            // A channel note is owned by a channel and cannot be spent directly.
+            if channels.is_channel_note(input) {
+                return Err(InputsError::ChannelNote(*input));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validates that every input is spendable as a channel note of
+    /// `channel_id`: unique, not in service, present in the ledger, and
+    /// registered as a channel note owned by `channel_id`.
+    ///
+    /// This is the `assert_spendable(inputs, channel_id)` case of the spec.
+    pub fn validate_in_channel(
+        &self,
+        service_notes: &ServiceNotes,
+        channels: &Channels,
+        channel_id: &ChannelId,
+        utxos: &Utxos,
+    ) -> Result<(), InputsError> {
+        self.validate_uniqueness()?;
+        self.validate_not_in_service_and_present(service_notes, utxos)?;
+        for input in &self.0 {
+            if !channels.is_channel_note_of(input, channel_id) {
+                return Err(InputsError::NotAChannelNote(*input));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_uniqueness(&self) -> Result<(), InputsError> {
         let unique: HashSet<_> = self.0.iter().collect();
         if unique.len() != self.0.len() {
             return Err(InputsError::DoubleSpend);
         }
-        // Check each note is spendable
+        Ok(())
+    }
+
+    fn validate_not_in_service_and_present(
+        &self,
+        service_notes: &ServiceNotes,
+        utxos: &Utxos,
+    ) -> Result<(), InputsError> {
         for input in &self.0 {
-            // Check the note isn't locked
-            if locked_notes.contains(input) {
-                return Err(InputsError::LockedNote(*input));
+            // Check the note isn't a service note
+            if service_notes.contains(input) {
+                return Err(InputsError::ServiceNote(*input));
             }
             // Check the note exist in the ledger
             if !utxos.contains(input) {
@@ -274,12 +405,6 @@ impl AsRef<BoundedInputs> for Inputs {
     }
 }
 
-impl AsRef<[NoteId]> for Inputs {
-    fn as_ref(&self) -> &[NoteId] {
-        &self.0
-    }
-}
-
 impl<I> From<I> for Inputs
 where
     I: Into<BoundedInputs>,
@@ -303,24 +428,21 @@ impl<'input> IntoIterator for &'input Inputs {
     }
 }
 
-impl NomEncode for Inputs {
-    fn encode(&self) -> Vec<u8> {
-        NomInputs::from(&self.0).encode()
-    }
-}
-
-impl NomDecode for Inputs {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> nom::IResult<&[u8], Self::Output> {
-        let (bytes, items) = NomInputs::decode(bytes)?;
-        Ok((bytes, Self(items)))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, BinaryCodec,
+)]
 #[serde(transparent)]
 pub struct NoteId(#[serde(with = "serde_fr")] pub Fr);
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for NoteId {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        lb_utils::openapi::hex_bytes_schema(size_of::<lb_groth16::FrBytes>())
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for NoteId {}
 
 impl NoteId {
     #[must_use]
@@ -346,22 +468,7 @@ impl From<Fr> for NoteId {
     }
 }
 
-impl NomEncode for NoteId {
-    fn encode(&self) -> Vec<u8> {
-        self.0.encode()
-    }
-}
-
-impl NomDecode for NoteId {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> nom::IResult<&[u8], Self::Output> {
-        let (bytes, inner) = Fr::decode(bytes)?;
-        Ok((bytes, Self(inner)))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, BinaryCodec)]
 pub struct Note {
     pub value: Value,
     pub pk: ZkPublicKey,
@@ -371,30 +478,6 @@ impl Note {
     #[must_use]
     pub const fn new(value: Value, pk: ZkPublicKey) -> Self {
         Self { value, pk }
-    }
-
-    #[must_use]
-    pub fn as_fr_components(&self) -> [Fr; 2] {
-        [BigUint::from(self.value).into(), *self.pk.as_fr()]
-    }
-}
-
-impl NomEncode for Note {
-    fn encode(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        bytes.extend(self.value.encode());
-        bytes.extend(self.pk.encode());
-        bytes
-    }
-}
-
-impl NomDecode for Note {
-    type Output = Self;
-
-    fn decode(bytes: &[u8]) -> nom::IResult<&[u8], Self::Output> {
-        let (bytes, value) = u64::decode(bytes)?;
-        let (bytes, pk) = ZkPublicKey::decode(bytes)?;
-        Ok((bytes, Self::new(value, pk)))
     }
 }
 
@@ -422,7 +505,7 @@ impl Utxo {
     #[must_use]
     pub fn id(&self) -> NoteId {
         // constants and structure as defined in the Mantle spec:
-        // https://www.notion.so/nomos-tech/v1-4-Mantle-Specification-335261aa09df8065a38acff4b25aee82
+        // https://lip.logos.co/blockchain/raw/bedrock-v1.1-mantle-specification.html
 
         let op_id: Fr = Fr::from_le_bytes_mod_order(self.op_id.as_ref());
         let output_index =
@@ -444,6 +527,8 @@ impl Utxo {
 #[cfg(test)]
 mod test {
     use std::str::FromStr as _;
+
+    use num_bigint::BigUint;
 
     use super::*;
 

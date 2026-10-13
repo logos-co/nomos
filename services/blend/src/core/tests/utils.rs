@@ -1,18 +1,12 @@
-use core::cell::RefCell;
+use core::{cell::RefCell, num::NonZeroU128};
 use std::{num::NonZeroU64, pin::Pin, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
-use futures::Stream;
+use futures::{Stream, StreamExt as _, stream, stream::BoxStream};
 use lb_blend::{
     message::{
         crypto::{key_ext::Ed25519SecretKeyExt as _, proofs::PoQVerificationInputsMinusSigningKey},
-        encap::{
-            ProofsVerifier,
-            validated::{
-                EncapsulatedMessageWithVerifiedPublicHeader,
-                EncapsulatedMessageWithVerifiedSignature,
-            },
-        },
+        encap::{ProofsVerifier, validated::EncapsulatedMessageWithVerifiedPublicHeader},
         reward,
     },
     proofs::{
@@ -20,7 +14,7 @@ use lb_blend::{
             ProofOfQuota, VerifiedProofOfQuota,
             inputs::prove::{
                 private::ProofOfLeadershipQuotaInputs,
-                public::{CoreInputs, LeaderInputs},
+                public::{CoreInputs, LeaderInputs, PowInputs},
             },
         },
         selection::{ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
@@ -31,7 +25,7 @@ use lb_blend::{
             crypto::EpochCryptographicProcessorSettings,
             provers::{
                 BlendLayerProof, ProofsGeneratorSettings, WinningPolInfoStream,
-                core_and_leader::CoreAndLeaderProofsGenerator,
+                core_leader_and_pow::CoreLeaderAndPowProofsGenerator,
             },
         },
         message_scheduler::{self, epoch_info::EpochInfo as SchedulerEpochInfo},
@@ -42,13 +36,15 @@ use lb_core::crypto::ZkHash;
 use lb_groth16::{AdditiveGroup as _, Fr, fr_from_bytes_unchecked, fr_to_bytes};
 use lb_key_management_system_service::keys::{Ed25519PublicKey, UnsecuredEd25519Key};
 use lb_network_service::{NetworkService, backends::NetworkBackend};
-use lb_poq::CorePathAndSelectors;
+use lb_poq::{CorePathAndSelectors, KeyIndex};
 use lb_sdp_service::SdpMessage;
 use overwatch::{
     overwatch::{OverwatchHandle, commands::OverwatchCommand},
     services::{ServiceData, relay::OutboundRelay, state::StateUpdater},
 };
-use tempfile::NamedTempFile;
+use rand::SeedableRng as _;
+use rand_chacha::ChaCha20Rng;
+use rayon::ThreadPoolBuilder;
 use tokio::sync::{
     broadcast::{self},
     mpsc, watch,
@@ -58,8 +54,8 @@ use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 use crate::{
     core::{
         backends::{BackendEpochInfo, BlendBackend},
+        dispatcher::PayloadDispatcher,
         kms::KmsPoQAdapter,
-        network::NetworkAdapter,
         processor::CoreCryptographicProcessor,
         settings::{
             CoverTrafficSettings, MessageDelayerSettings, RunningBlendConfig as BlendConfig,
@@ -69,9 +65,10 @@ use crate::{
         tests::RuntimeServiceId,
     },
     epoch::CoreEpochPublicInfo,
-    message::NetworkInfo,
+    message::{DataPayload, NetworkInfo},
     settings::TimingSettings,
     test_utils,
+    test_utils::mocks::{TestChainNetworkService, TestMempoolService},
 };
 
 pub type NodeId = [u8; 32];
@@ -89,17 +86,13 @@ pub fn new_membership(size: u8) -> (Membership<NodeId>, UnsecuredEd25519Key) {
 
 /// Creates a [`BlendConfig`] with the given parameters and reasonable defaults
 /// for the rest.
-///
-/// Also returns a [`NamedTempFile`] used for service recovery
-/// that must not be dropped, as doing so will delete the underlying temp file.
 pub fn settings<BackendSettings>(
     local_private_key: UnsecuredEd25519Key,
     minimum_network_size: NonZeroU64,
     backend_settings: BackendSettings,
     data_replication_factor: u64,
-) -> (BlendConfig<BackendSettings>, NamedTempFile) {
-    let recovery_file = NamedTempFile::new().unwrap();
-    let settings = BlendConfig {
+) -> BlendConfig<BackendSettings> {
+    BlendConfig {
         backend: backend_settings,
         scheduler: SchedulerSettings {
             cover: CoverTrafficSettings {
@@ -116,17 +109,35 @@ pub fn settings<BackendSettings>(
         non_ephemeral_signing_key: local_private_key,
         num_blend_layers: NonZeroU64::try_from(1).unwrap(),
         minimum_network_size,
-        recovery_path: recovery_file.path().to_path_buf(),
         data_replication_factor,
         activity_threshold_sensitivity: 1,
-    };
-    (settings, recovery_file)
+        pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+        abstain_on_failure: false,
+    }
+}
+
+/// The seed every test's release delayer is built from.
+const RELEASE_DELAY_SEED: u64 = 1;
+
+/// A release delayer that draws the same delays on every run.
+///
+/// `initialize` takes this rather than drawing from entropy so that how many
+/// rounds a message waits is a fixed property of a test rather than a fresh
+/// draw each time. Note what this does *not* buy: the delay is in whole rounds
+/// (`release_delayer` picks from `[1, max]`, never zero), so it fixes which
+/// round a message goes out on, not how that round falls against events driven
+/// from elsewhere — an epoch rotation arriving over a channel, say. A test that
+/// depends on such an ordering needs more than this.
+pub fn seeded_release_delay_rng() -> ChaCha20Rng {
+    ChaCha20Rng::seed_from_u64(RELEASE_DELAY_SEED)
 }
 
 pub fn timing_settings() -> TimingSettings {
     TimingSettings {
+        core_handshake_deadline_in_rounds: NonZeroU128::new(2).unwrap(),
+        network_absorption_in_rounds: NonZeroU64::new(2).unwrap(),
         rounds_per_epoch: 10.try_into().unwrap(),
-        round_duration: Duration::from_secs(1),
+        round_duration_in_seconds: 1.try_into().unwrap(),
         rounds_per_observation_window: 5.try_into().unwrap(),
         epoch_transition_period: Duration::from_secs(1),
     }
@@ -138,7 +149,7 @@ pub fn scheduler_settings(
 ) -> message_scheduler::Settings {
     message_scheduler::Settings {
         maximum_release_delay_in_rounds: NonZeroU64::try_from(1).unwrap(),
-        round_duration: timing_settings.round_duration,
+        round_duration: Duration::from_secs(timing_settings.round_duration_in_seconds.get()),
         rounds_per_epoch: timing_settings.rounds_per_epoch,
         num_blend_layers,
     }
@@ -157,16 +168,18 @@ pub struct TestBlendBackend {
 }
 
 #[async_trait]
-impl<NodeId, Rng> BlendBackend<NodeId, Rng, RuntimeServiceId> for TestBlendBackend
+impl<NodeId, Rng, ProofsVerifier> BlendBackend<NodeId, Rng, ProofsVerifier, RuntimeServiceId>
+    for TestBlendBackend
 where
     NodeId: Send + 'static,
+    ProofsVerifier: Send + 'static,
 {
     type Settings = ();
 
     fn new(
         _service_config: BlendConfig<Self::Settings>,
         _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
-        _current_epoch_info: BackendEpochInfo<NodeId>,
+        _current_epoch_info: BackendEpochInfo<NodeId, ProofsVerifier>,
         _rng: Rng,
     ) -> Self {
         let (event_sender, _) = broadcast::channel(CHANNEL_SIZE);
@@ -177,14 +190,19 @@ where
     async fn publish(
         &self,
         _msg: EncapsulatedMessageWithVerifiedPublicHeader,
-        _intended_epoch: Epoch,
+        intended_epoch: Epoch,
     ) {
+        note_outgoing_message();
+        note_published_epoch(intended_epoch);
     }
-    async fn rotate_epoch(&mut self, new_epoch_info: BackendEpochInfo<NodeId>) {
+
+    async fn rotate_epoch(&mut self, new_epoch_info: BackendEpochInfo<NodeId, ProofsVerifier>) {
         // Notify tests that the backend rotated to a new epoch, carrying the new
         // epoch and membership size so tests can assert the new membership was
         // propagated to the backend.
-        let (membership, epoch) = new_epoch_info;
+        let BackendEpochInfo {
+            membership, epoch, ..
+        } = new_epoch_info;
         // Ignore send errors: not all tests subscribe to backend events, and
         // `rotate_epoch` is also called right before a retirement (no subscriber).
         let _ = self.event_sender.send(TestBlendBackendEvent::EpochRotated {
@@ -202,7 +220,8 @@ where
 
     fn listen_to_incoming_messages(
         &mut self,
-    ) -> Pin<Box<dyn Stream<Item = (EncapsulatedMessageWithVerifiedSignature, Epoch)> + Send>> {
+    ) -> Pin<Box<dyn Stream<Item = (EncapsulatedMessageWithVerifiedPublicHeader, Epoch)> + Send>>
+    {
         unimplemented!()
     }
 
@@ -247,22 +266,81 @@ pub async fn wait_for_blend_backend_event(
     }
 }
 
-pub struct TestNetworkAdapter;
+thread_local! {
+    /// Installed by [`record_outgoing_messages`] for the duration of a test.
+    static OUTGOING_MESSAGES: RefCell<Option<mpsc::UnboundedSender<()>>> =
+        const { RefCell::new(None) };
+
+    /// Installed by [`published_epochs_recorder`] for the duration of a test.
+    static PUBLISHED_EPOCHS: RefCell<Option<mpsc::UnboundedSender<Epoch>>> =
+        const { RefCell::new(None) };
+}
+
+/// Starts recording every message the service sends onwards, whether it goes
+/// to a Blend peer through the backend or to a local service through the
+/// dispatcher.
+pub fn outgoing_messages_recorder() -> mpsc::UnboundedReceiver<()> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    OUTGOING_MESSAGES.with_borrow_mut(|recorder| *recorder = Some(sender));
+    receiver
+}
+
+fn note_outgoing_message() {
+    OUTGOING_MESSAGES.with_borrow(|recorder| {
+        if let Some(sender) = recorder.as_ref() {
+            let _ = sender.send(());
+        }
+    });
+}
+
+/// Records the epoch each message is published under, which is what tells a
+/// transitioning epoch's release apart from the current one's. Separate from
+/// [`outgoing_messages_recorder`], which also counts payloads handed to the
+/// local dispatcher and so has no epoch to report.
+pub fn published_epochs_recorder() -> mpsc::UnboundedReceiver<Epoch> {
+    let (sender, receiver) = mpsc::unbounded_channel();
+    PUBLISHED_EPOCHS.with_borrow_mut(|recorder| *recorder = Some(sender));
+    receiver
+}
+
+fn note_published_epoch(intended_epoch: Epoch) {
+    PUBLISHED_EPOCHS.with_borrow(|recorder| {
+        if let Some(sender) = recorder.as_ref() {
+            let _ = sender.send(intended_epoch);
+        }
+    });
+}
+
+pub struct TestPayloadDispatcher;
 
 #[async_trait]
-impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for TestNetworkAdapter {
+impl<RuntimeServiceId> PayloadDispatcher<RuntimeServiceId> for TestPayloadDispatcher
+where
+    RuntimeServiceId: Send + 'static,
+{
     type Backend = TestNetworkBackend;
-    type BroadcastSettings = ();
+    type ChainNetworkService = TestChainNetworkService<RuntimeServiceId>;
+    type MempoolService = TestMempoolService<RuntimeServiceId>;
+    type Settings = ();
 
     fn new(
         _network_relay: OutboundRelay<
             <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
         >,
+        _mempool_relay: OutboundRelay<<Self::MempoolService as ServiceData>::Message>,
+        _chain_network_relay: OutboundRelay<<Self::ChainNetworkService as ServiceData>::Message>,
+        _settings: Self::Settings,
     ) -> Self {
         Self
     }
 
-    async fn broadcast(&self, _message: Vec<u8>, _broadcast_settings: Self::BroadcastSettings) {}
+    async fn dispatch(&self, _payload: DataPayload) {
+        note_outgoing_message();
+    }
+
+    async fn observe_broadcasts(&self) -> BoxStream<'static, DataPayload> {
+        stream::empty().boxed()
+    }
 }
 
 pub struct TestNetworkBackend {
@@ -298,18 +376,18 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for TestNetworkBackend {
 }
 
 #[expect(clippy::type_complexity, reason = "a test utility")]
-pub fn dummy_overwatch_resources<BackendSettings, BroadcastSettings, RuntimeServiceId>() -> (
+pub fn dummy_overwatch_resources<BackendSettings, NetworkSettings, RuntimeServiceId>() -> (
     OverwatchHandle<RuntimeServiceId>,
     mpsc::Receiver<OverwatchCommand<RuntimeServiceId>>,
-    StateUpdater<Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>>,
-    watch::Receiver<Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>>,
+    StateUpdater<Option<RecoveryServiceState<BackendSettings, NetworkSettings>>>,
+    watch::Receiver<Option<RecoveryServiceState<BackendSettings, NetworkSettings>>>,
 ) {
     let (cmd_sender, cmd_receiver) = mpsc::channel(CHANNEL_SIZE);
     let handle =
         OverwatchHandle::<RuntimeServiceId>::new(tokio::runtime::Handle::current(), cmd_sender);
     let (state_sender, state_receiver) = watch::channel(None);
     let state_updater = StateUpdater::<
-        Option<RecoveryServiceState<BackendSettings, BroadcastSettings>>,
+        Option<RecoveryServiceState<BackendSettings, NetworkSettings>>,
     >::new(Arc::new(state_sender));
 
     (handle, cmd_receiver, state_updater, state_receiver)
@@ -325,22 +403,33 @@ pub fn new_crypto_processor<CorePoQGenerator>(
     MockCoreAndLeaderProofsGenerator,
     MockProofsVerifier,
 > {
-    let minimum_network_size = u64::try_from(epoch_info.membership.size())
-        .expect("membership size must fit into u64")
-        .try_into()
-        .expect("minimum_network_size must be non-zero");
-    CoreCryptographicProcessor::try_new_with_core_condition_check(
+    CoreCryptographicProcessor::new(
         epoch_info.membership.clone(),
-        minimum_network_size,
         settings,
         PoQVerificationInputsMinusSigningKey {
             core: epoch_info.poq_core_public_inputs,
             leader: epoch_info.poq_leadership_public_inputs,
+            pow: PowInputs::disabled(),
         },
         core_poq_generator,
         epoch_info.epoch,
     )
-    .expect("crypto processor must be created successfully")
+}
+
+/// The [`BackendEpochInfo`] the service hands to the backend for an epoch,
+/// including the `PoQ` verifier the backend uses to check received messages.
+pub fn backend_epoch_info(
+    public_info: &CoreEpochPublicInfo<NodeId>,
+) -> BackendEpochInfo<NodeId, MockProofsVerifier> {
+    BackendEpochInfo {
+        membership: public_info.membership.clone(),
+        epoch: public_info.epoch,
+        proofs_verifier: MockProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
+            core: public_info.poq_core_public_inputs,
+            leader: public_info.poq_leadership_public_inputs,
+            pow: PowInputs::disabled(),
+        }),
+    }
 }
 
 pub fn new_epoch_info<BackendSettings>(
@@ -350,6 +439,7 @@ pub fn new_epoch_info<BackendSettings>(
 ) -> CoreEpochPublicInfo<NodeId> {
     let core_quota = settings.epoch_core_quota(membership.size());
     CoreEpochPublicInfo {
+        poq_pow_public_inputs: PowInputs::disabled(),
         epoch,
         membership,
         poq_core_public_inputs: CoreInputs {
@@ -424,11 +514,12 @@ pub fn recorded_set_epoch_private_calls() -> Vec<Epoch> {
 pub struct MockCoreAndLeaderProofsGenerator(ZkHash);
 
 #[async_trait]
-impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
+impl<CorePoQGenerator> CoreLeaderAndPowProofsGenerator<CorePoQGenerator>
     for MockCoreAndLeaderProofsGenerator
 {
     fn new(
         settings: ProofsGeneratorSettings,
+        _starting_key_index: KeyIndex,
         _core_proof_of_quota_generator: CorePoQGenerator,
     ) -> Self {
         Self(settings.public_inputs.leader.pol_epoch_nonce)
@@ -443,6 +534,10 @@ impl<CorePoQGenerator> CoreAndLeaderProofsGenerator<CorePoQGenerator>
     }
 
     async fn get_next_leader_proof(&mut self) -> Option<BlendLayerProof> {
+        Some(epoch_based_dummy_proofs(self.0))
+    }
+
+    async fn get_next_pow_proof(&mut self) -> Option<BlendLayerProof> {
         Some(epoch_based_dummy_proofs(self.0))
     }
 }
@@ -497,7 +592,7 @@ fn epoch_based_dummy_proofs(epoch: ZkHash) -> BlendLayerProof {
             bytes[..epoch_bytes.len()].copy_from_slice(&epoch_bytes);
             bytes
         }),
-        ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
+        ephemeral_signing_key: UnsecuredEd25519Key::generate_with_chacha_rng(),
     }
 }
 

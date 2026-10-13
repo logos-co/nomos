@@ -1,6 +1,6 @@
 use crate::{
     crypto::{Digest as _, Hash, Hasher},
-    mantle::{Transaction, TxHash},
+    mantle::{traits::Hashable, transactions::hash::TxHash},
 };
 
 pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
@@ -11,12 +11,12 @@ pub fn node(left: impl AsRef<[u8]>, right: impl AsRef<[u8]>) -> [u8; 32] {
 }
 
 // Calculates a 32-byte Merkle root of transactions
-pub fn calculate_block_root<T: Transaction<Hash = TxHash>>(transactions: &[T]) -> Hash {
-    let mut leaves: Vec<_> = transactions.iter().map(Transaction::hash).collect();
+pub fn calculate_transactions_root<T: Hashable<Hash = TxHash>>(transactions: &[T]) -> Hash {
+    let mut leaves: Vec<_> = transactions.iter().map(Hashable::hash).collect();
 
     let target_size = leaves.len().max(1).next_power_of_two();
 
-    let zero_leaf: <T as Transaction>::Hash = [0u8; 32].into();
+    let zero_leaf: <T as Hashable>::Hash = [0u8; 32].into();
     leaves.resize(target_size, zero_leaf);
 
     while leaves.len() > 1 {
@@ -35,28 +35,26 @@ mod tests {
 
     use super::*;
     use crate::mantle::{
-        MantleTx, Note, Op,
+        Note, Op,
         ledger::{Inputs, Outputs},
         ops::transfer::TransferOp,
+        transactions::tx_list::Ops,
     };
 
-    fn create_random_tx(seed: u32) -> MantleTx {
-        MantleTx(
-            [Op::Transfer(TransferOp::new(
-                Inputs::empty(),
-                Outputs::new([Note {
-                    value: seed.into(),
-                    pk: ZkPublicKey::zero(),
-                }]),
-            ))]
-            .into(),
-        )
+    fn create_random_tx(seed: u32) -> Ops {
+        Ops::from([Op::Transfer(TransferOp::new(
+            Inputs::empty(),
+            Outputs::new([Note {
+                value: seed.into(),
+                pk: ZkPublicKey::zero(),
+            }]),
+        ))])
     }
 
     #[test]
     fn test_root_two_elements() {
         let txs = vec![create_random_tx(0), create_random_tx(1)];
-        let result = calculate_block_root(&txs);
+        let result = calculate_transactions_root(&txs);
         let leaf1 = txs[0].hash();
         let leaf2 = txs[1].hash();
         let expected = node(leaf1.0, leaf2.0);
@@ -67,7 +65,7 @@ mod tests {
     #[test]
     fn test_root_single_element() {
         let txs = vec![create_random_tx(42)];
-        let result = calculate_block_root(&txs);
+        let result = calculate_transactions_root(&txs);
 
         let expected = txs[0].hash();
 
@@ -76,8 +74,8 @@ mod tests {
 
     #[test]
     fn test_root_empty_elements() {
-        let txs: Vec<MantleTx> = vec![];
-        let result = calculate_block_root(&txs);
+        let txs: Vec<Ops> = vec![];
+        let result = calculate_transactions_root(&txs);
 
         let expected = [0u8; 32];
 

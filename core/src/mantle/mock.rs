@@ -4,11 +4,12 @@ use blake2::{
     Blake2bVar,
     digest::{Update as _, VariableOutput as _},
 };
+use lb_binary_codec::bincode::SerializeOp as _;
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{
-    codec::SerializeOp as _,
-    mantle::{StorageSize, Transaction, TransactionHasher, TxHash},
+use crate::mantle::{
+    traits::{Hashable, Hasher, StorageSize},
+    transactions::hash::{PrefixedKey, TxHash, TxHashPrefix},
 };
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
@@ -38,8 +39,10 @@ impl<M: Serialize + DeserializeOwned + Clone> MockTransaction<M> {
     }
 }
 
-impl<M: Serialize + DeserializeOwned + Clone> Transaction for MockTransaction<M> {
-    const HASHER: TransactionHasher<Self> = Self::id;
+impl<M: Serialize + DeserializeOwned + Clone> Hashable for MockTransaction<M> {
+    //noinspection RsTypeCheck: The type is correct, but the linter is confused by
+    // the closure.
+    const HASHER: Hasher<Self> = Self::id;
     type Hash = MockTxId;
 
     fn as_signing(&self) -> Vec<u8> {
@@ -100,6 +103,14 @@ impl MockTxId {
     #[must_use]
     pub const fn new(tx_id: [u8; 32]) -> Self {
         Self(tx_id)
+    }
+}
+
+impl PrefixedKey for MockTxId {
+    type Prefix = TxHashPrefix;
+
+    fn key_prefix(&self) -> Self::Prefix {
+        TxHash(self.0).prefix()
     }
 }
 

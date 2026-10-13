@@ -7,24 +7,35 @@ log_targets! {
     message::{REWARD},
     network::core::{
         core::BEHAVIOUR,
+        core::behaviour::MAINTENANCE,
         core::behaviour::OLD,
         core::conn::HANDLER,
-        core::conn::MAINTENANCE,
         edge::BEHAVIOUR,
         handler::CORE_EDGE,
+    },
+    processor::{
+        core_and_leader::{RECEIVE, SEND},
+        leader::SEND,
+    },
+    prover::{
+        CORE,
+        CORE_AND_LEADER,
+        CORE_LEADER_AND_POW,
+        LEADER,
+        LEADER_AND_POW,
+        POW
     },
     scheduling::{
         COVER,
         DELAY,
-        proofs::CORE,
-        proofs::CORE_AND_LEADER,
-        proofs::LEADER,
     },
     service::{
+        BROADCAST,
         CORE,
         EDGE,
         EPOCH,
-        MODES,
+        MEMBERSHIP,
+        ORCHESTRATOR,
         core::KMS_POQ_GENERATOR,
         edge::backend::LIBP2P,
     }

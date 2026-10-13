@@ -6,7 +6,7 @@ pub mod network;
 mod relays;
 mod sync;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, num::NonZeroUsize};
 use std::{
     fmt::Display,
     hash::Hash,
@@ -15,21 +15,34 @@ use std::{
 
 use bootstrap::ibd::ChainNetworkIbdBlockProcessor;
 use futures::{StreamExt as _, future::join_all};
-use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use lb_chain_service::{
+    AppliedBlock,
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+};
 use lb_core::{
-    block::{Block, Proposal},
+    block::{Block, BlockTransactions, Proposal, verify_header_alone, verify_header_signature},
     header::HeaderId,
-    mantle::{AuthenticatedMantleTx, Transaction, TxHash},
+    mantle::{
+        ledger::verification_mode::StandardMode,
+        traits::{Hashable, SignedMantleTx, StorageSize},
+        transactions::{
+            hash::{TxHash, TxHashPrefix},
+            states::Preverified,
+        },
+    },
 };
 pub use lb_cryptarchia_engine::{Epoch, Slot};
 pub use lb_ledger::EpochState;
+use lb_log_targets::chain;
 use lb_network_service::NetworkService;
 use lb_services_utils::wait_until_services_are_ready;
+use lb_storage_service::StorageService;
 use lb_time_service::{TimeService, TimeServiceMessage};
 use lb_tx_service::{
     TxMempoolService, backend::RecoverableMempool,
     network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
 };
+use lb_utils::{bounded::BoundedError, tokio::task::spawn};
 use network::NetworkAdapter;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -41,7 +54,7 @@ use overwatch::{
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     task::JoinHandle,
     time::sleep,
 };
@@ -54,7 +67,7 @@ pub use crate::{
 };
 use crate::{
     bootstrap::ibd::InitialBlockDownload,
-    mempool::{MempoolAdapter as _, adapter::MempoolAdapter},
+    mempool::{MempoolAdapter as MempoolAdapterTrait, adapter::MempoolAdapter},
     relays::ChainNetworkRelays,
     sync::{
         orphan_handler::OrphanBlocksDownloader,
@@ -64,7 +77,7 @@ use crate::{
 
 const SERVICE_ID: &str = "ChainNetwork";
 
-pub(crate) const LOG_TARGET: &str = "chain_network::service";
+pub(crate) const LOG_TARGET: &str = chain::network::ROOT;
 const FUTURE_BLOCK_MAX_RETRIES: usize = 3;
 const FUTURE_BLOCK_RETRY_DELAY: Duration = Duration::from_millis(500);
 
@@ -73,22 +86,53 @@ pub enum Error {
     #[error(transparent)]
     Cryptarchia(#[from] lb_chain_service::api::ApiError),
     #[error("Serialization error: {0}")]
-    Serialisation(#[from] lb_core::codec::Error),
+    Serialisation(#[from] lb_binary_codec::bincode::Error),
     #[error("Invalid block: {0}")]
     InvalidBlock(String),
-    #[error("Failed to reconstruct block: {0} mempool transactions not found")]
-    MissingMempoolTransactions(usize),
+    #[error("Header is not valid on its own: {0}")]
+    InvalidHeader(#[from] lb_core::block::HeaderError),
+    #[error("Invalid block header signature")]
+    InvalidSignature,
+    #[error("No combination of candidate transactions reproduces the block root")]
+    NoMatchingReconstruction,
+    #[error("Reference {index} ({prefix}) matches no local transaction")]
+    UnresolvedReference { index: usize, prefix: TxHashPrefix },
+    #[error("Reference {index} ({prefix}) matches more than one local transaction")]
+    CollidingReference { index: usize, prefix: TxHashPrefix },
     #[error("Mempool error: {0}")]
     Mempool(String),
     #[error("Block header id not found: {0}")]
     HeaderIdNotFound(HeaderId),
+    #[error(transparent)]
+    BoundedError(#[from] BoundedError),
+}
+
+impl From<lb_core::block::Error> for Error {
+    fn from(e: lb_core::block::Error) -> Self {
+        match e {
+            lb_core::block::Error::Signature => Self::InvalidSignature,
+            lb_core::block::Error::Serialisation(_)
+            | lb_core::block::Error::Header(_)
+            | lb_core::block::Error::BodyRootMismatch
+            | lb_core::block::Error::KeyMismatch
+            | lb_core::block::Error::BoundedError(_)
+            | lb_core::block::Error::ContentTooBig { .. } => Self::InvalidBlock(e.to_string()),
+        }
+    }
 }
 
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Boxing a block in `ApplyBlockAndReconcileMempool` would cost in every apply an allocation to spare the rare subscription eight bytes."
+)]
 pub enum Message<Tx> {
     ApplyBlockAndReconcileMempool {
         block: Block<Tx>,
         resp: oneshot::Sender<Result<(), Error>>,
+    },
+    SubscribeToProposals {
+        result_sender: oneshot::Sender<broadcast::Receiver<Proposal>>,
     },
 }
 
@@ -100,6 +144,7 @@ where
     pub network: NetworkAdapterSettings,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
+    pub seen_items_subscription_channel_size: NonZeroUsize,
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
@@ -121,7 +166,7 @@ pub struct ChainNetwork<
     Mempool::Settings: Clone,
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Item: Clone + Eq + Debug + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode>,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     MempoolNetAdapter::Settings: Send + Sync,
@@ -129,6 +174,7 @@ pub struct ChainNetwork<
     TimeBackend::Settings: Clone + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+    received_proposals_sender: broadcast::Sender<Proposal>,
 }
 
 impl<Cryptarchia, NetAdapter, Mempool, MempoolNetAdapter, TimeBackend, RuntimeServiceId> ServiceData
@@ -149,7 +195,7 @@ where
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone,
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode> + Clone + Eq + Debug,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     MempoolNetAdapter::Settings: Send + Sync,
@@ -186,8 +232,9 @@ where
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
-        + AuthenticatedMantleTx
+    Mempool::Item: Hashable<Hash = Mempool::Key>
+        + SignedMantleTx<Preverified, StandardMode>
+        + StorageSize
         + Debug
         + Clone
         + Eq
@@ -205,6 +252,7 @@ where
     TimeBackend: lb_time_service::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     RuntimeServiceId: Debug
+        + Clone
         + Send
         + Sync
         + Display
@@ -212,6 +260,7 @@ where
         + AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
+        + AsServiceId<StorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
@@ -221,8 +270,15 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
+        let received_proposals_buffer = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .seen_items_subscription_channel_size;
+        let (received_proposals_sender, _) = broadcast::channel(received_proposals_buffer.get());
         Ok(Self {
             service_resources_handle,
+            received_proposals_sender,
         })
     }
 
@@ -243,6 +299,7 @@ where
             network: network_config,
             bootstrap: bootstrap_config,
             sync: sync_config,
+            ..
         } = self
             .service_resources_handle
             .settings_handle
@@ -269,24 +326,28 @@ where
         let network_adapter = NetAdapter::new(network_config, relays.network_relay().clone()).await;
 
         let initial_block_download = InitialBlockDownload::new(
-            ChainNetworkIbdBlockProcessor::<_, Mempool, _> {
+            ChainNetworkIbdBlockProcessor::<_, Mempool> {
                 cryptarchia: relays.cryptarchia().clone(),
                 mempool_adapter: relays.mempool_adapter().clone(),
             },
             network_adapter.clone(),
         );
 
-        match initial_block_download.run(bootstrap_config.ibd).await {
+        match initial_block_download
+            .run(bootstrap_config.ibd, &sync_config.orphan)
+            .await
+        {
             Ok(_) => {
-                info!("Initial Block Download completed successfully");
+                info!(target: LOG_TARGET, "Initial Block Download completed successfully");
                 // Notify chain-service that IBD is complete so it can start the prolonged
                 // bootstrap timer
                 if let Err(e) = relays.cryptarchia().notify_ibd_completed().await {
-                    error!("Failed to notify chain-service of IBD completion: {e:?}");
+                    error!(target: LOG_TARGET, "Failed to notify chain-service of IBD completion: {e:?}");
                 }
             }
             Err(e) => {
                 error!(
+                    target: LOG_TARGET,
                     "Initial Block Download failed: {e:?}. Initiating graceful shutdown. Retry with different bootstrap peers"
                 );
                 if let Err(shutdown_err) = self
@@ -295,7 +356,7 @@ where
                     .shutdown()
                     .await
                 {
-                    error!("Failed to shutdown overwatch: {shutdown_err:?}");
+                    error!(target: LOG_TARGET, "Failed to shutdown overwatch: {shutdown_err:?}");
                 }
 
                 return Err(DynError::from(format!(
@@ -314,6 +375,7 @@ where
         let mut orphan_downloader = Box::pin(OrphanBlocksDownloader::new(
             network_adapter,
             sync_config.orphan.max_orphan_cache_size,
+            sync_config.orphan.max_rejected_cache_size,
         ));
 
         // Set up the proactive tip-poll lag watchdog: subscribe to slot ticks and
@@ -326,8 +388,8 @@ where
                 .time_relay()
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
-                .map_err(|(e, _)| {
-                    DynError::from(format!("failed to subscribe to slot ticks: {e}"))
+                .map_err(|error| {
+                    DynError::from(format!("failed to subscribe to slot ticks: {error}"))
                 })?;
             receiver
                 .await
@@ -363,6 +425,7 @@ where
             loop {
                 tokio::select! {
                     Some(proposal) = incoming_proposals.next() => {
+                        self.note_received_proposal(&proposal);
                         self.handle_incoming_proposal(
                             proposal,
                             orphan_downloader.as_mut().get_mut(),
@@ -389,16 +452,24 @@ where
 
                     Some(block) = orphan_downloader.next(), if orphan_downloader.should_poll() => {
                         let header_id = block.header().id();
-                        info!("Processing block from orphan downloader: {header_id:?}");
+                        debug!(
+                            target: LOG_TARGET,
+                            "Processing block from orphan downloader: {header_id:?}"
+                        );
 
-                        if !should_process_block(
+                        match should_process_block(
                             relays.cryptarchia(),
                             block.header().id(),
                             block.header().slot(),
                         )
                         .await
                         {
-                            continue;
+                            Ok(()) => {}
+                            Err(DoNotProcessBlock::OlderThanLib) => {
+                                orphan_downloader.insert_rejected_block(header_id);
+                                continue;
+                            }
+                            Err(DoNotProcessBlock::AlreadyApplied) => continue,
                         }
 
                         Self::log_received_block(&block);
@@ -407,10 +478,15 @@ where
                             .await
                         {
                             Ok(()) => {
-                                trace!(counter.consensus_processed_blocks = 1);
+                                trace!(target: LOG_TARGET, {
+                                    counter.consensus_processed_blocks = 1
+                                }, "Processed consensus block");
                             }
                             Err(e) => {
                                 error!(target: LOG_TARGET, "Error processing orphan downloader block: {e:?}");
+                                if !is_recoverable_apply_error(&e) {
+                                    orphan_downloader.insert_rejected_block(header_id);
+                                }
                                 orphan_downloader.cancel_active_download();
                             }
                         }
@@ -433,7 +509,7 @@ where
                         let adapter = tip_poll_adapter.clone();
                         let cryptarchia = relays.cryptarchia().clone();
                         let tx = polled_tip_tx.clone();
-                        tip_poll_task = Some(tokio::spawn(async move {
+                        tip_poll_task = Some(spawn("logos/chain/tip-poll", async move {
                             if let Some(polled) = poll_peer_tips_if_behind(
                                 &adapter,
                                 &cryptarchia,
@@ -447,7 +523,7 @@ where
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
-                        Self::handle_message(msg, &relays).await;
+                        Self::handle_message(msg, &self.received_proposals_sender, &relays).await;
                     }
                 }
             }
@@ -460,7 +536,9 @@ where
         // Hypothesis:
         // 1. Probably related to too many generics.
         // 2. It seems `span` requires a `const` string literal.
-        async_loop.instrument(span!(Level::TRACE, SERVICE_ID)).await;
+        async_loop
+            .instrument(span!(target: LOG_TARGET, Level::TRACE, SERVICE_ID))
+            .await;
 
         Ok(())
     }
@@ -481,8 +559,9 @@ where
     Mempool::RecoveryState: Serialize + for<'de> Deserialize<'de>,
     Mempool::Settings: Clone + Send + Sync + 'static,
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
-        + AuthenticatedMantleTx
+    Mempool::Item: Hashable<Hash = Mempool::Key>
+        + SignedMantleTx<Preverified, StandardMode>
+        + StorageSize
         + Debug
         + Clone
         + Eq
@@ -503,6 +582,7 @@ where
     fn notify_service_ready(&self) {
         self.service_resources_handle.status_updater.notify_ready();
         info!(
+            target: LOG_TARGET,
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
@@ -526,8 +606,22 @@ where
         let block_slot = proposal.header().slot();
         metrics::consensus_proposals_received_total("network");
 
-        if !should_process_block(relays.cryptarchia(), block_id, block_slot).await {
-            metrics::consensus_proposals_ignored_total("already_processed", "network");
+        match should_process_block(relays.cryptarchia(), block_id, block_slot).await {
+            Ok(()) => {}
+            Err(DoNotProcessBlock::OlderThanLib) => {
+                metrics::consensus_proposals_ignored_total("older_than_lib", "network");
+                orphan_downloader.insert_rejected_block(block_id);
+                return;
+            }
+            Err(DoNotProcessBlock::AlreadyApplied) => {
+                metrics::consensus_proposals_ignored_total("already_processed", "network");
+                return;
+            }
+        }
+
+        // Check the proposal before any mempool scanning.
+        if let Err(e) = verify_proposal_and_cache_rejected(&proposal, orphan_downloader) {
+            metrics::consensus_observe_proposal_reconstruct_err("network", &e);
             return;
         }
 
@@ -547,6 +641,11 @@ where
                     "Failed to reconstruct block from proposal: {:?}",
                     e
                 );
+                // Deliberately not recorded against `block_id`. Failing to
+                // resolve a reference says the transaction has not reached
+                // *this* mempool, not that the block is invalid; the same block
+                // may arrive in full through chain synchronisation and must
+                // then be judged on its merits.
                 return;
             }
         };
@@ -568,7 +667,7 @@ where
     {
         match err {
             Error::Cryptarchia(lb_chain_service::api::ApiError::ParentMissing { parent, info }) => {
-                info!(
+                debug!(
                     target: LOG_TARGET, ?block_id, ?parent,
                     "Parent block missing. Trying to enqueue block for orphan processing",
                 );
@@ -595,6 +694,9 @@ where
                     target: LOG_TARGET, %err, ?block_id,
                     "Error processing reconstructed block",
                 );
+                if !is_recoverable_apply_error(&err) {
+                    orphan_downloader.insert_rejected_block(block_id);
+                }
             }
         }
     }
@@ -622,7 +724,9 @@ where
             Ok(()) => {
                 metrics::consensus_observe_apply_block_ok(started_at.elapsed());
                 orphan_downloader.remove_orphan(&block_id);
-                trace!(counter.consensus_processed_blocks = 1);
+                trace!(target: LOG_TARGET, {
+                    counter.consensus_processed_blocks = 1
+                }, "Processed consensus block");
             }
             Err(err) => {
                 metrics::consensus_observe_apply_block_err(&err);
@@ -649,7 +753,7 @@ where
             FUTURE_BLOCK_MAX_RETRIES,
             FUTURE_BLOCK_RETRY_DELAY,
             || {
-                apply_block_and_reconcile_mempool::<_, Mempool, _>(
+                apply_block_and_reconcile_mempool::<_, Mempool>(
                     block.clone(),
                     relays.cryptarchia(),
                     relays.mempool_adapter(),
@@ -661,17 +765,17 @@ where
 
     fn log_received_block(block: &Block<Mempool::Item>) {
         let content_size = 0; // TODO: calculate the actual content size
-        let transactions = block.transactions().len();
+        let transactions = block.transactions_iter().len();
 
-        trace!(
+        trace!(target: LOG_TARGET, {
             counter.received_blocks = 1,
             transactions = transactions,
             bytes = content_size
-        );
-        trace!(
+        }, "Received block");
+        trace!(target: LOG_TARGET, {
             histogram.received_blocks_data = content_size,
             transactions = transactions,
-        );
+        }, "Recorded received block size");
     }
 
     /// Hand a tip discovered by the watchdog to the orphan downloader and
@@ -700,8 +804,15 @@ where
         }
     }
 
+    fn note_received_proposal(&self, proposal: &Proposal) {
+        if self.received_proposals_sender.receiver_count() > 0 {
+            drop(self.received_proposals_sender.send(proposal.clone()));
+        }
+    }
+
     async fn handle_message(
         msg: Message<Mempool::Item>,
+        received_proposals: &broadcast::Sender<Proposal>,
         relays: &ChainNetworkRelays<
             Cryptarchia,
             Mempool,
@@ -713,8 +824,16 @@ where
         RuntimeServiceId: Send,
     {
         match msg {
+            Message::SubscribeToProposals { result_sender } => {
+                if result_sender.send(received_proposals.subscribe()).is_err() {
+                    error!(
+                        target: LOG_TARGET,
+                        "Subscriber hung up before it could be given the received-proposal stream."
+                    );
+                }
+            }
             Message::ApplyBlockAndReconcileMempool { block, resp } => {
-                let result = apply_block_and_reconcile_mempool::<_, Mempool, _>(
+                let result = apply_block_and_reconcile_mempool::<_, Mempool>(
                     block,
                     relays.cryptarchia(),
                     relays.mempool_adapter(),
@@ -732,43 +851,87 @@ where
     }
 }
 
-async fn should_process_block<Cryptarchia, RuntimeServiceId>(
-    cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+async fn should_process_block<Cryptarchia>(
+    cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     block_id: HeaderId,
     block_slot: Slot,
-) -> bool
+) -> Result<(), DoNotProcessBlock>
 where
     Cryptarchia: CryptarchiaServiceData,
-    Cryptarchia::Tx: AuthenticatedMantleTx + Debug + Clone + Send + Sync,
-    RuntimeServiceId: Send + Sync,
+    Cryptarchia::Tx: SignedMantleTx<Preverified, StandardMode> + Debug + Clone + Send,
 {
     if !is_after_lib(cryptarchia, block_id, block_slot).await {
-        return false;
+        return Err(DoNotProcessBlock::OlderThanLib);
     }
 
     match cryptarchia.get_ledger_state(block_id).await {
-        Ok(Some(_)) => false,
-        Ok(None) => {
-            // block has not been processed
-            true
-        }
+        Ok(Some(_)) => Err(DoNotProcessBlock::AlreadyApplied),
+        Ok(None) => Ok(()),
         Err(err) => {
             error!(target: LOG_TARGET, err = ?err, "Failure when checking if block already processed");
             // block processing is idempotent, so we can safely re-process a block
-            true
+            Ok(())
         }
     }
 }
 
-async fn is_after_lib<Cryptarchia, RuntimeServiceId>(
-    cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
+/// Errors that indicate why a block should not be processed.
+#[derive(Debug)]
+enum DoNotProcessBlock {
+    OlderThanLib,
+    AlreadyApplied,
+}
+
+/// Verifies the proposal header and signature without mempool scanning.
+///
+/// If the proposal header is invalid, cache the block ID as rejected in the
+/// orphan downloader, so that we don't waste time downloading the block later.
+///
+/// If the signature is invalid, do not cache the block ID as rejected, because
+/// a genuine proposal with the same block ID may arrive later, and it should be
+/// accepted. The block ID does not commit to the signature.
+fn verify_proposal_and_cache_rejected<NetAdapter, RuntimeServiceId>(
+    proposal: &Proposal,
+    orphan_downloader: &mut OrphanBlocksDownloader<NetAdapter, RuntimeServiceId>,
+) -> Result<(), Error>
+where
+    NetAdapter: NetworkAdapter<RuntimeServiceId> + Send + Sync + Clone + 'static,
+    NetAdapter::Block: Clone + Send + Sync + 'static,
+    RuntimeServiceId: Send + Sync + 'static,
+{
+    match verify_proposal(proposal) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let block_id = proposal.header().id();
+            if matches!(e, Error::InvalidSignature) {
+                error!(target: LOG_TARGET, %e, ?block_id, "invalid proposal signature: not caching block ID as rejected in orphan downloader");
+            } else {
+                error!(target: LOG_TARGET, %e, ?block_id, "invalid proposal header: caching block ID as rejected in orphan downloader");
+                orphan_downloader.insert_rejected_block(proposal.header().id());
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Verifies the proposal header and signature without mempool scanning.
+fn verify_proposal(proposal: &Proposal) -> Result<(), Error> {
+    verify_header_alone(proposal.header())?;
+
+    Ok(verify_header_signature(
+        proposal.header(),
+        proposal.signature(),
+    )?)
+}
+
+async fn is_after_lib<Cryptarchia>(
+    cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     block_id: HeaderId,
     block_slot: Slot,
 ) -> bool
 where
     Cryptarchia: CryptarchiaServiceData,
-    Cryptarchia::Tx: AuthenticatedMantleTx + Debug + Clone + Send + Sync,
-    RuntimeServiceId: Send + Sync,
+    Cryptarchia::Tx: SignedMantleTx<Preverified, StandardMode> + Debug + Clone + Send,
 {
     match cryptarchia.info().await {
         Ok(info) => {
@@ -795,6 +958,30 @@ where
 
 fn is_at_or_before_lib(block_slot: Slot, lib_slot: Slot) -> bool {
     block_slot <= lib_slot
+}
+
+/// Apply-time errors that must NOT mark the block as rejected:
+/// - `ParentMissing` / `FutureBlock`: transient — the block may become
+///   applicable once an ancestor arrives or the local clock catches up.
+/// - `AlreadyApplied`: the block is already in the chain; re-processing is
+///   unnecessary. Rejecting would also block its valid descendants from
+///   entering the orphan pipeline.
+/// - `CommsFailure`: relay failure has nothing to do with block validity; a
+///   blanket "reject" here would poison the cache whenever chain-service is
+///   temporarily unreachable.
+///
+/// Other apply errors (e.g. validation failures surfaced as
+/// `ApiError::Unexpected`) are treated as terminal for the orphan pipeline.
+const fn is_recoverable_apply_error(err: &Error) -> bool {
+    matches!(
+        err,
+        Error::Cryptarchia(
+            lb_chain_service::api::ApiError::ParentMissing { .. }
+                | lb_chain_service::api::ApiError::FutureBlock { .. }
+                | lb_chain_service::api::ApiError::AlreadyApplied(_)
+                | lb_chain_service::api::ApiError::CommsFailure(_),
+        ),
+    )
 }
 
 /// Retry applying a block when `Cryptarchia` reports it as a `FutureBlock`.
@@ -855,62 +1042,49 @@ where
 /// A [`Block`] is only added if it's valid
 #[expect(clippy::allow_attributes_without_reason)]
 #[instrument(
+    target = LOG_TARGET,
     level = "debug",
-    skip(block, cryptarchia, mempool_adapter),
+    skip(block, cryptarchia, mempool),
     fields(block_id = %block.header().id(), tx_count = block.transactions().len())
 )]
-async fn apply_block_and_reconcile_mempool<Cryptarchia, Mempool, RuntimeServiceId>(
+async fn apply_block_and_reconcile_mempool<Cryptarchia, Mempool>(
     block: Block<Cryptarchia::Tx>,
-    cryptarchia: &CryptarchiaServiceApi<Cryptarchia, RuntimeServiceId>,
-    mempool_adapter: &MempoolAdapter<Mempool::Item>,
+    cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
+    mempool: &MempoolAdapter<Mempool::Item>,
 ) -> Result<(), Error>
 where
     Cryptarchia: CryptarchiaServiceData,
-    Cryptarchia::Tx: AuthenticatedMantleTx + Debug + Clone + Send + Sync,
+    Cryptarchia::Tx: SignedMantleTx<Preverified, StandardMode> + Debug + Clone + Send,
     Mempool:
         RecoverableMempool<BlockId = HeaderId, Key = TxHash, Item = Cryptarchia::Tx> + Send + Sync,
-    RuntimeServiceId: Send + Sync,
 {
-    trace!("Received proposal with ID: {:?}", block.header().id());
+    trace!(target: LOG_TARGET, "Received proposal with ID: {:?}", block.header().id());
 
-    let (tip, reorged_txs) = cryptarchia.apply_block(block.clone()).await?;
-    let reorged_tx_count = reorged_txs.len();
-    let included_tx_count = block.transactions().len();
+    let block_id = block.header().id();
+    let AppliedBlock {
+        tip,
+        newly_canonical_txs,
+        reorged_txs,
+    } = cryptarchia.apply_block(block).await?;
+    debug!(
+        target: LOG_TARGET, ?block_id, ?tip,
+        retired_txs = newly_canonical_txs.len(), reinserted_txs = reorged_txs.len(),
+        "block applied; reconciling mempool"
+    );
 
-    // Remove included content from mempool if the block was applied to the honest
-    // chain. Otherwise, we keep them in mempool, so they can be included to the
-    // honest chain later when this node proposes blocks.
-    if tip == block.header().id() {
-        debug!(
-            "Applied block {:?} to the canonical chain; included {} transactions and will reinsert {} reorged transactions",
-            block.header().id(),
-            included_tx_count,
-            reorged_tx_count
-        );
-        mempool_adapter
-            .remove_transactions(
-                &block
-                    .transactions()
-                    .map(Transaction::hash)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .unwrap_or_else(|e| error!("Could not mark transactions in block: {e}"));
-    } else {
-        debug!(
-            "Applied block {:?} off the canonical chain; keeping {} included transactions in mempool because the current tip is {:?}",
-            block.header().id(),
-            included_tx_count,
-            tip
-        );
+    // Remove txs of every block that entered the canonical chain.
+    // Do this even when there is no tx to remove because this also triggers mempool
+    // TTL eviction.
+    if let Err(err) = mempool.remove_transactions(&newly_canonical_txs).await {
+        error!(target: LOG_TARGET, err, "could not remove transactions from mempool");
     }
 
     // Re-insert reorged txs back into the mempool.
     join_all(reorged_txs.into_iter().map(|tx| {
-        let mempool_adapter = mempool_adapter.clone();
+        let mempool_adapter = mempool.clone();
         async move {
             if let Err(e) = mempool_adapter.add_transaction(tx).await {
-                error!("Could not reinsert a reorged tx into mempool: {e:?}");
+                error!(target: LOG_TARGET, "Could not reinsert a reorged tx into mempool: {e:?}");
             }
         }
     }))
@@ -919,44 +1093,198 @@ where
     Ok(())
 }
 
-/// Reconstruct a Block from a Proposal by looking up transactions from mempool
+/// Reconstruct a `Block` from a `Proposal` by resolving its reference prefixes
+/// against the local mempool.
+///
+/// A reference is a 16-byte prefix of the transaction hash. Two distinct hashes
+/// cannot be found or manufactured to share one at any feasible cost, so every
+/// reference resolves to exactly one local transaction and resolution never
+/// branches. `header.body_root` still commits to the full hashes and
+/// `Block::reconstruct` checks it, which is what catches the residual,
+/// cryptographically negligible case of a prefix matching the wrong
+/// transaction.
+///
+/// The caller must have validated the header first: this walks the mempool once
+/// per reference, so an unauthenticated proposal has to be discarded before it
+/// gets here.
 async fn reconstruct_block_from_proposal<Item>(
     proposal: Proposal,
-    mempool: &MempoolAdapter<Item>,
+    mempool: &impl MempoolAdapterTrait<Item>,
 ) -> Result<Block<Item>, Error>
 where
-    Item: AuthenticatedMantleTx<Hash = TxHash> + Clone + Send + Sync + 'static,
+    Item: SignedMantleTx<Preverified, StandardMode> + StorageSize + Clone + Send + Sync + 'static,
 {
-    let mempool_hashes: Vec<TxHash> = proposal.mempool_transactions().to_vec();
-    let mempool_response = mempool
-        .get_transactions_by_hashes(mempool_hashes)
-        .await
-        .map_err(|e| {
-            Error::InvalidBlock(format!("Failed to get transactions from mempool: {e}"))
-        })?;
-
-    if !mempool_response.all_found() {
-        let missing_count = mempool_response.not_found().len();
-        metrics::consensus_observe_proposal_missing_txs(missing_count);
-        return Err(Error::MissingMempoolTransactions(missing_count));
+    let mut transactions = Vec::with_capacity(proposal.mempool_transactions().len());
+    for (index, prefix) in proposal.mempool_transactions().iter().copied().enumerate() {
+        transactions.push(resolve_reference(index, prefix, mempool).await?);
     }
 
-    let reconstructed_transactions = mempool_response.into_found();
+    Block::reconstruct(
+        proposal.header().clone(),
+        proposal.uncle_headers().clone(),
+        BlockTransactions::try_from(transactions)?,
+        *proposal.signature(),
+    )
+    .map_err(|_| Error::NoMatchingReconstruction)
+}
 
-    let header = proposal.header().clone();
-    let signature = *proposal.signature();
+/// The single local transaction a reference means.
+///
+/// A reference resolves only when the match is unique. Zero matches means the
+/// transaction has not reached this mempool; two or more would be a prefix
+/// collision, which is infeasible to manufacture and vanishingly unlikely to
+/// occur by chance, and is treated as unresolved rather than searched. Because
+/// the match is unique when it exists, the result does not depend on the order
+/// in which the mempool is scanned.
+///
+/// Two candidates are taken so that "collides" is distinguishable from
+/// "resolves" without draining the stream.
+async fn resolve_reference<Item>(
+    index: usize,
+    prefix: TxHashPrefix,
+    mempool: &impl MempoolAdapterTrait<Item>,
+) -> Result<Item, Error>
+where
+    Item: Hashable<Hash = TxHash> + Send + Sync + 'static,
+{
+    let mut candidates: Vec<Item> = mempool
+        .get_transactions_by_prefix(prefix)
+        .await
+        .map_err(|e| Error::Mempool(format!("Failed to resolve reference {index}: {e}")))?
+        .take(2)
+        // We collect into a `Vec` since we are only taking at most 2 elements.
+        .collect()
+        .await;
 
-    let block = Block::reconstruct(header, reconstructed_transactions, signature)
-        .map_err(|e| Error::InvalidBlock(format!("Invalid block: {e}")))?;
-
-    Ok(block)
+    match candidates.len() {
+        0 => {
+            metrics::consensus_observe_proposal_missing_txs(1);
+            Err(Error::UnresolvedReference { index, prefix })
+        }
+        1 => Ok(candidates.remove(0)),
+        _ => Err(Error::CollidingReference { index, prefix }),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::{
+        collections::HashSet,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use futures::stream;
+    use lb_binary_codec::canonical::BinaryDecodeExt as _;
+    use lb_core::{
+        block::UncleHeaders,
+        mantle::{
+            traits::Hasher,
+            transactions::{Ops, hash::REFERENCE_PREFIX_BYTES},
+        },
+        proofs::leader_proof::Groth16LeaderProof,
+    };
+    use lb_cryptarchia_sync::GetTipResponse;
+    use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519PublicKey, Ed25519Signature};
+    use lb_network_service::{backends::mock::Mock, message::ChainSyncEvent};
+    use lb_tx_service::TxsWithCommonPrefix;
+    use overwatch::services::relay::OutboundRelay;
 
     use super::*;
+    use crate::network::BoxedStream;
+
+    /// A transaction that is nothing but its hash, which is all
+    /// [`resolve_reference`] looks at.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct HashOnlyTx(TxHash);
+
+    impl Hashable for HashOnlyTx {
+        const HASHER: Hasher<Self> = |tx| tx.0;
+        type Hash = TxHash;
+
+        fn as_signing(&self) -> Vec<u8> {
+            self.0.0.to_vec()
+        }
+    }
+
+    /// A mempool that answers every prefix with the same fixed candidate list,
+    /// so a test states only how many transactions a reference matches.
+    struct FixedCandidates(Vec<HashOnlyTx>);
+
+    #[async_trait::async_trait]
+    impl MempoolAdapterTrait<HashOnlyTx> for FixedCandidates {
+        async fn add_transaction(&self, _tx: HashOnlyTx) -> Result<(), DynError> {
+            unimplemented!("resolution never adds")
+        }
+
+        async fn remove_transactions(&self, _ids: &[TxHash]) -> Result<(), DynError> {
+            unimplemented!("resolution never removes")
+        }
+
+        async fn get_transactions_by_prefix(
+            &self,
+            _prefix: TxHashPrefix,
+        ) -> Result<TxsWithCommonPrefix<HashOnlyTx>, DynError> {
+            Ok(Box::pin(stream::iter(self.0.clone())))
+        }
+    }
+
+    fn tx(byte: u8) -> HashOnlyTx {
+        HashOnlyTx(TxHash([byte; 32]))
+    }
+
+    /// Two transactions that agree on the reference prefix and differ only past
+    /// it — the collision a 16-byte prefix makes infeasible, constructed by
+    /// hand.
+    fn colliding_pair() -> Vec<HashOnlyTx> {
+        let mut first = [0xAAu8; 32];
+        let mut second = [0xAAu8; 32];
+        first[REFERENCE_PREFIX_BYTES] = 0x01;
+        second[REFERENCE_PREFIX_BYTES] = 0x02;
+        vec![HashOnlyTx(TxHash(first)), HashOnlyTx(TxHash(second))]
+    }
+
+    #[tokio::test]
+    async fn a_reference_resolves_to_its_one_matching_transaction() {
+        let mempool = FixedCandidates(vec![tx(7)]);
+
+        let resolved = resolve_reference(0, TxHash([7u8; 32]).prefix(), &mempool)
+            .await
+            .expect("a unique match resolves");
+
+        assert_eq!(resolved, tx(7));
+    }
+
+    #[tokio::test]
+    async fn a_reference_matching_nothing_locally_is_unresolved() {
+        let mempool = FixedCandidates(Vec::new());
+        let prefix = TxHash([7u8; 32]).prefix();
+
+        assert!(matches!(
+            resolve_reference(3, prefix, &mempool).await,
+            Err(Error::UnresolvedReference { index: 3, prefix: p }) if p == prefix
+        ));
+    }
+
+    /// A collision is reported rather than searched: resolution must not
+    /// branch, so that two validators holding the same mempool always
+    /// decide alike.
+    #[tokio::test]
+    async fn a_reference_matching_two_transactions_is_not_searched() {
+        let candidates = colliding_pair();
+        let prefix = candidates[0].hash().prefix();
+        assert_eq!(
+            prefix,
+            candidates[1].hash().prefix(),
+            "the pair must collide"
+        );
+
+        let mempool = FixedCandidates(candidates);
+
+        assert!(matches!(
+            resolve_reference(1, prefix, &mempool).await,
+            Err(Error::CollidingReference { index: 1, prefix: p }) if p == prefix
+        ));
+    }
 
     fn future_block_error() -> Error {
         Error::Cryptarchia(lb_chain_service::api::ApiError::FutureBlock {
@@ -1035,5 +1363,114 @@ mod tests {
 
         assert!(matches!(result, Err(Error::InvalidBlock(_))));
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    /// A block ID rejected due to a tampered signature must not be cached by
+    /// the orphan downloader, because the genuine proposal (with the same ID)
+    /// may arrive later and must be accepted.
+    #[test]
+    fn tampered_signature_block_is_not_cached_by_orphan_downloader() {
+        let leader_key = Ed25519Key::from_bytes(&[1; 32]);
+        let genuine = Block::create(
+            HeaderId::from([0; 32]),
+            Slot::new(1),
+            UncleHeaders::empty(),
+            leader_proof(&leader_key.public_key()),
+            BlockTransactions::<Ops>::empty(),
+            &leader_key,
+        )
+        .expect("block must be created")
+        .to_proposal();
+
+        let mut signature = genuine.signature().to_bytes();
+        signature[0] ^= 1;
+        let tampered = Proposal {
+            signature: Ed25519Signature::from_bytes(&signature),
+            ..genuine.clone()
+        };
+        let block_id = genuine.header().id();
+        // The tampered proposal has the same block ID as the genuine one,
+        // because the block ID doesn't commit to the signature.
+        assert_eq!(tampered.header().id(), block_id);
+
+        let mut orphan_downloader =
+            OrphanBlocksDownloader::<_, usize>::new(NoopNetworkAdapter, NonZeroUsize::MIN, 1);
+
+        assert!(matches!(
+            verify_proposal_and_cache_rejected(&tampered, &mut orphan_downloader),
+            Err(Error::InvalidSignature)
+        ));
+        // check that the rejected block was not cached in the orphan downloader.
+        assert!(!orphan_downloader.has_rejected_block(&block_id));
+
+        verify_proposal_and_cache_rejected(&genuine, &mut orphan_downloader)
+            .expect("genuine proposal must pass");
+    }
+
+    /// A network adapter that the orphan downloader holds but never calls here.
+    #[derive(Clone)]
+    struct NoopNetworkAdapter;
+
+    #[async_trait::async_trait]
+    impl<RuntimeServiceId: Send + Sync> NetworkAdapter<RuntimeServiceId> for NoopNetworkAdapter {
+        type Backend = Mock;
+        type Settings = ();
+        type PeerId = ();
+        type Block = ();
+        type Proposal = ();
+
+        async fn new(
+            _settings: Self::Settings,
+            _network_relay: OutboundRelay<
+                <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
+            >,
+        ) -> Self {
+            unimplemented!()
+        }
+
+        async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
+            unimplemented!()
+        }
+
+        async fn chainsync_events_stream(&self) -> Result<BoxedStream<ChainSyncEvent>, DynError> {
+            unimplemented!()
+        }
+
+        async fn request_tip(&self, _peer: Self::PeerId) -> Result<GetTipResponse, DynError> {
+            unimplemented!()
+        }
+
+        async fn sample_tips(&self, _max_peers: usize) -> BoxedStream<GetTipResponse> {
+            unimplemented!()
+        }
+
+        async fn request_blocks_from_peer(
+            &self,
+            _peer: Self::PeerId,
+            _target_block: HeaderId,
+            _local_tip: HeaderId,
+            _latest_immutable_block: HeaderId,
+            _additional_blocks: HashSet<HeaderId>,
+        ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError> {
+            unimplemented!()
+        }
+
+        async fn request_blocks_from_peers(
+            &self,
+            _target_block: HeaderId,
+            _local_tip: HeaderId,
+            _latest_immutable_block: HeaderId,
+            _additional_blocks: HashSet<HeaderId>,
+        ) -> Result<BoxedStream<Result<(HeaderId, Self::Block), DynError>>, DynError> {
+            unimplemented!()
+        }
+    }
+
+    /// A dummy leader proof carrying only `leader_key`
+    fn leader_proof(leader_key: &Ed25519PublicKey) -> Groth16LeaderProof {
+        // Layout: `proof (128B) || entropy_contribution (32B) || leader_key (32B) ||
+        // voucher_cm (32B)`
+        let bytes = [&[0u8; 160][..], leader_key.as_bytes(), &[0u8; 32]].concat();
+        Groth16LeaderProof::decode_all(&bytes).expect("leader proof bytes must decode")
     }
 }
