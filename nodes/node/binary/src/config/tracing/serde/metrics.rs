@@ -38,9 +38,14 @@ impl From<Layer> for MetricsLayerSettings {
                 protocol: otlp.protocol,
             },
         });
-        let enable_open_metrics = value.open_metrics.is_some_and(|open_metrics_config| open_metrics_config.enabled);
-        
-        Self { otlp, enable_open_metrics }
+        let enable_open_metrics = value
+            .open_metrics
+            .is_some_and(|open_metrics_config| open_metrics_config.enabled);
+
+        Self {
+            otlp,
+            enable_open_metrics,
+        }
     }
 }
 
