@@ -249,11 +249,14 @@ mod tests {
     }
 
     fn init_child_file_layer(directory: PathBuf) {
-        let layer = create_file_layer(FileConfig {
-            directory,
-            prefix: Some(LOG_PREFIX.into()),
-            appender_type: AppenderType::Simple,
-        });
+        let layer = create_file_layer(
+            FileConfig {
+                directory,
+                prefix: Some(LOG_PREFIX.into()),
+                appender_type: AppenderType::Simple,
+            },
+            TextKind::Ansi,
+        );
         tracing_subscriber::registry().with(layer).init();
     }
 
@@ -300,7 +303,8 @@ mod tests {
     #[test]
     fn flush_appenders_drains() {
         let buffer = SharedBuffer::default();
-        let subscriber = tracing_subscriber::registry().with(create_writer_layer(buffer.clone()));
+        let subscriber = tracing_subscriber::registry()
+            .with(create_writer_layer(buffer.clone(), TextKind::Ansi));
         tracing::subscriber::with_default(subscriber, || {
             tracing::info!(target: CHILD_TARGET, "This is fine");
         });

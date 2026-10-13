@@ -7,6 +7,7 @@ use std::{
 use bytes::Bytes;
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_services_utils::overwatch::RecoveryData;
+use lb_tracing::logging::local::TextKind;
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
 use tracing::Level;
 
@@ -75,7 +76,7 @@ fn tokio_console_config_defaults_to_loopback_default_console_port() {
 
 #[test]
 fn log_format_defaults_to_text_and_accepts_json() {
-    assert_eq!(LogFormat::default(), LogFormat::Text);
+    assert_eq!(LogFormat::default(), LogFormat::Text(TextKind::Ansi));
     assert_eq!(
         serde_yaml::from_str::<LogFormat>("Json").unwrap(),
         LogFormat::Json

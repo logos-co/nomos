@@ -243,9 +243,9 @@ pub enum CliLogFormat {
 impl From<CliLogFormat> for LogFormat {
     fn from(cli_format: CliLogFormat) -> Self {
         match cli_format {
-            CliLogFormat::Text => LogFormat::Text(TextKind::Ansi),
-            CliLogFormat::TextNoAnsi => LogFormat::Text(TextKind::NoAnsi),
-            CliLogFormat::Json => LogFormat::Json,
+            CliLogFormat::Text => Self::Text(TextKind::Ansi),
+            CliLogFormat::TextNoAnsi => Self::Text(TextKind::NoAnsi),
+            CliLogFormat::Json => Self::Json,
         }
     }
 }
