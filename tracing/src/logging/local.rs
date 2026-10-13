@@ -109,10 +109,12 @@ pub struct FileConfig {
     pub appender_type: AppenderType,
 }
 
+#[must_use]
 pub fn create_file_layer<S>(file_config: FileConfig) -> FmtLayer<S> {
     create_file_layer_with_writer(file_config, |writer| create_writer_layer::<S, _>(writer))
 }
 
+#[must_use]
 pub fn create_json_file_layer<S>(file_config: FileConfig) -> JsonFmtLayer<S> {
     create_file_layer_with_writer(file_config, |writer| {
         create_json_writer_layer::<S, _>(writer)
@@ -205,7 +207,7 @@ where
 mod tests {
     use std::{
         env, fs,
-        io::{self, Result},
+        io::Result,
         panic::set_hook,
         process::{self, Command, ExitStatus, Stdio},
         sync::{Arc, mpsc},
@@ -266,12 +268,12 @@ mod tests {
     }
 
     impl Write for SharedBuffer {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        fn write(&mut self, buf: &[u8]) -> Result<usize> {
             self.0.lock().unwrap().extend_from_slice(buf);
             Ok(buf.len())
         }
 
-        fn flush(&mut self) -> io::Result<()> {
+        fn flush(&mut self) -> Result<()> {
             Ok(())
         }
     }

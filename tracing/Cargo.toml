@@ -49,5 +49,5 @@ tracing-subscriber = { features = ["env-filter", "json", "std"], workspace = tru
 url = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 serde_json = { workspace = true }
+tempfile   = { workspace = true }
