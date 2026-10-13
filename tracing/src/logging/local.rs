@@ -19,11 +19,23 @@ pub type FmtLayer<S> = Layer<S, DefaultFields, Format, tracing_appender::non_blo
 pub type JsonFmtLayer<S> =
     Layer<S, JsonFields, Format<Json>, tracing_appender::non_blocking::NonBlocking>;
 
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum LogFormat {
-    #[default]
-    Text,
+    Text(TextKind),
     Json,
+}
+
+impl Default for LogFormat {
+    fn default() -> Self {
+        Self::Text(TextKind::default())
+    }
+}
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum TextKind {
+    #[default]
+    Ansi,
+    NoAnsi,
 }
 
 /// Worker guards of every non-blocking appender created by this module.
@@ -110,8 +122,10 @@ pub struct FileConfig {
 }
 
 #[must_use]
-pub fn create_file_layer<S>(file_config: FileConfig) -> FmtLayer<S> {
-    create_file_layer_with_writer(file_config, |writer| create_writer_layer::<S, _>(writer))
+pub fn create_file_layer<S>(file_config: FileConfig, text_kind: TextKind) -> FmtLayer<S> {
+    create_file_layer_with_writer(file_config, |writer| {
+        create_writer_layer::<S, _>(writer, text_kind)
+    })
 }
 
 #[must_use]
@@ -170,7 +184,7 @@ where
     }
 }
 
-pub fn create_writer_layer<S, W>(writer: W) -> FmtLayer<S>
+pub fn create_writer_layer<S, W>(writer: W, text_kind: TextKind) -> FmtLayer<S>
 where
     W: Write + Send + 'static,
 {
@@ -181,7 +195,12 @@ where
         .unwrap_or_else(PoisonError::into_inner)
         .push(guard);
 
-    Layer::new().with_level(true).with_writer(non_blocking)
+    let mut layer = Layer::new().with_level(true).with_writer(non_blocking);
+    if matches!(text_kind, TextKind::NoAnsi) {
+        layer = layer.with_ansi(false);
+    }
+
+    layer
 }
 
 pub fn create_json_writer_layer<S, W>(writer: W) -> JsonFmtLayer<S>

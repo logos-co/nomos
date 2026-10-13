@@ -253,8 +253,8 @@ where
 
         if let Some(file_config) = config.logger.file {
             match log_format {
-                LogFormat::Text => {
-                    logger_layers.add_layer(create_file_layer(file_config));
+                LogFormat::Text(kind) => {
+                    logger_layers.add_layer(create_file_layer(file_config, kind));
                 }
                 LogFormat::Json => {
                     logger_layers.add_layer(create_json_file_layer(file_config));
@@ -264,8 +264,8 @@ where
 
         if config.logger.stdout {
             match log_format {
-                LogFormat::Text => {
-                    logger_layers.add_layer(create_writer_layer(std::io::stdout()));
+                LogFormat::Text(kind) => {
+                    logger_layers.add_layer(create_writer_layer(std::io::stdout(), kind));
                 }
                 LogFormat::Json => {
                     logger_layers.add_layer(create_json_writer_layer(std::io::stdout()));
@@ -275,8 +275,8 @@ where
 
         if config.logger.stderr {
             match log_format {
-                LogFormat::Text => {
-                    logger_layers.add_layer(create_writer_layer(std::io::stderr()));
+                LogFormat::Text(kind) => {
+                    logger_layers.add_layer(create_writer_layer(std::io::stderr(), kind));
                 }
                 LogFormat::Json => {
                     logger_layers.add_layer(create_json_writer_layer(std::io::stderr()));
