@@ -14,15 +14,21 @@ workspace = true
 
 [dependencies]
 lb-blend-crypto     = { workspace = true }
+lb-blend-membership = { workspace = true }
 lb-blend-message    = { workspace = true }
 lb-blend-network    = { workspace = true }
+lb-blend-primitives = { workspace = true }
 lb-blend-proofs     = { workspace = true }
+lb-blend-provers    = { workspace = true }
 lb-blend-scheduling = { workspace = true }
 
 [features]
+tokio-task-names = ["lb-blend-provers/tokio-task-names", "lb-blend-scheduling/tokio-task-names"]
 unsafe-test-functions = [
+  "lb-blend-membership/unsafe-test-functions",
   "lb-blend-message/unsafe-test-functions",
   "lb-blend-network/unsafe-test-functions",
   "lb-blend-proofs/unsafe-test-functions",
+  "lb-blend-provers/unsafe-test-functions",
   "lb-blend-scheduling/unsafe-test-functions",
 ]

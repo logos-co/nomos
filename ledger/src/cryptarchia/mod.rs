@@ -1,25 +1,27 @@
 mod block_density;
 mod stake;
+#[cfg(test)]
+mod test;
 
 use std::sync::{Arc, LazyLock};
 
-use derivative::Derivative;
+use educe::Educe;
 use lb_core::{
     crypto::{ZkDigest, ZkHasher},
-    events::Events,
+    events::TxEvent,
     mantle::{
-        GenesisTx, NoteId, TxHash, Utxo, Value,
-        gas::{Gas, GasConstants, GasCost, GasPrice},
-        genesis_tx::{GENESIS_EXECUTION_GAS_PRICE, GENESIS_STORAGE_GAS_PRICE},
-        ledger::Operation as _,
-        ops::transfer::{TransferOp, TransferValidationContext},
+        NoteId, Utxo, Value,
+        gas::{Gas, GasCost, GasOverflow, GasPrice, GasProfile},
+        ledger::verification_mode::{GenesisMode, StandardMode},
+        ops::{SignedOperation, pow::PowTarget, transfer::TransferOp},
+        transactions::{GENESIS_EXECUTION_GAS_PRICE, GENESIS_STORAGE_GAS_PRICE, states::Verified},
     },
     proofs::leader_proof::{self, LeaderPublic},
-    sdp::{Declarations, locked_notes::LockedNotes},
+    sdp::Declarations,
 };
-use lb_cryptarchia_engine::{Epoch, Slot};
+use lb_cryptarchia_engine::{Epoch, Slot, UncleSlots};
 use lb_groth16::{Fr, fr_from_bytes};
-use lb_key_management_system_keys::keys::ZkSignature;
+use lb_log_targets::ledger;
 use lb_utxotree::MerklePath;
 
 use crate::{
@@ -27,8 +29,13 @@ use crate::{
         block_density::BlockDensity,
         stake::{PRECISION, StakeInference},
     },
-    mantle::sdp::SdpLedger,
+    mantle::{
+        pow::{PowState, blend_difficulty::compute_epoch_blend_difficulty},
+        sdp::SdpLedger,
+    },
 };
+
+const LOG_TARGET: &str = ledger::cryptarchia::ROOT;
 
 // corresponds to the denominator of q
 const EXECUTION_MARKET_EMA_DENOMINATOR: u128 = 10;
@@ -36,10 +43,10 @@ const EXECUTION_MARKET_EMA_DENOMINATOR: u128 = 10;
 const EXECUTION_MARKET_EMA_PREV_WEIGHT: u128 = 9;
 // Corresponds to 7 * G_target because the numerator is 1 + phi (G_avg -
 // G_target)
-const EXECUTION_MARKET_BASE_FEE_NUMERATOR: u128 = 11_176_760;
+const EXECUTION_MARKET_BASE_FEE_NUMERATOR: u128 = 11_177_110;
 // Corresponds to 8 * G_target because the denominator is 1 + phi (G_avg -
 // // G_target)
-const EXECUTION_MARKET_BASE_FEE_DENOMINATOR: u128 = 12_773_440;
+const EXECUTION_MARKET_BASE_FEE_DENOMINATOR: u128 = 12_773_840;
 
 // Corresponds to the denominator of 1/beta
 const STORAGE_MARKET_EMA_DENOMINATOR: u128 = 2;
@@ -62,6 +69,15 @@ pub struct EpochState {
     /// the beginning of the epoch
     #[serde(with = "lb_groth16::serde::serde_fr")]
     pub nonce: Fr,
+    /// `d_blend`: the Blend `PoW` difficulty for this epoch.
+    ///
+    /// Set once per epoch from the transaction load of the last epoch that
+    /// closed before the snapshot — the baseline divided down by the load, so
+    /// a busier chain admits fewer `PoW`-backed Blend messages — and frozen at
+    /// the same slot as [`Self::nonce`]. See
+    /// [`compute_epoch_blend_difficulty`] for the controller.
+    #[serde(with = "lb_groth16::serde::serde_fr")]
+    pub blend_pow_difficulty: PowTarget,
     /// stake distribution snapshot taken at the beginning of the epoch
     /// (in practice, this is equivalent to the utxos the are spendable at the
     /// beginning of the epoch)
@@ -91,12 +107,36 @@ pub struct EpochState {
 }
 
 impl EpochState {
-    fn update_from_ledger(self, ledger: &LedgerState, sdp: &SdpLedger, config: &Config) -> Self {
+    fn update_from_ledger(
+        self,
+        ledger: &LedgerState,
+        sdp: &SdpLedger,
+        pow: &PowState,
+        config: &Config,
+    ) -> Self {
         let nonce_snapshot_slot = config.nonce_snapshot(self.epoch);
-        let nonce = if ledger.slot < nonce_snapshot_slot {
-            ledger.nonce
+        let (nonce, blend_pow_difficulty) = if ledger.slot < nonce_snapshot_slot {
+            // The Blend difficulty is snapshotted together with the nonce, and
+            // reads the load of the last epoch to have closed — for a snapshot
+            // taken during epoch `N - 1`, that is epoch `N - 2`. Both inputs
+            // are fixed for the whole time the snapshot is open, so
+            // recomputing on every block converges on one value instead of
+            // stepping once per block.
+            let blend_pow_difficulty = pow.last_closed_epoch_load().map_or(
+                // No epoch has closed yet, so the schedule has not started:
+                // epochs 0 and 1 sit at the baseline the chain started from.
+                ledger.epoch_state.blend_pow_difficulty,
+                |load| {
+                    compute_epoch_blend_difficulty(
+                        load,
+                        ledger.epoch_state.blend_pow_difficulty,
+                        &config.pow_config.blend,
+                    )
+                },
+            );
+            (ledger.nonce, blend_pow_difficulty)
         } else {
-            self.nonce
+            (self.nonce, self.blend_pow_difficulty)
         };
 
         // The active-declarations snapshot is frozen at the same slot as the
@@ -116,6 +156,7 @@ impl EpochState {
         Self {
             epoch: self.epoch,
             nonce,
+            blend_pow_difficulty,
             utxos,
             total_stake: self.total_stake,
             lottery_0: self.lottery_0,
@@ -134,14 +175,15 @@ impl EpochState {
         &self.nonce
     }
 
+    /// `d_blend`: the Blend `PoW` difficulty in effect for this epoch.
     #[must_use]
-    pub const fn total_stake(&self) -> Value {
-        self.total_stake
+    pub const fn blend_pow_difficulty(&self) -> PowTarget {
+        self.blend_pow_difficulty
     }
 
     #[must_use]
-    pub const fn lottery_values(&self) -> (Fr, Fr) {
-        (self.lottery_0, self.lottery_1)
+    pub const fn total_stake(&self) -> Value {
+        self.total_stake
     }
 
     #[must_use]
@@ -163,23 +205,29 @@ impl EpochState {
 ///
 /// NOTE: Most collection fields in this struct should use `rpds`
 /// since we keep a copy of this state for each block.
-#[derive(Derivative, serde::Serialize, serde::Deserialize)]
-#[derivative(Clone, PartialEq)]
+#[derive(Educe, serde::Serialize, serde::Deserialize)]
+#[educe(Clone, PartialEq)]
 pub struct LedgerState {
-    // All available Unspent Transtaction Outputs (UTXOs) at the current slot
+    // All available Unspent Transaction Outputs (UTXOs) at the current slot
     // TODO: move UTXOs in the mantle ledger. There is no reason to keep them here
     pub utxos: UtxoTree,
     // randomness contribution
     #[serde(with = "lb_groth16::serde::serde_fr")]
     pub nonce: Fr,
+    // Nonce of the epoch preceding `epoch_state`'s, retained so a `PoW` reward
+    // claim mined just before an epoch boundary stays verifiable for the reward
+    // window after the boundary. The current epoch drops out of `epoch_state` on
+    // transition, so it must be carried here explicitly.
+    #[serde(with = "lb_groth16::serde::serde_fr")]
+    pub previous_epoch_nonce: Fr,
     pub slot: Slot,
     // rolling snapshot of the state for the next epoch, used for epoch transitions
     pub next_epoch_state: EpochState,
     pub epoch_state: EpochState,
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     block_density: BlockDensity,
     // Using an Arc wrapper here as this can be completely shared among instances of LedgerState
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     stake_inference: Arc<StakeInference>,
     // rolling fee window of 120 blocks, used to derive block rewards
     #[serde(with = "serde_arrays")]
@@ -210,6 +258,7 @@ impl LedgerState {
         self,
         slot: Slot,
         sdp: &SdpLedger,
+        pow: &PowState,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>> {
         if slot <= self.slot {
@@ -230,7 +279,7 @@ impl LedgerState {
         let next_epoch_state = self
             .next_epoch_state
             .clone()
-            .update_from_ledger(&self, sdp, config);
+            .update_from_ledger(&self, sdp, pow, config);
 
         // There are 3 cases to consider:
         // 1. We are in the same epoch as the parent state: Update the next epoch state
@@ -261,6 +310,7 @@ impl LedgerState {
                 .compute_lottery_values(total_stake);
 
             tracing::info!(
+                target: LOG_TARGET,
                 old_epoch = ?current_epoch,
                 new_epoch = ?new_epoch,
                 old_total_stake = self.epoch_state.total_stake,
@@ -283,6 +333,9 @@ impl LedgerState {
             let next_epoch_state = EpochState {
                 epoch: next_epoch_state_epoch,
                 nonce: self.nonce,
+                // Carries the difficulty in effect until the retarget for the
+                // next epoch is computed and frozen at its nonce snapshot.
+                blend_pow_difficulty: epoch_state.blend_pow_difficulty,
                 utxos: self.utxos.clone(),
                 total_stake,
                 lottery_0,
@@ -303,6 +356,8 @@ impl LedgerState {
                 slot,
                 next_epoch_state,
                 epoch_state,
+                // The epoch we just left becomes the previous epoch.
+                previous_epoch_nonce: self.epoch_state.nonce,
                 block_density,
                 storage_gas_consumed_in_epoch: 0.into(),
                 storage_gas_ema: new_ema,
@@ -340,6 +395,7 @@ impl LedgerState {
             }
 
             tracing::warn!(
+                target: LOG_TARGET,
                 old_epoch = ?current_epoch,
                 new_epoch = ?new_epoch,
                 epochs_skipped = new_epoch.strict_sub(current_epoch).strict_sub(1.into()).into_inner(),
@@ -352,6 +408,10 @@ impl LedgerState {
             let epoch_state = EpochState {
                 epoch: new_epoch,
                 nonce: self.nonce,
+                // Too many epochs were skipped for a snapshot to have been
+                // taken for `new_epoch`, so the last known difficulty carries
+                // over unretargeted, like the rest of the state does here.
+                blend_pow_difficulty: self.epoch_state.blend_pow_difficulty,
                 utxos: self.utxos.clone(),
                 total_stake,
                 lottery_0,
@@ -366,6 +426,7 @@ impl LedgerState {
             let next_epoch_state = EpochState {
                 epoch: next_epoch_state_epoch,
                 nonce: self.nonce,
+                blend_pow_difficulty: epoch_state.blend_pow_difficulty,
                 utxos: self.utxos.clone(),
                 total_stake,
                 lottery_0,
@@ -381,6 +442,10 @@ impl LedgerState {
                 slot,
                 next_epoch_state,
                 epoch_state,
+                // Every skipped epoch had no block, so the nonce stayed frozen
+                // at `self.nonce` throughout — that is the previous epoch's nonce
+                // (and matches the value used for `epoch_state` above).
+                previous_epoch_nonce: self.nonce,
                 block_density,
                 storage_gas_consumed_in_epoch: 0.into(),
                 storage_gas_ema: new_ema,
@@ -404,13 +469,25 @@ impl LedgerState {
             * (EXECUTION_MARKET_BASE_FEE_NUMERATOR
                 + u128::from(new_average_execution_gas.into_inner()));
         let new_base_fee =
-            ((fee_numerator / EXECUTION_MARKET_BASE_FEE_DENOMINATOR) as Value).into();
+            (fee_numerator.div_ceil(EXECUTION_MARKET_BASE_FEE_DENOMINATOR) as Value).into();
 
         Self {
             average_execution_gas: new_average_execution_gas,
             execution_base_fee: new_base_fee,
             ..self
         }
+    }
+
+    /// Accumulates the storage gas consumed by an applied block into the
+    /// current epoch's counter, which drives the storage price update at the
+    /// next epoch rotation.
+    pub fn add_storage_gas_consumed(self, storage_gas: Gas) -> Result<Self, GasOverflow> {
+        Ok(Self {
+            storage_gas_consumed_in_epoch: self
+                .storage_gas_consumed_in_epoch
+                .checked_add(storage_gas)?,
+            ..self
+        })
     }
 
     fn try_apply_proof<LeaderProof, Id>(
@@ -442,55 +519,78 @@ impl LedgerState {
         self,
         slot: Slot,
         proof: &LeaderProof,
+        uncle_slots: &UncleSlots,
         sdp: &SdpLedger,
+        pow: &PowState,
         config: &Config,
     ) -> Result<Self, LedgerError<Id>>
     where
         LeaderProof: leader_proof::LeaderProof,
     {
         // First, synthesize epoch state for `slot` before update the ledger state.
-        // Then, apply the proof and update the nonce. Finally, increment block density
-        // since this function is called for a new block.
+        // Then, apply the proof and update the nonce. Finally, mark the occupied
+        // slots since this function is called for a new block.
         Ok(self
-            .update_epoch_state(slot, sdp, config)?
-            .try_apply_proof(slot, proof, config)?
+            .update_epoch_state_and_apply_proof(slot, proof, sdp, pow, config)?
             .update_nonce(&proof.entropy(), slot)
-            .increment_block_density(slot))
+            .mark_occupied_slots(slot, uncle_slots))
     }
 
-    pub fn try_apply_transfer<Id, Constants: GasConstants>(
-        mut self,
-        locked_notes: &LockedNotes,
-        transfer_op: &TransferOp,
-        transfer_sig: &ZkSignature,
-        tx_hash: TxHash,
-    ) -> Result<(Self, Balance, Events), LedgerError<Id>> {
-        //validate the transfer
-        transfer_op
-            .validate(&TransferValidationContext {
-                locked_notes,
-                utxos: &self.utxos,
-                tx_hash: &tx_hash,
-                transfer_sig,
-            })
-            .map_err(mantle::Error::Transfer)?;
+    /// Synthesizes the epoch state for `slot` and apply the proof.
+    fn update_epoch_state_and_apply_proof<LeaderProof, Id>(
+        self,
+        slot: Slot,
+        proof: &LeaderProof,
+        sdp: &SdpLedger,
+        pow: &PowState,
+        config: &Config,
+    ) -> Result<Self, LedgerError<Id>>
+    where
+        LeaderProof: leader_proof::LeaderProof,
+    {
+        self.update_epoch_state(slot, sdp, pow, config)?
+            .try_apply_proof(slot, proof, config)
+    }
 
+    /// Verifies a leadership proof for a block at `slot` whose parent is the
+    /// block this state belongs to, leaving the state untouched.
+    pub fn verify_proof_of_leadership<LeaderProof, Id>(
+        &self,
+        slot: Slot,
+        proof: &LeaderProof,
+        sdp: &SdpLedger,
+        pow: &PowState,
+        config: &Config,
+    ) -> Result<(), LedgerError<Id>>
+    where
+        LeaderProof: leader_proof::LeaderProof,
+    {
+        self.clone()
+            .update_epoch_state_and_apply_proof(slot, proof, sdp, pow, config)?;
+        Ok(())
+    }
+
+    pub fn try_apply_transfer<Id, Profile: GasProfile>(
+        mut self,
+        signed_operation: SignedOperation<TransferOp, Verified, StandardMode>,
+    ) -> Result<(Self, Balance, Vec<TxEvent>), LedgerError<Id>> {
+        let operation = signed_operation.operation();
         // Compute the balance
-        let balance = transfer_op
+        let balance = operation
             .balance(&self.utxos)
             .map_err(mantle::Error::Transfer)?;
 
         //execute the transfer
-        let (result, events) = transfer_op
+        let (result, events) = signed_operation
             .execute(self.utxos)
-            .map_err(mantle::Error::Transfer)?;
+            .map_err(|(_signed_operation, error)| mantle::Error::Transfer(error))?;
         self.utxos = result;
         Ok((self, balance, events))
     }
 
     fn update_nonce(self, contrib: &Fr, slot: Slot) -> Self {
         // constants and structure as defined in the Mantle spec:
-        // https://www.notion.so/Cryptarchia-v1-Protocol-Specification-21c261aa09df810cb85eff1c76e5798c
+        // https://lip.logos.co/blockchain/raw/cryptarchia-v1-protocol.html
         static EPOCH_NONCE_V1: LazyLock<Fr> =
             LazyLock::new(|| fr_from_bytes(b"EPOCH_NONCE_V1").unwrap());
         let mut hasher = ZkHasher::new();
@@ -503,9 +603,9 @@ impl LedgerState {
         Self { nonce, ..self }
     }
 
-    fn increment_block_density(self, slot: Slot) -> Self {
+    fn mark_occupied_slots(self, slot: Slot, uncle_slots: &UncleSlots) -> Self {
         let mut block_density = self.block_density.clone();
-        block_density.increment_block_density(slot);
+        block_density.mark_occupied_slots(slot, uncle_slots);
         Self {
             block_density,
             ..self
@@ -581,6 +681,12 @@ impl LedgerState {
         &self.storage_gas_price
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn storage_gas_consumed_in_epoch(&self) -> Gas {
+        self.storage_gas_consumed_in_epoch
+    }
+
     #[must_use]
     pub const fn aged_utxos(&self) -> &UtxoTree {
         &self.epoch_state.utxos
@@ -597,23 +703,27 @@ impl LedgerState {
         &self,
         slot: Slot,
         sdp: &SdpLedger,
+        pow: &PowState,
         config: &Config,
     ) -> Result<EpochState, LedgerError<Id>> {
         Ok(self
             .clone()
-            .update_epoch_state(slot, sdp, config)?
+            .update_epoch_state(slot, sdp, pow, config)?
             .epoch_state()
             .clone())
     }
 
     pub fn from_genesis_tx<Id>(
-        tx: impl GenesisTx,
+        transfer: &SignedOperation<TransferOp, Verified, GenesisMode>,
         config: &Config,
         epoch_nonce: Fr,
     ) -> Result<Self, LedgerError<Id>> {
-        let transfer_op = tx.genesis_transfer();
-        if !transfer_op.inputs.is_empty() {
-            let first_input = transfer_op
+        let operation = transfer.operation();
+
+        // This transfer has not yet been verified despite the state saying so.
+        // This is its verification.
+        if !operation.inputs.is_empty() {
+            let first_input = operation
                 .inputs
                 .iter()
                 .next()
@@ -622,11 +732,7 @@ impl LedgerState {
             return Err(LedgerError::InputInGenesis(first_input));
         }
 
-        Ok(Self::from_utxos(
-            transfer_op.outputs.utxos(transfer_op),
-            config,
-            epoch_nonce,
-        ))
+        Ok(Self::from_utxos(operation.utxos(), config, epoch_nonce))
     }
 
     pub fn from_utxos(utxos: impl IntoIterator<Item = Utxo>, config: &Config, nonce: Fr) -> Self {
@@ -654,10 +760,14 @@ impl LedgerState {
         Self {
             utxos: utxos.clone(),
             nonce,
+            // No epoch precedes genesis; seed with the genesis nonce so an
+            // epoch-0 claim still matches (previous == current is harmless).
+            previous_epoch_nonce: nonce,
             slot,
             next_epoch_state: EpochState {
                 epoch: 1.into(),
                 nonce,
+                blend_pow_difficulty: config.pow_config.blend.base_difficulty.into(),
                 utxos: utxos.clone(),
                 total_stake,
                 lottery_0,
@@ -667,6 +777,7 @@ impl LedgerState {
             epoch_state: EpochState {
                 epoch: 0.into(),
                 nonce,
+                blend_pow_difficulty: config.pow_config.blend.base_difficulty.into(),
                 utxos,
                 total_stake,
                 lottery_0,
@@ -687,7 +798,7 @@ impl LedgerState {
 
 // This function upgrade the storage Gas price when a new epoch starts assuming
 // the structure contains how much storage gas was consumed in the previous
-// epoch according to <https://www.notion.so/nomos-tech/v1-1-Storage-Markets-Specification-326261aa09df804ab483f573f522baf5>
+// epoch according to <https://lip.logos.co/blockchain/raw/storage-markets.html>
 fn update_storage_market(
     storage_gas_price: GasPrice,
     storage_gas_consumed_in_epoch: Gas,
@@ -700,17 +811,24 @@ fn update_storage_market(
     let new_ema: Gas =
         (((total_storage_gas + previous_ema) / STORAGE_MARKET_EMA_DENOMINATOR) as Value).into();
     let new_ema_unsigned = u128::from(new_ema.into_inner());
+    // Hold the price while the effective target is zero (genesis / sustained
+    // zero usage). Without this guard `comparator <= 7*ema` is `0 <= 0` (true),
+    // wrongly taking the clamp-down branch and ratcheting the price down 12.5%
+    // every zero-usage epoch instead of holding it at P_STR(0).
+    if new_ema_unsigned == 0 {
+        return (storage_gas_price, new_ema);
+    }
     let comparator = STORAGE_MARKET_CLAMP_DENOMINATOR * total_storage_gas;
     let new_price = if comparator <= STORAGE_MARKET_CLAMP_DOWN_NUMERATOR * new_ema_unsigned {
-        ((previous_price * STORAGE_MARKET_CLAMP_DOWN_NUMERATOR / STORAGE_MARKET_CLAMP_DENOMINATOR)
-            as Value)
+        ((previous_price * STORAGE_MARKET_CLAMP_DOWN_NUMERATOR)
+            .div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR) as Value)
             .into()
     } else if comparator >= STORAGE_MARKET_CLAMP_UP_NUMERATOR * new_ema_unsigned {
-        ((previous_price * STORAGE_MARKET_CLAMP_UP_NUMERATOR / STORAGE_MARKET_CLAMP_DENOMINATOR)
-            as Value)
+        ((previous_price * STORAGE_MARKET_CLAMP_UP_NUMERATOR)
+            .div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR) as Value)
             .into()
     } else {
-        ((previous_price * total_storage_gas / new_ema_unsigned) as Value).into()
+        ((previous_price * total_storage_gas).div_ceil(new_ema_unsigned) as Value).into()
     };
 
     (new_price, new_ema)
@@ -732,25 +850,34 @@ impl core::fmt::Debug for LedgerState {
 
 #[cfg(test)]
 pub mod tests {
-    use std::num::{NonZero, NonZeroU64};
+    use std::num::{NonZero, NonZeroU32, NonZeroU64};
 
     use lb_core::{
         crypto::{Digest as _, Hasher},
         mantle::{
-            AuthenticatedMantleTx, MantleTx, Note, Op,
+            Note, Op,
             OpProof::ZkSig,
-            SignedMantleTx, Transaction as _,
-            gas::MainnetGasConstants,
-            ledger::{Inputs, Outputs},
-            ops::{leader_claim::VoucherCm, sdp::SDPDeclareOp},
-            tx::GasPrices,
+            SignedOps,
+            gas::MainnetGasProfile,
+            ledger::{Inputs, InputsError, Outputs},
+            ops::{ZkAndEd25519Proof, leader_claim::VoucherCm, sdp::SDPDeclareOp},
+            traits::Hashable as _,
+            transactions::{
+                OpProofs, Ops,
+                states::{Preverified, Unverified},
+            },
         },
         sdp::{Declaration, DeclarationId, Locator, ServiceParameters, ServiceType},
     };
     use lb_cryptarchia_engine::EpochConfig;
-    use lb_groth16::AdditiveGroup as _;
-    use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519PublicKey, ZkKey};
-    use lb_utils::math::{NonNegativeF64, NonNegativeRatio};
+    use lb_groth16::{AdditiveGroup as _, CompressedGroth16Proof, ModulusShift};
+    use lb_key_management_system_keys::keys::{
+        Ed25519Key, Ed25519Signature, UnverifiedEd25519PublicKey, ZkKey, ZkSignature,
+    };
+    use lb_utils::{
+        bounded::BoundedError,
+        math::{NonNegativeRatio, PositiveF64},
+    };
     use num_bigint::BigUint;
     use rand::{RngCore as _, thread_rng};
 
@@ -758,9 +885,12 @@ pub mod tests {
     use crate::{
         Ledger,
         leader_proof::LeaderProof,
-        mantle::sdp::{
-            ServiceRewardsParameters,
-            rewards::{self},
+        mantle::{
+            pow::tx_density::ClosedEpochLoad,
+            sdp::{
+                ServiceRewardsParameters,
+                rewards::{self},
+            },
         },
     };
 
@@ -787,7 +917,7 @@ pub mod tests {
 
     pub struct DummyProof {
         pub public: LeaderPublic,
-        pub leader_key: Ed25519PublicKey,
+        pub leader_key: UnverifiedEd25519PublicKey,
         pub voucher_cm: VoucherCm,
     }
 
@@ -805,7 +935,7 @@ pub mod tests {
             Fr::from(0u8)
         }
 
-        fn leader_key(&self) -> &Ed25519PublicKey {
+        fn leader_key(&self) -> &UnverifiedEd25519PublicKey {
             &self.leader_key
         }
 
@@ -834,6 +964,29 @@ pub mod tests {
         }
     }
 
+    /// Advance both halves of the state the way applying a block does: the
+    /// epoch state is synthesised first, reading the `PoW` state as it stands,
+    /// then the `PoW` state closes the epoch just left and counts the block's
+    /// transactions.
+    fn apply_block(
+        state: LedgerState,
+        pow: &mut PowState,
+        slot: u64,
+        txs_in_block: u64,
+        sdp: &SdpLedger,
+        config: &Config,
+    ) -> LedgerState {
+        let previous_epoch_state = state.epoch_state().clone();
+        let state = state
+            .update_epoch_state::<HeaderId>(slot.into(), sdp, pow, config)
+            .unwrap();
+        *pow = pow
+            .try_apply_header(&previous_epoch_state, state.epoch_state(), config)
+            .unwrap();
+        pow.record_block_txs(txs_in_block);
+        state
+    }
+
     pub fn update_ledger(
         ledger: &mut Ledger<HeaderId>,
         parent: HeaderId,
@@ -846,18 +999,27 @@ pub mod tests {
             .unwrap()
             .clone()
             .cryptarchia_ledger
-            .update_epoch_state::<HeaderId>(slot, &SdpLedger::new(0.into()), ledger.config())
-            .unwrap();
+            .update_epoch_state::<HeaderId>(
+                slot,
+                &SdpLedger::new(0.into()),
+                &ledger.state(&parent).unwrap().mantle_ledger.pow,
+                ledger.config(),
+            )?;
         let id = make_id(parent, slot, utxo);
         let proof = generate_proof(&ledger_state, &utxo, slot);
-        let (_, state, _) = ledger.prepare_update::<_, MainnetGasConstants>(
-            id,
-            parent,
-            slot,
-            &proof,
-            std::iter::empty::<&SignedMantleTx>(),
-        )?;
-        ledger.commit_update(id, state);
+        let update = ledger
+            .prepare_update::<_, _, MainnetGasProfile>(
+                id,
+                parent,
+                slot,
+                &proof,
+                &UncleSlots::default(),
+                std::iter::empty::<SignedOps<Preverified, StandardMode>>(),
+            )?
+            .verify_batch_proofs()
+            .map_err(|_| LedgerError::InvalidProof)?;
+
+        ledger.commit_update(update);
         Ok(id)
     }
 
@@ -894,7 +1056,7 @@ pub mod tests {
                 ledger_state.epoch_state.lottery_0,
                 ledger_state.epoch_state.lottery_1,
             ),
-            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: UnverifiedEd25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         }
     }
@@ -906,7 +1068,6 @@ pub mod tests {
             ServiceType::BlendNetwork,
             ServiceParameters {
                 inactivity_period: 2.try_into().unwrap(),
-                retention_period: 1.into(),
                 epoch: 0.into(),
             },
         );
@@ -920,6 +1081,7 @@ pub mod tests {
             NonZero::new(1).unwrap(),
             NonNegativeRatio::new(1, 10.try_into().unwrap()),
             1f64.try_into().expect("1 > 0"),
+            NonZero::new(12).unwrap(),
         );
         let epoch_length = epoch_config.epoch_length(consensus_config.base_period_length());
 
@@ -931,7 +1093,7 @@ pub mod tests {
                 service_rewards_params: ServiceRewardsParameters {
                     blend: rewards::blend::RewardsParameters {
                         rounds_per_epoch: epoch_length.try_into().unwrap(),
-                        message_frequency_per_round: NonNegativeF64::try_from(1.0).unwrap(),
+                        message_frequency_per_round: PositiveF64::try_from(1.0).unwrap(),
                         num_blend_layers: NonZeroU64::new(3).unwrap(),
                         minimum_network_size: NonZeroU64::new(1).unwrap(),
                         data_replication_factor: 0,
@@ -944,7 +1106,45 @@ pub mod tests {
                 },
             },
             faucet_pk: None,
+            // `alpha = 1/2`, `T_tx = 10`, `k = 4`, with a baseline that is a
+            // perfect square so the reference load lands on it exactly.
+            pow_config: crate::config::PoWConfig {
+                blend: crate::config::BlendPoWConfig {
+                    base_difficulty: ModulusShift::new::<234>(),
+                    target_transactions_per_block: NonZeroU64::new(10).unwrap(),
+                    max_step: NonZeroU64::new(4).unwrap(),
+                    damping_num: NonZeroU32::new(1).unwrap(),
+                    damping_den_offset: 1,
+                },
+                reward: disabled_reward_config(),
+            },
         }
+    }
+
+    /// A reward config with claiming disabled, standing in for a real
+    /// deployment config in tests that don't exercise the reward parameters.
+    #[must_use]
+    pub fn disabled_reward_config() -> crate::config::RewardPoWConfig {
+        crate::config::RewardPoWConfig {
+            reward_pool_genesis: 1_000_000_000,
+            epoch_reward_genesis: 1_000_000,
+            minimum_difficulty: ModulusShift::new::<26>(),
+            ema_smoothing_factor: 9,
+            ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
+            target_claims_per_block: 100,
+            rate_num: 0,
+            rate_den: NonZeroU64::MIN,
+            target_claim_per_block: NonZeroU64::MIN,
+            pow_share: 0,
+            share_den: NonZeroU64::MIN,
+            slot_window: NonZeroU64::new(100).expect("100 is non-zero"),
+        }
+    }
+
+    /// Genesis `PoW` state built from [`disabled_reward_config`].
+    #[must_use]
+    pub fn pow_state() -> PowState {
+        PowState::from_reward_config(&disabled_reward_config())
     }
 
     #[must_use]
@@ -969,6 +1169,7 @@ pub mod tests {
         let epoch_state = EpochState {
             epoch: 0.into(),
             nonce: Fr::ZERO,
+            blend_pow_difficulty: config.pow_config.blend.base_difficulty.into(),
             utxos: utxos.clone(),
             total_stake,
             lottery_0,
@@ -978,6 +1179,7 @@ pub mod tests {
         let next_epoch_state = EpochState {
             epoch: 1.into(),
             nonce: Fr::ZERO,
+            blend_pow_difficulty: config.pow_config.blend.base_difficulty.into(),
             utxos: utxos.clone(),
             total_stake,
             lottery_0,
@@ -988,6 +1190,7 @@ pub mod tests {
         LedgerState {
             utxos,
             nonce: Fr::ZERO,
+            previous_epoch_nonce: Fr::ZERO,
             slot,
             next_epoch_state,
             epoch_state,
@@ -1048,23 +1251,30 @@ pub mod tests {
         utxo_proof: Utxo,
         utxo_add: Utxo,
         sdp_utxo: Utxo,
-        sdp_note_sk: ZkKey,
     ) -> (HeaderId, SDPDeclareOp, ZkKey) {
         let id = apply_and_add_utxo(ledger, parent, slot, utxo_proof, utxo_add);
-
-        let tx_hash = TxHash::from([0u8; 32]);
 
         let mut zk_key = [0u8; 16];
         thread_rng().fill_bytes(&mut zk_key);
         let zk_key: ZkKey = fr_from_bytes(&zk_key).unwrap().into();
-        let signing_key = Ed25519Key::from_bytes(&[0; 32]);
+        let mut signing_key_bytes = [0u8; 32];
+        thread_rng().fill_bytes(&mut signing_key_bytes);
+        let signing_key = Ed25519Key::from_bytes(&signing_key_bytes);
         let declare_op = SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
             provider_id: signing_key.public_key().into(),
             zk_id: zk_key.to_public_key(),
-            locked_note_id: sdp_utxo.id(),
+            service_note_id: sdp_utxo.id(),
         };
+
+        let proof = ZkAndEd25519Proof {
+            zk_sig: ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
+            ed25519_sig: Ed25519Signature::zero(),
+        };
+        let signed_operation =
+            SignedOperation::<_, _, StandardMode>::new(declare_op.clone(), proof)
+                .into_state_trusted();
         let config = ledger.config().clone();
 
         let block_ledger = ledger.states.get_mut(&id).unwrap();
@@ -1072,11 +1282,8 @@ pub mod tests {
             .mantle_ledger
             .clone()
             .try_apply_sdp_declaration(
-                &declare_op,
-                &ZkKey::multi_sign(&[sdp_note_sk, zk_key.clone()], &tx_hash.to_fr()).unwrap(),
-                &signing_key.sign_payload(tx_hash.as_signing_bytes().as_ref()),
+                signed_operation,
                 block_ledger.cryptarchia_ledger.latest_utxos(),
-                tx_hash,
                 &config,
             )
             .unwrap()
@@ -1136,6 +1343,28 @@ pub mod tests {
     }
 
     #[test]
+    fn storage_price_held_when_effective_target_is_zero() {
+        // Failure case for the missing guard: with zero usage and a zero EMA the
+        // effective target is 0, so the price must be HELD at P_STR(0). Without
+        // the `effective_target == 0` guard, `8*0 <= 7*0` takes the clamp-down
+        // branch and ratchets the price down 12.5% (1000 -> 875) every
+        // zero-usage epoch.
+        let price: GasPrice = 1000.into();
+        let (new_price, new_ema) = update_storage_market(price, 0.into(), 0.into());
+        assert_eq!(
+            new_price, price,
+            "price must hold while the effective target (EMA) is zero"
+        );
+        assert_eq!(new_ema, Gas::from(0));
+
+        // Sanity: once there is a real (non-zero) EMA, the price still adjusts —
+        // the guard only fires at a zero target. Zero usage against a non-zero
+        // EMA clamps down as before.
+        let (clamped, _) = update_storage_market(price, 0.into(), 800.into());
+        assert_eq!(clamped, GasPrice::from(875), "non-zero target still clamps");
+    }
+
+    #[test]
     fn test_ledger_state_allow_leadership_utxo_reuse() {
         let utxo = utxo();
         let (mut ledger, genesis) = ledger(&[utxo], config());
@@ -1159,8 +1388,8 @@ pub mod tests {
     #[test]
     fn test_epoch_transition() {
         let leader_utxos = std::iter::repeat_with(utxo).take(4).collect::<Vec<_>>();
-        let (sdp_utxo_key_1, sdp_utxo_1) = utxo_with_sk();
-        let (sdp_utxo_key_2, sdp_utxo_2) = utxo_with_sk();
+        let (_sdp_utxo_key_1, sdp_utxo_1) = utxo_with_sk();
+        let (_sdp_utxo_key_2, sdp_utxo_2) = utxo_with_sk();
         let genesis_utxos = leader_utxos
             .iter()
             .copied()
@@ -1194,7 +1423,6 @@ pub mod tests {
             leader_utxos[2],
             new_utxo_1,
             sdp_utxo_1,
-            sdp_utxo_key_1,
         );
         assert_declaration_exists(&ledger, &h_3, &declare_1.id());
 
@@ -1232,7 +1460,6 @@ pub mod tests {
             leader_utxos[3],
             new_utxo_2,
             sdp_utxo_2,
-            sdp_utxo_key_2,
         );
         assert_declaration_exists(&ledger, &h_5, &declare_2.id());
         // nonce for epoch 1 should be taken at the end of slot 10,
@@ -1286,13 +1513,204 @@ pub mod tests {
         );
     }
 
+    #[test]
+    fn blend_difficulty_retargets_from_the_closed_epoch_average() {
+        let config = config();
+        assert_eq!(config.epoch_length(), 100);
+        // The Blend difficulty is snapshotted with the nonce: at slot 60 for
+        // epoch 1, at slot 160 for epoch 2.
+        assert_eq!(config.nonce_snapshot(1.into()), 60.into());
+        assert_eq!(config.nonce_snapshot(2.into()), 160.into());
+
+        let sdp = SdpLedger::new(0.into());
+        let mut state = genesis_state(&[utxo()]);
+        let mut pow = pow_state();
+        let blend_config = &config.pow_config.blend;
+        let genesis_difficulty = state.epoch_state.blend_pow_difficulty;
+        assert_eq!(
+            genesis_difficulty,
+            PowTarget::from(blend_config.base_difficulty)
+        );
+
+        // Epoch 0: three blocks carrying 12 transactions in total.
+        for (slot, txs) in [(10u64, 3u64), (20, 5), (70, 4)] {
+            state = apply_block(state, &mut pow, slot, txs, &sdp, &config);
+        }
+
+        // Epoch 0 -> 1. No epoch had closed while epoch 1's difficulty was open
+        // for snapshotting, so the schedule has not started yet and epoch 1
+        // sits at the baseline, as the spec requires for epochs 0 and 1.
+        state = apply_block(state, &mut pow, 100, 2, &sdp, &config);
+        assert_eq!(state.epoch_state.epoch, 1);
+        let epoch_1_difficulty = state.epoch_state.blend_pow_difficulty;
+        assert_eq!(epoch_1_difficulty, genesis_difficulty);
+
+        // Epoch 1, with blocks on both sides of epoch 2's snapshot slot.
+        for (slot, txs) in [(110u64, 100u64), (170, 100)] {
+            state = apply_block(state, &mut pow, slot, txs, &sdp, &config);
+        }
+
+        // Epoch 1 -> 2: the schedule starts here. Epoch 2's difficulty comes
+        // from the load of the epoch that closed before its snapshot opened —
+        // epoch 0's 12 transactions over 3 blocks, four tenths of the
+        // reference load, so the threshold eases towards BASE / sqrt(0.4) and
+        // is held to the factor-2 clamp. Epoch 1's own, much busier, blocks do
+        // not enter it: its totals only close when it does, a full epoch after
+        // the snapshot was taken.
+        state = apply_block(state, &mut pow, 200, 0, &sdp, &config);
+        assert_eq!(state.epoch_state.epoch, 2);
+        assert_eq!(
+            state.epoch_state.blend_pow_difficulty,
+            compute_epoch_blend_difficulty(
+                ClosedEpochLoad::new(12, 3),
+                epoch_1_difficulty,
+                blend_config
+            )
+        );
+        // Below the reference load, so admission loosens — up to the clamp.
+        assert!(state.epoch_state.blend_pow_difficulty > epoch_1_difficulty);
+    }
+
+    #[test]
+    fn previous_epoch_nonce_is_retained_across_an_epoch_transition() {
+        // A PoW claim mined just before an epoch boundary must stay verifiable
+        // for the reward window after it, which needs the nonce of the epoch we
+        // just left — otherwise dropped when `epoch_state` rolls forward.
+        let config = config();
+        assert_eq!(config.epoch_length(), 100);
+        let sdp = SdpLedger::new(0.into());
+        let mut pow = pow_state();
+
+        // Genesis (epoch 0). Stamp a distinct nonce on the current epoch so it
+        // is recognisable after the boundary; genesis seeds the previous-epoch
+        // nonce with the current one.
+        let mut state = genesis_state(&[utxo()]);
+        assert_eq!(state.previous_epoch_nonce, state.nonce);
+        let epoch_0_nonce = Fr::from(0xABCDu64);
+        state.epoch_state.nonce = epoch_0_nonce;
+
+        // Cross into epoch 1.
+        let state = apply_block(state, &mut pow, 100, 0, &sdp, &config);
+        assert_eq!(state.epoch_state.epoch, 1);
+
+        // The epoch just left is now retained as the previous-epoch nonce.
+        assert_eq!(state.previous_epoch_nonce, epoch_0_nonce);
+    }
+
+    #[test]
+    fn blend_difficulty_counts_only_the_branch_it_is_read_from() {
+        // The block and transaction counters live in the per-block
+        // `LedgerState`, which `Ledger::prepare_update` derives from a clone of
+        // the parent's. Competing branches therefore accumulate independently,
+        // and reading the difficulty at a tip counts exactly the blocks on that
+        // tip's ancestry — no unwinding is needed when a re-org picks a
+        // different tip.
+        let config = config();
+        let blend_config = &config.pow_config.blend;
+        let sdp = SdpLedger::new(0.into());
+
+        // A branch is both halves of the state together, since a block clones
+        // and advances them as a pair.
+        let mut ancestor = (genesis_state(&[utxo()]), pow_state());
+
+        // A common ancestor carrying 4 transactions, in epoch 0.
+        ancestor.0 = apply_block(ancestor.0, &mut ancestor.1, 10, 4, &sdp, &config);
+
+        // Two competing blocks for the same slot, each built on its own clone
+        // of the ancestor's state.
+        let mut busy_branch = ancestor.clone();
+        busy_branch.0 = apply_block(busy_branch.0, &mut busy_branch.1, 20, 96, &sdp, &config);
+
+        let mut quiet_branch = ancestor;
+        quiet_branch.0 = apply_block(quiet_branch.0, &mut quiet_branch.1, 20, 6, &sdp, &config);
+
+        // Carry both branches past the epoch-0 close and the epoch-2 snapshot.
+        let advance = |(mut state, mut pow): (LedgerState, PowState)| {
+            for slot in [100u64, 110, 200] {
+                state = apply_block(state, &mut pow, slot, 0, &sdp, &config);
+            }
+            (state, pow)
+        };
+        let (busy_branch, _) = advance(busy_branch);
+        let (quiet_branch, _) = advance(quiet_branch);
+
+        // Both branches enter epoch 1 at the baseline: no epoch had closed
+        // when epoch 1's value was snapshotted, so the schedule had not
+        // started for either of them.
+        let epoch_1_difficulty = PowTarget::from(blend_config.base_difficulty);
+
+        // Each tip's epoch 2 then reads its own epoch 0: 100 transactions over
+        // two blocks on one branch, 10 over two on the other. The shared
+        // ancestor's 4 transactions are counted once on each — never twice, and
+        // never leaked from the branch that lost.
+        assert_eq!(
+            busy_branch.epoch_state.blend_pow_difficulty,
+            compute_epoch_blend_difficulty(
+                ClosedEpochLoad::new(100, 2),
+                epoch_1_difficulty,
+                blend_config
+            )
+        );
+        assert_eq!(
+            quiet_branch.epoch_state.blend_pow_difficulty,
+            compute_epoch_blend_difficulty(
+                ClosedEpochLoad::new(10, 2),
+                epoch_1_difficulty,
+                blend_config
+            )
+        );
+        // The busier branch admits fewer `PoW`-backed messages.
+        assert!(
+            busy_branch.epoch_state.blend_pow_difficulty
+                < quiet_branch.epoch_state.blend_pow_difficulty
+        );
+    }
+
+    #[test]
+    fn blend_difficulty_reads_a_skipped_epoch_as_no_load() {
+        let config = config();
+        let blend_config = &config.pow_config.blend;
+        let sdp = SdpLedger::new(0.into());
+        let mut state = genesis_state(&[utxo()]);
+        let mut pow = pow_state();
+
+        // A single busy block in epoch 0, then no block at all in epoch 1.
+        state = apply_block(state, &mut pow, 10, 1_000, &sdp, &config);
+
+        // Epoch 0 -> 2. Epoch 2's snapshot slot (160) has already passed
+        // unused, so its difficulty carries over unretargeted.
+        state = apply_block(state, &mut pow, 222, 7, &sdp, &config);
+        assert_eq!(state.epoch_state.epoch, 2);
+        let epoch_2_difficulty = state.epoch_state.blend_pow_difficulty;
+        assert_eq!(
+            epoch_2_difficulty,
+            PowTarget::from(blend_config.base_difficulty)
+        );
+
+        // Epoch 2 -> 3: the epoch that closed last is the skipped epoch 1,
+        // which produced no block at all, so epoch 3 sees no load and eases
+        // by the full clamp step — epoch 0's 1000 transactions were closed
+        // one epoch too early to be read.
+        state = apply_block(state, &mut pow, 230, 7, &sdp, &config);
+        state = apply_block(state, &mut pow, 300, 0, &sdp, &config);
+        assert_eq!(state.epoch_state.epoch, 3);
+        assert_eq!(
+            state.epoch_state.blend_pow_difficulty,
+            compute_epoch_blend_difficulty(
+                ClosedEpochLoad::new(0, 0),
+                epoch_2_difficulty,
+                blend_config
+            )
+        );
+    }
+
     /// A declaration that lapses past `inactivity_period` but has not yet
-    /// been garbage-collected must be filtered out of the `EpochState`
-    /// snapshot built at a later epoch.
+    /// been withdrawn must be filtered out of the `EpochState` snapshot
+    /// built at a later epoch.
     #[test]
     fn epoch_state_snapshot_excludes_inactive_declaration() {
         let leader_utxo = utxo();
-        let (sdp_utxo_key, sdp_utxo) = utxo_with_sk();
+        let (_sdp_utxo_key, sdp_utxo) = utxo_with_sk();
         let new_utxo = utxo();
         let config = config();
         let epoch_length = config.epoch_length();
@@ -1307,13 +1725,12 @@ pub mod tests {
             leader_utxo,
             new_utxo,
             sdp_utxo,
-            sdp_utxo_key,
         );
 
-        // Advance to epoch 4 (one-by-one).
+        // Advance to epoch 5 (one-by-one).
         // With inactivity_period=2, the declaration goes inactive at epoch 5.
-        // With retention_period=1, GC fires at epoch 6.
-        // So, at epoch 5, the declaration is inactive yet still present in the ledger.
+        // It shouldn't be in the snapshot, but should still exist in the live SDP
+        // ledger because the user has not yet withdrawn it.
         let mut ledger = ledger0.clone();
         let mut head = head0;
         for epoch in 1..=5u64 {
@@ -1329,7 +1746,7 @@ pub mod tests {
                 .sdp
                 .get_declaration(&declare.id())
                 .is_some(),
-            "declaration must still be in the live SDP ledger before GC removes it"
+            "declaration must still be in the live SDP ledger because it is not yet withdrawn"
         );
         assert!(
             declaration_in_snapshot(&ledger, &head, &declare.id()).is_none(),
@@ -1483,12 +1900,22 @@ pub mod tests {
         let slot = Slot::genesis().strict_add(10.into());
         let ledger_state2 = ledger_state
             .cryptarchia_ledger
-            .update_epoch_state::<HeaderId>(slot, &SdpLedger::new(0.into()), ledger_config)
+            .update_epoch_state::<HeaderId>(
+                slot,
+                &SdpLedger::new(0.into()),
+                &pow_state(),
+                ledger_config,
+            )
             .expect("Ledger needs to move forward");
 
         let slot2 = Slot::genesis().strict_add(1.into());
         let update_epoch_err = ledger_state2
-            .update_epoch_state::<HeaderId>(slot2, &SdpLedger::new(0.into()), ledger_config)
+            .update_epoch_state::<HeaderId>(
+                slot2,
+                &SdpLedger::new(0.into()),
+                &pow_state(),
+                ledger_config,
+            )
             .err();
 
         // Time cannot flow backwards
@@ -1514,7 +1941,7 @@ pub mod tests {
                 lottery_0: ledger_state.epoch_state.lottery_0,
                 lottery_1: ledger_state.epoch_state.lottery_1,
             },
-            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: UnverifiedEd25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         };
         let update_err = ledger_state
@@ -1539,7 +1966,7 @@ pub mod tests {
                 lottery_0: ledger_state.epoch_state.lottery_0,
                 lottery_1: ledger_state.epoch_state.lottery_1,
             },
-            leader_key: Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
+            leader_key: UnverifiedEd25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
             voucher_cm: VoucherCm::default(),
         };
         let update_err = ledger_state
@@ -1552,7 +1979,7 @@ pub mod tests {
     fn create_tx_with_transfer(
         inputs: &[(&ZkKey, &Utxo)],
         outputs: Vec<Note>,
-    ) -> (SignedMantleTx, TransferOp, ZkSignature) {
+    ) -> (SignedOps<Unverified, StandardMode>, TransferOp, ZkSignature) {
         let sks = inputs
             .iter()
             .map(|(sk, _)| (*sk).clone())
@@ -1562,22 +1989,16 @@ pub mod tests {
             Inputs::try_new(inputs).expect("Invalid inputs size"),
             Outputs::try_new(outputs).expect("Invalid outputs size"),
         );
-        let mantle_tx = MantleTx([Op::Transfer(transfer_op.clone())].into());
+        let mantle_tx = Ops::from([Op::Transfer(transfer_op.clone())]);
         let transfer_sig = ZkKey::multi_sign(&sks, &mantle_tx.hash().to_fr()).unwrap();
-        (
-            SignedMantleTx {
-                ops_proofs: vec![ZkSig(transfer_sig.clone())],
-                mantle_tx,
-            },
-            transfer_op,
-            transfer_sig,
-        )
+        let op_proofs = OpProofs::from([ZkSig(transfer_sig.clone())]);
+        let tx = SignedOps::from_parts(mantle_tx, op_proofs).unwrap();
+        (tx, transfer_op, transfer_sig)
     }
 
     #[test]
     fn test_invalid_double_spend_transfer() {
         let note_sk = ZkKey::from(BigUint::from(1u8));
-        let output_note_sk = ZkKey::from(BigUint::from(2u8));
         let input_note = Note::new(100, note_sk.to_public_key());
         let input_utxo = Utxo {
             op_id: [1u8; 32],
@@ -1585,25 +2006,16 @@ pub mod tests {
             note: input_note,
         };
 
-        let output_note = Note::new(200, output_note_sk.to_public_key());
+        // A transfer's inputs are a set, so spending the same note twice is
+        // refused before the transfer can even be built.
+        let result = Inputs::try_new(vec![input_utxo.id(), input_utxo.id()]);
 
-        let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo], &config(), Fr::ZERO);
-        let (tx, transfer_op, transfer_sig) = create_tx_with_transfer(
-            &[(&note_sk, &input_utxo), (&note_sk, &input_utxo)],
-            vec![output_note],
+        assert_eq!(
+            result.err(),
+            Some(InputsError::BoundedError(BoundedError::DuplicateItem {
+                index: 1
+            }))
         );
-
-        let _fees =
-            AuthenticatedMantleTx::total_gas_cost::<MainnetGasConstants>(&tx, GasPrices::new(0, 0));
-        let result = ledger_state.try_apply_transfer::<(), MainnetGasConstants>(
-            &locked_notes,
-            &transfer_op,
-            &transfer_sig,
-            tx.hash(),
-        );
-
-        assert!(result.is_err());
     }
 
     #[test]
@@ -1621,27 +2033,21 @@ pub mod tests {
         let output_note1 = Note::new(4000, output_note1_sk.to_public_key());
         let output_note2 = Note::new(3000, output_note2_sk.to_public_key());
 
-        let locked_notes = LockedNotes::new();
         let ledger_state = LedgerState::from_utxos([input_utxo], &config(), Fr::ZERO);
-        let (tx, transfer_op, transfer_sig) =
+        let (_tx, transfer_op, transfer_proof) =
             create_tx_with_transfer(&[(&note_sk, &input_utxo)], vec![output_note1, output_note2]);
 
-        let _fees =
-            AuthenticatedMantleTx::total_gas_cost::<MainnetGasConstants>(&tx, GasPrices::new(0, 0));
+        let signed_operation =
+            SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
         let (new_state, balance, events) = ledger_state
-            .try_apply_transfer::<(), MainnetGasConstants>(
-                &locked_notes,
-                &transfer_op,
-                &transfer_sig,
-                tx.hash(),
-            )
+            .try_apply_transfer::<(), MainnetGasProfile>(signed_operation)
             .unwrap();
 
         assert_eq!(
             balance,
             i128::from(input_note.value - output_note1.value - output_note2.value)
         );
-        assert!(events.is_empty());
+        assert_eq!(events, []);
 
         // Verify input was consumed
         assert!(!new_state.utxos.contains(&input_utxo.id()));
@@ -1656,31 +2062,27 @@ pub mod tests {
         assert!(new_state.utxos.contains(&output_utxo2.id()));
 
         // The new outputs can be spent in future transactions
-        let (tx, transfer_op, transfer_sig) = create_tx_with_transfer(
+        let (_tx, transfer_op, transfer_proof) = create_tx_with_transfer(
             &[
                 (&output_note1_sk, &output_utxo1),
                 (&output_note2_sk, &output_utxo2),
             ],
             vec![],
         );
-        let locked_notes = LockedNotes::new();
-        let _fees =
-            AuthenticatedMantleTx::total_gas_cost::<MainnetGasConstants>(&tx, GasPrices::new(0, 0));
+
+        let signed_operation =
+            SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
         let (final_state, final_balance, events) = new_state
-            .try_apply_transfer::<(), MainnetGasConstants>(
-                &locked_notes,
-                &transfer_op,
-                &transfer_sig,
-                tx.hash(),
-            )
+            .try_apply_transfer::<(), MainnetGasProfile>(signed_operation)
             .unwrap();
+
         assert_eq!(
             final_balance,
             i128::from(output_note1.value + output_note2.value)
         );
         assert!(!final_state.utxos.contains(&output_utxo1.id()));
         assert!(!final_state.utxos.contains(&output_utxo2.id()));
-        assert!(events.is_empty());
+        assert_eq!(events, []);
     }
 
     #[test]
@@ -1719,18 +2121,15 @@ pub mod tests {
             non_existent_utxo_3,
         ];
 
-        let locked_notes = LockedNotes::new();
         for non_existent_utxo in invalid_utxos {
-            let (tx, transfer_op, transfer_sig) =
+            let (_tx, transfer_op, transfer_proof) =
                 create_tx_with_transfer(&[(&ZkKey::zero(), &non_existent_utxo)], vec![]);
+
+            let signed_operation =
+                SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
             let result = ledger_state
                 .clone()
-                .try_apply_transfer::<(), MainnetGasConstants>(
-                    &locked_notes,
-                    &transfer_op,
-                    &transfer_sig,
-                    tx.hash(),
-                );
+                .try_apply_transfer::<(), MainnetGasProfile>(signed_operation);
             assert!(matches!(result, Err(LedgerError::Mantle(_))));
         }
     }
@@ -1747,33 +2146,26 @@ pub mod tests {
 
         let output_note = Note::new(1, Fr::from(BigUint::from(2u8)).into());
 
-        let locked_notes = LockedNotes::new();
         let ledger_state = LedgerState::from_utxos([input_utxo], &config(), Fr::ZERO);
-        let (tx, transfer_op, transfer_sig) =
+        let (_tx, transfer_op, transfer_proof) =
             create_tx_with_transfer(&[(&input_sk, &input_utxo)], vec![output_note, output_note]);
 
+        let signed_operation =
+            SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
         let (_, balance, events) = ledger_state
             .clone()
-            .try_apply_transfer::<(), MainnetGasConstants>(
-                &locked_notes,
-                &transfer_op,
-                &transfer_sig,
-                tx.hash(),
-            )
+            .try_apply_transfer::<(), MainnetGasProfile>(signed_operation)
             .unwrap();
         assert_eq!(balance, -1);
-        assert!(events.is_empty());
+        assert_eq!(events, []);
 
-        let (tx, transfer_op, transfer_sig) =
+        let (_tx, transfer_op, transfer_proof) =
             create_tx_with_transfer(&[(&input_sk, &input_utxo)], vec![output_note]);
+        let signed_operation =
+            SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
         assert_eq!(
             ledger_state
-                .try_apply_transfer::<(), MainnetGasConstants>(
-                    &locked_notes,
-                    &transfer_op,
-                    &transfer_sig,
-                    tx.hash()
-                )
+                .try_apply_transfer::<(), MainnetGasProfile>(signed_operation)
                 .unwrap()
                 .1,
             0
@@ -1790,52 +2182,21 @@ pub mod tests {
             note: input_note,
         };
 
-        let locked_notes = LockedNotes::new();
         let ledger_state = LedgerState::from_utxos([input_utxo], &config(), Fr::ZERO);
-        let (tx, transfer_op, transfer_sig) =
+        let (_tx, transfer_op, transfer_proof) =
             create_tx_with_transfer(&[(&input_sk, &input_utxo)], vec![]);
 
-        let _fees =
-            AuthenticatedMantleTx::total_gas_cost::<MainnetGasConstants>(&tx, GasPrices::new(0, 0));
-        let result = ledger_state.try_apply_transfer::<(), MainnetGasConstants>(
-            &locked_notes,
-            &transfer_op,
-            &transfer_sig,
-            tx.hash(),
-        );
+        let signed_operation =
+            SignedOperation::new(transfer_op, transfer_proof).into_state_trusted();
+        let result = ledger_state.try_apply_transfer::<(), MainnetGasProfile>(signed_operation);
         assert!(result.is_ok());
 
         let (new_state, balance, events) = result.unwrap();
         assert_eq!(balance, 10000);
-        assert!(events.is_empty());
+        assert_eq!(events, []);
 
         // Verify input was consumed
         assert!(!new_state.utxos.contains(&input_utxo.id()));
-    }
-
-    #[test]
-    fn test_output_not_zero() {
-        let input_sk = ZkKey::from(BigUint::from(1u8));
-        let input_utxo = Utxo {
-            op_id: [1u8; 32],
-            output_index: 0,
-            note: Note::new(10000, input_sk.to_public_key()),
-        };
-
-        let locked_notes = LockedNotes::new();
-        let ledger_state = LedgerState::from_utxos([input_utxo], &config(), Fr::ZERO);
-        let (tx, transfer_op, transfer_sig) = create_tx_with_transfer(
-            &[(&input_sk, &input_utxo)],
-            vec![Note::new(0, Fr::from(BigUint::from(2u8)).into())],
-        );
-
-        let result = ledger_state.try_apply_transfer::<(), MainnetGasConstants>(
-            &locked_notes,
-            &transfer_op,
-            &transfer_sig,
-            tx.hash(),
-        );
-        assert!(matches!(result, Err(LedgerError::Mantle(_))));
     }
 
     #[test]
@@ -1854,7 +2215,12 @@ pub mod tests {
         // Query for epoch 0 (current epoch) - should return epoch_state
         let epoch_0_slot: Slot = (epoch_length - 1).into();
         let epoch_0_state = ledger_state
-            .epoch_state_for_slot::<HeaderId>(epoch_0_slot, &SdpLedger::new(0.into()), &config)
+            .epoch_state_for_slot::<HeaderId>(
+                epoch_0_slot,
+                &SdpLedger::new(0.into()),
+                &pow_state(),
+                &config,
+            )
             .expect("Should return epoch state for current epoch");
         assert_eq!(epoch_0_state.epoch, 0);
         assert_eq!(epoch_0_state.total_stake, initial_total_stake);
@@ -1863,7 +2229,12 @@ pub mod tests {
         // Since epoch 0 has no block, total stake should be reduced
         let epoch_1_slot: Slot = (epoch_length + 1).into();
         let epoch_1_state = ledger_state
-            .epoch_state_for_slot::<HeaderId>(epoch_1_slot, &SdpLedger::new(0.into()), &config)
+            .epoch_state_for_slot::<HeaderId>(
+                epoch_1_slot,
+                &SdpLedger::new(0.into()),
+                &pow_state(),
+                &config,
+            )
             .expect("Should return epoch state for next epoch");
         assert_eq!(epoch_1_state.epoch, 1);
         // With 0 density and LEARNING_RATE=1, total stake drops to minimum (1)
@@ -1875,7 +2246,12 @@ pub mod tests {
         // Query for epoch 3 (multiple skipped epochs) - stake stays at minimum
         let epoch_2_slot: Slot = (2 * epoch_length + 1).into();
         let epoch_2_state = ledger_state
-            .epoch_state_for_slot::<HeaderId>(epoch_2_slot, &SdpLedger::new(0.into()), &config)
+            .epoch_state_for_slot::<HeaderId>(
+                epoch_2_slot,
+                &SdpLedger::new(0.into()),
+                &pow_state(),
+                &config,
+            )
             .expect("Should synthesize epoch state for skipped epoch");
         assert_eq!(epoch_2_state.epoch, 2);
         assert_eq!(
@@ -1904,7 +2280,9 @@ pub mod tests {
             .try_apply_header::<DummyProof, HeaderId>(
                 slot,
                 &proof,
+                &UncleSlots::default(),
                 &SdpLedger::new(0.into()),
+                &pow_state(),
                 &config,
             )
             .unwrap();
@@ -1916,7 +2294,7 @@ pub mod tests {
         // First, synthesize epoch state for epoch 2
         let synthesized_ledger_state = ledger_state_1
             .clone()
-            .update_epoch_state::<HeaderId>(slot, &SdpLedger::new(0.into()), &config)
+            .update_epoch_state::<HeaderId>(slot, &SdpLedger::new(0.into()), &pow_state(), &config)
             .unwrap();
         assert_eq!(synthesized_ledger_state.slot, slot);
 
@@ -1931,7 +2309,9 @@ pub mod tests {
             .try_apply_header::<DummyProof, HeaderId>(
                 slot,
                 &proof,
+                &UncleSlots::default(),
                 &SdpLedger::new(0.into()),
+                &pow_state(),
                 &config,
             )
             .unwrap();
@@ -1948,72 +2328,162 @@ pub mod tests {
         )
     }
 
+    /// If the network is constantly full, execution gas must get more
+    /// expensive.
+    #[test]
+    fn execution_price_rises_under_sustained_maximum_load() {
+        let mut state = genesis_state(&[utxo()]);
+        let genesis_price = state.execution_base_fee().into_inner();
+
+        for _ in 0..10_000 {
+            state = state.update_execution_market(crate::EXECUTION_GAS_LIMIT);
+        }
+
+        assert!(
+            state.execution_base_fee().into_inner() > genesis_price,
+            "the execution base fee never rose above {genesis_price} under sustained \
+             blocks at the gas limit; the market cannot price demand from its genesis \
+             state"
+        );
+    }
+
+    /// After a quiet stretch, returning demand must be able to push the
+    /// execution price back up.
+    #[test]
+    fn execution_price_recovers_when_demand_returns_after_quiet_blocks() {
+        let mut state = genesis_state(&[utxo()]);
+
+        for _ in 0..100 {
+            state = state.update_execution_market(0.into());
+        }
+
+        let quiet_price = state.execution_base_fee().into_inner();
+
+        for _ in 0..10_000 {
+            state = state.update_execution_market(crate::EXECUTION_GAS_LIMIT);
+        }
+
+        assert!(
+            state.execution_base_fee().into_inner() > quiet_price,
+            "the execution base fee is stuck at {quiet_price} after quiet blocks and does \
+             not respond to returning demand; the market is dead from this state on"
+        );
+    }
+
+    /// If storage is constantly in heavy use, storage gas must get more
+    /// expensive.
+    #[test]
+    fn storage_price_rises_under_sustained_heavy_usage() {
+        let genesis_price = GENESIS_STORAGE_GAS_PRICE.into_inner();
+        let mut price = GENESIS_STORAGE_GAS_PRICE;
+        let mut ema: Gas = 0.into();
+        let heavy_usage: Gas = 1_000_000.into();
+
+        for _ in 0..1_000 {
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
+        }
+
+        assert!(
+            price.into_inner() > genesis_price,
+            "the storage gas price never rose above {genesis_price} under sustained \
+             heavy usage; the market cannot price demand from its genesis state"
+        );
+    }
+
+    /// After quiet epochs, returning usage must be able to push the storage
+    /// price back up.
+    #[test]
+    fn storage_price_recovers_when_usage_returns_after_quiet_epochs() {
+        let mut price = GENESIS_STORAGE_GAS_PRICE;
+        let mut ema: Gas = 0.into();
+        let heavy_usage: Gas = 1_000_000.into();
+
+        for _ in 0..4 {
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
+        }
+        for _ in 0..4 {
+            (price, ema) = update_storage_market(price, 0.into(), ema);
+        }
+
+        let quiet_price = price.into_inner();
+
+        for _ in 0..1_000 {
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
+        }
+
+        assert!(
+            price.into_inner() > quiet_price,
+            "the storage gas price is stuck at {quiet_price} after quiet epochs and does \
+             not respond to returning usage; the market is dead from this state on"
+        );
+    }
+
     #[test]
     fn test_storage_market_update() {
         // empty epoch
         assert_eq!(
-            (437.into(), 340.into()),
+            (438.into(), 340.into()),
             update_storage_market(500.into(), 0.into(), 681.into())
         );
 
         // Some random values
-        // 1) raw = 113 * 1.125 = 127.125 -> 127
+        // 1) raw = 113 * 1.125 = 127.125 -> 128
         assert_eq!(
-            (127.into(), 450.into()),
+            (128.into(), 450.into()),
             update_storage_market(113.into(), 600.into(), 300.into())
         );
 
-        // 2) raw = 113 * 0.875 = 98.875 -> 98
+        // 2) raw = 113 * 0.875 = 98.875 -> 99
         assert_eq!(
-            (98.into(), 500.into()),
+            (99.into(), 500.into()),
             update_storage_market(113.into(), 200.into(), 800.into())
         );
 
-        // 3) raw = 221 * 1.125 = 248.625 -> 248
+        // 3) raw = 221 * 1.125 = 248.625 -> 249
         assert_eq!(
-            (248.into(), 550.into()),
+            (249.into(), 550.into()),
             update_storage_market(221.into(), 900.into(), 200.into())
         );
 
-        // 4) raw = 221 * 0.875 = 193.375 -> 193
+        // 4) raw = 221 * 0.875 = 193.375 -> 194
         assert_eq!(
-            (193.into(), 500.into()),
+            (194.into(), 500.into()),
             update_storage_market(221.into(), 100.into(), 900.into())
         );
 
-        // 5) raw = 345 * 1.125 = 388.125 -> 388
+        // 5) raw = 345 * 1.125 = 388.125 -> 389
         assert_eq!(
-            (388.into(), 165.into()),
+            (389.into(), 165.into()),
             update_storage_market(345.into(), 250.into(), 80.into())
         );
 
-        // 6) raw = 345 * 0.875 = 301.875 -> 301
+        // 6) raw = 345 * 0.875 = 301.875 -> 302
         assert_eq!(
-            (301.into(), 400.into()),
+            (302.into(), 400.into()),
             update_storage_market(345.into(), 50.into(), 750.into())
         );
 
-        // 7) raw = 517 * 1.125 = 581.625 -> 581
+        // 7) raw = 517 * 1.125 = 581.625 -> 582
         assert_eq!(
-            (581.into(), 160.into()),
+            (582.into(), 160.into()),
             update_storage_market(517.into(), 220.into(), 100.into())
         );
 
-        // 8) raw = 517 * 0.875 = 452.375 -> 452
+        // 8) raw = 517 * 0.875 = 452.375 -> 453
         assert_eq!(
-            (452.into(), 485.into()),
+            (453.into(), 485.into()),
             update_storage_market(517.into(), 120.into(), 850.into())
         );
 
-        // 9) raw = 999 * 1.125 = 1123.875 -> 1123
+        // 9) raw = 999 * 1.125 = 1123.875 -> 1124
         assert_eq!(
-            (1123.into(), 650.into()),
+            (1124.into(), 650.into()),
             update_storage_market(999.into(), 1000.into(), 300.into())
         );
 
-        // 10) raw = 999 * 0.875 = 874.125 -> 874
+        // 10) raw = 999 * 0.875 = 874.125 -> 875
         assert_eq!(
-            (874.into(), 650.into()),
+            (875.into(), 650.into()),
             update_storage_market(999.into(), 300.into(), 1000.into())
         );
     }
@@ -2023,54 +2493,80 @@ pub mod tests {
         // Create a base ledger first
         let mut ledger = LedgerState::from_utxos([], &config(), Fr::ZERO);
 
-        // 1) G_avg = (1_700_000 + 9*1_596_680)/10 = 1_607_012
-        // price = 10_000 * (11_176_760 + 1_607_012) / 12_773_440 = 10_008
+        // 1) G_avg = (1_700_000 + 9*1_596_730)/10 = 1_607_057
+        // price = ceil(10_000 * (11_177_110 + 1_607_057) / 12_773_840) = 10_009
         ledger.execution_base_fee = 10_000.into();
-        ledger.average_execution_gas = 1_596_680.into();
+        ledger.average_execution_gas = 1_596_730.into();
         ledger = ledger.update_execution_market(1_700_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
-            (10_008.into(), 1_607_012.into())
+            (10_009.into(), 1_607_057.into())
         );
 
-        // 2) G_avg = (1_400_000 + 9*1_596_680)/10 = 1_577_012
-        // price = 10_000 * (11_176_760 + 1_577_012) / 12_773_440 = 9_984
+        // 2) G_avg = (1_400_000 + 9*1_596_730)/10 = 1_577_057
+        // price = ceil(10_000 * (11_177_110 + 1_577_057) / 12_773_840) = 9_985
         ledger.execution_base_fee = 10_000.into();
-        ledger.average_execution_gas = 1_596_680.into();
+        ledger.average_execution_gas = 1_596_730.into();
         ledger = ledger.update_execution_market(1_400_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
-            (9_984.into(), 1_577_012.into())
+            (9_985.into(), 1_577_057.into())
         );
 
         // 3) G_avg = (2_500_000 + 9*1_000_000)/10 = 1_150_000
-        // price = 20_000 * (11_176_760 + 1_150_000) / 12_773_440 = 19_300
+        // price = ceil(20_000 * (11_177_110 + 1_150_000) / 12_773_840) = 19_301
         ledger.execution_base_fee = 20_000.into();
         ledger.average_execution_gas = 1_000_000.into();
         ledger = ledger.update_execution_market(2_500_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
-            (19_300.into(), 1_150_000.into())
+            (19_301.into(), 1_150_000.into())
         );
 
         // 4) G_avg = (500_000 + 9*2_000_000)/10 = 1_850_000
-        // price = 15_000 * (11_176_760 + 1_850_000) / 12_773_440 = 15_297
+        // price = ceil(15_000 * (11_177_110 + 1_850_000) / 12_773_840) = 15_298
         ledger.execution_base_fee = 15_000.into();
         ledger.average_execution_gas = 2_000_000.into();
         ledger = ledger.update_execution_market(500_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
-            (15_297.into(), 1_850_000.into())
+            (15_298.into(), 1_850_000.into())
         );
 
         // 5) G_avg = (1_000_000 + 9*1_800_000)/10 = 1_720_000
-        // price = 30_000 * (11_176_760 + 1_720_000) / 12_773_440 = 30_289
+        // price = ceil(30_000 * (11_177_110 + 1_720_000) / 12_773_840) = 30_290
         ledger.execution_base_fee = 30_000.into();
         ledger.average_execution_gas = 1_800_000.into();
         ledger = ledger.update_execution_market(1_000_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
-            (30_289.into(), 1_720_000.into())
+            (30_290.into(), 1_720_000.into())
         );
+    }
+
+    #[test]
+    fn test_accumulated_storage_gas_drives_next_epoch_price() {
+        let config = config();
+        let mut ledger = genesis_state(&[utxo()]);
+
+        // Seed a known storage-market state, then accumulate the storage gas
+        // that applied transactions consume during the epoch.
+        ledger.storage_gas_price = 113.into();
+        ledger.storage_gas_ema = 300.into();
+        let ledger = ledger.add_storage_gas_consumed(600.into()).unwrap();
+
+        // Cross a single epoch boundary so the storage price is recomputed.
+        let slot: Slot = (config.epoch_length() + 1).into();
+        assert_eq!(config.epoch(slot), 1);
+        let rotated = ledger
+            .update_epoch_state::<HeaderId>(slot, &SdpLedger::new(0.into()), &pow_state(), &config)
+            .unwrap();
+
+        // The accumulated 600 must reach the price update: with a starting price
+        // of 113 and EMA 300 that yields (128, 450) after ceiling division.
+        assert_eq!(rotated.storage_gas_price, 128.into());
+        assert_eq!(rotated.storage_gas_ema, 450.into());
+        // The counter resets for the new epoch.
+        assert_eq!(rotated.storage_gas_consumed_in_epoch, 0.into());
     }
 }

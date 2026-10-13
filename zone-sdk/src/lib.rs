@@ -1,13 +1,24 @@
 //! Logos blockchain zone SDK.
 //!
-//! A Rust client for working with a Logos channel. Two subsystems:
+//! A Rust client for working with a Logos channel, built around the
+//! [`sequencer`] subsystem: drive your own sequencer that publishes
+//! inscriptions to a channel, tracks pending/finalized state, and surfaces
+//! chain events.
 //!
-//! - [`sequencer`] — drive your own sequencer that publishes inscriptions to a
-//!   channel, tracks pending/finalized state, and surfaces chain events.
-//! - [`indexer`] — read-only stream of finalized channel messages, for
-//!   consumers that only need to observe.
+//! There is no separate read-only client: to only observe a channel, run a
+//! [`sequencer::ZoneSequencer`] with a signing key that is **not** in the
+//! channel's accredited keys. Inscription posting is gated on holding the
+//! round-robin turn, so such a sequencer never publishes or reposts anything —
+//! while still delivering finalized txs, channel updates and the
+//! non-finalized channel view through its events. Before emitting
+//! [`sequencer::Event::Ready`], the instance backfills the finalized history
+//! it has not seen yet: from genesis on a cold start, or from the restored
+//! [`sequencer::SequencerCheckpoint`]'s slot when resuming. Construction
+//! still requires a [`sequencer::FundingConfig`]; for a read-only instance
+//! pass a placeholder — funding is only exercised by publish-type calls,
+//! which such a sequencer never makes.
 //!
-//! Both subsystems talk to a Logos node through the [`adapter`] module's
+//! The sequencer talks to a Logos node through the [`adapter`] module's
 //! [`adapter::Node`] trait; an HTTP implementation is provided as
 //! [`adapter::NodeHttpClient`].
 //!
@@ -31,13 +42,15 @@
 //! use lb_zone_sdk::{
 //!     CommonHttpClient,
 //!     adapter::NodeHttpClient,
-//!     sequencer::{Event, ZoneSequencer},
+//!     sequencer::{Event, FundingConfig, ZoneSequencer},
 //! };
 //! # use lb_core::mantle::ops::channel::ChannelId;
 //! # use lb_key_management_system_service::keys::Ed25519Key;
-//! # async fn run(channel_id: ChannelId, signing_key: Ed25519Key) {
+//! # async fn run(channel_id: ChannelId, signing_key: Ed25519Key, funding: FundingConfig) {
 //! let node = NodeHttpClient::new(CommonHttpClient::new(None), "http://localhost:8080".parse().unwrap());
-//! let mut sequencer = ZoneSequencer::init(channel_id, signing_key, node, None);
+//! // `funding.funding_pk` is a wallet key the connected node controls (its
+//! // configured funding wallet); the node builds and proves the fee transfer.
+//! let mut sequencer = ZoneSequencer::init(channel_id, signing_key, node, funding, None);
 //!
 //! // Cross-task surface: clone and move into any task. Carries both
 //! // publish/admin methods and subscription receivers.
@@ -47,8 +60,8 @@
 //!
 //! loop {
 //!     match sequencer.next_event().await {
-//!         Event::BlocksProcessed { checkpoint, channel_update, finalized } => {
-//!             let _ = (checkpoint, channel_update, finalized);
+//!         Event::BlocksProcessed { checkpoint, channel_update, deposits, finalized } => {
+//!             let _ = (checkpoint, channel_update, deposits, finalized);
 //!         }
 //!         Event::Ready                             => {}
 //!         Event::TurnNotification { notification } => { let _ = notification; }
@@ -60,16 +73,51 @@
 //! See the [`sequencer`] module for the full event vocabulary.
 
 pub mod adapter;
-pub mod indexer;
 pub mod sequencer;
+#[cfg(test)]
+mod test_support;
+
+/// Types appearing in the [`adapter::Node`] trait's method signatures and in
+/// [`ZoneMessage`], re-exported from the crates that define them.
+///
+/// An external backend implementation only needs to depend on this crate:
+/// everything required to write an `impl Node` — request/response bodies,
+/// stream item types, ids, and the error type — is importable from here. The
+/// stream alias is [`adapter::BoxStream`]; the message types themselves
+/// ([`ZoneMessage`], [`ZoneBlock`], [`Deposit`], [`Withdraw`]) live at the
+/// crate root.
+pub mod node_types {
+    pub use lb_common_http_client::{
+        ApiBlock, BlockInfo, ChainServiceInfo, Error, Events, ProcessedBlockEvent, Slot, TimeInfo,
+    };
+    pub use lb_core::{
+        crypto::Hash,
+        events::DepositRecreatedNotes,
+        header::HeaderId,
+        mantle::{
+            SignedOps, TxHash, Value,
+            channel::ChannelState,
+            ledger::Inputs,
+            ops::channel::{ChannelId, MsgId, deposit::Metadata, inscribe::Inscription},
+            transactions::states::Unverified,
+        },
+    };
+    pub use lb_http_api_common::bodies::wallet::fund::{
+        WalletFundRequestBody, WalletFundResponseBody,
+    };
+}
 
 pub use lb_common_http_client::{CommonHttpClient, Slot};
-pub use lb_core::mantle::ops::channel::Ed25519PublicKey;
-use lb_core::mantle::{
-    Value,
-    ledger::{Inputs, Outputs},
-    ops::channel::{MsgId, deposit::Metadata, inscribe::Inscription},
+use lb_core::{
+    crypto::Hash,
+    events::DepositRecreatedNotes,
+    mantle::{
+        TxHash, Value,
+        ledger::Inputs,
+        ops::channel::{MsgId, deposit::Metadata, inscribe::Inscription},
+    },
 };
+pub use lb_key_management_system_service::keys::UnverifiedEd25519PublicKey;
 
 /// A message from a zone channel, included/finalized in Bedrock
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,9 +142,17 @@ pub struct ZoneBlock {
 /// A deposit from a zone channel, included/finalized in Bedrock
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Deposit {
-    /// Notes consumed by the deposit. Acts as the natural unique key (notes
-    /// are spent-once at the UTXO layer).
+    /// The transaction hash containing this deposit op.
+    pub tx_hash: TxHash,
+    /// The `op_id` of the deposit op: its stable identity within the tx,
+    /// matching `DepositInfo::op_id` on the sequencer side.
+    pub op_id: Hash,
+    /// Notes consumed by the deposit (spent-once at the UTXO layer).
     pub inputs: Inputs,
+    /// The channel notes the deposit re-created its inputs as, sourced from
+    /// the block's events. These carry new `NoteId`s and are what the channel
+    /// now owns.
+    pub notes: DepositRecreatedNotes,
     /// Total value deposited, sourced from the block's events.
     pub amount: Value,
     /// Opaque metadata associated with this deposit
@@ -106,8 +162,12 @@ pub struct Deposit {
 /// An withdrawal from a zone channel, included/finalized in Bedrock
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Withdraw {
-    /// Amount of the withdrawal
-    pub outputs: Outputs,
+    /// The transaction hash containing this withdraw op.
+    pub tx_hash: TxHash,
+    /// The `op_id` of the withdraw op: its stable identity within the tx.
+    pub op_id: Hash,
+    /// The channel notes released by the withdrawal
+    pub inputs: Inputs,
 }
 
 impl Deposit {

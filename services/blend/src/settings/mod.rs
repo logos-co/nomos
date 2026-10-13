@@ -1,6 +1,8 @@
+use ::core::num::NonZeroU64;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    broadcast::settings::StartingBlendConfig as BroadcastConfig,
     core::settings::{SchedulerSettings, StartingBlendConfig as CoreConfig},
     edge::settings::StartingBlendConfig as EdgeConfig,
 };
@@ -15,14 +17,15 @@ mod timing;
 pub use self::timing::TimingSettings;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Settings<CoreBackendSettings, EdgeBackendSettings> {
-    pub common: CommonSettings,
+pub struct Settings<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings> {
+    pub common: CommonSettings<BroadcastSettings>,
     pub core: CoreSettings<CoreBackendSettings>,
     pub edge: EdgeSettings<EdgeBackendSettings>,
 }
 
-impl<CoreBackendSettings, EdgeBackendSettings>
-    From<Settings<CoreBackendSettings, EdgeBackendSettings>> for CoreConfig<CoreBackendSettings>
+impl<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>
+    From<Settings<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>>
+    for CoreConfig<CoreBackendSettings, BroadcastSettings>
 {
     fn from(
         Settings {
@@ -30,10 +33,12 @@ impl<CoreBackendSettings, EdgeBackendSettings>
                 CommonSettings {
                     minimum_network_size,
                     time,
-                    recovery_path_prefix,
+                    recovery_data,
                     non_ephemeral_signing_key_id,
                     num_blend_layers,
                     data_replication_factor,
+                    broadcast,
+                    abstain_on_failure,
                 },
             core:
                 CoreSettings {
@@ -43,13 +48,8 @@ impl<CoreBackendSettings, EdgeBackendSettings>
                     activity_threshold_sensitivity,
                 },
             ..
-        }: Settings<CoreBackendSettings, EdgeBackendSettings>,
+        }: Settings<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>,
     ) -> Self {
-        let recovery_path = {
-            let mut path = recovery_path_prefix.join("core");
-            path.set_extension("json");
-            path
-        };
         Self {
             backend,
             scheduler,
@@ -58,15 +58,18 @@ impl<CoreBackendSettings, EdgeBackendSettings>
             non_ephemeral_signing_key_id,
             num_blend_layers,
             minimum_network_size,
-            recovery_path,
+            recovery_data,
             data_replication_factor,
             activity_threshold_sensitivity,
+            network: broadcast,
+            abstain_on_failure,
         }
     }
 }
 
-impl<CoreBackendSettings, EdgeBackendSettings>
-    From<Settings<CoreBackendSettings, EdgeBackendSettings>> for EdgeConfig<EdgeBackendSettings>
+impl<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>
+    From<Settings<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>>
+    for EdgeConfig<EdgeBackendSettings, BroadcastSettings>
 {
     fn from(
         Settings {
@@ -77,15 +80,17 @@ impl<CoreBackendSettings, EdgeBackendSettings>
                     non_ephemeral_signing_key_id,
                     num_blend_layers,
                     data_replication_factor,
+                    broadcast,
+                    abstain_on_failure,
                     ..
                 },
             edge: EdgeSettings { backend },
             core:
                 CoreSettings {
-                    scheduler: SchedulerSettings { cover, .. },
+                    scheduler: SchedulerSettings { cover, delayer },
                     ..
                 },
-        }: Settings<CoreBackendSettings, EdgeBackendSettings>,
+        }: Settings<CoreBackendSettings, EdgeBackendSettings, BroadcastSettings>,
     ) -> Self {
         Self {
             backend,
@@ -95,6 +100,66 @@ impl<CoreBackendSettings, EdgeBackendSettings>
             minimum_network_size,
             cover,
             data_replication_factor,
+            network: broadcast,
+            abstain_on_failure,
+            // An edge node has no release schedule of its own, but the deadline it
+            // waits out is the one a core node's schedule implies, so it takes the
+            // same delay bound the core scheduler is configured with.
+            max_blend_delay_in_rounds: delayer.maximum_release_delay_in_rounds,
         }
+    }
+}
+
+impl<CoreBackendSettings, EdgeBackendSettings, NetworkSettings>
+    From<Settings<CoreBackendSettings, EdgeBackendSettings, NetworkSettings>>
+    for BroadcastConfig<NetworkSettings>
+{
+    fn from(
+        Settings {
+            common:
+                CommonSettings {
+                    minimum_network_size,
+                    time,
+                    non_ephemeral_signing_key_id,
+                    broadcast,
+                    ..
+                },
+            ..
+        }: Settings<CoreBackendSettings, EdgeBackendSettings, NetworkSettings>,
+    ) -> Self {
+        Self {
+            network: broadcast,
+            time,
+            non_ephemeral_signing_key_id,
+            minimum_network_size,
+        }
+    }
+}
+
+/// `T_M`: the message traversal time, which is what a sender waits for its
+/// payload to appear on the broadcasting channel before treating the message
+/// carrying it as lost.
+///
+/// A message crosses `ß` blend nodes, each of which holds it for at most the
+/// maximal blending delay `∆max`, and the network carries it for the absorption
+/// `η` of one hop:
+///
+/// `T_M = ß · (∆max + η)`
+#[must_use]
+pub const fn max_data_message_delay_in_rounds(
+    num_blend_layers: NonZeroU64,
+    max_blend_delay_in_rounds: NonZeroU64,
+    network_absorption_in_rounds: NonZeroU64,
+) -> NonZeroU64 {
+    match NonZeroU64::new(
+        num_blend_layers.get().saturating_mul(
+            max_blend_delay_in_rounds
+                .get()
+                .saturating_add(network_absorption_in_rounds.get()),
+        ),
+    ) {
+        Some(delay) => delay,
+        // Not `expect`, to keep this a `const fn`.
+        None => panic!("Both factors of the delivery deadline are non-zero."),
     }
 }

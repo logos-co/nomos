@@ -1,8 +1,11 @@
 use lb_core::{
     header::HeaderId,
-    mantle::{Transaction, TxHash},
+    mantle::{
+        traits::Hashable,
+        transactions::hash::{TxHash, TxHashPrefix},
+    },
 };
-use lb_tx_service::{MempoolMsg, TransactionsByHashesResponse};
+use lb_tx_service::{MempoolMsg, TxsWithCommonPrefix};
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
 
@@ -23,7 +26,7 @@ impl<Tx> MempoolAdapter<Tx> {
 #[async_trait::async_trait]
 impl<Tx> MempoolAdapterTrait<Tx> for MempoolAdapter<Tx>
 where
-    Tx: Transaction<Hash = TxHash> + Send + Sync + 'static,
+    Tx: Hashable<Hash = TxHash> + Send + 'static,
 {
     async fn add_transaction(&self, tx: Tx) -> Result<(), overwatch::DynError> {
         let (reply_sender, reply_receiver) = oneshot::channel();
@@ -34,7 +37,7 @@ where
                 reply_channel: reply_sender,
             })
             .await
-            .map_err(|(e, _)| format!("Could not add transactions to mempool: {e}"))?;
+            .map_err(|error| format!("Could not add transactions to mempool: {error}"))?;
         reply_receiver
             .await
             .map_err(|e| format!("Could not receive response: {e}"))?
@@ -46,24 +49,24 @@ where
         self.mempool_relay
             .send(MempoolMsg::Remove { ids: ids.to_vec() })
             .await
-            .map_err(|(e, _)| format!("Could not remove transactions from mempool: {e}"))?;
+            .map_err(|error| format!("Could not remove transactions from mempool: {error}"))?;
 
         Ok(())
     }
 
-    async fn get_transactions_by_hashes(
+    async fn get_transactions_by_prefix(
         &self,
-        hashes: Vec<TxHash>,
-    ) -> Result<TransactionsByHashesResponse<Tx, TxHash>, overwatch::DynError> {
+        prefix: TxHashPrefix,
+    ) -> Result<TxsWithCommonPrefix<Tx>, overwatch::DynError> {
         let (resp_tx, resp_rx) = oneshot::channel();
 
         self.mempool_relay
-            .send(MempoolMsg::GetTransactionsByHashes {
-                hashes,
+            .send(MempoolMsg::GetTransactionsByPrefix {
+                prefix,
                 reply_channel: resp_tx,
             })
             .await
-            .map_err(|(e, _)| format!("Could not get transactions by hashes: {e}"))?;
+            .map_err(|error| format!("Could not get transactions by prefix: {error}"))?;
 
         let response = resp_rx
             .await

@@ -1,8 +1,9 @@
 use core::{fmt::Debug, hash::Hash};
 use std::fmt::Display;
 
-use lb_core::{header::HeaderId, mantle::Transaction};
+use lb_core::{header::HeaderId, mantle::transactions::hash::PrefixedKey};
 use lb_network_service::backends::NetworkBackend;
+use lb_storage_service::StorageService;
 use lb_tx_service::{MempoolMsg, TxMempoolService, backend::Mempool, network::NetworkAdapter};
 use overwatch::{DynError, services::AsServiceId};
 use serde::{Serialize, de::DeserializeOwned};
@@ -31,12 +32,24 @@ where
         + Clone
         + 'static,
     StorageAdapter::Error: Debug,
-    Item: Transaction + Clone + Debug + Send + Sync + Serialize + DeserializeOwned + 'static,
-    Key: Clone + Debug + Ord + Hash + Send + Sync + Serialize + DeserializeOwned + 'static,
+    Item: Clone + Debug + Send + Sync + Serialize + DeserializeOwned + 'static,
+    Key: Clone
+        + Debug
+        + Ord
+        + Hash
+        + Send
+        + Sync
+        + PrefixedKey<Prefix: Eq + Hash + Send + Sync>
+        + Serialize
+        + DeserializeOwned
+        + 'static,
     RuntimeServiceId: Debug
+        + Clone
         + Sync
         + Send
         + Display
+        + 'static
+        + AsServiceId<StorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 MempoolNetworkAdapter,
@@ -46,7 +59,14 @@ where
             >,
         >,
 {
-    let relay = handle.relay().await?;
+    let relay = handle
+        .relay::<TxMempoolService<
+            MempoolNetworkAdapter,
+            Mempool<HeaderId, Item, Key, StorageAdapter, RuntimeServiceId>,
+            StorageAdapter,
+            RuntimeServiceId,
+        >>()
+        .await?;
     let (sender, receiver) = oneshot::channel();
 
     relay
@@ -56,7 +76,7 @@ where
             reply_channel: sender,
         })
         .await
-        .map_err(|(e, _)| e)?;
+        .map_err(|error| DynError::from(error.to_string()))?;
 
     receiver
         .await

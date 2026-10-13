@@ -7,10 +7,13 @@ use lb_blend::{
 use lb_core::sdp::{ProviderId, ProviderInfo, ServiceType};
 use lb_key_management_system_service::keys::{Ed25519PublicKey, ZkPublicKey};
 use lb_ledger::EpochState;
+use lb_log_targets::blend;
 use overwatch::DynError;
 use tracing::{debug, warn};
 
 use crate::membership::{MembershipInfo, ZkInfo, node_id};
+
+const LOG_TARGET: &str = blend::service::MEMBERSHIP;
 
 /// Wrapper around [`Node`] that includes its ZK public key.
 #[derive(Debug, Clone)]
@@ -54,6 +57,7 @@ where
         let core_and_path_selectors = maybe_zk_public_key.and_then(|zk_public_key| {
             let Some(proof) = zk_tree.get_proof_for_key(zk_public_key.as_fr()) else {
                 debug!(
+                    target: LOG_TARGET,
                     "Local node's ZK public key not found in membership Merkle tree: node is not a core member."
                 );
                 return None;
@@ -86,7 +90,7 @@ fn node_from_provider<NodeId>(
 where
     NodeId: node_id::TryFrom,
 {
-    let provider_id = provider_id.0.as_bytes();
+    let provider_id_bytes = provider_id.as_ref();
     // TODO: Once we provide a proper API for non-empty vectors, we can expose a
     // `first()` method that returns `&T` instead of `Option<&T>`, and remove this
     // `expect`.
@@ -94,16 +98,14 @@ where
         .first()
         .expect("Locators set cannot be empty")
         .clone();
-    let id = NodeId::try_from_provider_id(provider_id)
+    let id = NodeId::try_from_provider_id(provider_id_bytes)
         .map_err(|e| {
-            warn!("Failed to decode provider_id to node ID: {e:?}");
+            warn!(target: LOG_TARGET, "Failed to decode provider_id to node ID: {e:?}");
         })
         .ok()?;
-    let public_key = Ed25519PublicKey::from_bytes(provider_id)
-        .map_err(|e| {
-            warn!("Failed to decode provider_id to public_key: {e:?}");
-        })
-        .ok()?;
+    // We know this is a valid Ed25519 public key because provider ID only accept
+    // valid keys.
+    let public_key = provider_id.0;
     Some(ZkNode {
         node: Node {
             id,

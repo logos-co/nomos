@@ -17,7 +17,7 @@
 Logos Blockchain is a core component of the [Logos][logos-website] technology stack.
 It combines zero-knowledge proofs, a mix network for anonymity, and a modular service architecture to provide a foundation for sovereign digital communities.
 
-This node represents the reference implementation of the Logos Blockchain specifications defined in the [Logos specifications space][notion-specs].
+This node represents the reference implementation of the Logos Blockchain specifications defined in the [Logos specifications space][specs].
 
 ## Quick Start
 
@@ -169,14 +169,6 @@ Visit our [GitHub releases page][github-releases-page] to get instructions on ho
 
 You can visit the [Devnet dashboard][devnet-dashboard] to get more info about the current devnet deployment.
 
-### L2 Demo
-
-```bash
-cd deployment/l2-sequencer-archival-demo
-docker compose up
-# Web UI → http://localhost:8200
-```
-
 ### Generating Documentation
 
 ```bash
@@ -207,6 +199,148 @@ If the `dhat-heap` feature is enabled, it replaces the memory allocator with `dh
 Run, then stop the node normally to capture the output, then read the generated `dhat-heap.json` file with 
 https://nnethercote.github.io/dh_view/dh_view.html or other.
 
+### Tokio task profiling
+
+#### Build and node user config
+
+Tokio task/resource profiling is available through `tokio-console`, which  is disabled in normal builds. 
+
+Instrumented builds require both:
+- the Cargo feature `tokio-console`
+- `RUSTFLAGS="--cfg tokio_unstable"`
+
+Manual build:
+
+```bash
+RUSTFLAGS="--cfg tokio_unstable" \
+cargo build \
+  --profile release-profiling \
+  -p logos-blockchain-node \
+  --features tokio-console
+```
+
+Enable the console endpoint at runtime by selecting the console tracing layer in your node config:
+
+```yaml
+tracing:
+  console: !Console
+    bind_address: 127.0.0.1
+    port: 6669
+    recording_path: /absolute/path/to/node-1-tokio-console.jsonl
+```
+
+`recording_path` enables subscriber-side raw Tokio Console recording. Omitting it
+leaves raw recording disabled while the live Tokio Console endpoint remains
+available. Absolute paths are recommended; the node process must be able to
+create and write the file. Use a unique path for each node and profiling run.
+Recordings can grow substantially during long runs, and recording adds
+instrumentation and disk-I/O overhead. Stop the node gracefully so the recorder
+can flush as much telemetry as possible. The file contains raw subscriber
+telemetry for offline analysis and is different from Tokio Console client
+diagnostic logs.
+
+The verified `console-subscriber 0.5.0` format is newline-delimited JSON: the
+first line is a version header (`{"v":1}`), followed by raw `Spawn`, `Enter`,
+`Exit`, `Close`, and `Waker` event records. This recording format is currently
+experimental and may change between subscriber versions. The Tokio Console
+client connects to a live endpoint; it does not currently replay these raw
+files directly, so offline analysis requires a compatible parser or tooling.
+
+For multiple nodes, use unique ports and recording paths:
+
+```yaml
+# NODE_1
+tracing:
+  console: !Console
+    bind_address: 127.0.0.1
+    port: 6669
+    recording_path: /profiles/run-001/node-1.jsonl
+```
+
+```yaml
+# NODE_2
+tracing:
+  console: !Console
+    bind_address: 127.0.0.1
+    port: 6670
+    recording_path: /profiles/run-001/node-2.jsonl
+```
+
+When using Cucumber, select recording independently for each profiled node:
+
+```gherkin
+And I will have tokio console profile nodes:
+  | node_name | record_raw |
+  | NODE_1    | true       |
+  | NODE_2    | false      |
+```
+
+`true` enables the live endpoint and raw recording; `false` enables only the
+live endpoint. Nodes omitted from the table are unaffected. For an enabled
+node, Cucumber stores the recording at:
+
+```text
+<scenario-runtime-directory>/<node-runtime-directory>/tokio-console-raw.jsonl
+```
+
+The path is resolved after the node runtime directory is created and remains
+with the scenario and node artifacts after shutdown.
+
+**Note:** Port `6669` is the default port for the console, but you can change it in your config and use the 
+corresponding value in the runtime if needed, for example, use a different port when multiple instrumented node 
+processes are running on the same host.
+
+Keep the console bound to loopback. When profiling a remote node, forward the port over SSH:
+
+```bash
+ssh -L 6669:127.0.0.1:6669 user@remote-host
+```
+
+#### Tokio console client
+
+The `tokio-console` client version must be compatible with the `console-subscriber` version compiled into the node,
+see https://github.com/tokio-rs/console/releases.
+
+This repository currently uses `console-subscriber 0.5.x`, which is compatible with `tokio-console 0.1.14`. Keep the 
+client version in sync with the node version to avoid connection issues.
+
+Install the client (latest version):
+
+```bash
+cargo install --locked tokio-console
+```
+
+or  
+
+Install a specific client version, e.g version 0.X.Y:
+
+```bash 
+cargo install --locked tokio-console --version 0.X.Y  
+```
+
+Run the node with that config, then connect from another terminal:
+
+```bash
+tokio-console http://127.0.0.1:6669
+```
+
+#### Manual connection checks
+
+While the node is running, verify that the console endpoint is listening:
+
+```bash
+ss -ltnp | grep -E ':(6669)\b'
+```
+
+or:
+
+```bash
+nc -vz 127.0.0.1 6669
+```
+
+A successful TCP connection proves the node-side console server is listening. If the client UI is empty, check 
+the `tokio-console` client version first.
+
 ---
 
 ## Contributing
@@ -230,7 +364,7 @@ Dual-licensed under your choice of:
 - [Twitter / X][logos-x]
 - [logos.co][logos-website]
 
-[notion-specs]: https://www.notion.so/nomos-tech/Research-Specifications-1fd261aa09df814da916ecefa410571f
+[specs]: https://lip.logos.co/blockchain/index.html
 [overwatch-github]: https://github.com/logos-co/Overwatch
 [graphviz-online]: https://dreampuf.github.io/GraphvizOnline/
 [github-releases-page]: https://github.com/logos-blockchain/logos-blockchain/releases

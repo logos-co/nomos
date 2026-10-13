@@ -1,5 +1,5 @@
 use const_hex::FromHex as _;
-use lb_core::codec::{DeserializeOp as _, SerializeOp as _};
+use lb_binary_codec::bincode::{DeserializeOp as _, SerializeOp as _};
 use lb_groth16::{AdditiveGroup as _, Field as _, fr_from_bytes_unchecked};
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
 
 #[test]
 fn secret_selection_randomness_to_key_nullifier_dst_encoding() {
-    // Blend spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26c261aa09df802f9dbcd0780dc7ac6e>
+    // PoQ spec: <https://lip.logos.co/blockchain/raw/proof-of-quota.html>
 
     assert_eq!(
         *KEY_NULLIFIER_DERIVATION_DOMAIN_SEPARATION_TAG_FR,
@@ -99,9 +99,9 @@ fn serde_verified_and_unverified() {
 
     let deserialized_proof_as_verified =
         VerifiedProofOfSelection::from_bytes(&serialized_proof[..]).unwrap();
-    assert!(proof == deserialized_proof_as_verified);
+    assert_eq!(proof, deserialized_proof_as_verified);
 
     let deserialized_proof_as_unverified =
         ProofOfSelection::from_bytes(&serialized_proof[..]).unwrap();
-    assert!(proof == deserialized_proof_as_unverified);
+    assert_eq!(proof, deserialized_proof_as_unverified);
 }

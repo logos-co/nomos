@@ -5,7 +5,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::mantle::Value;
+use crate::mantle::{
+    Value,
+    ops::channel::{ChannelId, ChannelKeyIndex},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Gas(Value);
@@ -23,6 +26,10 @@ impl Gas {
 
     pub fn checked_add(self, rhs: Self) -> Result<Self, GasOverflow> {
         self.0.checked_add(rhs.0).ok_or(GasOverflow).map(Self)
+    }
+
+    pub fn checked_mul(self, rhs: Value) -> Result<Self, GasOverflow> {
+        self.0.checked_mul(rhs).ok_or(GasOverflow).map(Self)
     }
 }
 
@@ -103,19 +110,25 @@ impl Display for GasCost {
     }
 }
 
-pub trait GasCalculator {
+// The gas cost of a whole transaction, summed from its Operations. How exact it
+// is follows the context: a live state answers what the ledger will charge, a
+// snapshot only what it would charge were the transaction included right now.
+pub trait TxGasCalculator {
     type Context;
 
-    /// Returns the gas cost of this operation.
-    fn total_gas_cost<Constants: GasConstants>(
+    /// Returns the gas cost of this transaction.
+    fn total_gas_cost<Profile: GasProfile>(
         &self,
         context: &Self::Context,
     ) -> Result<GasCost, GasOverflow>;
+
     fn storage_gas_cost(&self, context: &Self::Context) -> Result<GasCost, GasOverflow>;
-    fn execution_gas_consumption<Constants: GasConstants>(
+
+    fn execution_gas_consumption<Profile: GasProfile>(
         &self,
         context: &Self::Context,
     ) -> Result<Gas, GasOverflow>;
+
     fn storage_gas_consumption(&self, context: &Self::Context) -> Result<Gas, GasOverflow>;
 }
 
@@ -123,71 +136,132 @@ pub trait GasCalculator {
 #[error("Gas overflow")]
 pub struct GasOverflow;
 
-impl<T: GasCalculator> GasCalculator for &T {
-    type Context = T::Context;
+mod private {
+    pub trait Sealed {}
+}
 
-    fn total_gas_cost<Constants: GasConstants>(
-        &self,
-        context: &Self::Context,
-    ) -> Result<GasCost, GasOverflow> {
-        T::total_gas_cost::<Constants>(self, context)
-    }
+pub trait GasProfile: private::Sealed {}
 
-    fn storage_gas_cost(&self, context: &Self::Context) -> Result<GasCost, GasOverflow> {
-        T::storage_gas_cost(self, context)
-    }
+pub struct MainnetGasProfile;
+impl private::Sealed for MainnetGasProfile {}
+impl GasProfile for MainnetGasProfile {}
 
-    fn execution_gas_consumption<Constants: GasConstants>(
-        &self,
-        context: &Self::Context,
-    ) -> Result<Gas, GasOverflow> {
-        T::execution_gas_consumption::<Constants>(self, context)
-    }
+pub trait OperationGas<Profile: GasProfile> {
+    const GAS_COST: Gas;
+}
 
-    fn storage_gas_consumption(&self, context: &Self::Context) -> Result<Gas, GasOverflow> {
-        T::storage_gas_consumption(self, context)
+impl<T: OperationGas<Profile>, Profile: GasProfile> OperationGas<Profile> for &T {
+    const GAS_COST: Gas = T::GAS_COST;
+}
+
+// Where an Operation reads the threshold it is verified against. The ledger
+// answers from the live channels, the wallet from what it predicts them to be.
+pub trait ThresholdSource {
+    // A channel that does not exist yet accredits no key, so both thresholds
+    // are 0.
+    fn configuration_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex;
+
+    fn transfer_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex;
+}
+
+// The Execution Gas of an Operation, derived from the Operation and the state
+// it is validated against EXCLUSIVELY.
+pub trait OpGasCalculator<Profile: GasProfile>: OperationGas<Profile> {
+    fn execution_gas(&self, _thresholds: &impl ThresholdSource) -> Result<Gas, GasOverflow> {
+        Ok(Self::GAS_COST)
     }
 }
 
-pub trait GasConstants {
-    /// Verify the proof of ownership and relative balance.
-    const TRANSFER: Gas;
+#[cfg(test)]
+pub mod test_utils {
+    use crate::mantle::{
+        gas::ThresholdSource,
+        ops::channel::{ChannelId, ChannelKeyIndex},
+    };
 
-    /// Verify the inscription signature.
-    const CHANNEL_INSCRIBE: Gas;
+    pub struct FixedThresholds(pub ChannelKeyIndex);
 
-    /// Verify the administrator signature.
-    const CHANNEL_CONFIG: Gas;
+    impl ThresholdSource for FixedThresholds {
+        fn configuration_threshold(&self, _channel: &ChannelId) -> ChannelKeyIndex {
+            self.0
+        }
 
-    /// Verify the deposit signature.
-    const CHANNEL_DEPOSIT: Gas;
-
-    /// Verify the withdrawal signature.
-    const CHANNEL_WITHDRAW: Gas;
-
-    /// Verify the proof of ownership.
-    const SDP_DECLARE: Gas;
-
-    /// Verify the proof of ownership.
-    const SDP_WITHDRAW: Gas;
-
-    /// Store the active message.
-    const SDP_ACTIVE: Gas;
-
-    /// Consume a reward ticket.
-    const LEADER_CLAIM: Gas;
+        fn transfer_threshold(&self, _channel: &ChannelId) -> ChannelKeyIndex {
+            self.0
+        }
+    }
 }
 
-pub struct MainnetGasConstants;
+#[cfg(test)]
+mod tests {
+    use super::{
+        Gas, GasOverflow, MainnetGasProfile, OpGasCalculator, OperationGas, ThresholdSource,
+    };
+    use crate::mantle::{Value, gas::test_utils::FixedThresholds, ops::channel::ChannelId};
 
-impl GasConstants for MainnetGasConstants {
-    const TRANSFER: Gas = Gas(590);
-    const CHANNEL_INSCRIBE: Gas = Gas(56);
-    const CHANNEL_CONFIG: Gas = Gas(56);
-    const CHANNEL_DEPOSIT: Gas = Gas(590);
-    const CHANNEL_WITHDRAW: Gas = Gas(56);
-    const SDP_DECLARE: Gas = Gas(646);
-    const SDP_WITHDRAW: Gas = Gas(590);
-    const SDP_ACTIVE: Gas = Gas(590);
-    const LEADER_CLAIM: Gas = Gas(580);
+    struct ScalingOp;
+
+    impl OperationGas<MainnetGasProfile> for ScalingOp {
+        const GAS_COST: Gas = Gas::new(7);
+    }
+
+    impl OpGasCalculator<MainnetGasProfile> for ScalingOp {
+        fn execution_gas(&self, thresholds: &impl ThresholdSource) -> Result<Gas, GasOverflow> {
+            Self::GAS_COST.checked_mul(Value::from(
+                thresholds.transfer_threshold(&ChannelId::from([0; 32])),
+            ))
+        }
+    }
+
+    struct FlatOp;
+
+    impl OperationGas<MainnetGasProfile> for FlatOp {
+        const GAS_COST: Gas = Gas::new(7);
+    }
+
+    impl OpGasCalculator<MainnetGasProfile> for FlatOp {}
+
+    struct MaxCostOp;
+
+    impl OperationGas<MainnetGasProfile> for MaxCostOp {
+        const GAS_COST: Gas = Gas::new(Value::MAX);
+    }
+
+    impl OpGasCalculator<MainnetGasProfile> for MaxCostOp {
+        fn execution_gas(&self, thresholds: &impl ThresholdSource) -> Result<Gas, GasOverflow> {
+            Self::GAS_COST.checked_mul(Value::from(
+                thresholds.transfer_threshold(&ChannelId::from([0; 32])),
+            ))
+        }
+    }
+
+    #[test]
+    fn execution_gas_scales_the_base_cost_by_the_threshold() {
+        assert_eq!(
+            ScalingOp.execution_gas(&FixedThresholds(0)),
+            Ok(Gas::new(0))
+        );
+        assert_eq!(
+            ScalingOp.execution_gas(&FixedThresholds(1)),
+            Ok(Gas::new(7))
+        );
+        assert_eq!(
+            ScalingOp.execution_gas(&FixedThresholds(2)),
+            Ok(Gas::new(14))
+        );
+    }
+
+    #[test]
+    fn execution_gas_defaults_to_the_base_cost_whatever_the_threshold() {
+        assert_eq!(FlatOp.execution_gas(&FixedThresholds(0)), Ok(Gas::new(7)));
+        assert_eq!(FlatOp.execution_gas(&FixedThresholds(3)), Ok(Gas::new(7)));
+    }
+
+    #[test]
+    fn execution_gas_reports_overflow() {
+        assert_eq!(
+            MaxCostOp.execution_gas(&FixedThresholds(2)),
+            Err(GasOverflow)
+        );
+    }
 }

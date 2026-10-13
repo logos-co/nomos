@@ -1,4 +1,4 @@
-use derivative::Derivative;
+use educe::Educe;
 use lb_blend_proofs::selection::inputs::VerifyInputs;
 use lb_cryptarchia_engine::Epoch;
 use serde::Serialize;
@@ -14,11 +14,11 @@ use crate::{
 
 /// An activity proof for an epoch, made of the blending token
 /// that has the smallest Hamming distance satisfying the activity threshold.
-#[derive(Derivative, Serialize)]
-#[derivative(Debug)]
+#[derive(Educe, Serialize)]
+#[educe(Debug)]
 pub struct ActivityProof {
     epoch: Epoch,
-    #[derivative(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     token: BlendingToken,
 }
 
@@ -26,6 +26,11 @@ impl ActivityProof {
     #[must_use]
     pub const fn new(epoch: Epoch, token: BlendingToken) -> Self {
         Self { epoch, token }
+    }
+
+    #[must_use]
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
     }
 
     #[must_use]

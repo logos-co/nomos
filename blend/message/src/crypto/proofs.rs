@@ -5,17 +5,20 @@ use lb_blend_proofs::{
         self, ProofOfQuota, VerifiedProofOfQuota,
         inputs::prove::{
             PublicInputs,
-            public::{CoreInputs, LeaderInputs},
+            public::{CoreInputs, LeaderInputs, PowInputs},
         },
     },
     selection::{self, ProofOfSelection, VerifiedProofOfSelection, inputs::VerifyInputs},
 };
 use lb_groth16::fr_to_bytes;
 use lb_key_management_system_keys::keys::Ed25519PublicKey;
+use lb_log_targets::blend;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::encap::ProofsVerifier;
+
+const LOG_TARGET: &str = blend::message::ROOT;
 
 /// The inputs required to verify a Proof of Quota, without the signing key,
 /// which is retrieved from the public header of the message layer being
@@ -24,26 +27,29 @@ use crate::encap::ProofsVerifier;
 pub struct PoQVerificationInputsMinusSigningKey {
     pub core: CoreInputs,
     pub leader: LeaderInputs,
+    pub pow: PowInputs,
 }
 
 #[cfg(test)]
 impl Default for PoQVerificationInputsMinusSigningKey {
     fn default() -> Self {
+        use lb_blend_proofs::quota::Quota;
         use lb_core::crypto::ZkHash;
         use lb_groth16::{AdditiveGroup as _, Fr};
 
         Self {
             core: CoreInputs {
                 zk_root: ZkHash::default(),
-                quota: 1,
+                quota: Quota::ONE,
             },
             leader: LeaderInputs {
                 pol_ledger_aged: ZkHash::default(),
                 pol_epoch_nonce: ZkHash::default(),
-                message_quota: 1,
+                message_quota: Quota::ONE,
                 lottery_0: Fr::ZERO,
                 lottery_1: Fr::ZERO,
             },
+            pow: PowInputs::disabled(),
         }
     }
 }
@@ -66,7 +72,7 @@ impl ProofsVerifier for RealProofsVerifier {
     type Error = Error;
 
     fn new(public_inputs: PoQVerificationInputsMinusSigningKey) -> Self {
-        tracing::trace!("Generating new proof verifier with public inputs: {public_inputs:?}");
+        tracing::trace!(target: LOG_TARGET, "Generating new proof verifier with public inputs: {public_inputs:?}");
         Self {
             current_inputs: public_inputs,
         }
@@ -77,11 +83,12 @@ impl ProofsVerifier for RealProofsVerifier {
         proof: ProofOfQuota,
         signing_key: &Ed25519PublicKey,
     ) -> Result<VerifiedProofOfQuota, Self::Error> {
-        let PoQVerificationInputsMinusSigningKey { core, leader } = self.current_inputs;
+        let PoQVerificationInputsMinusSigningKey { core, leader, pow } = self.current_inputs;
 
         // Try with current input, and if it fails, try with the previous one, if any
         // (i.e., within the epoch transition period).
         tracing::trace!(
+            target: LOG_TARGET,
             "Verifying proof of quota with key nullifier {:?}, signing key: {signing_key:?}, public core inputs: {core:?} and leader inputs: {leader:?}.",
             hex::encode(fr_to_bytes(&proof.key_nullifier()))
         );
@@ -90,11 +97,13 @@ impl ProofsVerifier for RealProofsVerifier {
             .verify(&PublicInputs {
                 core,
                 leader,
+                pow,
                 signing_key: *signing_key.as_inner(),
             })
             .map_err(Error::ProofOfQuota);
 
         tracing::trace!(
+            target: LOG_TARGET,
             "Proof verification time: {} ms.",
             start.elapsed().as_millis()
         );

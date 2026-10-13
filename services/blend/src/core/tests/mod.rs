@@ -1,59 +1,137 @@
-mod utils;
+use core::{iter::once, num::NonZeroU64, time::Duration};
+use std::{collections::VecDeque, sync::Arc};
 
-use futures::{StreamExt as _, stream::repeat};
+use futures::{
+    StreamExt as _,
+    stream::{empty, repeat},
+};
 use lb_blend::{
-    message::reward::{ActivityProof, BlendingToken, EpochBlendingTokenCollector},
-    proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
+    message::{
+        MAX_PAYLOAD_BODY_SIZE,
+        reward::{ActivityProof, BlendingToken, EpochBlendingTokenCollector},
+    },
+    proofs::{
+        quota::{VerifiedProofOfQuota, inputs::prove::public::LeaderInputs},
+        selection::VerifiedProofOfSelection,
+    },
     scheduling::{
-        EpochMessageScheduler, epoch::EpochEvent,
-        message_blend::crypto::EpochCryptographicProcessorSettings,
+        EpochMessageScheduler, message_blend::crypto::EpochCryptographicProcessorSettings,
     },
 };
-use lb_chain_service::Epoch;
-use lb_core::{codec::SerializeOp as _, crypto::ZkHash, sdp::ActivityMetadata};
-use lb_groth16::AdditiveGroup as _;
+use lb_chain_service::{Epoch, Slot};
+use lb_core::{crypto::ZkHash, header::HeaderId, sdp::ActivityMetadata};
+use lb_groth16::{AdditiveGroup as _, Fr};
 use lb_key_management_system_service::keys::Ed25519Key;
-use lb_poq::CORE_MERKLE_TREE_HEIGHT;
-use lb_utils::blake_rng::BlakeRng;
+use lb_poq::{CORE_MERKLE_TREE_HEIGHT, Quota};
 use rand::SeedableRng as _;
+use rand_chacha::ChaCha20Rng;
+use rayon::ThreadPoolBuilder;
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::sleep,
+};
 
 use crate::{
     core::{
         HandleEpochEventOutput,
         backends::BlendBackend,
+        complete_transition_period,
+        delivery::FailureDetector,
+        dispatcher::PayloadDispatcher,
+        epoch_stages::{
+            running::{CurrentEpoch, CurrentEpochDuringTransition},
+            transitioning::TransitioningEpoch,
+        },
         handle_epoch_event, handle_epoch_transition_expired, handle_incoming_blend_message,
         initialize, post_initialize, retire, run_event_loop,
         state::ServiceState,
         tests::utils::{
             MockKmsAdapter, MockProofsVerifier, NodeId, TestBlendBackend, TestBlendBackendEvent,
-            TestNetworkAdapter, dummy_overwatch_resources, dummy_pol_private_inputs,
-            new_crypto_processor, new_epoch_info, new_membership, new_stream,
+            TestPayloadDispatcher, backend_epoch_info, dummy_overwatch_resources,
+            dummy_pol_private_inputs, new_crypto_processor, new_epoch_info, new_membership,
+            new_stream, outgoing_messages_recorder, published_epochs_recorder,
             recorded_set_epoch_private_calls, reset_set_epoch_private_calls, reward_epoch_info,
-            scheduler_epoch_info, scheduler_settings, sdp_relay, settings, timing_settings,
-            wait_for_blend_backend_event,
+            scheduler_epoch_info, scheduler_settings, sdp_relay, seeded_release_delay_rng,
+            settings, timing_settings, wait_for_blend_backend_event,
         },
     },
-    epoch::{CoreEpochInfo, CoreEpochPublicInfo},
-    epoch_info::PolEpochInfo,
-    membership::{MembershipInfo, ZkInfo, chain::BlendEpochState},
-    message::NetworkMessage,
-    test_utils::{crypto::MockCoreAndLeaderProofsGenerator, epoch::OncePolStreamProvider},
+    epoch::{CoreEpochInfo, CoreEpochPublicInfo, CoreEpochStateInfo},
+    epoch_info::{PolEpochInfo, PolEpochState, PolEpochStateSource},
+    membership::{
+        MembershipInfo, ZkInfo,
+        chain::{BlendEpoch, BlendEpochState},
+    },
+    message::{DataPayload, ServiceMessage},
+    pending::{NextLocalMessage, PendingTransactions, next_local_message},
+    test_utils::{
+        crypto::{
+            GatedPowProofsGenerator, MockCoreAndLeaderProofsGenerator, PolAwareProofsGenerator,
+            PowGate, recorded_starting_core_key_indices, reset_starting_core_key_indices,
+        },
+        dispatcher::{TestBroadcastingChannel, TestPayloadDispatcher as ObservingDispatcher},
+        epoch::{GatedPolStreamProvider, OncePolStreamProvider, PolGate},
+    },
 };
 
+mod utils;
+
 type RuntimeServiceId = ();
+
+#[test]
+fn pol_state_match_detects_fingerprint_mismatch() {
+    let public = LeaderInputs {
+        pol_ledger_aged: ZkHash::ZERO,
+        pol_epoch_nonce: ZkHash::ZERO,
+        message_quota: Quota::ZERO,
+        lottery_0: Fr::ZERO,
+        lottery_1: Fr::ZERO,
+    };
+    let mut private = PolEpochInfo {
+        epoch: Epoch::new(7),
+        state: PolEpochState {
+            nonce: public.pol_epoch_nonce,
+            aged_utxo_root: public.pol_ledger_aged,
+            lottery_0: public.lottery_0,
+            lottery_1: public.lottery_1,
+            source: PolEpochStateSource {
+                tip_id: HeaderId::from([0; 32]),
+                tip_slot: Slot::from(0),
+                lib_id: HeaderId::from([0; 32]),
+                lib_slot: Slot::from(0),
+            },
+        },
+        winning_pol_info_stream: Box::pin(empty()),
+    };
+
+    assert!(super::diagnostics::pol_state_matches(
+        &private,
+        Epoch::new(7),
+        &public
+    ));
+
+    private.state.lottery_1 = Fr::from(1u64);
+    assert!(!super::diagnostics::pol_state_matches(
+        &private,
+        Epoch::new(7),
+        &public
+    ));
+}
 
 fn test_blend_epoch_state(
     epoch: u32,
     membership_info: MembershipInfo<NodeId>,
-) -> BlendEpochState<NodeId> {
-    BlendEpochState {
-        epoch: epoch.into(),
-        nonce: ZkHash::ZERO,
-        aged: ZkHash::ZERO,
-        lottery_0: ZkHash::ZERO,
-        lottery_1: ZkHash::ZERO,
+) -> BlendEpoch<NodeId> {
+    (
+        BlendEpochState {
+            pow_difficulty: ZkHash::ZERO,
+            epoch: epoch.into(),
+            nonce: ZkHash::ZERO,
+            aged: ZkHash::ZERO,
+            lottery_0: ZkHash::ZERO,
+            lottery_1: ZkHash::ZERO,
+        },
         membership_info,
-    }
+    )
 }
 
 /// Check if incoming encapsulated messages are properly decapsulated and
@@ -68,7 +146,7 @@ async fn test_handle_incoming_blend_message() {
     let mut epoch = 0.into();
     let minimal_network_size = 1;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -79,18 +157,15 @@ async fn test_handle_incoming_blend_message() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
-    let payload = NetworkMessage {
-        message: vec![],
-        broadcast_settings: (),
-    }
-    .to_bytes()
-    .expect("NetworkMessage serialization must succeed");
+    let payload = vec![];
     let msg = processor
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
 
@@ -98,21 +173,22 @@ async fn test_handle_incoming_blend_message() {
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
     let mut scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info)),
         None,
         state_updater,
     )
     .unwrap();
     let recovery_checkpoint = handle_incoming_blend_message(
-        (msg.clone().into(), 0.into()),
+        (msg.clone(), 0.into()),
         &mut scheduler,
         None,
-        &processor,
+        processor.receiver(),
         None,
         recovery_checkpoint,
     );
@@ -126,39 +202,45 @@ async fn test_handle_incoming_blend_message() {
     );
 
     // Creates a new processor/scheduler/token_collector with the new epoch
-    // number.
+    // number. The outgoing processor is retired into its receive-only form,
+    // which is all it is good for during the transition period.
+    let processor = processor.rotate_epoch();
     epoch = epoch.strict_add(1.into());
     let public_info = new_epoch_info(epoch, membership.clone(), &settings);
     let mut new_processor = new_crypto_processor(
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let (mut new_scheduler, mut scheduler) =
         scheduler.rotate_epoch(scheduler_epoch_info(&public_info), scheduler_settings);
-    let (_, _, _, _, current_token_collector, _, state_updater) =
+    let (_, _, _, _, _, current_token_collector, _, state_updater) =
         recovery_checkpoint.into_components();
     let (new_token_collector, old_token_collector) =
-        current_token_collector.rotate_epoch(&reward_epoch_info(&public_info));
+        EpochBlendingTokenCollector::clone(&current_token_collector)
+            .rotate_epoch(&reward_epoch_info(&public_info));
 
     // Check that decapsulating the same message fails with the new processor
     // but succeeds with the old one. Also, it should be scheduled in the old
     // scheduler.
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch,
+        VecDeque::new(),
         new_token_collector,
         Some(old_token_collector),
         state_updater,
     )
     .unwrap();
     let recovery_checkpoint = handle_incoming_blend_message(
-        (msg.clone().into(), 0.into()),
+        (msg.clone(), 0.into()),
         &mut new_scheduler,
         Some(&mut scheduler),
-        &new_processor,
+        new_processor.receiver(),
         Some(&processor),
         recovery_checkpoint,
     );
@@ -189,14 +271,14 @@ async fn test_handle_incoming_blend_message() {
     // Check that a new message built with the new processor is decapsulated
     // with the new processor and scheduled in the new scheduler.
     let msg = new_processor
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
     let recovery_checkpoint = handle_incoming_blend_message(
-        (msg.into(), 1.into()),
+        (msg, 1.into()),
         &mut new_scheduler,
         Some(&mut scheduler),
-        &new_processor,
+        new_processor.receiver(),
         Some(&processor),
         recovery_checkpoint,
     );
@@ -230,19 +312,21 @@ async fn test_handle_incoming_blend_message() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &new_epoch_info(epoch, membership, &settings),
         (),
     );
     let msg = future_processor
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
     let recovery_checkpoint = handle_incoming_blend_message(
-        (msg.into(), 2.into()),
+        (msg, 2.into()),
         &mut new_scheduler,
         Some(&mut scheduler),
-        &new_processor,
+        new_processor.receiver(),
         Some(&processor),
         recovery_checkpoint,
     );
@@ -301,7 +385,7 @@ async fn test_duplicate_decapsulated_replica_handled_gracefully() {
     let epoch = 0.into();
     let minimal_network_size = 1;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -314,28 +398,25 @@ async fn test_duplicate_decapsulated_replica_handled_gracefully() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
 
     // One logical data message, serialized once...
-    let payload = NetworkMessage {
-        message: vec![],
-        broadcast_settings: (),
-    }
-    .to_bytes()
-    .expect("NetworkMessage serialization must succeed");
+    let payload = vec![];
 
     // ...encapsulated twice. Each call draws fresh randomness, so these are two
     // distinct encapsulated messages (different identifiers) that the swarm
     // would forward independently — exactly the replicas the service produces.
     let replica_a = processor
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
     let replica_b = processor
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
     assert_ne!(
@@ -346,11 +427,12 @@ async fn test_duplicate_decapsulated_replica_handled_gracefully() {
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
     let mut scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info)),
         None,
         state_updater,
@@ -359,10 +441,10 @@ async fn test_duplicate_decapsulated_replica_handled_gracefully() {
 
     // First replica: decapsulated and recorded as an unsent processed message.
     let recovery_checkpoint = handle_incoming_blend_message(
-        (replica_a.into(), epoch),
+        (replica_a, epoch),
         &mut scheduler,
         None,
-        &processor,
+        processor.receiver(),
         None,
         recovery_checkpoint,
     );
@@ -376,10 +458,10 @@ async fn test_duplicate_decapsulated_replica_handled_gracefully() {
     // The insert into `unsent_processed_messages` returns `Err`, but it is now
     // treated as a known duplicate instead of panicking the task.
     let recovery_checkpoint = handle_incoming_blend_message(
-        (replica_b.into(), epoch),
+        (replica_b, epoch),
         &mut scheduler,
         None,
-        &processor,
+        processor.receiver(),
         None,
         recovery_checkpoint,
     );
@@ -397,7 +479,7 @@ async fn test_handle_incoming_blend_message_with_invalid_poq() {
 
     let minimal_network_size = 1;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -411,19 +493,16 @@ async fn test_handle_incoming_blend_message_with_invalid_poq() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info_0,
         (),
     );
 
-    let payload = NetworkMessage {
-        message: vec![],
-        broadcast_settings: (),
-    }
-    .to_bytes()
-    .expect("NetworkMessage serialization must succeed");
+    let payload = vec![];
     let msg = processor_0
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation must succeed");
 
@@ -435,6 +514,8 @@ async fn test_handle_incoming_blend_message_with_invalid_poq() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info_1,
         (),
@@ -443,11 +524,12 @@ async fn test_handle_incoming_blend_message_with_invalid_poq() {
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
     let mut scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info_1),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch_1,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info_1)),
         None,
         state_updater,
@@ -458,10 +540,10 @@ async fn test_handle_incoming_blend_message_with_invalid_poq() {
     // Signature is valid (built correctly) but PoQ will fail because the
     // MockProofsVerifier for epoch 1 expects epoch 1 proofs.
     drop(handle_incoming_blend_message(
-        (msg.into(), epoch_1),
+        (msg, epoch_1),
         &mut scheduler,
         None,
-        &processor_1,
+        processor_1.receiver(),
         None,
         recovery_checkpoint,
     ));
@@ -482,7 +564,7 @@ async fn test_handle_epoch_transition_expired() {
     let epoch = 0.into();
     let minimal_network_size = 1;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (mut settings, _recovery_file) = settings(
+    let mut settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -494,11 +576,11 @@ async fn test_handle_epoch_transition_expired() {
 
     // Create backend.
     let public_info = new_epoch_info(epoch, membership.clone(), &settings);
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
     let mut backend_event_receiver = backend.subscribe_to_events();
 
@@ -521,7 +603,7 @@ async fn test_handle_epoch_transition_expired() {
     let (sdp_relay, mut sdp_relay_receiver) = sdp_relay();
 
     // Call `handle_epoch_transition_expired`.
-    handle_epoch_transition_expired::<_, NodeId, BlakeRng, _>(
+    handle_epoch_transition_expired::<_, NodeId, ChaCha20Rng, MockProofsVerifier, _>(
         &mut backend,
         token_collector,
         &sdp_relay,
@@ -538,6 +620,7 @@ async fn test_handle_epoch_transition_expired() {
     // Check that an activity proof has been submitted to SDP service.
     let lb_sdp_service::SdpMessage::PostActivity {
         metadata: ActivityMetadata::Blend(activity_proof),
+        ..
     } = sdp_relay_receiver
         .try_recv()
         .expect("an activity proof must be submitted")
@@ -545,6 +628,100 @@ async fn test_handle_epoch_transition_expired() {
         panic!("expected PostActivity with ActivityMetadata::Blend");
     };
     assert_eq!(*activity_proof, (&ActivityProof::new(epoch, token)).into());
+}
+
+/// A proposal still queued when the epoch rotates is dropped; a transaction is
+/// not.
+///
+/// Leadership quota is one message's worth per winning slot, so a proposal that
+/// missed its epoch would spend the quota the new epoch's own block needs.
+/// Already-encapsulated messages are unaffected: they have left the queue for
+/// the scheduler, and the previous epoch's scheduler keeps releasing them for
+/// the transition period, when peers still hold that epoch's verifier.
+#[test_log::test(tokio::test)]
+async fn test_handle_epoch_event_discards_queued_proposals() {
+    let (overwatch_handle, _overwatch_cmd_receiver, _state_updater, _state_receiver) =
+        dummy_overwatch_resources::<(), (), RuntimeServiceId>();
+
+    // Prepare components for epoch event handling.
+    let epoch = 0.into();
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let settings = settings(
+        local_private_key,
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    let public_info = new_epoch_info(epoch, membership, &settings);
+    let crypto_processor = new_crypto_processor(
+        EpochCryptographicProcessorSettings {
+            non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
+            num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
+        },
+        &public_info,
+        (),
+    );
+    let scheduler = EpochMessageScheduler::new(
+        scheduler_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
+        scheduler_settings(&settings.time, settings.num_blend_layers),
+    );
+    let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
+    let backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
+        settings.clone(),
+        overwatch_handle,
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
+    );
+    drop(backend);
+    let (old_crypto_processor, old_scheduler) = (
+        new_crypto_processor(
+            EpochCryptographicProcessorSettings {
+                non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
+                num_blend_layers: settings.num_blend_layers,
+                pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+                spent_core_quota: Quota::ZERO,
+            },
+            &public_info,
+            (),
+        )
+        .rotate_epoch(),
+        EpochMessageScheduler::new(
+            scheduler_epoch_info(&public_info),
+            ChaCha20Rng::from_entropy(),
+            scheduler_settings(&settings.time, settings.num_blend_layers),
+        )
+        .rotate_epoch(
+            scheduler_epoch_info(&public_info),
+            scheduler_settings(&settings.time, settings.num_blend_layers),
+        )
+        .1,
+    );
+    drop(token_collector);
+
+    let mut current_epoch = CurrentEpoch::new(crypto_processor, scheduler, public_info);
+    current_epoch
+        .proposals_mut()
+        .queue(b"proposal".to_vec(), 2.try_into().unwrap());
+
+    let during_transition = CurrentEpochDuringTransition::new(
+        current_epoch,
+        TransitioningEpoch::new(old_crypto_processor, old_scheduler),
+    );
+
+    // The transition period ending is not an epoch change, so the epoch it
+    // leaves behind keeps everything it had. Were this routed through the
+    // rotation path instead, the proposal would go with it.
+    let mut kept = during_transition.end_transition();
+    let transactions = PendingTransactions::new();
+    assert_eq!(
+        next_local_message(kept.proposals_mut(), &transactions),
+        Some(NextLocalMessage::ProposalCopy(b"proposal")),
+        "a proposal must outlive the end of a transition period, which is not an epoch change"
+    );
 }
 
 #[test_log::test(tokio::test)]
@@ -557,7 +734,7 @@ async fn test_handle_epoch_event() {
     let epoch = 0.into();
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -568,66 +745,73 @@ async fn test_handle_epoch_event() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings(&settings.time, settings.num_blend_layers),
     );
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
     let mut backend_event_receiver = backend.subscribe_to_events();
     let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Handle a NewEpoch event, expecting Transitioning output.
     let output = handle_epoch_event(
-        EpochEvent::NewEpoch(
-            CoreEpochInfo {
-                public: CoreEpochPublicInfo {
-                    epoch: epoch.strict_add(1.into()),
-                    ..public_info.clone()
-                },
-                core_poq_generator: Some(()),
-            }
-            .into(),
-        ),
+        CoreEpochInfo {
+            public: CoreEpochPublicInfo {
+                epoch: epoch.strict_add(1.into()),
+                ..public_info.clone()
+            },
+            core_poq_generator: (),
+        }
+        .into(),
         &settings,
         crypto_processor,
         scheduler,
-        public_info,
-        ServiceState::with_epoch(epoch, token_collector, None, state_updater.clone()).unwrap(),
+        ServiceState::with_epoch(
+            epoch,
+            VecDeque::new(),
+            token_collector,
+            None,
+            state_updater.clone(),
+        )
+        .unwrap(),
         &mut backend,
-        &sdp_relay,
         &mut None,
     )
     .await;
     let HandleEpochEventOutput::Transitioning {
-        new_crypto_processor,
-        new_scheduler,
-        old_scheduler,
-        new_epoch_info,
+        current_epoch: new_current_epoch,
         new_recovery_checkpoint,
-        old_crypto_processor,
+        old_epoch_components,
     } = output
     else {
         panic!("expected Transitioning output");
     };
+    let (new_crypto_processor, new_scheduler, new_epoch_info) = new_current_epoch.into_components();
     assert_eq!(new_crypto_processor.epoch(), epoch.strict_add(1.into()));
-    assert_eq!(old_crypto_processor.epoch(), epoch);
+    assert_eq!(old_epoch_components.epoch(), epoch);
     assert_eq!(
         new_scheduler.release_delayer().unreleased_messages().len(),
         0
     );
     assert_eq!(
-        old_scheduler.release_delayer().unreleased_messages().len(),
+        old_epoch_components
+            .scheduler()
+            .release_delayer()
+            .unreleased_messages()
+            .len(),
         0
     );
     assert_eq!(new_epoch_info.epoch, epoch.strict_add(1.into()));
@@ -639,30 +823,21 @@ async fn test_handle_epoch_event() {
             .is_some()
     );
 
-    // Handle a TransitionExpired event, expecting TransitionCompleted output.
-    let output = handle_epoch_event(
-        EpochEvent::TransitionPeriodExpired,
-        &settings,
-        new_crypto_processor,
-        new_scheduler,
-        new_epoch_info,
-        new_recovery_checkpoint,
-        &mut backend,
-        &sdp_relay,
-        &mut None,
-    )
+    // The end of the transition period is handled apart from a rotation, and
+    // takes nothing belonging to the current epoch — which is what lets that
+    // epoch, and the proposals it owns, survive it untouched.
+    let new_recovery_checkpoint = complete_transition_period::<
+        _,
+        NodeId,
+        ChaCha20Rng,
+        MockProofsVerifier,
+        _,
+        RuntimeServiceId,
+    >(&mut backend, &sdp_relay, *new_recovery_checkpoint)
     .await;
-    let HandleEpochEventOutput::TransitionCompleted {
-        current_crypto_processor,
-        current_scheduler,
-        current_epoch_info,
-        new_recovery_checkpoint,
-    } = output
-    else {
-        panic!("expected TransitionCompleted output");
-    };
+    let (current_crypto_processor, current_scheduler) = (new_crypto_processor, new_scheduler);
     assert_eq!(current_crypto_processor.epoch(), epoch.strict_add(1.into()));
-    assert_eq!(current_epoch_info.epoch, epoch.strict_add(1.into()));
+    assert_eq!(new_epoch_info.epoch, epoch.strict_add(1.into()));
     assert!(
         new_recovery_checkpoint
             .clone()
@@ -676,38 +851,26 @@ async fn test_handle_epoch_event() {
     )
     .await;
 
-    // Handle a NewEpoch event with a new too small membership,
-    // expecting Retiring output.
+    // Handle a NewEpoch event for a membership too small to blend through.
+    // The stream resolves the mode, so such an epoch arrives as `NotCore`,
+    // and the service retires on it.
     let output = handle_epoch_event(
-        EpochEvent::NewEpoch(
-            CoreEpochInfo {
-                public: CoreEpochPublicInfo {
-                    membership: new_membership(minimal_network_size - 1).0,
-                    epoch: epoch.strict_add(2.into()),
-                    ..current_epoch_info.clone()
-                },
-                core_poq_generator: Some(()),
-            }
-            .into(),
-        ),
+        CoreEpochStateInfo::NotCore {
+            epoch: epoch.strict_add(2.into()),
+            epoch_nonce: ZkHash::ZERO,
+        },
         &settings,
         current_crypto_processor,
         current_scheduler,
-        current_epoch_info,
         new_recovery_checkpoint,
         &mut backend,
-        &sdp_relay,
         &mut None,
     )
     .await;
-    let HandleEpochEventOutput::Retiring {
-        old_crypto_processor,
-        ..
-    } = output
-    else {
+    let HandleEpochEventOutput::Retiring { retiring_epoch } = output else {
         panic!("expected Retiring output");
     };
-    assert_eq!(old_crypto_processor.epoch(), epoch.strict_add(1.into()));
+    assert_eq!(retiring_epoch.epoch(), epoch.strict_add(1.into()));
 }
 
 /// On an epoch change where the membership actually changes (and the local node
@@ -723,7 +886,7 @@ async fn test_handle_epoch_event_membership_change_rewires_backend_and_generator
     let epoch = 0.into();
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -734,24 +897,26 @@ async fn test_handle_epoch_event_membership_change_rewires_backend_and_generator
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings(&settings.time, settings.num_blend_layers),
     );
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
     let mut backend_event_receiver = backend.subscribe_to_events();
-    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (_sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // The new epoch has a *different* (larger) membership; `new_membership`
     // always includes the local node, so the node stays part of the core.
@@ -765,38 +930,41 @@ async fn test_handle_epoch_event_membership_change_rewires_backend_and_generator
     let new_public_info = new_epoch_info(new_epoch, new_membership.clone(), &settings);
 
     let output = handle_epoch_event(
-        EpochEvent::NewEpoch(
-            CoreEpochInfo {
-                public: new_public_info.clone(),
-                core_poq_generator: Some(()),
-            }
-            .into(),
-        ),
+        CoreEpochInfo {
+            public: new_public_info.clone(),
+            core_poq_generator: (),
+        }
+        .into(),
         &settings,
         crypto_processor,
         scheduler,
-        public_info,
-        ServiceState::with_epoch(epoch, token_collector, None, state_updater.clone()).unwrap(),
+        ServiceState::with_epoch(
+            epoch,
+            VecDeque::new(),
+            token_collector,
+            None,
+            state_updater.clone(),
+        )
+        .unwrap(),
         &mut backend,
-        &sdp_relay,
         &mut None,
     )
     .await;
 
     let HandleEpochEventOutput::Transitioning {
-        new_crypto_processor,
-        old_crypto_processor,
-        new_epoch_info: returned_epoch_info,
+        current_epoch: new_current_epoch,
+        old_epoch_components,
         ..
     } = output
     else {
         panic!("expected Transitioning output");
     };
+    let (new_crypto_processor, _, returned_epoch_info) = new_current_epoch.into_components();
 
     // A fresh generator is built for the new epoch, and the previous one is
     // retained for the old epoch.
     assert_eq!(new_crypto_processor.epoch(), new_epoch);
-    assert_eq!(old_crypto_processor.epoch(), epoch);
+    assert_eq!(old_epoch_components.epoch(), epoch);
     // The returned public info carries the new membership.
     assert_eq!(returned_epoch_info.epoch, new_epoch);
     assert_eq!(returned_epoch_info.membership.size(), new_membership.size());
@@ -818,7 +986,7 @@ async fn transition_to_new_epoch_with_secret(secret_epoch: Epoch) -> Vec<Epoch> 
     let epoch = 0.into();
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -829,49 +997,66 @@ async fn transition_to_new_epoch_with_secret(secret_epoch: Epoch) -> Vec<Epoch> 
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings(&settings.time, settings.num_blend_layers),
     );
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
-    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (_sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     let secret_info = PolEpochInfo {
         epoch: secret_epoch,
+        state: PolEpochState {
+            nonce: ZkHash::ZERO,
+            aged_utxo_root: ZkHash::ZERO,
+            lottery_0: ZkHash::ZERO,
+            lottery_1: ZkHash::ZERO,
+            source: PolEpochStateSource {
+                tip_id: HeaderId::from([0; 32]),
+                tip_slot: Slot::from(0),
+                lib_id: HeaderId::from([0; 32]),
+                lib_slot: Slot::from(0),
+            },
+        },
         winning_pol_info_stream: Box::pin(repeat(dummy_pol_private_inputs())),
     };
 
     // Isolate the `set_epoch_private` calls made by `handle_epoch_event`.
     reset_set_epoch_private_calls();
     let _output = handle_epoch_event(
-        EpochEvent::NewEpoch(
-            CoreEpochInfo {
-                public: CoreEpochPublicInfo {
-                    epoch: epoch.strict_add(1.into()),
-                    ..public_info.clone()
-                },
-                core_poq_generator: Some(()),
-            }
-            .into(),
-        ),
+        CoreEpochInfo {
+            public: CoreEpochPublicInfo {
+                epoch: epoch.strict_add(1.into()),
+                ..public_info.clone()
+            },
+            core_poq_generator: (),
+        }
+        .into(),
         &settings,
         crypto_processor,
         scheduler,
-        public_info,
-        ServiceState::with_epoch(epoch, token_collector, None, state_updater.clone()).unwrap(),
+        ServiceState::with_epoch(
+            epoch,
+            VecDeque::new(),
+            token_collector,
+            None,
+            state_updater.clone(),
+        )
+        .unwrap(),
         &mut backend,
-        &sdp_relay,
         &mut Some(secret_info),
     )
     .await;
@@ -902,7 +1087,7 @@ async fn test_handle_epoch_event_applies_matching_secret_to_new_generator() {
 }
 
 /// Handle a `NewEpoch(Empty)` event (empty membership), expecting `Retiring`
-/// output. This exercises the `MaybeEmptyCoreEpochInfo::Empty` branch of
+/// output. This exercises the `CoreEpochStateInfo::NotCore` branch of
 /// `handle_epoch_event` directly.
 #[test_log::test(tokio::test)]
 async fn test_handle_epoch_event_empty_epoch_retires() {
@@ -912,7 +1097,7 @@ async fn test_handle_epoch_event_empty_epoch_retires() {
     let epoch = 0.into();
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -923,53 +1108,61 @@ async fn test_handle_epoch_event_empty_epoch_retires() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings(&settings.time, settings.num_blend_layers),
     );
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
-    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (_sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     // Handle a NewEpoch(Empty) event - empty membership triggers Retiring.
     let empty_epoch = epoch.strict_add(1.into());
     let output = handle_epoch_event(
-        EpochEvent::NewEpoch((empty_epoch, ZkHash::from(1)).into()),
+        (empty_epoch, ZkHash::from(1)).into(),
         &settings,
         crypto_processor,
         scheduler,
-        public_info.clone(),
-        ServiceState::with_epoch(epoch, token_collector, None, state_updater.clone()).unwrap(),
+        ServiceState::with_epoch(
+            epoch,
+            VecDeque::new(),
+            token_collector,
+            None,
+            state_updater.clone(),
+        )
+        .unwrap(),
         &mut backend,
-        &sdp_relay,
         &mut None,
     )
     .await;
-    let HandleEpochEventOutput::Retiring {
-        old_crypto_processor,
-        ..
-    } = output
-    else {
+    let HandleEpochEventOutput::Retiring { retiring_epoch } = output else {
         panic!("expected Retiring output for Empty epoch");
     };
     // The old processor/info should be from the epoch we were on before
     // the empty epoch arrived.
-    assert_eq!(old_crypto_processor.epoch(), epoch);
+    assert_eq!(retiring_epoch.epoch(), epoch);
 }
 
-/// Handle a `NewEpoch(NonEmpty)` event where membership exists but the local
-/// node is not part of it (`core_poq_generator = None`), expecting `Retiring`
-/// output.
+/// A membership the node is declared in but has no Merkle path for retires the
+/// service, exactly as an outright empty one does.
+///
+/// It used to arrive here as `NonEmpty` with a `None` `PoQ` generator, so
+/// `handle_epoch_event` had to notice. Now the epoch stream resolves the mode,
+/// and a membership with no path for this node is not core mode, so it arrives
+/// as `NotCore` — which is what this pins: the stream's answer, and the retire
+/// it produces.
 #[test_log::test(tokio::test)]
 async fn test_handle_epoch_event_non_empty_without_local_core_path_retires() {
     let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
@@ -978,66 +1171,63 @@ async fn test_handle_epoch_event_non_empty_without_local_core_path_retires() {
     let epoch = 0.into();
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
         0,
     );
-    let public_info = new_epoch_info(epoch, membership.clone(), &settings);
+
+    let public_info = new_epoch_info(epoch, membership, &settings);
     let crypto_processor = new_crypto_processor(
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info,
         (),
     );
     let scheduler = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings(&settings.time, settings.num_blend_layers),
     );
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let mut backend = <TestBlendBackend as BlendBackend<_, _, _>>::new(
+    let mut backend = <TestBlendBackend as BlendBackend<_, _, _, _>>::new(
         settings.clone(),
         overwatch_handle.clone(),
-        (public_info.membership.clone(), public_info.epoch),
-        BlakeRng::from_entropy(),
+        backend_epoch_info(&public_info),
+        ChaCha20Rng::from_entropy(),
     );
-    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (_sdp_relay, _sdp_relay_receiver) = sdp_relay();
 
     let output = handle_epoch_event(
-        EpochEvent::NewEpoch(
-            CoreEpochInfo {
-                public: CoreEpochPublicInfo {
-                    epoch: epoch.strict_add(1.into()),
-                    ..public_info.clone()
-                },
-                core_poq_generator: None,
-            }
-            .into(),
-        ),
+        CoreEpochStateInfo::NotCore {
+            epoch: epoch.strict_add(1.into()),
+            epoch_nonce: ZkHash::ZERO,
+        },
         &settings,
         crypto_processor,
         scheduler,
-        public_info.clone(),
-        ServiceState::with_epoch(epoch, token_collector, None, state_updater.clone()).unwrap(),
+        ServiceState::with_epoch(
+            epoch,
+            VecDeque::new(),
+            token_collector,
+            None,
+            state_updater.clone(),
+        )
+        .unwrap(),
         &mut backend,
-        &sdp_relay,
         &mut None,
     )
     .await;
 
-    let HandleEpochEventOutput::Retiring {
-        old_crypto_processor,
-        ..
-    } = output
-    else {
-        panic!("expected Retiring output for NonEmpty epoch without local core path");
+    let HandleEpochEventOutput::Retiring { retiring_epoch } = output else {
+        panic!("expected Retiring output for an epoch without a local core path");
     };
-
-    assert_eq!(old_crypto_processor.epoch(), epoch);
+    assert_eq!(retiring_epoch.epoch(), epoch);
 }
 
 /// Check if the service keeps running after it receives a new epoch where
@@ -1051,7 +1241,7 @@ async fn complete_old_epoch_after_main_loop_done() {
     let (membership, local_private_key) = new_membership(minimal_network_size);
 
     // Create settings.
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -1089,13 +1279,14 @@ async fn complete_old_epoch_after_main_loop_done() {
         current_public_info,
         crypto_processor,
         current_recovery_checkpoint,
+        pending_transactions,
         message_scheduler,
         mut backend,
         mut rng,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
-        TestNetworkAdapter,
+        TestPayloadDispatcher,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
         MockKmsAdapter,
@@ -1108,6 +1299,7 @@ async fn complete_old_epoch_after_main_loop_done() {
         &sdp_relay,
         None,
         state_updater,
+        seeded_release_delay_rng(),
     )
     .await;
     let mut backend_event_receiver = backend.subscribe_to_events();
@@ -1118,23 +1310,23 @@ async fn complete_old_epoch_after_main_loop_done() {
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
-        let (
-            old_epoch_crypto_processor,
-            old_epoch_message_scheduler,
-            old_epoch_blending_token_collector,
-        ) = run_event_loop(
+        let retiring_epoch = run_event_loop(
             inbound_relay,
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
             &settings_cloned,
             &mut backend,
-            &TestNetworkAdapter,
+            &TestPayloadDispatcher,
             &sdp_relay,
-            message_scheduler.into(),
             &mut rng,
-            crypto_processor,
-            current_public_info,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
             current_recovery_checkpoint,
         )
         .await;
@@ -1143,12 +1335,11 @@ async fn complete_old_epoch_after_main_loop_done() {
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
             backend,
-            TestNetworkAdapter,
+            TestPayloadDispatcher,
             sdp_relay,
-            old_epoch_message_scheduler,
             rng,
-            old_epoch_blending_token_collector,
-            old_epoch_crypto_processor,
+            retiring_epoch,
+            None,
         )
         .await;
     });
@@ -1198,7 +1389,7 @@ async fn stop_on_empty_epoch() {
     let (membership, local_private_key) = new_membership(minimal_network_size);
 
     // Create settings.
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -1236,13 +1427,14 @@ async fn stop_on_empty_epoch() {
         current_public_info,
         crypto_processor,
         current_recovery_checkpoint,
+        pending_transactions,
         message_scheduler,
         mut backend,
         mut rng,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
-        TestNetworkAdapter,
+        TestPayloadDispatcher,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
         MockKmsAdapter,
@@ -1255,6 +1447,7 @@ async fn stop_on_empty_epoch() {
         &sdp_relay,
         None,
         state_updater,
+        seeded_release_delay_rng(),
     )
     .await;
 
@@ -1265,23 +1458,23 @@ async fn stop_on_empty_epoch() {
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
-        let (
-            old_epoch_crypto_processor,
-            old_epoch_message_scheduler,
-            old_epoch_blending_token_collector,
-        ) = run_event_loop(
+        let retiring_epoch = run_event_loop(
             inbound_relay,
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
             &settings_cloned,
             &mut backend,
-            &TestNetworkAdapter,
+            &TestPayloadDispatcher,
             &sdp_relay,
-            message_scheduler.into(),
             &mut rng,
-            crypto_processor,
-            current_public_info,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
             current_recovery_checkpoint,
         )
         .await;
@@ -1290,12 +1483,11 @@ async fn stop_on_empty_epoch() {
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
             backend,
-            TestNetworkAdapter,
+            TestPayloadDispatcher,
             sdp_relay,
-            old_epoch_message_scheduler,
             rng,
-            old_epoch_blending_token_collector,
-            old_epoch_crypto_processor,
+            retiring_epoch,
+            None,
         )
         .await;
     });
@@ -1334,7 +1526,7 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
     let (membership, local_private_key) = new_membership(minimal_network_size);
 
     // Create settings.
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -1372,13 +1564,14 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
         current_public_info,
         crypto_processor,
         current_recovery_checkpoint,
+        pending_transactions,
         message_scheduler,
         mut backend,
         mut rng,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
-        TestNetworkAdapter,
+        TestPayloadDispatcher,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
         MockKmsAdapter,
@@ -1391,33 +1584,33 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
         &sdp_relay,
         None,
         state_updater,
+        seeded_release_delay_rng(),
     )
     .await;
 
-    let mut backend_event_receiver = backend.subscribe_to_events();
     // Run the event loop of the service in a separate task.
     let settings_cloned = settings.clone();
     let join_handle = tokio::spawn(async move {
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
-        let (
-            old_epoch_crypto_processor,
-            old_epoch_message_scheduler,
-            old_epoch_blending_token_collector,
-        ) = run_event_loop(
+        let retiring_epoch = run_event_loop(
             inbound_relay,
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
             &settings_cloned,
             &mut backend,
-            &TestNetworkAdapter,
+            &TestPayloadDispatcher,
             &sdp_relay,
-            message_scheduler.into(),
             &mut rng,
-            crypto_processor,
-            current_public_info,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
             current_recovery_checkpoint,
         )
         .await;
@@ -1426,12 +1619,11 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
             backend,
-            TestNetworkAdapter,
+            TestPayloadDispatcher,
             sdp_relay,
-            old_epoch_message_scheduler,
             rng,
-            old_epoch_blending_token_collector,
-            old_epoch_crypto_processor,
+            retiring_epoch,
+            None,
         )
         .await;
     });
@@ -1451,15 +1643,14 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
         .await
         .unwrap();
 
-    wait_for_blend_backend_event(
-        &mut backend_event_receiver,
-        TestBlendBackendEvent::EpochTransitionCompleted,
-    )
-    .await;
-    // The service should stop without panicking.
-    join_handle
-        .await
-        .expect("the service should stop without panic when local core path is missing");
+    // No epoch transition to wait for: a configured zk ID that is not the
+    // declared one is not something to carry on through, so the service stops
+    // by refusing the epoch and the operator gets told what to change.
+    let outcome = join_handle.await;
+    assert!(
+        outcome.is_err_and(|error| error.is_panic()),
+        "a zk ID mismatch must stop the service, not be blended through"
+    );
 }
 
 /// Verify that the proof generator produces proofs for the correct epoch,
@@ -1471,7 +1662,7 @@ async fn test_proof_generator_epoch_binding() {
     let epoch_1 = 1.into();
     let minimal_network_size = 1;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
+    let settings = settings(
         local_private_key.clone(),
         u64::from(minimal_network_size).try_into().unwrap(),
         (),
@@ -1486,6 +1677,8 @@ async fn test_proof_generator_epoch_binding() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info_0,
         (),
@@ -1495,26 +1688,23 @@ async fn test_proof_generator_epoch_binding() {
         EpochCryptographicProcessorSettings {
             non_ephemeral_encryption_key: settings.non_ephemeral_signing_key.derive_x25519(),
             num_blend_layers: settings.num_blend_layers,
+            pow_mining_pool: Arc::new(ThreadPoolBuilder::new().build().unwrap()),
+            spent_core_quota: Quota::ZERO,
         },
         &public_info_1,
         (),
     );
 
     // Build a message with epoch 0 proofs.
-    let payload = NetworkMessage {
-        message: vec![],
-        broadcast_settings: (),
-    }
-    .to_bytes()
-    .expect("NetworkMessage serialization must succeed");
+    let payload = vec![];
     let msg_0 = generator_0
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation with epoch 0 must succeed");
 
     // Build a message with epoch 1 proofs.
     let msg_1 = generator_1
-        .encapsulate_data_payload(&payload)
+        .encapsulate_block_proposal_payload(&payload)
         .await
         .expect("encapsulation with epoch 1 must succeed");
 
@@ -1524,21 +1714,22 @@ async fn test_proof_generator_epoch_binding() {
     let scheduler_settings = scheduler_settings(&timing_settings(), settings.num_blend_layers);
     let mut scheduler_0 = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info_0),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch_0,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info_0)),
         None,
         state_updater,
     )
     .unwrap();
     drop(handle_incoming_blend_message(
-        (msg_0.clone().into(), epoch_0),
+        (msg_0.clone(), epoch_0),
         &mut scheduler_0,
         None,
-        &generator_0,
+        generator_0.receiver(),
         None,
         recovery_checkpoint,
     ));
@@ -1554,21 +1745,22 @@ async fn test_proof_generator_epoch_binding() {
         dummy_overwatch_resources::<(), (), RuntimeServiceId>();
     let mut scheduler_0_only = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info_0),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch_0,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info_0)),
         None,
         state_updater,
     )
     .unwrap();
     drop(handle_incoming_blend_message(
-        (msg_1.clone().into(), epoch_0),
+        (msg_1.clone(), epoch_0),
         &mut scheduler_0_only,
         None,
-        &generator_0,
+        generator_0.receiver(),
         None,
         recovery_checkpoint,
     ));
@@ -1586,21 +1778,22 @@ async fn test_proof_generator_epoch_binding() {
         dummy_overwatch_resources::<(), (), RuntimeServiceId>();
     let mut scheduler_1 = EpochMessageScheduler::new(
         scheduler_epoch_info(&public_info_1),
-        BlakeRng::from_entropy(),
+        ChaCha20Rng::from_entropy(),
         scheduler_settings,
     );
     let recovery_checkpoint = ServiceState::with_epoch(
         epoch_1,
+        VecDeque::new(),
         EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info_1)),
         None,
         state_updater,
     )
     .unwrap();
     drop(handle_incoming_blend_message(
-        (msg_1.into(), epoch_1),
+        (msg_1, epoch_1),
         &mut scheduler_1,
         None,
-        &generator_1,
+        generator_1.receiver(),
         None,
         recovery_checkpoint,
     ));
@@ -1619,12 +1812,18 @@ async fn test_proof_generator_epoch_binding() {
 async fn test_initialize_recovers_matching_saved_state() {
     let minimal_network_size = 2;
     let (membership, local_private_key) = new_membership(minimal_network_size);
-    let (settings, _recovery_file) = settings(
-        local_private_key.clone(),
-        u64::from(minimal_network_size).try_into().unwrap(),
-        (),
-        0,
-    );
+    let settings = {
+        let mut settings = settings(
+            local_private_key.clone(),
+            u64::from(minimal_network_size).try_into().unwrap(),
+            (),
+            0,
+        );
+        // More than one layer, so the emission slots the recovery state counts and the
+        // key indices the generator resumes from cannot be confused for each other.
+        settings.num_blend_layers = 3.try_into().unwrap();
+        settings
+    };
 
     let initial_epoch = 0.into();
 
@@ -1652,25 +1851,35 @@ async fn test_initialize_recovers_matching_saved_state() {
     // Build a pre-populated saved state with matching epoch and some spent quota.
     let public_info = new_epoch_info(initial_epoch, membership.clone(), &settings);
     let token_collector = EpochBlendingTokenCollector::new(&reward_epoch_info(&public_info));
-    let saved_state =
-        ServiceState::with_epoch(initial_epoch, token_collector, None, state_updater.clone())
-            .unwrap();
+    let saved_state = ServiceState::with_epoch(
+        initial_epoch,
+        VecDeque::new(),
+        token_collector,
+        None,
+        state_updater.clone(),
+    )
+    .unwrap();
     let mut updater = saved_state.start_updating();
-    updater.consume_core_quota(5);
+    // Five cover messages' worth, at three layers each.
+    updater.consume_core_quota(Quota::new::<15>());
+    updater.queue_unencapsulated_transaction(b"transaction".to_vec());
     let saved_state = updater.commit_changes();
+
+    reset_starting_core_key_indices();
 
     let (
         _remaining_epoch_stream,
         _current_public_info,
         _crypto_processor,
         recovered_checkpoint,
+        _pending_transactions,
         _message_scheduler,
         _backend,
         _rng,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
-        TestNetworkAdapter,
+        TestPayloadDispatcher,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
         MockKmsAdapter,
@@ -1683,15 +1892,32 @@ async fn test_initialize_recovers_matching_saved_state() {
         &sdp_relay_1,
         Some(saved_state),
         state_updater,
+        seeded_release_delay_rng(),
     )
     .await;
 
     assert_eq!(
         recovered_checkpoint.spent_quota(),
-        5,
+        Quota::new::<15>(),
         "Matching epoch: spent_quota should be restored from saved state"
     );
     assert_eq!(recovered_checkpoint.last_seen_epoch(), initial_epoch);
+    // A transaction still waiting for a `PoW` solution has not been encapsulated
+    // and so belongs to no epoch: a restart must not lose it.
+    assert_eq!(
+        recovered_checkpoint.pending_transactions().front(),
+        Some(&b"transaction".to_vec()),
+        "Matching epoch: a queued transaction should be restored from saved state"
+    );
+    // The restored quota is also what tells the core proof generator where to pick
+    // up — it is counted in proofs, and the generator hands out one per key index.
+    // Re-proving an index re-derives a key nullifier this node already put on the
+    // wire, and peers drop that as a duplicate.
+    assert_eq!(
+        recorded_starting_core_key_indices(),
+        vec![Quota::new::<15>()],
+        "Matching epoch: the generator should resume from the spent quota"
+    );
 
     // Mismatched epoch: fresh state should be created
 
@@ -1720,13 +1946,15 @@ async fn test_initialize_recovers_matching_saved_state() {
         EpochBlendingTokenCollector::new(&reward_epoch_info(&stale_public_info));
     let stale_state = ServiceState::with_epoch(
         99.into(),
+        VecDeque::new(),
         stale_token_collector,
         None,
         state_updater2.clone(),
     )
     .unwrap();
     let mut updater = stale_state.start_updating();
-    updater.consume_core_quota(42);
+    updater.consume_core_quota(Quota::new::<42>());
+    updater.queue_unencapsulated_transaction(b"stale epoch transaction".to_vec());
     let stale_state = updater.commit_changes();
 
     let (
@@ -1734,13 +1962,14 @@ async fn test_initialize_recovers_matching_saved_state() {
         _current_public_info2,
         _crypto_processor2,
         recovered_checkpoint2,
+        pending_messages2,
         _message_scheduler2,
         _backend2,
         _rng2,
     ) = initialize::<
         NodeId,
         TestBlendBackend,
-        TestNetworkAdapter,
+        TestPayloadDispatcher,
         MockCoreAndLeaderProofsGenerator,
         MockProofsVerifier,
         MockKmsAdapter,
@@ -1753,12 +1982,13 @@ async fn test_initialize_recovers_matching_saved_state() {
         &sdp_relay2,
         Some(stale_state),
         state_updater2,
+        seeded_release_delay_rng(),
     )
     .await;
 
     assert_eq!(
         recovered_checkpoint2.spent_quota(),
-        0,
+        Quota::ZERO,
         "Mismatched epoch: spent_quota should be 0 for fresh state"
     );
     assert_eq!(
@@ -1766,4 +1996,938 @@ async fn test_initialize_recovers_matching_saved_state() {
         initial_epoch,
         "Mismatched epoch: should track the current epoch, not the stale one"
     );
+    // The rest of a stale state belongs to the epoch it was saved under, but a
+    // transaction still waiting for a `PoW` solution has not been encapsulated
+    // and so belongs to none.
+    assert_eq!(
+        recovered_checkpoint2.pending_transactions().front(),
+        Some(&b"stale epoch transaction".to_vec()),
+        "Mismatched epoch: a queued transaction should outlive the state that carried it"
+    );
+    assert_eq!(
+        pending_messages2.iter().next(),
+        Some(&b"stale epoch transaction".to_vec()),
+        "Mismatched epoch: the queue handed to the event loop should carry it too"
+    );
+}
+
+/// The tokens collected during an epoch are worth an activity proof, and a
+/// restart into the *next* epoch must not throw them away.
+#[test_log::test(tokio::test)]
+async fn test_initialize_submits_activity_proof_for_the_previous_epoch() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // A long epoch makes the core quota, and with it the activity threshold, high
+    // enough for a single token to clear it.
+    settings.time.rounds_per_epoch = 648_000.try_into().unwrap();
+
+    // Saved under epoch 0; the node comes back up in epoch 1.
+    let saved_epoch = 0.into();
+    let current_epoch = Epoch::new(1);
+
+    let membership_info = MembershipInfo {
+        membership: membership.clone(),
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    let (membership_stream, membership_sender) = new_stream();
+    membership_sender
+        .send(test_blend_epoch_state(1, membership_info))
+        .await
+        .unwrap();
+
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+    let (sdp_relay, mut sdp_relay_receiver) = sdp_relay();
+
+    let saved_public_info = new_epoch_info(saved_epoch, membership.clone(), &settings);
+    let saved_state = ServiceState::with_epoch(
+        saved_epoch,
+        VecDeque::new(),
+        EpochBlendingTokenCollector::new(&reward_epoch_info(&saved_public_info)),
+        None,
+        state_updater.clone(),
+    )
+    .unwrap();
+    let mut updater = saved_state.start_updating();
+    updater.collect_current_epoch_tokens(once(BlendingToken::new(
+        Ed25519Key::from_bytes(&[0; _]).public_key(),
+        VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+        VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
+    )));
+    let saved_state = updater.commit_changes();
+
+    let (
+        _remaining_epoch_stream,
+        _current_public_info,
+        _crypto_processor,
+        recovered_checkpoint,
+        _pending_transactions,
+        _message_scheduler,
+        _backend,
+        _rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        MockCoreAndLeaderProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle,
+        MockKmsAdapter,
+        &sdp_relay,
+        Some(saved_state),
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    assert_eq!(
+        recovered_checkpoint.last_seen_epoch(),
+        current_epoch,
+        "the recovered state should track the epoch the node came back up in"
+    );
+    assert!(
+        matches!(
+            sdp_relay_receiver.try_recv(),
+            Ok(lb_sdp_service::SdpMessage::PostActivity {
+                metadata: ActivityMetadata::Blend(_),
+                ..
+            })
+        ),
+        "the previous epoch's tokens should be submitted as an activity proof, not dropped"
+    );
+}
+
+/// A state older than the immediately preceding epoch is past submitting for.
+///
+/// The counterpart to
+/// [`test_initialize_submits_activity_proof_for_the_previous_epoch`].
+#[test_log::test(tokio::test)]
+async fn test_initialize_drops_activity_proof_older_than_one_epoch() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    settings.time.rounds_per_epoch = 648_000.try_into().unwrap();
+
+    let membership_info = MembershipInfo {
+        membership: membership.clone(),
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    // The node comes back up in epoch 3, so a state saved under epoch 1 is
+    // genuinely two epochs behind rather than merely different.
+    let (membership_stream, membership_sender) = new_stream();
+    membership_sender
+        .send(test_blend_epoch_state(3, membership_info))
+        .await
+        .unwrap();
+
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+    let (sdp_relay, mut sdp_relay_receiver) = sdp_relay();
+
+    let stale_epoch = 1.into();
+    let stale_public_info = new_epoch_info(stale_epoch, membership.clone(), &settings);
+    let stale_state = ServiceState::with_epoch(
+        stale_epoch,
+        VecDeque::new(),
+        EpochBlendingTokenCollector::new(&reward_epoch_info(&stale_public_info)),
+        None,
+        state_updater.clone(),
+    )
+    .unwrap();
+    let mut updater = stale_state.start_updating();
+    updater.collect_current_epoch_tokens(once(BlendingToken::new(
+        Ed25519Key::from_bytes(&[0; _]).public_key(),
+        VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
+        VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
+    )));
+    let stale_state = updater.commit_changes();
+
+    let (.., _rng) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        MockCoreAndLeaderProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle,
+        MockKmsAdapter,
+        &sdp_relay,
+        Some(stale_state),
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    assert!(
+        sdp_relay_receiver.try_recv().is_err(),
+        "a collector more than one epoch old should be dropped, not submitted"
+    );
+}
+
+/// The round the fallback tests run on, which is the shortest a deployment may
+/// use.
+///
+/// Sitting through a whole delivery deadline costs them nothing: they run on a
+/// paused clock, which jumps to the next timer the moment every task is idle.
+const FALLBACK_TEST_ROUND_IN_SECONDS: NonZeroU64 = NonZeroU64::new(1).unwrap();
+
+/// Runs the core event loop over a two-node membership, with both sides of
+/// Blend's exit door in the test's hands.
+///
+/// Hands back the delivery deadline the settings imply along with them, so that
+/// a test times itself against the deadline it is actually running under rather
+/// than against a constant that can drift from it.
+async fn spawn_core_watching_the_broadcasting_channel() -> (
+    mpsc::Sender<ServiceMessage<NodeId>>,
+    TestBroadcastingChannel,
+    Duration,
+) {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key,
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // No cover traffic, so the only message that can come out is the proposal.
+    // See the `PoW` liveness test for why this quota silences it.
+    settings.num_blend_layers = NonZeroU64::try_from(2).unwrap();
+    settings.scheduler.cover.message_frequency_per_round = 0.05.try_into().unwrap();
+    settings.time.round_duration_in_seconds = FALLBACK_TEST_ROUND_IN_SECONDS;
+    let deadline = Duration::from_secs(
+        FALLBACK_TEST_ROUND_IN_SECONDS.get() * settings.max_data_message_delay_in_rounds().get(),
+    );
+
+    let (inbound_relay, inbound_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
+    let (membership_stream, membership_sender) = new_stream();
+
+    membership_sender
+        .send(test_blend_epoch_state(
+            0,
+            MembershipInfo {
+                membership,
+                zk: Some(ZkInfo {
+                    root: ZkHash::ZERO,
+                    core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+                }),
+            },
+        ))
+        .await
+        .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+
+    let (
+        mut remaining_epoch_stream,
+        current_public_info,
+        crypto_processor,
+        current_recovery_checkpoint,
+        pending_transactions,
+        message_scheduler,
+        mut backend,
+        mut rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        ObservingDispatcher,
+        MockCoreAndLeaderProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle.clone(),
+        MockKmsAdapter,
+        &sdp_relay,
+        None,
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    let (payload_dispatcher, broadcasting_channel) = ObservingDispatcher::new();
+    tokio::spawn(async move {
+        let secret_pol_info_stream =
+            post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
+        let mut deliveries = FailureDetector::new(
+            settings.max_data_message_delay_in_rounds(),
+            settings.time.round_duration_in_seconds,
+            PayloadDispatcher::<RuntimeServiceId>::observe_broadcasts(&payload_dispatcher).await,
+        );
+        run_event_loop(
+            inbound_relay,
+            &mut blend_message_stream,
+            secret_pol_info_stream,
+            &mut remaining_epoch_stream,
+            &settings,
+            &mut backend,
+            &payload_dispatcher,
+            &sdp_relay,
+            &mut rng,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            Some(&mut deliveries),
+            current_recovery_checkpoint,
+        )
+        .await;
+    });
+
+    (inbound_message_sender, broadcasting_channel, deadline)
+}
+
+/// Long enough that reaching it means the assertion has already failed.
+fn past(deadline: Duration) -> Duration {
+    deadline + Duration::from_secs(FALLBACK_TEST_ROUND_IN_SECONDS.get()) * 4
+}
+
+/// A core node reacts to a delivery failure exactly as an edge node does: at
+/// the delivery deadline it puts the proposal on the broadcasting channel
+/// itself.
+#[test_log::test(tokio::test(start_paused = true))]
+async fn a_proposal_the_network_never_delivers_is_broadcast_in_the_clear() {
+    let proposal = b"proposal".to_vec();
+    let (inbound_message_sender, mut broadcasting_channel, deadline) =
+        spawn_core_watching_the_broadcasting_channel().await;
+
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::BlockProposal(
+            proposal.clone(),
+        )))
+        .await
+        .unwrap();
+
+    let broadcast = tokio::time::timeout(past(deadline), broadcasting_channel.dispatched.recv())
+        .await
+        .expect("the deadline should have expired by now")
+        .expect("the service should still be running");
+    assert_eq!(broadcast, DataPayload::BlockProposal(proposal));
+}
+
+/// Seeing the proposal come out of the Blend network is what cancels the direct
+/// broadcast, and it does not matter whose exit node put it there.
+#[test_log::test(tokio::test(start_paused = true))]
+async fn a_proposal_the_network_delivers_is_never_broadcast_in_the_clear() {
+    let proposal = b"proposal".to_vec();
+    let (inbound_message_sender, mut broadcasting_channel, deadline) =
+        spawn_core_watching_the_broadcasting_channel().await;
+
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::BlockProposal(
+            proposal.clone(),
+        )))
+        .await
+        .unwrap();
+    // Halfway to the deadline: past the round the proposal is released in, so
+    // that the observation cannot land before the message it answers, and well
+    // short of the deadline it has to cancel.
+    sleep(deadline / 2).await;
+    broadcasting_channel
+        .carrying
+        .send(DataPayload::BlockProposal(proposal))
+        .expect("the service is subscribed");
+
+    assert!(
+        tokio::time::timeout(past(deadline), broadcasting_channel.dispatched.recv())
+            .await
+            .is_err(),
+        "a delivered proposal must not be revealed by its proposer"
+    );
+}
+
+/// A block proposal that arrives before this epoch's secret `PoL` info still
+/// goes out once it lands.
+///
+/// Leadership proofs only become possible when the secret `PoL` info reaches
+/// the processor, and that regularly happens *after* the first proposal does —
+/// most visibly at startup, when the node wins the very first slot it is asked
+/// to lead. The proposal used to be encapsulated where it arrived, fail, and be
+/// dropped with an error, silently losing a block this node had just produced.
+#[test_log::test(tokio::test)]
+async fn a_proposal_arriving_before_the_pol_info_is_still_sent() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // No cover traffic, so the only message that can come out is the proposal.
+    // See the `PoW` liveness test for why this quota silences it.
+    settings.num_blend_layers = NonZeroU64::try_from(2).unwrap();
+    settings.scheduler.cover.message_frequency_per_round = 0.05.try_into().unwrap();
+
+    let (inbound_relay, inbound_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
+    let (membership_stream, membership_sender) = new_stream();
+
+    let membership_info = MembershipInfo {
+        membership,
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    membership_sender
+        .send(test_blend_epoch_state(0, membership_info))
+        .await
+        .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+
+    // Both installed before the service exists, so nothing is missed.
+    let pol_gate = PolGate::setup();
+    let mut outgoing_messages = outgoing_messages_recorder();
+
+    let (
+        mut remaining_epoch_stream,
+        current_public_info,
+        crypto_processor,
+        current_recovery_checkpoint,
+        pending_transactions,
+        message_scheduler,
+        mut backend,
+        mut rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        PolAwareProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle.clone(),
+        MockKmsAdapter,
+        &sdp_relay,
+        None,
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    tokio::spawn(async move {
+        let secret_pol_info_stream =
+            post_initialize::<GatedPolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
+        run_event_loop(
+            inbound_relay,
+            &mut blend_message_stream,
+            secret_pol_info_stream,
+            &mut remaining_epoch_stream,
+            &settings,
+            &mut backend,
+            &TestPayloadDispatcher,
+            &sdp_relay,
+            &mut rng,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
+            current_recovery_checkpoint,
+        )
+        .await;
+    });
+
+    // The gate is shut, so the leadership branch has nothing to give: this is the
+    // window the proposal used to die in.
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::BlockProposal(
+            b"proposal".to_vec(),
+        )))
+        .await
+        .unwrap();
+
+    // Answering a request proves the service went round the inbound arm again,
+    // so the proposal ahead of it has already been handled. Without this the
+    // gate could open first and the test would pass on a proposal that was
+    // never queued at all.
+    let (reply, answered) = oneshot::channel();
+    inbound_message_sender
+        .send(ServiceMessage::GetPendingTransactions { reply })
+        .await
+        .unwrap();
+    answered.await.unwrap();
+
+    pol_gate.release();
+
+    expect_outgoing_message(
+        &mut outgoing_messages,
+        "the proposal should have been held until leadership proofs were possible",
+    )
+    .await;
+}
+
+/// A message queued before an epoch rotation still goes out afterwards, under
+/// the epoch it was minted for.
+///
+/// The previous epoch keeps releasing through its own scheduler for the length
+/// of its transition period, and each message it releases is published under
+/// that epoch so it reaches the peers still negotiated for it. Publishing it
+/// under the new epoch would fail their `PoQ` check and get this node
+/// blacklisted for `BlacklistReason::InvalidProofOfQuota`.
+///
+/// What is pinned here is that the message survives the rotation and is
+/// published under the epoch it was minted for. *Which* scheduler releases it
+/// is not: both the current epoch before the rotation and the previous epoch
+/// after it publish under epoch 0, and which one gets there first depends on
+/// how the round clock falls against an epoch arriving over a channel. Seeding
+/// the delayer fixes the round but not that race — measured at roughly three
+/// runs in eight exercising the previous-epoch path.
+///
+/// Pinning it needs a test that does not go through the loop at all, on
+/// [`CurrentEpochDuringTransition::next_event`] directly.
+#[test_log::test(tokio::test)]
+#[expect(clippy::too_many_lines, reason = "Test function.")]
+async fn the_previous_epoch_keeps_releasing_under_its_own_epoch() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // No cover traffic, so the only message that can come out is the queued
+    // transaction. See the `PoW` liveness test for why this quota silences it.
+    settings.num_blend_layers = NonZeroU64::try_from(2).unwrap();
+    settings.scheduler.cover.message_frequency_per_round = 0.05.try_into().unwrap();
+    let (inbound_relay, inbound_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
+    let (membership_stream, membership_sender) = new_stream();
+
+    let membership_info = MembershipInfo {
+        membership,
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    membership_sender
+        .send(test_blend_epoch_state(0, membership_info.clone()))
+        .await
+        .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+
+    // Both installed before the service exists, so nothing is missed.
+    let mut published_epochs = published_epochs_recorder();
+
+    let (
+        mut remaining_epoch_stream,
+        current_public_info,
+        crypto_processor,
+        current_recovery_checkpoint,
+        pending_transactions,
+        message_scheduler,
+        mut backend,
+        mut rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        MockCoreAndLeaderProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle.clone(),
+        MockKmsAdapter,
+        &sdp_relay,
+        None,
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    tokio::spawn(async move {
+        let secret_pol_info_stream =
+            post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
+        run_event_loop(
+            inbound_relay,
+            &mut blend_message_stream,
+            secret_pol_info_stream,
+            &mut remaining_epoch_stream,
+            &settings,
+            &mut backend,
+            &TestPayloadDispatcher,
+            &sdp_relay,
+            &mut rng,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
+            current_recovery_checkpoint,
+        )
+        .await;
+    });
+
+    // Queued under epoch 0, and released on a round that has not come yet.
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::Transaction(
+            b"transaction".to_vec(),
+        )))
+        .await
+        .unwrap();
+
+    // Answering a request proves the service went round the inbound arm again,
+    // so the transaction ahead of it is already queued when the epoch turns.
+    let (reply, answered) = oneshot::channel();
+    inbound_message_sender
+        .send(ServiceMessage::GetPendingTransactions { reply })
+        .await
+        .unwrap();
+    answered.await.unwrap();
+
+    membership_sender
+        .send(test_blend_epoch_state(1, membership_info))
+        .await
+        .unwrap();
+
+    // The rotation has to be observed before anything is asserted: a release
+    // that happened while epoch 0 was still current is also published under
+    // epoch 0, and would satisfy the assertion without the previous epoch
+    // having released anything at all.
+    // The first message out is the one the previous epoch still had queued: the
+    // rotation lands before it (measured at ~440µs against ~580µs), and nothing
+    // else is due, since this test's quota leaves no room for cover traffic.
+    //
+    // Generous next to the release round the message has to wait for, and only
+    // ever reached when the assertion has already failed.
+    let published_under = tokio::time::timeout(Duration::from_secs(10), published_epochs.recv())
+        .await
+        .expect("timed out: the previous epoch should still release what it had queued")
+        .expect("service stopped publishing");
+    assert_eq!(
+        published_under,
+        Epoch::from(0),
+        "a message minted under the previous epoch must be published under it, not the new one"
+    );
+}
+
+/// A block proposal that arrives before this epoch's secret `PoL` info still
+/// goes out once it lands.
+///
+/// Leadership proofs only become possible when the secret `PoL` info reaches
+/// the processor, and that regularly happens *after* the first proposal does —
+/// most visibly at startup, when the node wins the very first slot it is asked
+/// to lead. The proposal used to be encapsulated where it arrived, fail, and be
+/// dropped with an error, silently losing a block this node had just produced.
+#[test_log::test(tokio::test)]
+async fn a_message_that_can_never_be_sent_does_not_block_the_rest() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // No cover traffic, so the only message that can come out is the one this
+    // test expects. See the `PoW` liveness test for why this quota silences it.
+    settings.num_blend_layers = NonZeroU64::try_from(2).unwrap();
+    settings.scheduler.cover.message_frequency_per_round = 0.05.try_into().unwrap();
+
+    let (inbound_relay, inbound_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
+    let (membership_stream, membership_sender) = new_stream();
+
+    let membership_info = MembershipInfo {
+        membership,
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    membership_sender
+        .send(test_blend_epoch_state(0, membership_info))
+        .await
+        .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+
+    // Installed before the service exists, so nothing is missed.
+    let mut outgoing_messages = outgoing_messages_recorder();
+
+    let (
+        mut remaining_epoch_stream,
+        current_public_info,
+        crypto_processor,
+        current_recovery_checkpoint,
+        pending_transactions,
+        message_scheduler,
+        mut backend,
+        mut rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        MockCoreAndLeaderProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle.clone(),
+        MockKmsAdapter,
+        &sdp_relay,
+        None,
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    tokio::spawn(async move {
+        let secret_pol_info_stream =
+            post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
+        run_event_loop(
+            inbound_relay,
+            &mut blend_message_stream,
+            secret_pol_info_stream,
+            &mut remaining_epoch_stream,
+            &settings,
+            &mut backend,
+            &TestPayloadDispatcher,
+            &sdp_relay,
+            &mut rng,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
+            current_recovery_checkpoint,
+        )
+        .await;
+    });
+
+    // One byte over what a payload can hold, so encapsulating it fails the same
+    // way however long it waits.
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::BlockProposal(vec![
+            0;
+            MAX_PAYLOAD_BODY_SIZE + 1
+        ])))
+        .await
+        .unwrap();
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::Transaction(
+            b"transaction".to_vec(),
+        )))
+        .await
+        .unwrap();
+
+    expect_outgoing_message(
+        &mut outgoing_messages,
+        "the transaction behind the oversized proposal should still go out",
+    )
+    .await;
+}
+
+/// A transaction waits for a `PoW` solution without holding up anything else.
+///
+/// The puzzle search behind a transaction's layer proofs takes long enough that
+/// awaiting it where the transaction arrives would stop the service dead: no
+/// incoming messages, no release rounds, no epoch events, no cover traffic. So
+/// the transaction is queued and mined for on its own branch of the event loop,
+/// and this test pins that down by getting a block proposal all the way out
+/// while the transaction is still waiting for its solution.
+#[test_log::test(tokio::test)]
+#[expect(clippy::too_many_lines, reason = "Test function.")]
+async fn a_transaction_awaiting_a_pow_solution_does_not_stall_the_event_loop() {
+    let minimal_network_size = 2;
+    let (membership, local_private_key) = new_membership(minimal_network_size);
+    let mut settings = settings(
+        local_private_key.clone(),
+        u64::from(minimal_network_size).try_into().unwrap(),
+        (),
+        0,
+    );
+    // No cover traffic, so every message the service sends is one this test put
+    // in and the count below means what it says. The frequency itself must stay
+    // positive (`C * ß_c > 0`), so the silence comes from the quota instead:
+    // `Q_c = ceil(10 rounds * 0.05 * 2 layers / 2 nodes) = ceil(0.5) = 1`, and
+    // the scheduler floors its cover count at `Q_c / num_blend_layers = 0`.
+    // Anything in `(0, 0.1]` gives the same quota, so the halfway point keeps
+    // float drift well clear of either rounding boundary.
+    settings.num_blend_layers = NonZeroU64::try_from(2).unwrap();
+    settings.scheduler.cover.message_frequency_per_round = 0.05.try_into().unwrap();
+
+    let (inbound_relay, inbound_message_sender) = new_stream();
+    let (mut blend_message_stream, _blend_message_sender) = new_stream();
+    let (membership_stream, membership_sender) = new_stream();
+
+    let membership_info = MembershipInfo {
+        membership,
+        zk: Some(ZkInfo {
+            root: ZkHash::ZERO,
+            core_and_path_selectors: Some([(ZkHash::ZERO, false); CORE_MERKLE_TREE_HEIGHT]),
+        }),
+    };
+    membership_sender
+        .send(test_blend_epoch_state(0, membership_info))
+        .await
+        .unwrap();
+
+    let (sdp_relay, _sdp_relay_receiver) = sdp_relay();
+    let (overwatch_handle, _overwatch_cmd_receiver, state_updater, _state_receiver) =
+        dummy_overwatch_resources();
+
+    // Both installed before the service exists, so nothing is missed.
+    let pow_gate = PowGate::setup();
+    let mut outgoing_messages = outgoing_messages_recorder();
+
+    let (
+        mut remaining_epoch_stream,
+        current_public_info,
+        crypto_processor,
+        current_recovery_checkpoint,
+        pending_transactions,
+        message_scheduler,
+        mut backend,
+        mut rng,
+    ) = initialize::<
+        NodeId,
+        TestBlendBackend,
+        TestPayloadDispatcher,
+        GatedPowProofsGenerator,
+        MockProofsVerifier,
+        MockKmsAdapter,
+        RuntimeServiceId,
+    >(
+        settings.clone(),
+        membership_stream,
+        overwatch_handle.clone(),
+        MockKmsAdapter,
+        &sdp_relay,
+        None,
+        state_updater,
+        seeded_release_delay_rng(),
+    )
+    .await;
+
+    tokio::spawn(async move {
+        let secret_pol_info_stream =
+            post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
+        run_event_loop(
+            inbound_relay,
+            &mut blend_message_stream,
+            secret_pol_info_stream,
+            &mut remaining_epoch_stream,
+            &settings,
+            &mut backend,
+            &TestPayloadDispatcher,
+            &sdp_relay,
+            &mut rng,
+            CurrentEpoch::new(
+                crypto_processor,
+                message_scheduler.into(),
+                current_public_info,
+            ),
+            pending_transactions,
+            None,
+            current_recovery_checkpoint,
+        )
+        .await;
+    });
+
+    // The transaction goes in first, so if the loop blocked on mining, the
+    // proposal queued behind it could never get out.
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::Transaction(
+            b"transaction".to_vec(),
+        )))
+        .await
+        .unwrap();
+    inbound_message_sender
+        .send(ServiceMessage::Blend(DataPayload::BlockProposal(
+            b"proposal".to_vec(),
+        )))
+        .await
+        .unwrap();
+
+    // The proposal gets out while the transaction is still mining. Nothing else
+    // can be in flight: cover traffic is off and the gate is shut. A stalled
+    // loop shows up as a timeout here rather than as a hung test.
+    expect_outgoing_message(
+        &mut outgoing_messages,
+        "the block proposal should be sent while the transaction is still mining",
+    )
+    .await;
+
+    // And the transaction follows once its solution lands.
+    pow_gate.release();
+    expect_outgoing_message(
+        &mut outgoing_messages,
+        "the transaction should be sent once its PoW solution lands",
+    )
+    .await;
+}
+
+/// Waits for the service to send one message onwards, failing rather than
+/// hanging if it never does.
+async fn expect_outgoing_message(
+    outgoing_messages: &mut mpsc::UnboundedReceiver<()>,
+    expectation: &str,
+) {
+    // Generous next to the release round the message has to wait for, and only
+    // ever reached when the assertion has already failed.
+    const GRACE: Duration = Duration::from_secs(10);
+
+    tokio::time::timeout(GRACE, outgoing_messages.recv())
+        .await
+        .unwrap_or_else(|_| panic!("timed out: {expectation}"))
+        .unwrap_or_else(|| panic!("service stopped sending: {expectation}"));
 }

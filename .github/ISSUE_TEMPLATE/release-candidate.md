@@ -34,22 +34,18 @@ Most of the template content is the same or very similar to what is in `release.
 - [ ] Commit and push the changes
 - [ ] Manually trigger the [ceremony workflow][ceremony-workflow] from the `HEAD` of the release branch specifying the `devnet` image tag and the right version number `X.Y.Z-rc.N`
 - [ ] Post the link to the workflow run to this issue for easier review
-- [ ] Wait for the workflow run to complete. The workflow will push a new commit on the release branch with the updated devnet deployment settings.
-- [ ] Checkout and hard reset the `devnet` branch to point to the latest commit of the current release branch
-- [ ] Create a new symlink `compose.static.yml` -> `compose.setup.yml` with `ln -sf compose.setup.yml compose.static.yml`
-- [ ] Commit and push to `devnet` branch to trigger the cleanup
-- [ ] Wait around 1 minute for the previous deployment to be cleaned. Visit the [Devnet web UI][devnet-web-ui] and make sure it's in setup mode.
+- [ ] Wait for the workflow run to complete. The workflow will push a new commit on the release branch overwriting the binary's embedded deployment settings (`nodes/node/binary/src/config/deployment/settings.yaml`) with the devnet settings.
 
 ## Release candidate preparation
 
-- [ ] Checkout and pull the release branch, it should contain the bot generated commit updating the deployment settings as its `HEAD`
+- [ ] Checkout and pull the release branch. If the previous section about genesis creation was followed, it should contain the bot generated commit updating the deployment settings as its `HEAD`
 - [ ] Bump the Cargo workspace version to match the new release version `X.Y.Z-rc.N`
 - [ ] Re-generate the workspace `Cargo.lock` file with `cargo update -w`
 - [ ] Verify the `Cargo.lock` is now up to date with `cargo update -w --locked`
 - [ ] Verify the `HEAD` of the release branch has green CI ✅
 - [ ] Commit the changes, and tag them with `X.Y.Z-rc.N`
 - [ ] Push the commit and the tag
-- [ ] Manually trigger the [Logos Blockchain tools build workflow][build-logos-tools-docker-workflow] from the `HEAD` of the release branch (with the latest changes) specifying the `devnet` image tag.
+- [ ] Manually trigger the [Logos Blockchain tools build workflow][build-logos-tools-docker-workflow] from the `X.Y.Z-rc.N` tag on GitHub specifying the `devnet` image tag. Leave "Optional version tag" empty.
 - [ ] Post the link to the workflow run to this issue for easier review
 - [ ] Without waiting for the workflow to complete, move on to the next section
 
@@ -57,18 +53,47 @@ Most of the template content is the same or very similar to what is in `release.
 
 - [ ] Manually trigger the [bundling workflow][release-bundling-workflow] from the `X.Y.Z-rc.N` tag on GitHub with the `release-candidate` input to prepare the GitHub release draft with the built binaries
 - [ ] Post the link to the workflow run to this issue for easier review
-- [ ] Wait for the bundling workflow to complete and generate a draft GitHub pre-release.
+- [ ] Without waiting for the workflow to complete, move on to the next section
 - [ ] Address checklist of the generated GitHub release in [https://github.com/logos-blockchain/logos-blockchain/releases](https://github.com/logos-blockchain/logos-blockchain/releases)
 - [ ] Publish release
 - [ ] Post the link to the published release to this issue for easier review
-- [ ] Post the link to the Docker image building workflow as appearing in [the Actions section][node-docker-build-workflow]
+
+## Release candidate module
+
+- [ ] Enter the [logos-blockchain-module] repository locally.
+- [ ] Branch out from the latest `master` commit with a release branch named `release/X.Y.Z`. If this is not the first release candidate for this version, HARD reset the branch on top of `master` and force-push the new tip
+- [ ] Bump the `logos-blockchain.url` input in the `flake.nix` file: `logos-blockchain.url = "github:logos-blockchain/logos-blockchain?ref=X.Y.Z-rc.N";`
+- [ ] Set the version to `X.Y.Z-rc.N` inside the `metadata.json` file
+- [ ] Re-generate the `flake.lock` file using the command `nix flake lock`
+- [ ] Commit the changes and tag them with `X.Y.Z-rc.N`
+- [ ] Push the commit and the tag
+- [ ] Enter the [blockchain-modules-release] repository locally and run `git submodule update --init --recursive`
+- [ ] Branch out from the latest `master` commit with a release branch named `blockchain-module-X.Y.Z-rc.N`
+- [ ] Navigate to the `submodules/logos-blockchain-module` directory and checkout the `X.Y.Z-rc.N` tag
+- [ ] Commit the changes to the [blockchain-modules-release] repository
+- [ ] Manually trigger the [logos-blockchain-module-workflow] workflow with the `Force build` option selected from the `blockchain-module-X.Y.Z-rc.N` branch
+- [ ] Post the link to the workflow run to this issue for easier review
+- [ ] Wait for the workflow to complete before moving on to the next step
+- [ ] Manually trigger the [node Docker image build workflow][node-docker-build-workflow] from the `X.Y.Z-rc.N` tag. Use latest (A.B.C) Logos Core release for `LC Core Version` and `X.Y.Z-rc.N` for `LB Node Version`.
+- [ ] Post the link to the workflow run to this issue for easier review
+- [ ] Wait for the workflow to complete before moving on to the next section
 
 ## Devnet deployment
 
+### Existing state cleanup (optional, only whenever a new genesis has been created in the genesis step)
+
+- [ ] Checkout and hard reset the `devnet` branch to point to the latest commit of the current release branch
+- [ ] Symlink the environment file to the repo root with `ln -sf deployment/.env.devnet .env.devnet`
+- [ ] Create a new symlink `compose.static.yml` -> `compose.setup.yml` with `ln -sf deployment/compose.setup.yml compose.static.yml`
+- [ ] Commit and push to `devnet` branch to trigger the cleanup
+- [ ] Wait around 1 minute for the previous deployment to be cleaned. Visit the [Devnet web UI][devnet-web-ui] and make sure it's in setup mode.
+
+### Released version deployment
+
 - [ ] Verify the Logos Blockchain tools Docker image was properly built and pushed to the [GitHub container registry][logos-tools-image-container-registry]
-- [ ] Wait for the new Docker image to be built after the release is published. It must have the `X.Y.Z-rc.N` tag.
-- [ ] Checkout `devnet` branch again and change the `compose.static.yml` symlink to now point to `compose.run.yml` with `ln -s -f compose.run.yml compose.static.yml`
-- [ ] Update `.env.devnet` file to contain `NODE_IMAGE_LABEL=X.Y.Z-rc.N` set to version being released
+- [ ] Wait for the new node Docker image to be built after triggering the workflow. It must have the `X.Y.Z-rc.N` tag.
+- [ ] Checkout `devnet` branch again and change the `compose.static.yml` symlink to now point to `deployment/compose.run.yml` with `ln -sf deployment/compose.run.yml compose.static.yml`. If this release included previous state cleanup, the new symlink should replace the previous `deployment/compose.setup.yml`, otherwise this should be a no-op.
+- [ ] Update `deployment/.env.devnet` file to contain `NODE_IMAGE_LABEL=X.Y.Z-rc.N` set to version being released
 - [ ] Commit and push the changes to trigger environment re-deployment
 - [ ] Wait around 1 minute for deployment to be updated. Environment is now live.
 - [ ] If needed, at any time you can download fleet nodes' configs and logs from [https://devnet.blockchain.logos.co/internal/node-data/](https://devnet.blockchain.logos.co/internal/node-data/)
@@ -88,3 +113,6 @@ Most of the template content is the same or very similar to what is in `release.
 [release-bundling-workflow]: https://github.com/logos-blockchain/logos-blockchain/actions/workflows/prepare-release.yml
 [github-release-candidate-section]: #release-candidate-publication
 [node-docker-build-workflow]: https://github.com/logos-blockchain/logos-blockchain/actions/workflows/publish-node-image.yml
+[logos-blockchain-module]: https://github.com/logos-blockchain/logos-blockchain-module
+[blockchain-modules-release]: https://github.com/logos-blockchain/blockchain-modules-release
+[logos-blockchain-module-workflow]: https://github.com/logos-blockchain/blockchain-modules-release/actions/workflows/blockchain-module.yml

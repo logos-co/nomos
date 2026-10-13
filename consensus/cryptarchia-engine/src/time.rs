@@ -4,6 +4,10 @@ use core::{
 };
 use std::{num::NonZero, time::Duration};
 
+use lb_binary_codec::{
+    bincode::{self, BoundedSerializeOp},
+    canonical::{BinaryCodec, BinaryDecode, BinaryEncode, DecodeError},
+};
 use lb_utils::bounded_duration::{MinimalBoundedDuration, SECOND};
 use time::OffsetDateTime;
 #[cfg(feature = "tokio")]
@@ -21,8 +25,13 @@ use tokio::time::{Interval, MissedTickBehavior};
     Ord,
     serde::Serialize,
     serde::Deserialize,
+    BinaryCodec,
 )]
 pub struct Slot(u64);
+
+impl BoundedSerializeOp for Slot {
+    type Bytes = [u8; bincode::BINCODE_U64_SIZE];
+}
 
 #[derive(
     Clone, Debug, Eq, PartialEq, Copy, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
@@ -97,7 +106,32 @@ impl AsRef<u32> for Epoch {
     }
 }
 
+impl BinaryEncode for Epoch {
+    fn encoded_length(&self) -> usize {
+        self.as_ref().encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.as_ref().encode_into(out);
+    }
+}
+
+impl BinaryDecode for Epoch {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, inner) = u32::decode(input, &())?;
+        Ok((rest, Self::new(inner)))
+    }
+}
+
 impl Slot {
+    /// The fixed-size canonical representation of a slot.
+    pub const CANONICAL_ENCODED_SIZE: usize = 8;
+
     #[must_use]
     pub const fn new(inner: u64) -> Self {
         Self(inner)
@@ -158,6 +192,11 @@ impl Slot {
     pub const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
     }
+
+    #[must_use]
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.0.checked_sub(rhs.0).map(Self)
+    }
 }
 
 impl From<u32> for Epoch {
@@ -179,6 +218,16 @@ impl TryFrom<u64> for Epoch {
         value.try_into().map(Self)
     }
 }
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for Slot {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        u64::schema()
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for Slot {}
 
 impl From<u64> for Slot {
     fn from(slot: u64) -> Self {

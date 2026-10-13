@@ -4,29 +4,56 @@ use lb_blend::{
     proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection},
     scheduling::message_blend::provers::{
         BlendLayerProof, ProofsGeneratorSettings, WinningPolInfoStream,
-        core_and_leader::RealCoreAndLeaderProofsGenerator,
-        leader::{LeaderProofsGenerator, RealLeaderProofsGenerator},
+        core_leader_and_pow::RealCoreLeaderAndPowProofsGenerator, leader::LeaderProofsGenerator,
+        leader_and_pow::RealLeaderAndPowProofsGenerator,
     },
 };
 use lb_blend_service::{RealProofsVerifier, core::kms::PreloadKMSBackendCorePoQGenerator};
 use lb_key_management_system_service::keys::UnsecuredEd25519Key;
+use lb_storage_service::recovery::StorageRecoveryBackend;
 use lb_time_service::backends::NtpTimeBackend;
 use libp2p::PeerId;
 
-use crate::generic_services::{CryptarchiaService, SdpService, blend::pol::PolInfoProvider};
+use crate::generic_services::{
+    ChainNetworkService, CryptarchiaService, MempoolNetworkAdapter, MempoolPool, SdpService,
+    blend::pol::PolInfoProvider,
+};
 
 pub(crate) mod pol;
 
+/// Blend's exit door on this node: block proposals go back onto the chain's
+/// gossipsub topic, transactions go to the mempool.
+pub type BlendPayloadDispatcher<RuntimeServiceId> =
+    lb_blend_service::core::dispatcher::libp2p::Libp2pPayloadDispatcher<
+        MempoolNetworkAdapter<RuntimeServiceId>,
+        MempoolPool<RuntimeServiceId>,
+        ChainNetworkService<RuntimeServiceId>,
+        RuntimeServiceId,
+    >;
+
+pub type BlendCoreRecoveryBackend<RuntimeServiceId> = StorageRecoveryBackend<
+    lb_blend_service::core::CoreServiceState<
+        lb_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
+        BlendBroadcastSettings<RuntimeServiceId>,
+    >,
+    lb_blend_service::core::settings::StartingBlendConfig<
+        lb_blend_service::core::backends::libp2p::Libp2pBlendBackendSettings,
+        BlendBroadcastSettings<RuntimeServiceId>,
+    >,
+    RuntimeServiceId,
+>;
+
 pub type BlendCoreService<RuntimeServiceId> = lb_blend_service::core::BlendService<
-    lb_blend_service::core::backends::libp2p::Libp2pBlendBackend,
+    lb_blend_service::core::backends::libp2p::Libp2pBlendBackend<RealProofsVerifier>,
     PeerId,
-    lb_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId>,
+    BlendPayloadDispatcher<RuntimeServiceId>,
     SdpService<RuntimeServiceId>,
-    RealCoreAndLeaderProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>>,
+    RealCoreLeaderAndPowProofsGenerator<PreloadKMSBackendCorePoQGenerator<RuntimeServiceId>>,
     RealProofsVerifier,
     NtpTimeBackend,
     CryptarchiaService<RuntimeServiceId>,
     PolInfoProvider,
+    BlendCoreRecoveryBackend<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
@@ -46,27 +73,38 @@ impl LeaderProofsGenerator for MockLeaderProofsGenerator {
         Some(BlendLayerProof {
             proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([0; _]),
             proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked([0; _]),
-            ephemeral_signing_key: UnsecuredEd25519Key::generate_with_blake_rng(),
+            ephemeral_signing_key: UnsecuredEd25519Key::generate_with_chacha_rng(),
         })
     }
 }
 
 pub type BlendEdgeService<RuntimeServiceId> = lb_blend_service::edge::BlendService<
-        lb_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
-        PeerId,
-        <lb_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as lb_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings,
-        RealLeaderProofsGenerator,
-        NtpTimeBackend,
-        CryptarchiaService<RuntimeServiceId>,
-        PolInfoProvider,
-        RuntimeServiceId
-    >;
+    lb_blend_service::edge::backends::libp2p::Libp2pBlendBackend,
+    PeerId,
+    RealLeaderAndPowProofsGenerator,
+    BlendPayloadDispatcher<RuntimeServiceId>,
+    NtpTimeBackend,
+    CryptarchiaService<RuntimeServiceId>,
+    PolInfoProvider,
+    RuntimeServiceId,
+>;
+
+pub type BlendBroadcastService<RuntimeServiceId> = lb_blend_service::broadcast::BlendService<
+    PeerId,
+    BlendPayloadDispatcher<RuntimeServiceId>,
+    NtpTimeBackend,
+    CryptarchiaService<RuntimeServiceId>,
+    RuntimeServiceId,
+>;
+
 pub type BlendService<RuntimeServiceId> = lb_blend_service::BlendService<
     BlendCoreService<RuntimeServiceId>,
     BlendEdgeService<RuntimeServiceId>,
+    BlendBroadcastService<RuntimeServiceId>,
     SdpService<RuntimeServiceId>,
     RuntimeServiceId,
 >;
 
-pub type BlendBroadcastSettings<RuntimeServiceId> =
-    <lb_blend_service::core::network::libp2p::Libp2pAdapter<RuntimeServiceId> as lb_blend_service::core::network::NetworkAdapter<RuntimeServiceId>>::BroadcastSettings;
+pub type BlendBroadcastSettings<RuntimeServiceId> = <BlendPayloadDispatcher<RuntimeServiceId> as lb_blend_service::core::dispatcher::PayloadDispatcher<
+    RuntimeServiceId,
+>>::Settings;

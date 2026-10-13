@@ -1,22 +1,21 @@
-use std::{ffi::c_char, path::PathBuf};
+use std::ffi::c_char;
 
+use lb_c_macros::panic_to_error;
 use lb_node::{
     UserConfig,
-    config::{
-        DeploymentType, RunConfig,
-        deployment::{DeploymentSettings, WellKnownDeployment},
-    },
+    cli::build_run_config_from_env,
+    config::{RunConfig, deployment::DeploymentSettings},
     get_services_to_start, run_node_from_config,
 };
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
 use tokio::runtime::Runtime;
 
 use crate::{
-    LogosBlockchainNode,
-    errors::OperationStatus,
-    logging,
+    LogosBlockchainNode, OperationStatus,
+    errors::OperationStatusCode,
+    node::ensure_blocking_allowed,
     result::{FfiStatusResult, StatusResult},
-    return_error_if_null_pointer,
+    return_error_if_null_pointer, unwrap_or_return_error,
 };
 
 pub type FfiInitializedLogosBlockchainNodeResult = FfiStatusResult<*mut LogosBlockchainNode>;
@@ -28,20 +27,39 @@ pub type FfiInitializedLogosBlockchainNodeResult = FfiStatusResult<*mut LogosBlo
 ///
 /// - `config_path`: A pointer to a string representing the path to the
 ///   configuration file.
-/// - `deployment`: A pointer to a string representing either a well-known
-///   deployment name (e.g., "devnet") or a path to a deployment YAML file. If
-///   null, defaults to "devnet".
+/// - `custom_deployment_path`: An optional pointer to a string representing the
+///   path to the custom deployment configuration file. If null, the
+///   `DEPLOYMENT` environment variable is consulted, otherwise the binary
+///   default deployment is used (e.g., devnet for release candidates and
+///   testnet for releases).
+///
+/// Environment-variable overrides (e.g. `HTTP_HOST`, `NET_PORT`, `LOG_LEVEL`,
+/// `STATE_PATH`) are applied on top of the YAML config, matching the behaviour
+/// of the standalone node binary. An explicit `custom_deployment_path` takes
+/// precedence over the `DEPLOYMENT` environment variable.
 ///
 /// # Returns
 ///
 /// An [`FfiInitializedLogosBlockchainNodeResult`] containing either a pointer
 /// to the initialized [`LogosBlockchainNode`] or an error code.
+///
+/// The returned pointer is an opaque handle: see [`LogosBlockchainNode`] for
+/// the rules on using it.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers. The caller
+/// must ensure that `config_path` is a valid NUL-terminated C string, and that
+/// `custom_deployment_path` is either null or one as well.
+#[panic_to_error]
 #[unsafe(no_mangle)]
-pub extern "C" fn start_lb_node(
+pub unsafe extern "C" fn start_lb_node(
     config_path: *const c_char,
-    deployment: *const c_char,
+    custom_deployment_path: *const c_char,
 ) -> FfiInitializedLogosBlockchainNodeResult {
-    initialize_lb_node(config_path, deployment).map_or_else(
+    return_error_if_null_pointer!(config_path);
+
+    unsafe { initialize_lb_node(config_path, custom_deployment_path) }.map_or_else(
         FfiInitializedLogosBlockchainNodeResult::err,
         FfiInitializedLogosBlockchainNodeResult::from_value,
     )
@@ -54,134 +72,198 @@ pub extern "C" fn start_lb_node(
 ///
 /// - `config_path`: A pointer to a string representing the path to the
 ///   configuration file.
-/// - `deployment`: A pointer to a string representing either a well-known
-///   deployment name (e.g., "devnet") or a path to a deployment YAML file. If
-///   null, defaults to "devnet".
+/// - `custom_deployment_path`: An optional pointer to a string representing the
+///   path to the custom deployment configuration file. If null, the
+///   `DEPLOYMENT` environment variable is consulted, otherwise the binary
+///   default deployment is used (e.g., devnet for release candidates and
+///   testnet for releases).
+///
+/// Environment-variable overrides (e.g. `HTTP_HOST`, `NET_PORT`, `LOG_LEVEL`,
+/// `STATE_PATH`) are applied on top of the YAML config, matching the behaviour
+/// of the standalone node binary. An explicit `custom_deployment_path` takes
+/// precedence over the `DEPLOYMENT` environment variable.
 ///
 /// # Returns
 ///
 /// A [`Result`] containing either the initialized [`LogosBlockchainNode`] or an
 /// error code.
-fn initialize_lb_node(
+///
+/// # Safety
+///
+/// `config_path` must be a valid NUL-terminated C string, and
+/// `custom_deployment_path` either null or one as well.
+unsafe fn initialize_lb_node(
     config_path: *const c_char,
-    deployment: *const c_char,
+    custom_deployment_path: *const c_char,
 ) -> StatusResult<LogosBlockchainNode> {
-    let run_config = RunConfig {
-        deployment: get_deployment_config(deployment)?,
-        user: get_user_config(config_path)?,
-    };
+    let run_config = unsafe { resolve_run_config(config_path, custom_deployment_path) }?;
+
+    // Captured before the run config is consumed, so the node handle can answer
+    // for its chain without querying a service for a value that cannot change.
+    let chain_id = run_config.deployment.chain_id();
 
     let runtime = Runtime::new().expect("Failed to create Tokio runtime");
     let app = run_node_from_config(run_config, Some(runtime.handle().clone())).map_err(|e| {
-        logging::error!("initialize_lb_node", "Could not initialize Overwatch: {e}");
-        OperationStatus::InitializationError
+        OperationStatus::error(
+            OperationStatusCode::InitializationError,
+            format!("Could not initialize Overwatch: {e}"),
+        )
     })?;
 
     let app_handle = app.handle();
 
     runtime.block_on(async {
         let services_to_start = get_services_to_start(&app).await.map_err(|e| {
-            logging::error!("initialize_lb_node", "Could not get services to start: {e}");
-            OperationStatus::InitializationError
+            OperationStatus::error(
+                OperationStatusCode::InitializationError,
+                format!("Could not get services to start: {e}"),
+            )
         })?;
         app_handle
             .start_service_sequence(services_to_start)
             .await
             .map_err(|e| {
-                logging::error!("initialize_lb_node", "Could not start services: {e}");
-                OperationStatus::InitializationError
+                OperationStatus::error(
+                    OperationStatusCode::InitializationError,
+                    format!("Could not start services: {e}"),
+                )
             })?;
         Ok(())
     })?;
 
-    Ok(LogosBlockchainNode::new(app, runtime))
+    Ok(LogosBlockchainNode::new(app, runtime, &chain_id))
 }
 
-fn get_user_config(config_path: *const c_char) -> StatusResult<UserConfig> {
+/// Builds the run configuration a node started with these paths would use.
+///
+/// Reads the YAML config, applies the env var overrides, then replaces the
+/// deployment section if `custom_deployment_path` is not null.
+///
+/// # Safety
+///
+/// `config_path` must be a valid NUL-terminated C string, and
+/// `custom_deployment_path` either null or one as well.
+pub(crate) unsafe fn resolve_run_config(
+    config_path: *const c_char,
+    custom_deployment_path: *const c_char,
+) -> StatusResult<RunConfig> {
+    let user_config = unsafe { get_user_config(config_path) }?;
+
+    let mut run_config = build_run_config_from_env(user_config).map_err(|e| {
+        OperationStatus::error(
+            OperationStatusCode::InitializationError,
+            format!("Could not apply environment overrides: {e}"),
+        )
+    })?;
+
+    if !custom_deployment_path.is_null() {
+        run_config.deployment = unsafe { get_deployment_config(custom_deployment_path) }?;
+    }
+
+    Ok(run_config)
+}
+
+/// # Safety
+///
+/// `config_path` must be a valid NUL-terminated C string.
+unsafe fn get_user_config(config_path: *const c_char) -> StatusResult<UserConfig> {
     let user_config_path = unsafe { std::ffi::CStr::from_ptr(config_path) }
         .to_str()
         .map_err(|e| {
-            logging::error!(
-                "get_user_config",
-                "Could not convert the config path to string: {e}"
-            );
-            OperationStatus::InitializationError
+            OperationStatus::error(
+                OperationStatusCode::InitializationError,
+                format!("Could not convert the config path to string: {e}"),
+            )
         })?;
     deserialize_value_at_path::<UserConfig>(user_config_path.as_ref(), OnUnknownKeys::Fail).map_err(
         |e| {
-            logging::error!("get_user_config", "Could not parse config file: {e}");
-            OperationStatus::InitializationError
+            OperationStatus::error(
+                OperationStatusCode::InitializationError,
+                format!("Could not parse config file: {e}"),
+            )
         },
     )
 }
 
-fn get_deployment_config(deployment_arg: *const c_char) -> StatusResult<DeploymentSettings> {
-    let deployment_type: DeploymentType = if deployment_arg.is_null() {
-        WellKnownDeployment::default().into()
+/// # Safety
+///
+/// `custom_deployment_path` must be null or a valid NUL-terminated C string.
+unsafe fn get_deployment_config(
+    custom_deployment_path: *const c_char,
+) -> StatusResult<DeploymentSettings> {
+    if custom_deployment_path.is_null() {
+        Ok(DeploymentSettings::default())
     } else {
-        let deployment_str = unsafe { std::ffi::CStr::from_ptr(deployment_arg) }
+        let custom_deployment_path = unsafe { std::ffi::CStr::from_ptr(custom_deployment_path) }
             .to_str()
-            .map_err(|e| {
-                logging::error!(
-                    "get_deployment_config",
-                    "Could not convert deployment to string: {e}"
-                );
-                OperationStatus::InitializationError
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::InitializationError,
+                    format!("Could not convert the custom deployment path to string: {error}"),
+                )
             })?;
-        deployment_str.parse::<WellKnownDeployment>().map_or_else(
-            |()| PathBuf::from(deployment_str).into(),
-            DeploymentType::from,
-        )
-    };
 
-    match deployment_type {
-        DeploymentType::WellKnown(well_known_deployment) => Ok(well_known_deployment.into()),
-        DeploymentType::Custom(path) => {
-            deserialize_value_at_path::<DeploymentSettings>(path.as_ref(), OnUnknownKeys::Fail)
-                .map_err(|e| {
-                    logging::error!(
-                        "get_deployment_config",
-                        "Could not parse deployment file: {e}"
-                    );
-                    OperationStatus::InitializationError
-                })
-        }
+        deserialize_value_at_path::<DeploymentSettings>(
+            custom_deployment_path.as_ref(),
+            OnUnknownKeys::Fail,
+        )
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::InitializationError,
+                format!("Could not parse deployment file: {error}"),
+            )
+        })
     }
 }
 
-/// Stops and frees the resources associated with the given Logos blockchain
-/// node.
+/// Shuts down and frees the resources associated with the given Logos
+/// blockchain node.
 ///
 /// # Arguments
 ///
-/// - `node`: A pointer to the [`LogosBlockchainNode`] instance to be stopped.
+/// - `node`: A pointer to the [`LogosBlockchainNode`] instance to be shut down.
 ///
 /// # Returns
 ///
-/// An [`OperationStatus`] indicating success or failure.
+/// An [`OperationStatus`]:
+/// - [`Ok`](OperationStatusCode::Ok) once every service has stopped and the
+///   node is freed.
+/// - [`ShutdownError`](OperationStatusCode::ShutdownError) when the shutdown
+///   itself fails. The node is freed all the same.
+/// - [`RuntimeError`](OperationStatusCode::RuntimeError) when called from
+///   inside a subscription callback. Nothing is done: the node keeps running.
 ///
 /// # Safety
 ///
 /// The caller must ensure that:
 /// - `node` is a valid pointer to a [`LogosBlockchainNode`] instance
 /// - The [`LogosBlockchainNode`] instance was created by this library
-/// - The pointer will not be used after this function returns
+/// - No other call using `node` is in progress on any thread
+/// - The pointer will not be used after this function returns, unless the call
+///   was refused with [`RuntimeError`](OperationStatusCode::RuntimeError): only
+///   then is the node left untouched and the pointer still valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn stop_node(node: *mut LogosBlockchainNode) -> OperationStatus {
-    return_error_if_null_pointer!("stop_node", node);
+pub unsafe extern "C" fn shutdown_node(node: *mut LogosBlockchainNode) -> OperationStatus {
+    return_error_if_null_pointer!(node);
+    unwrap_or_return_error!(ensure_blocking_allowed());
     let node = unsafe { Box::from_raw(node) };
-    node.stop()
+    node.shutdown()
 }
 
 #[cfg(test)]
 mod test {
-    use std::{ffi::CString, path::PathBuf, sync::LazyLock};
+    use std::{ffi::CString, path::PathBuf, sync::LazyLock, time::Duration};
 
     use lb_node::UserConfig;
     use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
+    use serial_test::serial;
     use tempfile::TempDir;
 
-    use crate::api::lifecycle::{start_lb_node, stop_node};
+    use crate::{
+        api::lifecycle::{shutdown_node, start_lb_node},
+        errors::free_operation_status,
+    };
 
     static REPOSITORY_ROOT: LazyLock<PathBuf> = LazyLock::new(|| {
         let crate_dir = env!("CARGO_MANIFEST_DIR");
@@ -202,6 +284,22 @@ mod test {
         assert!(file.exists());
         file
     });
+
+    /// How long to let a freshly started node settle before shutting it down.
+    ///
+    /// [`start_lb_node`] returns once Overwatch has *spawned* the services,
+    /// not once they are ready, so without this the node is torn down while
+    /// its service tasks are still reaching their first await. Shutting down
+    /// inside that window deadlocks in Overwatch: `blocking_wait_finished`
+    /// never returns and the whole test binary hangs. Measured on Linux: 7 of
+    /// 12 runs hung with no delay, 0 of 12 hung with 250ms, 0 of 12 with 2s.
+    /// Two seconds keeps a wide margin over the observed window without
+    /// making the test slow.
+    ///
+    /// This is a workaround, not a fix — the deadlock is in Overwatch's
+    /// shutdown path and has to be addressed there.
+    /// TODO: Remove after <https://github.com/logos-co/Overwatch/issues/150> is fixed
+    const STARTUP_SETTLE: Duration = Duration::from_secs(2);
 
     struct TestConfigPaths {
         _temp_dir: TempDir,
@@ -255,13 +353,16 @@ mod test {
     }
 
     #[test]
+    #[serial]
     fn test_basic_lifecycle() {
         let test_paths = TestConfigPaths::new();
 
-        let start_status = start_lb_node(
-            test_paths.node_config.as_ptr(),
-            test_paths.deployment_config.as_ptr(),
-        );
+        let start_status = unsafe {
+            start_lb_node(
+                test_paths.node_config.as_ptr(),
+                test_paths.deployment_config.as_ptr(),
+            )
+        };
 
         assert!(
             start_status.is_ok(),
@@ -270,8 +371,43 @@ mod test {
         );
         let node = start_status.value;
 
-        let stop_status = unsafe { stop_node(node) };
+        // Let the service tasks get past the window in which shutting down
+        // deadlocks Overwatch. See [`STARTUP_SETTLE`].
+        std::thread::sleep(STARTUP_SETTLE);
 
-        assert!(stop_status.is_ok(), "Failed to stop node: {stop_status:?}");
+        let shutdown_status = unsafe { shutdown_node(node) };
+
+        assert!(
+            shutdown_status.is_ok(),
+            "Failed to shut down node: {shutdown_status:?}"
+        );
+    }
+
+    /// Confirms env-variable overrides are wired into the FFI start path: an
+    /// invalid `HTTP_HOST` must be parsed (and rejected) rather than ignored.
+    #[test]
+    #[serial]
+    fn start_applies_environment_overrides() {
+        let test_paths = TestConfigPaths::new();
+
+        // SAFETY: serialized via `#[serial]`; removed before any assertion so
+        // no other test observes it.
+        unsafe { std::env::set_var("HTTP_HOST", "not-a-socket-address") };
+
+        let start_status = unsafe {
+            start_lb_node(
+                test_paths.node_config.as_ptr(),
+                test_paths.deployment_config.as_ptr(),
+            )
+        };
+
+        unsafe { std::env::remove_var("HTTP_HOST") };
+
+        assert!(
+            !start_status.is_ok(),
+            "An invalid HTTP_HOST env override should fail node start, proving env \
+             overrides are applied"
+        );
+        unsafe { free_operation_status(start_status.error) };
     }
 }

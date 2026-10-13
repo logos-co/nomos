@@ -1,24 +1,27 @@
 use std::{
     fs,
+    num::NonZero,
     path::{Path, PathBuf},
     time::Duration,
 };
 
+use lb_core::mantle::Utxo;
 use lb_key_management_system_service::keys::ZkPublicKey;
-use lb_libp2p::Multiaddr;
-use lb_node::{UserConfig, config::RunConfig};
+use lb_node::config::RunConfig;
 use lb_testing_framework::{
-    DeploymentBuilder, LbcEnv, LbcLocalDeployer, LbcManualCluster, NodeHttpClient,
-    USER_CONFIG_FILE, internal::DeploymentPlan, is_truthy_env, record_system_monitor_event,
-    register_system_monitor_output_file, unregister_system_monitor_output_file,
+    DeploymentBuilder, LbcEnv, LbcManualCluster, NodeHttpClient, TopologyConfig,
+    configs::wallet::WalletConfig, internal::DeploymentPlan, is_truthy_env,
+    record_system_monitor_event, register_system_monitor_output_file,
+    unregister_system_monitor_output_file,
 };
+use lb_utils::math::NonNegativeRatio;
 use lb_zone_sdk::Slot;
 use reqwest::Url;
 use tempfile::TempDir;
 use testing_framework_core::scenario::{DynError, PeerSelection, StartNodeOptions, StartedNode};
 use tokio::time::error::Elapsed;
 
-use crate::cucumber::defaults::{E2E_KEEP_LOGS, E2E_TESTS_BASE_DIR_OVERRIDE};
+use crate::cucumber::defaults::{E2E_ARTIFACTS_DIR, E2E_KEEP_LOGS, E2E_TESTS_BASE_DIR_OVERRIDE};
 
 pub struct LocalManualClusterHarnessBase {
     scenario_base_dir: PathBuf,
@@ -28,20 +31,19 @@ pub struct LocalManualClusterHarnessBase {
 }
 
 impl LocalManualClusterHarnessBase {
+    #[must_use]
     pub fn scenario_base_dir(&self) -> &Path {
         &self.scenario_base_dir
     }
 
+    #[must_use]
     pub const fn deployment(&self) -> &DeploymentPlan {
         &self.deployment
     }
 
+    #[must_use]
     pub const fn cluster(&self) -> &LbcManualCluster {
         &self.cluster
-    }
-
-    pub const fn cluster_mut(&mut self) -> &mut LbcManualCluster {
-        &mut self.cluster
     }
 }
 
@@ -113,7 +115,7 @@ pub fn build_local_manual_cluster(
         .build()
         .expect("manual-cluster deployment should build");
 
-    let cluster = LbcLocalDeployer::new().manual_cluster_from_descriptors(deployment.clone());
+    let cluster = LbcManualCluster::from_topology(deployment.clone());
     let system_monitor_output_path = scenario_base_dir.join("system_stats.ndjson");
 
     LocalManualClusterHarnessBase {
@@ -158,6 +160,51 @@ where
     (base, nodes)
 }
 
+/// Starts a local cluster of `node_count` nodes with fast blocks (2s slots)
+/// and the given wallet accounts funded at genesis. Artifacts are written
+/// under [`E2E_ARTIFACTS_DIR`].
+pub async fn start_fast_cluster_with_wallet(
+    test_name: &str,
+    prefix: &str,
+    node_count: usize,
+    wallet_config: WalletConfig,
+) -> (LocalManualClusterHarnessBase, Vec<StartedNode<LbcEnv>>) {
+    start_local_manual_cluster_with_layout(
+        test_name,
+        prefix,
+        DeploymentBuilder::new(
+            TopologyConfig::with_node_numbers(node_count)
+                .with_allow_multiple_genesis_tokens(true)
+                .with_test_context(Some(test_name.to_owned())),
+        )
+        .with_wallet_config(wallet_config),
+        node_count,
+        ManualNodeLayout::SelectNodeSeed(0),
+        |config| Ok(fast_chain_config(config)),
+        Some(PathBuf::from(E2E_ARTIFACTS_DIR)),
+    )
+    .await
+}
+
+fn fast_chain_config(mut config: RunConfig) -> RunConfig {
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .time
+        .slot_duration = Duration::from_secs(2);
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .cryptarchia
+        .security_param = NonZero::new(3).expect("nonzero");
+    config
+        .deployment
+        .genesis_era_parameters_mut()
+        .cryptarchia
+        .slot_activation_coeff = NonNegativeRatio::new(1, 2.try_into().expect("nonzero"));
+    config
+}
+
 pub async fn start_manual_nodes_with_layout<F>(
     cluster: &LbcManualCluster,
     scenario_base_dir: &Path,
@@ -177,7 +224,7 @@ where
         nodes.push(
             Box::pin(
                 cluster.start_node_with(
-                    &node_index.to_string(),
+                    &format!("node-{node_index}"),
                     StartNodeOptions::default()
                         .with_peers(peers)
                         .with_persist_dir(scenario_base_dir.join(format!("node-{node_index}")))
@@ -310,6 +357,18 @@ pub fn api_url(node: &NodeHttpClient, path: &str) -> Url {
         .expect("manual-cluster client base URL should join API path")
 }
 
+/// UTXOs created by the genesis transfer of the deployment's genesis block.
+#[must_use]
+pub fn genesis_wallet_utxos(config: &TopologyConfig) -> Vec<Utxo> {
+    let genesis_tx = config
+        .genesis_block
+        .as_ref()
+        .expect("manual-cluster deployment should include genesis tx")
+        .genesis_tx();
+
+    genesis_tx.transfer().operation().utxos().collect()
+}
+
 #[must_use]
 pub fn unique_scenario_base_dir(label: &str, scenario_dir_override: Option<PathBuf>) -> PathBuf {
     let nanos = std::time::SystemTime::now()
@@ -392,19 +451,6 @@ pub fn read_manual_node_logs(base_dir: &Path, runtime_node_name: &str) -> String
         .collect()
 }
 
-pub fn override_node_initial_peers(
-    base_dir: &Path,
-    runtime_node_name: &str,
-    initial_peers: Vec<Multiaddr>,
-) {
-    let runtime_dir = runtime_dir_for_node(base_dir, runtime_node_name);
-    let mut user_config = read_user_config(&runtime_dir);
-
-    user_config.network.backend.initial_peers = initial_peers;
-
-    write_user_config(&runtime_dir, &user_config);
-}
-
 fn runtime_dirs_for_node(base_dir: &Path, runtime_node_name: &str) -> Vec<PathBuf> {
     let runtime_dir_prefix = format!("{runtime_node_name}_");
 
@@ -450,41 +496,4 @@ fn is_log_file_for_node(path: &Path, log_file_prefix: &str) -> bool {
 fn read_log_file(path: &Path) -> String {
     fs::read_to_string(path)
         .unwrap_or_else(|source| panic!("failed to read log file {}: {source}", path.display()))
-}
-
-fn runtime_dir_for_node(base_dir: &Path, runtime_node_name: &str) -> PathBuf {
-    let runtime_dir_prefix = format!("{runtime_node_name}_");
-
-    read_dir_paths(base_dir)
-        .into_iter()
-        .find(|path| is_runtime_dir_for_node(path, &runtime_dir_prefix))
-        .unwrap_or_else(|| {
-            panic!(
-                "failed to locate runtime dir for node `{runtime_node_name}` under {}",
-                base_dir.display()
-            )
-        })
-}
-
-fn read_user_config(persist_dir: &Path) -> UserConfig {
-    let path = persist_dir.join(USER_CONFIG_FILE);
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|source| panic!("failed to read node config {}: {source}", path.display()));
-
-    serde_yaml::from_str(&text)
-        .unwrap_or_else(|source| panic!("failed to parse node config {}: {source}", path.display()))
-}
-
-fn write_user_config(persist_dir: &Path, config: &UserConfig) {
-    let path = persist_dir.join(USER_CONFIG_FILE);
-    let yaml = serde_yaml::to_string(config).unwrap_or_else(|source| {
-        panic!(
-            "failed to serialize node config {}: {source}",
-            path.display()
-        )
-    });
-
-    fs::write(&path, yaml).unwrap_or_else(|source| {
-        panic!("failed to write node config {}: {source}", path.display())
-    });
 }

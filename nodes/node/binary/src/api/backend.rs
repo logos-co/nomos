@@ -20,15 +20,18 @@ use lb_chain_leader_service::api::ChainLeaderServiceData;
 use lb_chain_service::CryptarchiaConsensus;
 use lb_core::{
     header::HeaderId,
-    mantle::{SignedMantleTx, Transaction},
+    mantle::{
+        SignedOps, ledger::verification_mode::StandardMode, traits::Hashable,
+        transactions::states::Preverified,
+    },
 };
+use lb_http_api_common::metrics::http_metrics_middleware;
 pub use lb_http_api_common::settings::AxumBackendSettings;
-use lb_http_api_common::{metrics::http_metrics_middleware, paths};
 use lb_sdp_service::{
     mempool::SdpMempoolAdapter, state::SdpStateStorage as SdpStateStorageTrait,
     wallet::SdpWalletAdapter,
 };
-use lb_storage_service::{StorageService, backends::rocksdb::RocksBackend};
+use lb_storage_service::StorageService;
 use lb_tx_service::{TxMempoolService, backend::Mempool};
 use overwatch::{overwatch::handle::OverwatchHandle, services::AsServiceId};
 use tokio::net::TcpListener;
@@ -44,29 +47,42 @@ use utoipa::OpenApi as _;
 use utoipa_swagger_ui::SwaggerUi;
 
 use super::handlers::{
-    add_tx, blend_info, block, block_events, blocks_range_stream, blocks_stream,
-    cryptarchia_headers, cryptarchia_info, cryptarchia_lib_stream, dial_peer, get_sdp_declarations,
+    add_tx, blend_info, blend_pending_transactions, blend_tx, block, block_events,
+    blocks_range_stream, blocks_stream, chain_id, cryptarchia_headers, cryptarchia_info,
+    cryptarchia_lib_stream, dial_peer, get_gas_prices, get_sdp_declarations, get_sdp_snapshot,
     immutable_blocks, libp2p_info, mantle_metrics, mantle_status, mempool_view, time_info,
-    transaction, wallet,
+    transaction, version, wallet,
 };
 use crate::{
-    BlendBroadcastSettings, BlendService, TracingService, WalletService,
+    BlendService, PoWService, TracingService, WalletService,
     api::{
         handlers::{
             blend_join_network, channel, channel_deposit, leader_claim, post_activity,
-            post_declaration, post_set_declaration_id, post_withdrawal,
+            post_declaration, post_set_declaration_id, post_withdrawal, pow_claim,
+            pow_claimable_rewards, pow_start_auto_claim, pow_start_mining, pow_status,
+            pow_stop_auto_claim, pow_stop_mining,
         },
         openapi::ApiDoc,
+        routes::api_routes,
         tracing::reload_tracing_filter,
     },
 };
 
-pub(crate) type BlockStorageBackend = RocksBackend;
-type BlockStorageService<RuntimeServiceId> = StorageService<BlockStorageBackend, RuntimeServiceId>;
+/// Builds the axum router from the shared route table.
+///
+/// Only the `$handler` half of each row is used; the `OpenAPI` half is matched
+/// and discarded. Expanded inside `AxumBackend::serve`, where the handler type
+/// parameters are in scope.
+macro_rules! build_router {
+    ($( $method:ident $path:expr => $doc:path, $handler:expr ; )*) => {
+        Router::new()$(.route($path, routing::$method($handler)))*
+    };
+}
+
+type BlockStorageService<RuntimeServiceId> = StorageService<RuntimeServiceId>;
 
 pub struct AxumBackend<
     TimeBackend,
-    HttpStorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
     SdpWallet,
@@ -76,7 +92,6 @@ pub struct AxumBackend<
     settings: AxumBackendSettings,
     _phantom: PhantomData<(
         TimeBackend,
-        HttpStorageAdapter,
         MempoolStorageAdapter,
         SdpMempool,
         SdpWallet,
@@ -88,7 +103,6 @@ pub struct AxumBackend<
 #[async_trait::async_trait]
 impl<
     TimeBackend,
-    StorageAdapter,
     MempoolStorageAdapter,
     SdpMempool,
     SdpWallet,
@@ -98,7 +112,6 @@ impl<
 > Backend<RuntimeServiceId>
     for AxumBackend<
         TimeBackend,
-        StorageAdapter,
         MempoolStorageAdapter,
         SdpMempool,
         SdpWallet,
@@ -108,12 +121,10 @@ impl<
 where
     TimeBackend: lb_time_service::backends::TimeBackend + Send + 'static,
     TimeBackend::Settings: Clone + Send + Sync,
-    StorageAdapter:
-        lb_api_service::http::storage::StorageAdapter<RuntimeServiceId> + Send + Sync + 'static,
     MempoolStorageAdapter: lb_tx_service::storage::MempoolStorageAdapter<
             RuntimeServiceId,
-            Item = SignedMantleTx,
-            Key = <SignedMantleTx as Transaction>::Hash,
+            Item = SignedOps<Preverified, StandardMode>,
+            Key = <SignedOps<Preverified, StandardMode> as Hashable>::Hash,
         > + Send
         + Sync
         + Clone
@@ -122,7 +133,7 @@ where
     SdpMempool: SdpMempoolAdapter + Send + Sync + 'static,
     SdpWallet: SdpWalletAdapter + Send + Sync + 'static,
     ChainLeader: ChainLeaderServiceData,
-    SdpStateStorage: SdpStateStorageTrait + Send + 'static,
+    SdpStateStorage: SdpStateStorageTrait<RuntimeServiceId> + Send + 'static,
     RuntimeServiceId: Debug
         + Sync
         + Send
@@ -139,17 +150,18 @@ where
             >,
         >
         + AsServiceId<BlockStorageService<RuntimeServiceId>>
+        + AsServiceId<StorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<
                 lb_tx_service::network::adapters::libp2p::Libp2pAdapter<
-                    SignedMantleTx,
-                    <SignedMantleTx as Transaction>::Hash,
+                    SignedOps<Preverified, StandardMode>,
+                    <SignedOps<Preverified, StandardMode> as Hashable>::Hash,
                     RuntimeServiceId,
                 >,
                 Mempool<
                     HeaderId,
-                    SignedMantleTx,
-                    <SignedMantleTx as Transaction>::Hash,
+                    SignedOps<Preverified, StandardMode>,
+                    <SignedOps<Preverified, StandardMode> as Hashable>::Hash,
                     MempoolStorageAdapter,
                     RuntimeServiceId,
                 >,
@@ -169,6 +181,7 @@ where
         + AsServiceId<WalletService>
         + AsServiceId<ChainLeader>
         + AsServiceId<BlendService>
+        + AsServiceId<PoWService>
         + AsServiceId<TracingService>,
 {
     type Error = std::io::Error;
@@ -184,7 +197,6 @@ where
         })
     }
 
-    #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn serve(self, handle: OverwatchHandle<RuntimeServiceId>) -> Result<(), Self::Error> {
         let mut builder = CorsLayer::new();
         if self.settings.cors_origins.is_empty() {
@@ -200,188 +212,14 @@ where
             );
         }
 
-        let app = Router::new()
-            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-            .route(
-                paths::MANTLE_METRICS,
-                routing::get(mantle_metrics::<MempoolStorageAdapter, RuntimeServiceId>),
-            )
-            .route(
-                paths::MANTLE_STATUS,
-                routing::post(mantle_status::<MempoolStorageAdapter, RuntimeServiceId>),
-            )
-            .route(
-                paths::CRYPTARCHIA_INFO,
-                routing::get(cryptarchia_info::<RuntimeServiceId>),
-            )
-            .route(
-                paths::TIME_INFO,
-                routing::get(time_info::<RuntimeServiceId>),
-            )
-            .route(
-                paths::CRYPTARCHIA_HEADERS,
-                routing::get(cryptarchia_headers::<RuntimeServiceId>),
-            )
-            .route(
-                paths::CRYPTARCHIA_LIB_STREAM,
-                routing::get(cryptarchia_lib_stream::<RuntimeServiceId>),
-            )
-            .route(
-                paths::NETWORK_INFO,
-                routing::get(libp2p_info::<RuntimeServiceId>),
-            )
-            .route(
-                paths::DIAL_PEER,
-                routing::post(dial_peer::<RuntimeServiceId>),
-            )
-            .route(
-                paths::BLEND_NETWORK_INFO,
-                routing::get(blend_info::<BlendService, BlendBroadcastSettings, RuntimeServiceId>),
-            )
-            .route(
-                paths::BLEND_JOIN_NETWORK,
-                routing::post(
-                    blend_join_network::<BlendService, BlendBroadcastSettings, RuntimeServiceId>,
-                ),
-            )
-            .route(
-                paths::MEMPOOL_ADD_TX,
-                routing::post(add_tx::<MempoolStorageAdapter, RuntimeServiceId>),
-            )
-            .route(
-                paths::MEMPOOL_VIEW,
-                routing::get(mempool_view::<MempoolStorageAdapter, RuntimeServiceId>),
-            )
-            .route(paths::CHANNEL, routing::get(channel::<RuntimeServiceId>))
-            .route(
-                paths::CHANNEL_DEPOSIT,
-                routing::post(
-                    channel_deposit::<WalletService, MempoolStorageAdapter, RuntimeServiceId>,
-                ),
-            )
-            .route(
-                paths::SDP_POST_DECLARATION,
-                routing::post(
-                    post_declaration::<
-                        SdpMempool,
-                        SdpWallet,
-                        Cryptarchia<RuntimeServiceId>,
-                        SdpStateStorage,
-                        RuntimeServiceId,
-                    >,
-                ),
-            )
-            .route(
-                paths::SDP_POST_ACTIVITY,
-                routing::post(
-                    post_activity::<
-                        SdpMempool,
-                        SdpWallet,
-                        Cryptarchia<RuntimeServiceId>,
-                        SdpStateStorage,
-                        RuntimeServiceId,
-                    >,
-                ),
-            )
-            .route(
-                paths::SDP_POST_WITHDRAWAL,
-                routing::post(
-                    post_withdrawal::<
-                        SdpMempool,
-                        SdpWallet,
-                        Cryptarchia<RuntimeServiceId>,
-                        SdpStateStorage,
-                        RuntimeServiceId,
-                    >,
-                ),
-            )
-            .route(
-                paths::SDP_POST_SET_DECLARATION_ID,
-                routing::post(
-                    post_set_declaration_id::<
-                        SdpMempool,
-                        SdpWallet,
-                        Cryptarchia<RuntimeServiceId>,
-                        SdpStateStorage,
-                        RuntimeServiceId,
-                    >,
-                ),
-            )
-            .route(
-                paths::MANTLE_SDP_DECLARATIONS,
-                routing::get(get_sdp_declarations::<RuntimeServiceId>),
-            )
-            .route(
-                paths::LEADER_CLAIM,
-                routing::post(leader_claim::<ChainLeader, RuntimeServiceId>),
-            )
-            .route(
-                paths::LEADER_CLAIM_VOUCHERS,
-                routing::get(wallet::get_claimable_vouchers::<WalletService, _>),
-            )
-            .route(
-                paths::wallet::BALANCE,
-                routing::get(wallet::get_balance::<WalletService, _>),
-            )
-            .route(
-                paths::wallet::TRANSACTIONS_TRANSFER_FUNDS,
-                routing::post(
-                    wallet::post_transactions_transfer_funds::<
-                        WalletService,
-                        MempoolStorageAdapter,
-                        _,
-                    >,
-                ),
-            )
-            .route(
-                paths::wallet::SIGN_TX_ED25519,
-                routing::post(wallet::sign_tx_ed25519::<WalletService, MempoolStorageAdapter, _>),
-            )
-            .route(
-                paths::wallet::SIGN_TX_ZK,
-                routing::post(wallet::sign_tx_zk::<WalletService, MempoolStorageAdapter, _>),
-            )
-            .route(
-                paths::admin::TRACING_FILTER,
-                routing::put(reload_tracing_filter::<RuntimeServiceId>),
-            );
-
-        let app = app.route(
-            paths::BLOCKS_STREAM,
-            routing::get(
-                blocks_stream::<
-                    BlockStorageBackend,
-                    CryptarchiaConsensus<_, _, _, _>,
-                    RuntimeServiceId,
-                >,
-            ),
-        );
-
-        let app = app.route(
-            paths::BLOCKS_RANGE_STREAM,
-            routing::get(blocks_range_stream::<BlockStorageBackend, RuntimeServiceId>),
-        );
-
-        let app = app
-            .route(
-                paths::BLOCKS,
-                routing::get(immutable_blocks::<BlockStorageBackend, RuntimeServiceId>),
-            )
-            .route(
-                paths::BLOCKS_DETAIL,
-                routing::get(block::<StorageAdapter, RuntimeServiceId>),
-            )
-            .route(
-                paths::BLOCK_EVENTS,
-                routing::get(block_events::<RuntimeServiceId>),
-            )
-            .route(
-                paths::TRANSACTION,
-                routing::get(transaction::<StorageAdapter, RuntimeServiceId>),
-            );
+        let app = api_routes!(build_router)
+            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));
 
         let app = app
             .with_state(handle.clone())
+            // The chain ID is a constant of the deployment, so it rides along
+            // as a request extension instead of a service round trip.
+            .layer(axum::Extension(self.settings.chain_id.clone()))
             .layer(axum::middleware::from_fn(http_metrics_middleware))
             .layer(axum::extract::DefaultBodyLimit::max(
                 self.settings.max_body_size,

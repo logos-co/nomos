@@ -1,29 +1,29 @@
 use core::fmt::{self, Debug, Formatter};
 
-use lb_poq::AgedNotePathAndSelectors;
+use lb_poq::{AgedNotePathAndSelectors, PoQSelector};
 use zeroize::ZeroizeOnDrop;
 
 use crate::{
     CorePathAndSelectors, ZkHash,
     quota::{
-        SelectionRandomnessSecretInput,
+        KeyIndex, SelectionRandomnessSecretInput,
         inputs::prove::{PublicInputs, public::LeaderInputs},
     },
 };
 
-/// Private inputs for all types of Proof of Quota. Spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81a18576f67b910d34d4>.
+/// Private inputs for all types of Proof of Quota. Spec: <https://lip.logos.co/blockchain/raw/proof-of-quota.html#witness>.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Inputs {
-    pub key_index: u64,
-    pub selector: bool,
+    pub key_index: KeyIndex,
+    pub selector: PoQSelector,
     pub proof_type: ProofType,
 }
 
 impl Inputs {
     #[must_use]
     pub fn new_proof_of_core_quota_inputs(
-        key_index: u64,
+        key_index: KeyIndex,
         proof_of_core_quota_inputs: ProofOfCoreQuotaInputs,
     ) -> Self {
         let proof_type: ProofType = proof_of_core_quota_inputs.into();
@@ -36,7 +36,7 @@ impl Inputs {
 
     #[must_use]
     pub fn new_proof_of_leadership_quota_inputs(
-        key_index: u64,
+        key_index: KeyIndex,
         proof_of_leadership_quota_inputs: ProofOfLeadershipQuotaInputs,
     ) -> Self {
         let proof_type: ProofType = proof_of_leadership_quota_inputs.into();
@@ -47,7 +47,20 @@ impl Inputs {
         }
     }
 
-    /// Return the right `sk` for a Proof of Quota depending on the proof type, as per the spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#25a261aa09df80e0a410f708190ac802>.
+    #[must_use]
+    pub fn new_proof_of_work_quota_inputs(
+        key_index: KeyIndex,
+        proof_of_work_quota_inputs: ProofOfWorkQuotaInputs,
+    ) -> Self {
+        let proof_type: ProofType = proof_of_work_quota_inputs.into();
+        Self {
+            key_index,
+            selector: proof_type.proof_selector(),
+            proof_type,
+        }
+    }
+
+    /// Return the right `sk` for a Proof of Quota depending on the proof type, as per the spec: <https://lip.logos.co/blockchain/raw/proof-of-quota.html#constraints>.
     #[must_use]
     pub fn get_secret_selection_randomness_sk(
         &self,
@@ -71,6 +84,10 @@ impl Inputs {
                     slot_number: leadership_quota_private_inputs.slot,
                 }
             }
+            ProofType::PowQuota(pow_quota_private_inputs) => SelectionRandomnessSecretInput::Pow {
+                pow_nonce: pow_quota_private_inputs.pow_nonce,
+                epoch_nonce: *pol_epoch_nonce,
+            },
         }
     }
 }
@@ -79,6 +96,7 @@ impl Inputs {
 pub enum ProofType {
     CoreQuota(Box<ProofOfCoreQuotaInputs>),
     LeadershipQuota(Box<ProofOfLeadershipQuotaInputs>),
+    PowQuota(Box<ProofOfWorkQuotaInputs>),
 }
 
 impl Debug for ProofType {
@@ -86,16 +104,18 @@ impl Debug for ProofType {
         match self {
             Self::CoreQuota(_) => f.write_str("ProofType::CoreQuota"),
             Self::LeadershipQuota(_) => f.write_str("ProofType::LeadershipQuota"),
+            Self::PowQuota(_) => f.write_str("ProofType::PowQuota"),
         }
     }
 }
 
 impl ProofType {
     #[must_use]
-    pub const fn proof_selector(&self) -> bool {
+    pub const fn proof_selector(&self) -> PoQSelector {
         match self {
-            Self::CoreQuota(_) => false,
-            Self::LeadershipQuota(_) => true,
+            Self::CoreQuota(_) => PoQSelector::Core,
+            Self::LeadershipQuota(_) => PoQSelector::Leader,
+            Self::PowQuota(_) => PoQSelector::Pow,
         }
     }
 }
@@ -125,5 +145,16 @@ pub struct ProofOfLeadershipQuotaInputs {
 impl From<ProofOfLeadershipQuotaInputs> for ProofType {
     fn from(value: ProofOfLeadershipQuotaInputs) -> Self {
         Self::LeadershipQuota(Box::new(value))
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
+pub struct ProofOfWorkQuotaInputs {
+    pub pow_nonce: ZkHash,
+}
+
+impl From<ProofOfWorkQuotaInputs> for ProofType {
+    fn from(value: ProofOfWorkQuotaInputs) -> Self {
+        Self::PowQuota(Box::new(value))
     }
 }

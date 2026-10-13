@@ -45,7 +45,7 @@ impl rs_merkle_tree::hasher::Hasher for InnerTreeZkHasher {
 /// A membership-specific Merkle tree that indices information about core nodes'
 /// ZK keys.
 ///
-/// It is a fixed-height tree, with the height expected by the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+/// It is a fixed-height tree, with the height expected by the [`PoQ` specification](https://lip.logos.co/blockchain/raw/blend-protocol.html#proof-of-quota).
 /// It is a wrapped around an instance of an [`rs_merkle_tree`], configured with
 /// our [`lb_core::crypto::ZkHasher`] and additional information to make it
 /// suitable for `PoQ` usage.
@@ -74,7 +74,7 @@ impl Debug for MerkleTree {
 impl MerkleTree {
     /// Create a new merkle tree with the provided keys.
     ///
-    /// Keys are internally sorted by their numeric value, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    /// Keys are internally sorted by their numeric value, as described in the [`PoQ` specification](https://lip.logos.co/blockchain/raw/blend-protocol.html#proof-of-quota).
     pub fn new(mut keys: Vec<ZkPublicKey>) -> Result<Self, Error> {
         // Sort the input keys by their decimal representation, relying on `Fr`'s
         // implementation of `PartialOrd`.
@@ -82,7 +82,7 @@ impl MerkleTree {
         Self::new_from_ordered(keys)
     }
 
-    /// Create a new merkle tree with the provided, already-sorted keys, as described in the [`PoQ` specification](https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81ec850ad7965bf6e76b).
+    /// Create a new merkle tree with the provided, already-sorted keys, as described in the [`PoQ` specification](https://lip.logos.co/blockchain/raw/blend-protocol.html#proof-of-quota).
     ///
     /// If the input vector is empty or if it is larger than the maximum number
     /// of leaves supported by this fixed-height Merkle tree, it returns an
@@ -218,25 +218,13 @@ fn compute_selectors(
 /// Sorts `nodes` in place by their key and builds the membership
 /// [`MerkleTree`] over the resulting set of keys.
 ///
-/// Duplicate keys are reduced to a single leaf before the tree is built: SDP
-/// permits multiple declarations to share a `zk_id`, and core membership is
-/// defined over the *set* of registered keys, so nodes sharing a key share the
-/// same leaf (and hence the same Merkle proof).
-pub fn sort_nodes_and_build_merkle_tree<Node, SortFn>(
+/// Assumes all nodes have unique keys; returns an error otherwise.
+pub fn sort_nodes_and_build_merkle_tree<Node>(
     nodes: &mut [Node],
-    key: SortFn,
-) -> Result<MerkleTree, Error>
-where
-    SortFn: Fn(&Node) -> ZkPublicKey,
-{
+    key: impl Fn(&Node) -> ZkPublicKey,
+) -> Result<MerkleTree, Error> {
     nodes.sort_by_key(|node| key(node));
-    let keys = {
-        let mut keys: Vec<ZkPublicKey> = nodes.iter().map(key).collect();
-        // Keys are sorted, so this removes all duplicates.
-        keys.dedup();
-        keys
-    };
-    MerkleTree::new_from_ordered(keys)
+    MerkleTree::new_from_ordered(nodes.iter().map(key).collect())
 }
 
 #[cfg(test)]
@@ -248,7 +236,7 @@ mod tests {
 
     use crate::{
         ZkHash,
-        merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES, sort_nodes_and_build_merkle_tree},
+        merkle::{Error, MerkleTree, TOTAL_MERKLE_LEAVES},
     };
 
     #[test]
@@ -388,37 +376,5 @@ mod tests {
     fn duplicate_keys() {
         let key = ZkHash::ONE;
         assert_eq!(MerkleTree::new(vec![key, key]), Err(Error::DuplicateKey));
-    }
-
-    /// Regression test: SDP permits two declarations to share a `zk_id`, so
-    /// the membership tree build must reduce duplicate keys to a single leaf
-    /// instead of erroring (which the membership and rewards paths `expect`
-    /// on, panicking every node at the epoch boundary).
-    #[test]
-    fn sort_and_build_dedupes_duplicate_keys() {
-        let key_one = "100".parse::<BigUint>().unwrap().into();
-        let key_two = "101".parse::<BigUint>().unwrap().into();
-
-        let mut nodes_with_duplicates: Vec<ZkHash> = vec![key_two, key_one, key_two];
-        let merkle_tree =
-            sort_nodes_and_build_merkle_tree(&mut nodes_with_duplicates, |key| *key).unwrap();
-
-        // The resulting tree is the tree over the distinct key set.
-        let deduped_tree = MerkleTree::new(vec![key_one, key_two]).unwrap();
-        assert_eq!(merkle_tree, deduped_tree);
-
-        // Proof generation works for the duplicated key, and all nodes sharing
-        // it share the same leaf.
-        let proof = merkle_tree.get_proof_for_key(&key_two).unwrap();
-        merkle_tree.verify_proof_for_key(&proof, &key_two).unwrap();
-    }
-
-    /// A set with a single, repeated key still builds a one-leaf tree.
-    #[test]
-    fn sort_and_build_dedupes_to_single_leaf() {
-        let key = ZkHash::ONE;
-        let mut nodes = vec![key, key];
-        let merkle_tree = sort_nodes_and_build_merkle_tree(&mut nodes, |key| *key).unwrap();
-        assert_eq!(merkle_tree, MerkleTree::new(vec![key]).unwrap());
     }
 }

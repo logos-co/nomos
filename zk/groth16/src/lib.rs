@@ -1,10 +1,12 @@
+mod circuit_integer;
 mod curve;
 mod from_json_error;
 mod proof;
-pub use proof::{CompressSize, CompressedProof};
+pub use proof::{COMPRESSED_PROOF_SIZE, CompressSize, CompressedProof};
 mod protocol;
 mod public_input;
 
+mod modulus_shift;
 pub mod serde;
 pub(crate) mod utils;
 mod verification_key;
@@ -14,9 +16,11 @@ use std::error::Error;
 
 pub use ark_bn254::{Bn254, Fr};
 pub use ark_ff::{AdditiveGroup, Field};
-use ark_ff::{BigInteger as _, PrimeField};
+use ark_ff::{BigInteger as _, PrimeField as _};
+pub use circuit_integer::{CircuitInteger, CircuitIntegerOutOfRange};
+pub use modulus_shift::{ModulusShift, ModulusShiftOutOfRange};
 use num_bigint::BigUint;
-pub use verifier::groth16_verify;
+pub use verifier::{VerificationError, groth16_batch_verify, groth16_verify};
 
 pub const GROTH16_SAFE_BYTES_SIZE: usize = 31;
 
@@ -34,7 +38,10 @@ pub type Groth16VerificationKeyJsonDeser = verification_key::VerificationKeyJson
 pub type Groth16Input = public_input::Input<Bn254>;
 pub type Groth16InputDeser = public_input::InputDeser;
 
-pub type FrBytes = [u8; 32];
+/// The fixed-width byte representation used for a field element.
+pub const FR_BYTES_SIZE: usize = 32;
+
+pub type FrBytes = [u8; FR_BYTES_SIZE];
 
 #[must_use]
 pub fn fr_to_bytes(fr: &Fr) -> FrBytes {
@@ -54,13 +61,33 @@ pub struct FrFromBytesError {
 
 pub fn fr_from_bytes(fr: &[u8]) -> Result<Fr, impl Error + use<>> {
     let n = BigUint::from_bytes_le(fr);
-    if n >= <Fr as PrimeField>::MODULUS.into() {
+    if n >= fr_modulus() {
         return Err(FrFromBytesError {
             parsed_bytes: n.to_string(),
-            modulus: <Fr as PrimeField>::MODULUS.to_string(),
+            modulus: fr_modulus().to_string(),
         });
     }
     Ok(n.into())
+}
+
+#[must_use]
+pub fn fr_from_mod_bytes(bytes: &[u8]) -> Fr {
+    let n = BigUint::from_bytes_le(bytes);
+    let n: BigUint = n % fr_modulus();
+    n.into()
+}
+
+/// The scalar field modulus `p`.
+#[must_use]
+pub fn fr_modulus() -> BigUint {
+    Fr::MODULUS.into()
+}
+
+/// Convert into `Fr`, capping at `p - 1` instead of reducing modulo `p`.
+#[must_use]
+pub fn fr_from_biguint_saturating(value: BigUint) -> Fr {
+    let max = fr_modulus() - 1u8;
+    value.min(max).into()
 }
 
 /// To be used only in cases where a random or pseudo-random `Fr` value is

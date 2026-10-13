@@ -5,7 +5,6 @@ pub mod openapi {
 }
 
 use std::{
-    collections::BTreeSet,
     fmt::{Debug, Display},
     marker::PhantomData,
     pin::Pin,
@@ -14,28 +13,29 @@ use std::{
 
 use futures::StreamExt as _;
 use lb_core::{
-    block::MAX_BLOCK_SIZE,
-    mantle::{StorageSize, Transaction},
+    block::MAX_BLOCK_TRANSACTIONS_SIZE,
+    mantle::{
+        traits::{Hashable, StorageSize},
+        transactions::hash::PrefixedKey,
+    },
 };
 use lb_log_targets::mempool;
 use lb_network_service::{NetworkService, message::BackendNetworkMsg};
 use lb_services_utils::{
-    overwatch::{
-        JsonFileBackend, RecoveryOperator,
-        recovery::operators::RecoveryBackend as RecoveryBackendTrait,
-    },
+    overwatch::{RecoveryOperator, recovery::operators::RecoveryBackend as RecoveryBackendTrait},
     wait_until_services_are_ready,
 };
-use lb_storage_service::StorageService;
+use lb_storage_service::{StorageService, recovery::StorageRecoveryBackend};
+use lb_utils::tokio::task::spawn;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{AsServiceId, ServiceCore, ServiceData, relay::OutboundRelay},
 };
-use tokio::sync::oneshot;
+use tokio::sync::{broadcast, oneshot};
 
 use crate::{
-    MempoolMetrics, MempoolMsg, TransactionsByHashesResponse, backend,
-    backend::{MemPool as MemPoolTrait, MempoolError, RecoverableMempool},
+    MempoolMetrics, MempoolMsg, TxsWithCommonPrefix,
+    backend::{self, MemPool as MemPoolTrait, MempoolError, RecoverableMempool},
     network::NetworkAdapter as NetworkAdapterTrait,
     storage::MempoolStorageAdapter,
     tx::{settings::TxMempoolSettings, state::TxMempoolState},
@@ -65,13 +65,13 @@ type TxMempoolRecoverySettings<Pool, NetworkAdapter, RuntimeServiceId> = TxMempo
     <NetworkAdapter as NetworkAdapterTrait<RuntimeServiceId>>::Settings,
 >;
 
-type TxMempoolRecoveryBackend<Pool, NetworkAdapter, RuntimeServiceId> = JsonFileBackend<
+type TxMempoolRecoveryBackend<Pool, NetworkAdapter, RuntimeServiceId> = StorageRecoveryBackend<
     TxMempoolRecoveryState<Pool, NetworkAdapter, RuntimeServiceId>,
     TxMempoolRecoverySettings<Pool, NetworkAdapter, RuntimeServiceId>,
+    RuntimeServiceId,
 >;
 
-/// A tx mempool service that uses a [`JsonFileBackend`] as a recovery
-/// mechanism.
+/// A tx mempool service that stores recovery state in its storage backend.
 pub type TxMempoolService<MempoolNetworkAdapter, Pool, StorageAdapter, RuntimeServiceId> =
     GenericTxMempoolService<
         Pool,
@@ -91,11 +91,12 @@ pub struct GenericTxMempoolService<
     RuntimeServiceId,
 > where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
+    Pool::Key: PrefixedKey,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     <Pool as MemPoolTrait>::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send + Sync,
     NetworkAdapter::Settings: Clone,
-    RecoveryBackend: RecoveryBackendTrait + Send + Sync,
+    RecoveryBackend: RecoveryBackendTrait<RuntimeServiceId> + Send + Sync,
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     initial_state: <Self as ServiceData>::State,
@@ -106,11 +107,12 @@ impl<Pool, NetworkAdapter, RecoveryBackend, StorageAdapter, RuntimeServiceId>
     GenericTxMempoolService<Pool, NetworkAdapter, RecoveryBackend, StorageAdapter, RuntimeServiceId>
 where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
+    Pool::Key: PrefixedKey,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     <Pool as MemPoolTrait>::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send + Sync,
     NetworkAdapter::Settings: Clone,
-    RecoveryBackend: RecoveryBackendTrait + Send + Sync,
+    RecoveryBackend: RecoveryBackendTrait<RuntimeServiceId> + Send + Sync,
 {
     pub const fn new(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -134,11 +136,12 @@ impl<Pool, NetworkAdapter, RecoveryBackend, StorageAdapter, RuntimeServiceId> Se
     >
 where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
+    Pool::Key: PrefixedKey,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     <Pool as MemPoolTrait>::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId> + Send + Sync,
     NetworkAdapter::Settings: Clone,
-    RecoveryBackend: RecoveryBackendTrait + Send + Sync,
+    RecoveryBackend: RecoveryBackendTrait<RuntimeServiceId> + Send + Sync,
 {
     type Settings = TxMempoolSettings<<Pool as MemPoolTrait>::Settings, NetworkAdapter::Settings>;
     type State = TxMempoolState<
@@ -164,12 +167,13 @@ where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     <Pool as RecoverableMempool>::RecoveryState: Debug + Send + Sync,
-    Pool::Item: Transaction<Hash = Pool::Key> + StorageSize + Clone + Send + 'static,
+    Pool::Item: Hashable<Hash = Pool::Key> + StorageSize + Clone + Send + 'static,
+    Pool::Key: PrefixedKey<Prefix: Send + Sync>,
     Pool::Settings: Clone + Sync + Send,
     NetworkAdapter:
         NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item, Key = Pool::Key> + Send + Sync,
     NetworkAdapter::Settings: Clone + Send + Sync + 'static,
-    RecoveryBackend: RecoveryBackendTrait + Send + Sync,
+    RecoveryBackend: RecoveryBackendTrait<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: Display
         + Debug
         + Sync
@@ -177,12 +181,7 @@ where
         + 'static
         + AsServiceId<Self>
         + AsServiceId<NetworkService<NetworkAdapter::Backend, RuntimeServiceId>>
-        + AsServiceId<
-            StorageService<
-                <StorageAdapter as MempoolStorageAdapter<RuntimeServiceId>>::Backend,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<StorageService<RuntimeServiceId>>,
 {
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
@@ -203,10 +202,7 @@ where
         let overwatch_handle = &self.service_resources_handle.overwatch_handle;
 
         let storage_relay = overwatch_handle
-            .relay::<StorageService<
-                <StorageAdapter as MempoolStorageAdapter<RuntimeServiceId>>::Backend,
-                RuntimeServiceId,
-            >>()
+            .relay::<StorageService<RuntimeServiceId>>()
             .await
             .expect("Storage service relay should be available");
 
@@ -255,8 +251,16 @@ where
         )
         .await?;
 
-        self.run_event_loop(&mut pool, network_service_relay, &mut network_items)
-            .await
+        let (accepted_items_channel_sender, _) =
+            broadcast::channel(settings.seen_items_subscription_channel_size.get());
+
+        self.run_event_loop(
+            &mut pool,
+            network_service_relay,
+            &mut network_items,
+            &accepted_items_channel_sender,
+        )
+        .await
     }
 }
 
@@ -265,11 +269,12 @@ impl<Pool, NetworkAdapter, RecoveryBackend, StorageAdapter, RuntimeServiceId>
 where
     Pool: MemPoolTrait<Storage = StorageAdapter> + RecoverableMempool + Send + Sync,
     StorageAdapter: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    Pool::Item: Transaction<Hash = Pool::Key> + StorageSize + Clone + Send + 'static,
+    Pool::Item: Hashable<Hash = Pool::Key> + StorageSize + Clone + Send + 'static,
+    Pool::Key: PrefixedKey<Prefix: Send + Sync>,
     Pool::Settings: Clone,
     NetworkAdapter: NetworkAdapterTrait<RuntimeServiceId, Payload = Pool::Item> + Send + Sync,
     NetworkAdapter::Settings: Clone + Send + 'static,
-    RecoveryBackend: RecoveryBackendTrait + Send + Sync,
+    RecoveryBackend: RecoveryBackendTrait<RuntimeServiceId> + Send + Sync,
     RuntimeServiceId: 'static,
 {
     async fn run_event_loop(
@@ -279,6 +284,7 @@ where
             BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>,
         >,
         network_items: &mut Box<dyn futures::Stream<Item = (Pool::Key, Pool::Item)> + Unpin + Send>,
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
     ) -> Result<(), overwatch::DynError>
     where
         Pool::Settings: Send + Sync,
@@ -296,10 +302,10 @@ where
                         .get_updated_settings()
                         .network_adapter;
 
-                    Self::handle_mempool_message(pool, relay_msg, network_service_relay.clone(), state_updater, settings).await;
+                    Self::handle_mempool_message(pool, relay_msg, network_service_relay.clone(), state_updater, settings, accepted_items_channel_sender).await;
                 }
                 Some((key, item)) = network_items.next() => {
-                    Self::handle_network_item(pool, key, item, &self.service_resources_handle.state_updater).await;
+                    Self::handle_network_item(pool, key, item, &self.service_resources_handle.state_updater, accepted_items_channel_sender).await;
                 }
             }
         }
@@ -311,6 +317,7 @@ where
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         state_updater: MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
         settings: NetworkAdapter::Settings,
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
     ) where
         Pool::Settings: Send + Sync,
         NetworkAdapter::Settings: Send + Sync,
@@ -329,6 +336,7 @@ where
                     network_relay,
                     state_updater,
                     settings,
+                    accepted_items_channel_sender,
                 )
                 .await;
             }
@@ -338,14 +346,14 @@ where
             } => {
                 Self::handle_view_message(pool, ancestor_hint, reply_channel).await;
             }
-            MempoolMsg::GetTransactionsByHashes {
-                hashes,
+            MempoolMsg::GetTransactionsByPrefix {
+                prefix,
                 reply_channel,
             } => {
-                let result = Self::partition_transactions_by_availability(pool, hashes).await;
+                let result = Self::get_transactions_by_prefix(pool, &prefix).await;
 
                 if let Err(_e) = reply_channel.send(result) {
-                    tracing::debug!(target: LOG_TARGET, "Failed to send transactions reply");
+                    tracing::debug!(target: LOG_TARGET, "Failed to send prefix lookup reply");
                 }
             }
             MempoolMsg::Remove { ids } => {
@@ -360,9 +368,18 @@ where
             } => {
                 Self::handle_status_message(pool, &items, reply_channel);
             }
+            MempoolMsg::SubscribeToAccepted { reply_channel } => {
+                if reply_channel
+                    .send(accepted_items_channel_sender.subscribe())
+                    .is_err()
+                {
+                    tracing::warn!(target: LOG_TARGET, "Subscriber hung up before it could be given the accepted-item stream.");
+                }
+            }
         }
     }
 
+    #[expect(clippy::too_many_arguments, reason = "categorize args")]
     async fn handle_add_message(
         pool: &mut Pool,
         key: Pool::Key,
@@ -371,6 +388,7 @@ where
         network_relay: OutboundRelay<BackendNetworkMsg<NetworkAdapter::Backend, RuntimeServiceId>>,
         state_updater: MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
         settings: NetworkAdapter::Settings,
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
     ) where
         Pool::Settings: Send + Sync,
         NetworkAdapter::Settings: Send + Sync,
@@ -380,25 +398,25 @@ where
             return;
         }
 
-        let item_for_broadcast = item.clone();
-
-        match pool.add_item(key, item).await {
+        match pool.add_item(key, item.clone()).await {
             Ok(_id) => {
+                Self::notify_about_accepted_item(accepted_items_channel_sender, item.clone());
                 Self::handle_add_success(
                     pool,
                     &state_updater,
                     settings,
                     network_relay,
-                    item_for_broadcast,
+                    item,
                     reply_channel,
                 );
             }
             Err(MempoolError::ExistingItem) => {
                 // Tx already in pool, but since this came from a local submission
                 // (not gossip), re-gossip it so leader nodes can pick it up.
-                tokio::spawn(async move {
+                Self::notify_about_accepted_item(accepted_items_channel_sender, item.clone());
+                spawn("logos/mempool/transaction-regossip", async move {
                     let adapter = NetworkAdapter::new(settings, network_relay).await;
-                    adapter.send(item_for_broadcast).await;
+                    adapter.send(item).await;
                 });
                 if let Err(e) = reply_channel.send(Ok(())) {
                     tracing::debug!(target: LOG_TARGET, "Failed to send add reply: {:?}", e);
@@ -449,37 +467,21 @@ where
         }
     }
 
-    async fn partition_transactions_by_availability(
+    /// Every transaction whose hash starts with `prefix`.
+    ///
+    /// The prefix index is consulted first, so the storage round-trip only
+    /// covers keys that actually match. No policy is applied here: what a
+    /// non-unique match means is a consensus question, so it belongs to the
+    /// caller.
+    async fn get_transactions_by_prefix(
         pool: &Pool,
-        hashes: Vec<Pool::Key>,
-    ) -> Result<TransactionsByHashesResponse<Pool::Item, Pool::Key>, MempoolError> {
-        let keys_set: BTreeSet<Pool::Key> = hashes.into_iter().collect();
+        prefix: &<Pool::Key as PrefixedKey>::Prefix,
+    ) -> Result<TxsWithCommonPrefix<Pool::Item>, MempoolError> {
+        let keys: Vec<Pool::Key> = pool.keys_by_prefix(prefix).cloned().collect();
 
-        let items_stream = pool
-            .get_items_by_keys(keys_set.iter().cloned())
+        pool.get_items_by_keys(keys)
             .await
-            .map_err(|e| {
-                MempoolError::StorageError(format!("Failed to get items by keys: {e:?}"))
-            })?;
-
-        let found_transactions: Vec<Pool::Item> = items_stream.collect().await;
-
-        if found_transactions.len() == keys_set.len() {
-            return Ok(TransactionsByHashesResponse::new(
-                found_transactions,
-                BTreeSet::new(),
-            ));
-        }
-
-        let found_hashes: BTreeSet<Pool::Key> =
-            found_transactions.iter().map(Transaction::hash).collect();
-
-        let not_found_hashes: BTreeSet<Pool::Key> = &keys_set - &found_hashes;
-
-        Ok(TransactionsByHashesResponse::new(
-            found_transactions,
-            not_found_hashes,
-        ))
+            .map_err(|e| MempoolError::StorageError(format!("Failed to get items by keys: {e:?}")))
     }
 
     fn handle_add_success(
@@ -492,7 +494,7 @@ where
     ) {
         state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
 
-        tokio::spawn(async move {
+        spawn("logos/mempool/transaction-broadcast", async move {
             let adapter = NetworkAdapter::new(settings, network_relay).await;
             adapter.send(item_for_broadcast).await;
         });
@@ -512,12 +514,21 @@ where
         }
     }
 
+    fn notify_about_accepted_item(
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
+        item: Pool::Item,
+    ) {
+        if accepted_items_channel_sender.receiver_count() > 0 {
+            drop(accepted_items_channel_sender.send(item));
+        }
+    }
+
     fn validate_item_for_mempool(item: &Pool::Item) -> Result<(), MempoolError> {
         let size = item.storage_size();
-        if size > MAX_BLOCK_SIZE {
+        if size > MAX_BLOCK_TRANSACTIONS_SIZE {
             return Err(MempoolError::ItemTooLarge {
                 size,
-                max: MAX_BLOCK_SIZE,
+                max: MAX_BLOCK_TRANSACTIONS_SIZE,
             });
         }
 
@@ -529,6 +540,7 @@ where
         key: Pool::Key,
         item: Pool::Item,
         state_updater: &MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
     ) where
         Pool::Settings: Send + Sync,
         NetworkAdapter::Settings: Send + Sync,
@@ -541,10 +553,12 @@ where
             return;
         }
 
+        let accepted_item = item.clone();
         if let Err(e) = pool.add_item(key, item).await {
             Self::handle_network_add_error(e);
             return;
         }
+        Self::notify_about_accepted_item(accepted_items_channel_sender, accepted_item);
 
         tracing::trace!(
             target: LOG_TARGET,

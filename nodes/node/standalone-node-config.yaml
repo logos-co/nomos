@@ -24,7 +24,7 @@ network:
           nanos: 0
         check_explicit_peers_ticks: 300
         duplicate_cache_time:
-          secs: 60
+          secs: 86400
           nanos: 0
         validate_messages: false
         allow_self_origin: false
@@ -94,17 +94,12 @@ network:
           check_interval:
             secs: 300
             nanos: 0
-    initial_peers: []
+    initial_peers: [ ]
 blend:
   non_ephemeral_signing_key_id: aa70aafc48536ae13168ed4845981a40cbd2dc1c38df88d04c46250e9ad65ce0
   core:
     backend:
       listening_address: /ip4/0.0.0.0/udp/3400/quic-v1
-      core_peering_degree:
-        start: 2
-        end: 3
-      edge_node_connection_timeout: '1.000000000'
-      max_edge_node_incoming_connections: 300
       max_dial_attempts_per_peer: 3
     zk:
       secret_key_kms_id: 852efb444db8c3c811625850df39425f43aeffc69571192c0be9f72523256e0a
@@ -120,16 +115,30 @@ cryptarchia:
       offline_grace_period:
         grace_period: '5.000000000'
         state_recording_interval: '60.000000000'
+    sync:
+      block_provider:
+        batch_size: 1000
   network:
     bootstrap:
       ibd:
-        peers: []
+        peers: [ ]
         delay_before_new_download:
           secs: 10
+          nanos: 0
+        tips_fetch_max_attempts: 3
+        tips_fetch_min_delay:
+          secs: 0
+          nanos: 250000000
+        tips_fetch_max_delay:
+          secs: 1
+          nanos: 0
+        round_delay:
+          secs: 1
           nanos: 0
     sync:
       orphan:
         max_orphan_cache_size: 1000
+        max_rejected_cache_size: 1000
     network:
       max_connected_peers_to_try_download: 16
       max_discovered_peers_to_try_download: 16
@@ -145,14 +154,16 @@ time:
       listening_interface: 0.0.0.0
     update_interval: '15.000000000'
 sdp:
-  declaration_id: null
+  declaration: null
   wallet:
     max_tx_fee: 18446744073709551615
     funding_pk: 9750fa86471fddc69749aa9f8568ef6635e64d9f9aa815e8cb932cea183c8e18
+  active_message_tracker:
+    status_check_interval_in_tip_changes: 3
 api:
   backend:
     listen_address: 127.0.0.1:8080
-    cors_origins: []
+    cors_origins: [ ]
     timeout: 30
     max_body_size: 10485760
     max_concurrent_requests: 500
@@ -179,6 +190,20 @@ wallet:
     39e16b432574571a6bcd8ee36e370589641bd9f35367f6f97a972453c46c3225: 39e16b432574571a6bcd8ee36e370589641bd9f35367f6f97a972453c46c3225
     9750fa86471fddc69749aa9f8568ef6635e64d9f9aa815e8cb932cea183c8e18: 9750fa86471fddc69749aa9f8568ef6635e64d9f9aa815e8cb932cea183c8e18
   voucher_master_key_id: cce9796339efd968df9cd463bc2248e4b29c86409496e8b2599da8c4c1074d22
+pow:
+  auto_claim:
+    # How often to try claiming: `seconds` paces off the wall clock, `slots`
+    # off chain progress.
+    tick:
+      unit: seconds
+      value: 10
+    # Keys mined rewards are paid to, each with the balance it should reach.
+    # Auto-claim pays whichever listed key currently holds the least while
+    # still being below its threshold, and stops once all of them are
+    # satisfied. Every key here must also appear in `wallet.known_keys`, or the
+    # node refuses to start. Empty means claims only happen on demand, through
+    # `POST /pow/claim`.
+    targets: [ ]
 tracing:
   logger:
     file:
@@ -193,25 +218,22 @@ tracing:
   tracing: None
   filter: !Env
     filters:
-      ledger: DEBUG
       reqwest: WARN
-      chain_leader: DEBUG
-      chain: DEBUG
       libp2p_gossipsub: ERROR
       h2: WARN
       hyper: WARN
       tower: WARN
       tonic: WARN
-      chain_network: DEBUG
       opentelemetry_sdk: WARN
-      cryptarchia: DEBUG
       rustls: WARN
       '*': WARN
       opentelemetry: WARN
       logos_blockchain: DEBUG
       hyper_util: WARN
-  metrics: None
+  metrics:
+    otlp: null
+    enable_open_metrics: false
   console: None
-  level: DEBUG
+  level: "INFO"
 state:
   base_folder: ./state

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, pin::Pin, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, pin::Pin, time::Duration};
 
 use common_http_client::{
     ApiBlock, BasicAuthCredentials, CommonHttpClient, Error, ProcessedBlockEvent,
@@ -8,22 +8,36 @@ use lb_blend_service::message::NetworkInfo as BlendNetworkInfo;
 use lb_chain_service::ChainServiceInfo;
 use lb_core::{
     header::HeaderId,
-    mantle::{NoteId, SignedMantleTx, TxHash},
+    mantle::{
+        NoteId, SignedOps,
+        ledger::verification_mode::StandardMode,
+        transactions::{genesis_tx::ChainId, hash::TxHash, states::VerificationState},
+    },
     sdp::{Declaration, DeclarationId, Locator},
 };
 use lb_http_api_common::{
+    TimeInfo,
     bodies::{
         blend::JoinBlendRequestBody,
-        wallet::transfer_funds::{WalletTransferFundsRequestBody, WalletTransferFundsResponseBody},
+        mantle::GasPricesResponseBody,
+        wallet::{
+            aged_notes::LeaderAgedNotesResponseBody,
+            balance::WalletBalanceResponseBody,
+            fund::{WalletFundRequestBody, WalletFundResponseBody},
+            transfer_funds::{WalletTransferFundsRequestBody, WalletTransferFundsResponseBody},
+        },
     },
     paths::{
         BLEND_NETWORK_INFO, DIAL_PEER, MANTLE_METRICS, MANTLE_SDP_DECLARATIONS, MEMPOOL_VIEW,
-        NETWORK_INFO,
+        NETWORK_INFO, POW_CLAIM, POW_CLAIMABLE_REWARDS, POW_START_MINING, POW_STATUS,
+        POW_STOP_MINING,
     },
     queries::BlocksStreamQuery,
 };
+use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_libp2p::{Multiaddr, PeerId};
 use lb_network_service::backends::libp2p::Libp2pInfo;
+use lb_sdp_service::SdpSubmission;
 use lb_tx_service::MempoolMetrics;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -63,10 +77,49 @@ impl NodeHttpClient {
         }
     }
 
+    /// The chain ID the node was deployed on.
+    pub async fn chain_id(&self) -> Result<ChainId, Error> {
+        self.with_timeout(
+            "Chain ID request",
+            self.http_client.chain_id(self.base_url.clone()),
+        )
+        .await
+    }
+
+    /// The wallet notes aged enough to take part in the leadership lottery.
+    /// Empty when this node cannot currently win a slot.
+    pub async fn leader_aged_notes(
+        &self,
+        tip: Option<HeaderId>,
+    ) -> Result<LeaderAgedNotesResponseBody, Error> {
+        self.with_timeout(
+            "Leader aged notes request",
+            self.http_client
+                .get_leader_aged_notes(self.base_url.clone(), tip),
+        )
+        .await
+    }
+
     pub async fn consensus_info(&self) -> Result<ChainServiceInfo, Error> {
         self.with_timeout(
             "Consensus info request",
             self.http_client.consensus_info(self.base_url.clone()),
+        )
+        .await
+    }
+
+    pub async fn time_info(&self) -> Result<TimeInfo, Error> {
+        self.with_timeout(
+            "Time info request",
+            self.http_client.time_info(self.base_url.clone()),
+        )
+        .await
+    }
+
+    pub async fn gas_prices(&self, tip: Option<HeaderId>) -> Result<GasPricesResponseBody, Error> {
+        self.with_timeout(
+            "Gas prices request",
+            self.http_client.gas_prices(self.base_url.clone(), tip),
         )
         .await
     }
@@ -79,6 +132,19 @@ impl NodeHttpClient {
         self.with_timeout(
             "Get block by ID request",
             self.http_client.get_block_by_id(self.base_url.clone(), *id),
+        )
+        .await
+    }
+
+    pub async fn wallet_balance(
+        &self,
+        zk_pk: ZkPublicKey,
+        tip: Option<HeaderId>,
+    ) -> Result<WalletBalanceResponseBody, Error> {
+        self.with_timeout(
+            "Wallet balance request",
+            self.http_client
+                .get_wallet_balance(self.base_url.clone(), zk_pk, tip),
         )
         .await
     }
@@ -136,11 +202,41 @@ impl NodeHttpClient {
         Ok(Box::pin(stream))
     }
 
-    pub async fn submit_transaction(&self, tx: &SignedMantleTx) -> Result<(), Error> {
+    pub async fn submit_transaction<State>(
+        &self,
+        tx: &SignedOps<State, StandardMode>,
+    ) -> Result<(), Error>
+    where
+        State: VerificationState + Send + Sync + Clone + 'static,
+    {
         self.with_timeout(
             "Submit transaction request",
             self.http_client
                 .post_transaction(self.base_url.clone(), tx.clone()),
+        )
+        .await
+    }
+
+    pub async fn blend_transaction<State>(
+        &self,
+        tx: SignedOps<State, StandardMode>,
+    ) -> Result<TxHash, Error>
+    where
+        State: VerificationState + Send + Sync + Clone + 'static,
+    {
+        self.with_timeout(
+            "Blend transaction request",
+            self.http_client
+                .blend_transaction(self.base_url.clone(), tx),
+        )
+        .await
+    }
+
+    pub async fn blend_pending_transactions(&self) -> Result<Vec<TxHash>, Error> {
+        self.with_timeout(
+            "Blend pending transactions request",
+            self.http_client
+                .blend_pending_transactions(self.base_url.clone()),
         )
         .await
     }
@@ -156,7 +252,18 @@ impl NodeHttpClient {
         .await
     }
 
-    pub async fn get_sdp_declarations(&self) -> Result<Vec<Declaration>, Error> {
+    pub async fn fund_tx(
+        &self,
+        body: WalletFundRequestBody,
+    ) -> Result<WalletFundResponseBody, Error> {
+        self.with_timeout(
+            "Fund transaction request",
+            self.http_client.fund_tx(self.base_url.clone(), body),
+        )
+        .await
+    }
+
+    pub async fn get_sdp_declarations(&self) -> Result<HashMap<DeclarationId, Declaration>, Error> {
         self.get_sdp_declarations_at(self.base_url.clone()).await
     }
 
@@ -179,6 +286,81 @@ impl NodeHttpClient {
         .await
     }
 
+    /// Turns on `PoW` mining on the node. Mining stays off until this is
+    /// called and is not persisted across restarts.
+    pub async fn start_mining(&self) -> Result<(), Error> {
+        let request_url = Self::join_path(&self.base_url, POW_START_MINING)?;
+
+        self.with_timeout(
+            "Start PoW mining request",
+            self.http_client.put::<(), ()>(request_url, None),
+        )
+        .await
+    }
+
+    /// Turns off `PoW` mining on the node.
+    pub async fn stop_mining(&self) -> Result<(), Error> {
+        let request_url = Self::join_path(&self.base_url, POW_STOP_MINING)?;
+
+        self.with_timeout(
+            "Stop PoW mining request",
+            self.http_client.put::<(), ()>(request_url, None),
+        )
+        .await
+    }
+
+    /// Submits the mined-but-unclaimed `PoW` rewards as a single reward-claim
+    /// transaction paid to `claim_address`, returning its hash. Returns `None`
+    /// when there is nothing to claim yet.
+    ///
+    /// A `None` address defers to the node's auto-claim configuration, which
+    /// fails when the node has no target below its threshold.
+    pub async fn claim_pow_rewards(
+        &self,
+        claim_address: Option<ZkPublicKey>,
+    ) -> Result<Option<TxHash>, Error> {
+        let request_url = Self::join_path(&self.base_url, POW_CLAIM)?;
+        let body = PowClaimRequestBody { claim_address };
+
+        let response: PowClaimResponseBody = self
+            .with_timeout(
+                "PoW claim request",
+                self.http_client
+                    .post::<PowClaimRequestBody, PowClaimResponseBody>(request_url, &body),
+            )
+            .await?;
+
+        Ok(response.tx_hash)
+    }
+
+    /// Returns how many mined `PoW` tickets are currently claimable. Uses the
+    /// same service inbound-relay path as start/stop mining, so it also probes
+    /// whether that path is being serviced under a mining flood.
+    pub async fn pow_claimable_tickets(&self) -> Result<usize, Error> {
+        let request_url = Self::join_path(&self.base_url, POW_CLAIMABLE_REWARDS)?;
+
+        let response: PowClaimableRewardsBody = self
+            .with_timeout(
+                "PoW claimable rewards request",
+                self.http_client
+                    .get::<(), PowClaimableRewardsBody>(request_url, None),
+            )
+            .await?;
+
+        Ok(response.claimable_tickets)
+    }
+
+    /// Returns the runtime state of the node's `PoW` service.
+    pub async fn pow_status(&self) -> Result<PowStatusBody, Error> {
+        let request_url = Self::join_path(&self.base_url, POW_STATUS)?;
+
+        self.with_timeout(
+            "PoW status request",
+            self.http_client.get::<(), PowStatusBody>(request_url, None),
+        )
+        .await
+    }
+
     #[must_use]
     pub const fn base_url(&self) -> &Url {
         &self.base_url
@@ -196,13 +378,16 @@ impl NodeHttpClient {
     }
 
     /// Fetches testing-only SDP declarations from one explicit base URL.
-    async fn get_sdp_declarations_at(&self, base_url: Url) -> Result<Vec<Declaration>, Error> {
+    async fn get_sdp_declarations_at(
+        &self,
+        base_url: Url,
+    ) -> Result<HashMap<DeclarationId, Declaration>, Error> {
         let request_url = Self::join_path(&base_url, MANTLE_SDP_DECLARATIONS)?;
 
         self.with_timeout(
             "SDP declarations request",
             self.http_client
-                .get::<(), Vec<Declaration>>(request_url, None),
+                .get::<(), HashMap<DeclarationId, Declaration>>(request_url, None),
         )
         .await
     }
@@ -231,14 +416,14 @@ impl NodeHttpClient {
     pub async fn join_blend_network(
         &self,
         locator: Locator,
-        locked_note_id: NoteId,
-    ) -> Result<DeclarationId, Error> {
+        service_note_id: NoteId,
+    ) -> Result<SdpSubmission, Error> {
         self.http_client
             .join_blend_network(
                 &self.base_url,
                 JoinBlendRequestBody {
                     locator,
-                    locked_note_id,
+                    service_note_id,
                 },
             )
             .await
@@ -248,4 +433,37 @@ impl NodeHttpClient {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct DialPeerRequestBody {
     addr: Multiaddr,
+}
+
+/// Mirrors the node's `PoWClaimRequestBody`: the key the claimed rewards are
+/// paid to, or `null` to defer to the node's auto-claim configuration.
+#[derive(Clone, Debug, Serialize)]
+struct PowClaimRequestBody {
+    claim_address: Option<ZkPublicKey>,
+}
+
+/// Mirrors the node's `PoWClaimResponseBody`: the hash of the submitted
+/// reward-claim transaction, or `null` when there was nothing to claim.
+#[derive(Clone, Debug, Deserialize)]
+struct PowClaimResponseBody {
+    tx_hash: Option<TxHash>,
+}
+
+/// Subset of the node's `PoWStatus` we assert on.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PowStatusBody {
+    pub is_mining: bool,
+    pub auto_claim: PowAutoClaimStatusBody,
+}
+
+/// Subset of the node's `AutoClaimStatus` we assert on.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PowAutoClaimStatusBody {
+    pub is_armed: bool,
+}
+
+/// Subset of the node's `ClaimableRewardsInfo` we assert on.
+#[derive(Clone, Debug, Deserialize)]
+struct PowClaimableRewardsBody {
+    claimable_tickets: usize,
 }

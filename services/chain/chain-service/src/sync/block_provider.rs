@@ -1,31 +1,38 @@
 use std::{
     collections::{HashSet, VecDeque},
     fmt::Debug,
-    marker::PhantomData,
     num::NonZeroUsize,
     ops::RangeInclusive,
 };
 
 use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, future, stream, stream::BoxStream};
-use lb_core::{block::Block, header::HeaderId};
+use lb_core::{
+    block::Block,
+    header::HeaderId,
+    mantle::{
+        TxHash,
+        traits::{Hashable, StorageSize},
+    },
+};
 use lb_cryptarchia_engine::{Branch, Slot};
 use lb_cryptarchia_sync::{BlocksResponse, BlocksUnavailableReason, ProviderResponse};
-use lb_storage_service::{StorageMsg, api::chain::StorageChainApi, backends::StorageBackend};
+use lb_log_targets::chain;
+use lb_storage_service::api::StorageApi;
 use overwatch::DynError;
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
-use tokio::sync::{mpsc::Sender, oneshot};
-use tracing::{debug, error, info};
+use tokio::sync::mpsc::Sender;
+use tracing::{debug, error};
 
-use crate::relays::StorageRelay;
+use crate::sync::config::BlockProviderConfig;
 
-const MAX_NUMBER_OF_BLOCKS: usize = 1000;
+const LOG_TARGET: &str = chain::service::sync::BLOCK_PROVIDER;
 
 #[derive(Debug, Error, Clone)]
 pub enum GetBlocksError {
-    #[error("Storage channel dropped")]
-    ChannelDropped,
+    #[error("Storage error: {0}")]
+    Storage(String),
     #[error("Block not found in storage for header {0:?}")]
     BlockNotFound(HeaderId),
     #[error("Failed to find start block")]
@@ -34,8 +41,6 @@ pub enum GetBlocksError {
     InvalidState(String),
     #[error("Failed to send to channel: {0}")]
     SendError(String),
-    #[error("Failed to convert block")]
-    ConversionError,
 }
 
 #[derive(Debug, Clone)]
@@ -51,28 +56,23 @@ enum BlockLocation {
     Storage,
 }
 
-pub struct BlockProvider<Storage, Tx>
-where
-    Storage: StorageBackend,
-    Tx: Clone + Eq,
-{
-    storage_relay: StorageRelay<Storage>,
-    _phantom: PhantomData<Tx>,
+pub struct BlockProvider<Tx> {
+    storage: StorageApi<Tx>,
+    config: BlockProviderConfig,
 }
 
-impl<Storage, Tx> BlockProvider<Storage, Tx>
+impl<Tx> BlockProvider<Tx> {
+    #[must_use]
+    pub const fn new(storage: StorageApi<Tx>, config: BlockProviderConfig) -> Self {
+        Self { storage, config }
+    }
+}
+
+impl<Tx> BlockProvider<Tx>
 where
-    Storage: StorageBackend + 'static,
-    <Storage as StorageChainApi>::Block: TryInto<Block<Tx>> + Into<Bytes>,
+    Tx: DeserializeOwned + Hashable<Hash = TxHash> + StorageSize,
     Tx: Serialize + Clone + Eq + Send + Sync + 'static,
 {
-    pub const fn new(storage_relay: StorageRelay<Storage>) -> Self {
-        Self {
-            storage_relay,
-            _phantom: PhantomData,
-        }
-    }
-
     /// Creates a block stream that leads from one of the [`known_blocks`]
     /// to the [`target_block`], and sends it to the [`reply_sender`].
     pub async fn send_blocks(
@@ -82,7 +82,8 @@ where
         known_blocks: &HashSet<HeaderId>,
         reply_sender: Sender<BlocksResponse>,
     ) {
-        info!(
+        debug!(
+            target: LOG_TARGET,
             "Providing blocks:
             target_block={target_block:?},
             known_blocks={known_blocks:?},"
@@ -95,15 +96,17 @@ where
             Ok(stream) => {
                 let response = ProviderResponse::Available(stream);
                 if let Err(e) = reply_sender.send(response).await {
-                    error!("Failed to send blocks stream: {e}");
+                    error!(target: LOG_TARGET, "Failed to send blocks stream: {e}");
                 }
             }
             Err(e) => {
                 let reason = e.downcast_ref::<GetBlocksError>().map_or_else(
                     || {
-                        BlocksUnavailableReason::Unknown(format!(
+                        error!(
+                            target: LOG_TARGET,
                             "Failed to create a block stream: {e:?}"
-                        ))
+                        );
+                        BlocksUnavailableReason::Unknown
                     },
                     |err| match err {
                         GetBlocksError::BlockNotFound(id) => {
@@ -112,7 +115,10 @@ where
                         GetBlocksError::StartBlockNotFound => {
                             BlocksUnavailableReason::StartBlockNotFound
                         }
-                        other => BlocksUnavailableReason::Unknown(other.to_string()),
+                        other => {
+                            error!(target: LOG_TARGET, "Failed to create a block stream: {other}");
+                            BlocksUnavailableReason::Unknown
+                        }
                     },
                 );
                 Self::send_error(reason, reply_sender).await;
@@ -123,7 +129,7 @@ where
     /// Creates a block stream that leads from one of the [`known_blocks`]
     /// to the [`target_block`], in parent-to-child order.
     ///
-    /// The stream includes at most [`MAX_NUMBER_OF_BLOCKS`] blocks.
+    /// The stream includes at most `batch_size` blocks.
     /// The stream may or may not reach the [`target_block`].
     ///
     /// In any error case, [`GetBlocksError`] is returned.
@@ -143,6 +149,7 @@ where
 
         if let (Some(start_block), Some(end_block)) = (path.first(), path.last()) {
             debug!(
+                target: LOG_TARGET,
                 "Prepared block stream from {:?} to {:?} with {} path entries",
                 start_block,
                 end_block,
@@ -159,7 +166,7 @@ where
         &self,
         path: Vec<HeaderId>,
     ) -> BoxStream<'static, Result<Bytes, DynError>> {
-        let storage = self.storage_relay.clone();
+        let storage = self.storage.clone();
 
         // Skip a block already known to the requester.
         let path = path.into_iter().skip(1);
@@ -329,9 +336,11 @@ where
         target_info: BlockInfo,
     ) -> Result<Vec<HeaderId>, GetBlocksError> {
         // Add 1 because we remove first(known block) from the path
-        let limit = (MAX_NUMBER_OF_BLOCKS + 1)
-            .try_into()
-            .expect("MAX_NUMBER_OF_BLOCKS should be > 0");
+        let limit = self
+            .config
+            .batch_size
+            .checked_add(1)
+            .expect("batch_size + 1 must not overflow");
 
         match start_info.location {
             BlockLocation::Engine => {
@@ -436,11 +445,11 @@ where
         known_blocks
             .iter()
             .filter_map(|known| {
-                branches
-                    .get(known)
-                    .map(|known_branch| branches.lca(known_branch, target_branch))
+                let known_branch = branches.get(known)?;
+                branches.lca(known_branch, target_branch)
             })
-            .max_by_key(Branch::length)
+            .max_by_key(|branch| branch.length())
+            .cloned()
     }
 
     async fn find_max_slot_immutable_block(
@@ -476,96 +485,61 @@ where
         &self,
         id: HeaderId,
     ) -> Result<Option<Block<Tx>>, GetBlocksError> {
-        let Some(block) = Self::load_block(id, &self.storage_relay).await? else {
+        let Some(block) = Self::load_block(id, &self.storage).await? else {
             return Ok(None);
         };
 
-        // Check if the block is stored as immutable in the storage
-        let (tx, rx) = oneshot::channel();
-        self.storage_relay
-            .send(StorageMsg::get_immutable_block_id_request(
-                block.header().slot(),
-                tx,
-            ))
+        match self
+            .storage
+            .get_immutable_block_id(block.header().slot())
             .await
-            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
-
-        match rx.await.map_err(|_| GetBlocksError::ChannelDropped)? {
+            .map_err(|error| GetBlocksError::Storage(error.to_string()))?
+        {
             Some(immutable_id) if immutable_id == id => Ok(Some(block)),
             Some(_) | None => Ok(None),
         }
     }
 
-    /// Loads a block from storage, regardless of whether it is stored as
-    /// immutable or not.
     async fn load_block(
         id: HeaderId,
-        storage: &StorageRelay<Storage>,
+        storage: &StorageApi<Tx>,
     ) -> Result<Option<Block<Tx>>, GetBlocksError> {
-        let (tx, rx) = oneshot::channel();
         storage
-            .send(StorageMsg::get_block_request(id, tx))
+            .try_get_block(&id)
             .await
-            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
-
-        let response = rx.await.map_err(|_| GetBlocksError::ChannelDropped)?;
-
-        match response {
-            None => Ok(None),
-            Some(block) => Ok(Some(
-                block
-                    .try_into()
-                    .map_err(|_| GetBlocksError::ConversionError)?,
-            )),
-        }
+            .map_err(|error| GetBlocksError::Storage(error.to_string()))
     }
 
-    /// Loads a block from storage as raw bytes, avoiding
-    /// deserialization/serialization
     async fn load_block_bytes(
         id: HeaderId,
-        storage: &StorageRelay<Storage>,
+        storage: &StorageApi<Tx>,
     ) -> Result<Option<Bytes>, GetBlocksError> {
-        let (tx, rx) = oneshot::channel();
         storage
-            .send(StorageMsg::get_block_request(id, tx))
+            .get_block_bytes(&id)
             .await
-            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
-
-        let response = rx.await.map_err(|_| GetBlocksError::ChannelDropped)?;
-
-        // Convert storage block type to Bytes to satisfy trait bounds.
-        // For RocksBackend this is Bytes -> Bytes (no-op).
-        Ok(response.map(Into::into))
+            .map_err(|error| GetBlocksError::Storage(error.to_string()))
     }
 
-    /// Scans immutable block IDs from the storage,
-    /// starting from the `start_slot`, limited to `limit`.
     async fn scan_immutable_block_ids(
         &self,
         slot_range: RangeInclusive<Slot>,
         limit: NonZeroUsize,
     ) -> Result<Vec<HeaderId>, GetBlocksError> {
-        let (tx, rx) = oneshot::channel();
-
-        self.storage_relay
-            .send(StorageMsg::scan_immutable_block_ids_request(
-                slot_range, limit, tx,
-            ))
+        self.storage
+            .scan_immutable_block_ids(slot_range, limit, false)
             .await
-            .map_err(|(e, _)| GetBlocksError::SendError(e.to_string()))?;
-
-        rx.await.map_err(|_| GetBlocksError::ChannelDropped)
+            .map_err(|error| GetBlocksError::Storage(error.to_string()))
     }
 
     async fn send_error(reason: BlocksUnavailableReason, reply_sender: Sender<BlocksResponse>) {
         if let BlocksUnavailableReason::BlockNotFound(target) = &reason {
             error!(
+                target: LOG_TARGET,
                 ?target,
                 "Failed to create a block stream: requested target block is unavailable"
             );
         } else {
-            error!(reason = %reason, "Failed to create a block stream");
+            error!(target: LOG_TARGET, reason = %reason, "Failed to create a block stream");
         }
 
         if let Err(e) = reply_sender
@@ -573,7 +547,7 @@ where
             .await
             .map_err(|_| GetBlocksError::SendError("Failed to send error response".to_owned()))
         {
-            error!("Failed to send error response: {e}");
+            error!(target: LOG_TARGET, "Failed to send error response: {e}");
         }
     }
 }
@@ -582,26 +556,35 @@ where
 mod tests {
     use std::{collections::BTreeMap, num::NonZero};
 
-    use futures::StreamExt as _;
+    use lb_binary_codec::bincode::DeserializeOp as _;
     use lb_core::{
-        codec::DeserializeOp as _,
+        block::{BlockTransactions, UncleHeaders},
         crypto::ZkHasher,
         events::Events,
-        mantle::{Note, SignedMantleTx, ledger::Utxo, ops::leader_claim::VoucherCm},
+        mantle::{
+            Note,
+            ledger::{Utxo, verification_mode::StandardMode},
+            ops::leader_claim::VoucherCm,
+            transactions::{Ops, SignedOps, states::Unverified},
+        },
         proofs::leader_proof::{LeaderPrivate, LeaderPublic},
     };
-    use lb_cryptarchia_engine::Config;
+    use lb_cryptarchia_engine::{Config, UncleSlots};
     use lb_groth16::Fr;
     use lb_key_management_system_keys::keys::{Ed25519Key, UnsecuredZkKey};
-    use lb_storage_service::{
-        StorageService,
-        backends::rocksdb::{RocksBackend, RocksBackendSettings},
-    };
+    use lb_storage_service::{StorageMsg, StorageService, rocksdb::RocksBackendSettings};
     use lb_utils::math::NonNegativeRatio;
     use lb_utxotree::UtxoTree;
-    use overwatch::{derive_services, overwatch::OverwatchRunner};
+    use overwatch::{
+        derive_services,
+        overwatch::{OverwatchRunner, Shutdown},
+        services::relay::OutboundRelay,
+    };
     use tempfile::TempDir;
-    use tokio::{runtime::Handle, sync::mpsc};
+    use tokio::{
+        runtime::Handle,
+        sync::{mpsc, oneshot},
+    };
 
     use super::*;
 
@@ -639,7 +622,7 @@ mod tests {
 
         let ids = env.create_storage_only_blocks(3).await;
         let stale_block = env
-            .build_block_with_parent(ids[0], Slot::from(2))
+            .build_block_with_parent(ids[0], Slot::from(3))
             .expect("stale block should be valid");
 
         let stale_block_id = stale_block.header().id();
@@ -728,7 +711,7 @@ mod tests {
     async fn test_path_length_limit() {
         let mut env = TestEnv::new().await;
 
-        let long_chain = env.setup_chain_with_blocks(MAX_NUMBER_OF_BLOCKS + 1).await;
+        let long_chain = env.setup_chain_with_blocks(TEST_BATCH_SIZE.get() + 1).await;
 
         let known_blocks = HashSet::from([long_chain[0]]);
         let target_block = *long_chain.last().unwrap();
@@ -739,23 +722,33 @@ mod tests {
 
         assert_eq!(
             retrieved_blocks.len(),
-            MAX_NUMBER_OF_BLOCKS,
-            "Retrieved blocks should not exceed MAX_NUMBER_OF_BLOCKS minus the skipped known block"
+            TEST_BATCH_SIZE.get(),
+            "Retrieved blocks should not exceed batch_size minus the skipped known block"
         );
     }
 
-    #[derive_services]
+    const TEST_BATCH_SIZE: NonZeroUsize =
+        NonZeroUsize::new(1000).expect("TEST_BATCH_SIZE must be non-zero");
+
+    #[derive_services(panic_policy = Shutdown)]
     pub struct TestServices {
-        pub storage: StorageService<RocksBackend, RuntimeServiceId>,
+        pub storage: StorageService<RuntimeServiceId>,
     }
+
+    type TestBlock = (
+        Block<SignedOps<Unverified, StandardMode>>,
+        HeaderId,
+        HeaderId,
+        Slot,
+    );
 
     #[expect(dead_code, reason = "Fix in a separate PR")]
     struct TestEnv {
         service: overwatch::overwatch::Overwatch<RuntimeServiceId>,
-        storage_relay: StorageRelay<RocksBackend>,
+        storage_relay: OutboundRelay<StorageMsg>,
         cryptarchia: lb_cryptarchia_engine::Cryptarchia<HeaderId>,
         proof: lb_core::proofs::leader_proof::Groth16LeaderProof,
-        provider: BlockProvider<RocksBackend, SignedMantleTx>,
+        provider: BlockProvider<SignedOps<Unverified, StandardMode>>,
     }
 
     impl TestEnv {
@@ -766,7 +759,12 @@ mod tests {
                 NonNegativeRatio::new(1, 10.try_into().unwrap()),
             );
             let proof = Self::make_test_proof(&cryptarchia);
-            let provider = BlockProvider::new(storage_relay.clone());
+            let provider = BlockProvider::new(
+                StorageApi::new(storage_relay.clone()),
+                BlockProviderConfig {
+                    batch_size: TEST_BATCH_SIZE,
+                },
+            );
 
             Self {
                 service,
@@ -779,7 +777,7 @@ mod tests {
 
         async fn setup_storage() -> (
             overwatch::overwatch::Overwatch<RuntimeServiceId>,
-            StorageRelay<RocksBackend>,
+            OutboundRelay<StorageMsg>,
         ) {
             let temp_path = TempDir::new().unwrap();
             let service = OverwatchRunner::<TestServices>::run(
@@ -803,23 +801,20 @@ mod tests {
 
             let storage_relay = service
                 .handle()
-                .relay::<StorageService<RocksBackend, RuntimeServiceId>>()
+                .relay::<StorageService<RuntimeServiceId>>()
                 .await
                 .expect("Relay connection with StorageService should succeed");
 
             (service, storage_relay)
         }
 
-        fn create_block_sequence(
-            &self,
-            count: usize,
-            slot_offset: u64,
-        ) -> Vec<(Block<SignedMantleTx>, HeaderId, HeaderId, Slot)> {
+        fn create_block_sequence(&self, count: usize, slot_offset: u64) -> Vec<TestBlock> {
             let mut blocks = Vec::new();
             let mut prev_header = HeaderId::from([0u8; 32]);
 
             for i in 0..count {
-                let slot = Slot::from(slot_offset + i as u64);
+                // Genesis slot is not allowed for normal blocks
+                let slot = Slot::from(slot_offset + (i + 1) as u64);
                 let block = self
                     .build_block_with_parent(prev_header, slot)
                     .expect("Failed to build block with parent");
@@ -870,7 +865,7 @@ mod tests {
 
                 if i > 0 {
                     self.cryptarchia
-                        .receive_block(*header_id, *prev_header, *slot)
+                        .receive_block(*header_id, *prev_header, *slot, UncleSlots::default())
                         .expect("Failed to add block to cryptarchia");
                 }
 
@@ -886,13 +881,14 @@ mod tests {
             &self,
             prev_header: HeaderId,
             slot: Slot,
-        ) -> Option<Block<SignedMantleTx>> {
+        ) -> Option<Block<SignedOps<Unverified, StandardMode>>> {
             let dummy_signing_key = Ed25519Key::from_bytes(&[1u8; 32]);
             Block::create(
                 prev_header,
                 slot,
+                UncleHeaders::empty(),
                 self.proof.clone(),
-                vec![],
+                BlockTransactions::empty(),
                 &dummy_signing_key,
             )
             .ok()
@@ -900,31 +896,36 @@ mod tests {
 
         async fn add_block(
             &mut self,
-            block: &Block<SignedMantleTx>,
+            block: &Block<SignedOps<Unverified, StandardMode>>,
             header_id: HeaderId,
             prev_header: HeaderId,
             slot: Slot,
         ) {
             self.cryptarchia
-                .receive_block(header_id, prev_header, slot)
+                .receive_block(header_id, prev_header, slot, UncleSlots::default())
                 .expect("Failed to add block to cryptarchia");
 
             self.store_block_in_storage(block, header_id, slot).await;
         }
 
-        async fn store_block_only(&self, block: &Block<SignedMantleTx>, header_id: HeaderId) {
+        async fn store_block_only(
+            &self,
+            block: &Block<SignedOps<Unverified, StandardMode>>,
+            header_id: HeaderId,
+        ) {
             let parent_id = block.header().parent();
             let store_result: Result<_, _> = block.clone().try_into();
             let (sender, receiver) = oneshot::channel();
 
             self.storage_relay
-                .send(StorageMsg::store_block_request(
+                .send(StorageMsg::StoreBlockData {
                     header_id,
                     parent_id,
-                    store_result.unwrap(),
-                    Events::new().try_into().unwrap(),
-                    sender,
-                ))
+                    block: store_result.unwrap(),
+                    events: Events::new().try_into().unwrap(),
+                    immutable_ids: BTreeMap::new(),
+                    response_tx: sender,
+                })
                 .await
                 .expect("Failed to store block");
 
@@ -936,7 +937,7 @@ mod tests {
 
         async fn store_block_in_storage(
             &self,
-            block: &Block<SignedMantleTx>,
+            block: &Block<SignedOps<Unverified, StandardMode>>,
             header_id: HeaderId,
             slot: Slot,
         ) {
@@ -946,10 +947,10 @@ mod tests {
 
             // Mark as immutable
             self.storage_relay
-                .send(StorageMsg::store_immutable_block_ids_request(
-                    BTreeMap::from([(slot, header_id)]),
-                    sender,
-                ))
+                .send(StorageMsg::StoreImmutableBlockIds {
+                    ids: BTreeMap::from([(slot, header_id)]),
+                    response_tx: sender,
+                })
                 .await
                 .expect("Failed to store immutable block id");
 
@@ -974,7 +975,8 @@ mod tests {
             if let Some(ProviderResponse::Available(mut stream)) = rx.recv().await {
                 while let Some(res) = &stream.next().await {
                     if let Ok(bytes) = &res {
-                        let block: Block<()> = Block::from_bytes(bytes).unwrap();
+                        let block: Block<SignedOps<Unverified, StandardMode>> =
+                            Block::from_bytes(bytes).unwrap();
                         blocks.push(block.header().id());
                     } else {
                         break;
@@ -1018,7 +1020,7 @@ mod tests {
                     }
                     ProviderResponse::Available(mut stream) => match stream.next().await {
                         Some(Ok(bytes)) => {
-                            let block: Block<()> = Block::from_bytes(&bytes).unwrap();
+                            let block: Block<Ops> = Block::try_from(bytes).unwrap();
                             (
                                 false,
                                 format!("Available(first_block={:?})", block.header().id()),
@@ -1107,14 +1109,17 @@ mod tests {
         ) -> lb_cryptarchia_engine::Cryptarchia<HeaderId> {
             <lb_cryptarchia_engine::Cryptarchia<_>>::from_lib(
                 lib,
+                lib,
                 Config::new(
                     NonZero::new(1).unwrap(),
                     slot_activation_coeff,
                     1f64.try_into().expect("1 > 0"),
+                    12.try_into().unwrap(),
                 ),
                 lb_cryptarchia_engine::State::Bootstrapping,
                 0.into(),
                 0,
+                UncleSlots::default(),
             )
         }
     }
