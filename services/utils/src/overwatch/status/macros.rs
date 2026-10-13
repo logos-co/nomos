@@ -100,10 +100,62 @@ macro_rules! wait_until_services_are_ready {
 
 pub use wait_until_services_are_ready;
 
+/// Wait for multiple dependencies to become ready while observing terminal
+/// service lifecycle states.
+///
+/// Unlike [`wait_until_services_are_ready`], this macro reports both
+/// `Stopped` and `Failed` as soon as they are observed and composes the waits
+/// fail-fast. Every dependency must have passed an acknowledged startup
+/// boundary before this macro is called. Overwatch's status watcher exposes
+/// only the latest status, so `Stopped` is terminal even if it is the initial
+/// status observed by the watcher. The node startup sequence satisfies this
+/// prerequisite: it awaits `start_service_sequence`, which starts services
+/// sequentially before acknowledging the sequence.
+///
+/// The wait has no readiness deadline. Periodic progress logs do not terminate
+/// it, and dropping the returned future cancels all waits.
+#[macro_export]
+macro_rules! wait_until_services_are_ready_with_lifecycle {
+    ( $overwatch_handle:expr, $( $service_type:ty ),+ ) => {{
+        async {
+            let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
+            let mut wait_for_futures = Vec::new();
+
+            $(
+                let status_watcher = overwatch_handle
+                    .status_watcher::<$service_type>()
+                    .await
+                    .map_err(::overwatch::DynError::from)?;
+                let service_id =
+                    <RuntimeServiceId as ::overwatch::services::AsServiceId<$service_type>>::SERVICE_ID;
+                wait_for_futures.push(
+                    $crate::overwatch::status::wait_for_service_to_be_ready(
+                        status_watcher,
+                        service_id,
+                    ),
+                );
+            )+
+
+            if let Err(service_status_entry) =
+                ::futures::future::try_join_all(wait_for_futures).await
+            {
+                let error: $crate::overwatch::status::ServiceStatusEntriesError<RuntimeServiceId> =
+                    [service_status_entry].into();
+                return ::std::result::Result::Err(::overwatch::DynError::from(error));
+            }
+
+            ::std::result::Result::<(), ::overwatch::DynError>::Ok(())
+        }
+    }};
+}
+
+pub use wait_until_services_are_ready_with_lifecycle;
+
 #[cfg(test)]
 mod tests {
     use std::{
         fmt::{Debug, Display},
+        sync::Arc,
         time::Duration,
     };
 
@@ -118,6 +170,7 @@ mod tests {
         },
     };
     use overwatch_derive::derive_services;
+    use tokio::{runtime::Handle, sync::Notify};
 
     async fn notify_ready_and_wait<Service: ServiceData, RuntimeServiceId>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
@@ -162,12 +215,37 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy, Debug)]
+    enum HeavyServiceOutcome {
+        Ready,
+        ReturnError,
+        Panic,
+    }
+
+    #[derive(Clone, Debug)]
+    struct HeavyServiceSettings {
+        startup_delay: Duration,
+        outcome: HeavyServiceOutcome,
+        started: Option<Arc<Notify>>,
+    }
+
+    impl HeavyServiceSettings {
+        fn ready_after(startup_delay: Duration) -> Self {
+            Self {
+                startup_delay,
+                outcome: HeavyServiceOutcome::Ready,
+                started: None,
+            }
+        }
+    }
+
     struct HeavyService {
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        settings: HeavyServiceSettings,
     }
 
     impl ServiceData for HeavyService {
-        type Settings = ();
+        type Settings = HeavyServiceSettings;
         type State = NoState<Self::Settings>;
         type StateOperator = NoOperator<Self::State>;
         type Message = ();
@@ -179,15 +257,74 @@ mod tests {
             service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
             _initial_state: Self::State,
         ) -> Result<Self, DynError> {
+            let settings = service_resources_handle
+                .settings_handle
+                .notifier()
+                .get_updated_settings();
             Ok(Self {
                 service_resources_handle,
+                settings,
             })
         }
 
         async fn run(self) -> Result<(), DynError> {
-            // Simulate some initialisation work
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            if let Some(started) = &self.settings.started {
+                started.notify_one();
+            }
+            tokio::time::sleep(self.settings.startup_delay).await;
 
+            match self.settings.outcome {
+                HeavyServiceOutcome::Ready => {
+                    notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle)
+                        .await;
+                    Ok(())
+                }
+                HeavyServiceOutcome::ReturnError => {
+                    Err(DynError::from("mock dependency startup error"))
+                }
+                HeavyServiceOutcome::Panic => panic!("mock dependency startup panic"),
+            }
+        }
+    }
+
+    struct LifecycleDependantService<Dependency, RuntimeServiceId> {
+        service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+        _dependency: std::marker::PhantomData<Dependency>,
+    }
+
+    impl<Dependency, RuntimeServiceId> ServiceData
+        for LifecycleDependantService<Dependency, RuntimeServiceId>
+    {
+        type Settings = ();
+        type State = NoState<Self::Settings>;
+        type StateOperator = NoOperator<Self::State>;
+        type Message = ();
+    }
+
+    #[async_trait]
+    impl<Dependency, RuntimeServiceId> ServiceCore<RuntimeServiceId>
+        for LifecycleDependantService<Dependency, RuntimeServiceId>
+    where
+        RuntimeServiceId:
+            Debug + Send + Sync + Display + AsServiceId<Dependency> + AsServiceId<Self> + 'static,
+        Dependency: Send + Sync + 'static,
+    {
+        fn init(
+            service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
+            _initial_state: Self::State,
+        ) -> Result<Self, DynError> {
+            Ok(Self {
+                service_resources_handle,
+                _dependency: std::marker::PhantomData,
+            })
+        }
+
+        async fn run(self) -> Result<(), DynError> {
+            wait_until_services_are_ready_with_lifecycle!(
+                &self.service_resources_handle.overwatch_handle,
+                Dependency
+            )
+            .await?;
             notify_ready_and_wait::<Self, RuntimeServiceId>(&self.service_resources_handle).await;
             Ok(())
         }
@@ -281,9 +418,10 @@ mod tests {
         }
     }
 
-    #[derive_services(panic_policy = Shutdown)]
+    #[derive_services(panic_policy = Option<Shutdown>)]
     struct App {
         light_service: LightService,
+        lifecycle_dependant_service: LifecycleDependantService<HeavyService, RuntimeServiceId>,
         heavy_service: HeavyService,
         nested_generic_service: NestedGenericService<LightService, RuntimeServiceId>,
         dependent_service: DependantService<
@@ -293,13 +431,24 @@ mod tests {
     }
 
     fn initialize() -> Overwatch<RuntimeServiceId> {
+        initialize_with(
+            HeavyServiceSettings::ready_after(Duration::from_secs(2)),
+            None,
+        )
+    }
+
+    fn initialize_with(
+        heavy_service: HeavyServiceSettings,
+        runtime_handle: Option<Handle>,
+    ) -> Overwatch<RuntimeServiceId> {
         let settings = AppServiceSettings {
             light_service: (),
-            heavy_service: (),
+            lifecycle_dependant_service: (),
+            heavy_service,
             nested_generic_service: (),
             dependent_service: (),
         };
-        OverwatchRunner::<App>::run(settings, None).expect("Failed to run overwatch")
+        OverwatchRunner::<App>::run(settings, runtime_handle).expect("Failed to run overwatch")
     }
 
     #[test]
@@ -383,6 +532,151 @@ mod tests {
         );
         overwatch
             .blocking_wait_finished()
+            .expect("No service should panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lifecycle_wait_allows_slow_dependency_and_start_order_race() {
+        let started = Arc::new(Notify::new());
+        let mut settings = HeavyServiceSettings::ready_after(Duration::from_secs(61));
+        settings.started = Some(Arc::clone(&started));
+        let overwatch = initialize_with(settings, Some(Handle::current()));
+        let handle = overwatch.handle();
+
+        // The lifecycle dependant is first in the service sequence, while its
+        // dependency is still initially Stopped. Overwatch handles its status
+        // watcher request only after the full sequential start command, by
+        // which time HeavyService has entered Starting.
+        handle
+            .start_all_services()
+            .await
+            .expect("services should start");
+        started.notified().await;
+
+        let dependency_status = handle
+            .status_watcher::<HeavyService>()
+            .await
+            .expect("dependency status watcher should be available");
+        let mut dependent_status = handle
+            .status_watcher::<LifecycleDependantService<HeavyService, RuntimeServiceId>>()
+            .await
+            .expect("dependent status watcher should be available");
+
+        let mut readiness = Box::pin(wait_until_services_are_ready_with_lifecycle!(
+            &handle,
+            HeavyService
+        ));
+        tokio::select! {
+            biased;
+            result = &mut readiness => panic!("dependency completed before the delay: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+
+        tokio::time::advance(Duration::from_secs(60)).await;
+        tokio::task::yield_now().await;
+        assert!(futures::poll!(readiness.as_mut()).is_pending());
+        assert_eq!(
+            dependency_status.current(),
+            ServiceStatus::Starting,
+            "dependency should still be Starting beyond the former deadline"
+        );
+        assert_eq!(
+            dependent_status.current(),
+            ServiceStatus::Starting,
+            "dependent should wait rather than fail before dependency readiness"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        readiness
+            .await
+            .expect("slow dependency should become ready");
+        assert_eq!(
+            dependent_status
+                .wait_for(ServiceStatus::Ready, Some(Duration::from_secs(5)))
+                .await,
+            Ok(ServiceStatus::Ready),
+            "dependent should become Ready after its dependency"
+        );
+
+        handle.shutdown().await.expect("Overwatch should shut down");
+        overwatch
+            .wait_finished()
+            .await
+            .expect("No service should panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lifecycle_wait_reports_stopped_before_watcher_attachment() {
+        let mut settings = HeavyServiceSettings::ready_after(Duration::ZERO);
+        settings.outcome = HeavyServiceOutcome::ReturnError;
+        let overwatch = initialize_with(settings, Some(Handle::current()));
+        let handle = overwatch.handle();
+
+        handle
+            .start_service::<HeavyService>()
+            .await
+            .expect("dependency should start");
+        let mut watcher = handle
+            .status_watcher::<HeavyService>()
+            .await
+            .expect("status watcher should be available");
+        assert_eq!(
+            watcher
+                .wait_for(ServiceStatus::Stopped, Some(Duration::from_secs(5)))
+                .await,
+            Ok(ServiceStatus::Stopped),
+            "mock dependency should stop before the lifecycle wait attaches"
+        );
+
+        let error = wait_until_services_are_ready_with_lifecycle!(&handle, HeavyService)
+            .await
+            .expect_err("Stopped dependency must fail readiness");
+        let message = error.to_string();
+        let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
+        assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Stopped"));
+
+        handle.shutdown().await.expect("Overwatch should shut down");
+        overwatch
+            .wait_finished()
+            .await
+            .expect("No service should panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lifecycle_wait_reports_panicked_dependency() {
+        let mut settings = HeavyServiceSettings::ready_after(Duration::from_secs(1));
+        settings.outcome = HeavyServiceOutcome::Panic;
+        let overwatch = initialize_with(settings, Some(Handle::current()));
+        let handle = overwatch.handle();
+
+        handle
+            .start_service::<HeavyService>()
+            .await
+            .expect("dependency should start");
+        let mut readiness = Box::pin(wait_until_services_are_ready_with_lifecycle!(
+            &handle,
+            HeavyService
+        ));
+        tokio::select! {
+            biased;
+            result = &mut readiness => panic!("dependency completed before the panic: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+        tokio::time::advance(Duration::from_secs(1)).await;
+
+        let error = readiness
+            .await
+            .expect_err("Failed dependency must fail readiness");
+        let message = error.to_string();
+        let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
+        assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Failed"));
+
+        handle.shutdown().await.expect("Overwatch should shut down");
+        overwatch
+            .wait_finished()
+            .await
             .expect("No service should panic");
     }
 }
