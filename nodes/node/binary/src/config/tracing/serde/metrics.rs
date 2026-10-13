@@ -1,4 +1,7 @@
-use lb_tracing::{OtlpProtocol, OtlpServiceConfig, metrics::otlp::OtlpMetricsConfig};
+use lb_tracing::{
+    OtlpProtocol, OtlpServiceConfig,
+    metrics::{open_metrics, otlp::OtlpMetricsConfig},
+};
 use lb_tracing_service::MetricsLayerSettings;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -38,14 +41,13 @@ impl From<Layer> for MetricsLayerSettings {
                 protocol: otlp.protocol,
             },
         });
-        let enable_open_metrics = value
-            .open_metrics
-            .is_some_and(|open_metrics_config| open_metrics_config.enabled);
+        let open_metrics = open_metrics::OpenMetricsConfig {
+            enabled: value
+                .open_metrics
+                .is_some_and(|open_metrics_config| open_metrics_config.enabled),
+        };
 
-        Self {
-            otlp,
-            enable_open_metrics,
-        }
+        Self { otlp, open_metrics }
     }
 }
 
