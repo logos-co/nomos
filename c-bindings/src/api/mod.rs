@@ -1,15 +1,22 @@
 pub mod blend;
+pub mod chain;
+pub mod channel;
 pub mod config;
 pub mod cryptarchia;
+pub mod deployment;
 pub mod keys;
 pub mod leader;
 pub mod lifecycle;
 pub(crate) mod memory;
+pub mod metrics;
+pub mod network;
 pub mod peer;
-pub mod sdp;
+pub mod pow;
 pub mod storage;
 pub mod subscriptions;
+pub mod time;
 pub(crate) mod types;
+pub mod version;
 pub mod wallet;
 
 pub(crate) use memory::free;

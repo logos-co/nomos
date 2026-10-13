@@ -5,7 +5,10 @@ use lb_blend_message::{
     crypto::proofs::PoQVerificationInputsMinusSigningKey,
     encap::ProofsVerifier as ProofsVerifierTrait, reward::EpochRandomness,
 };
-use lb_blend_proofs::quota::inputs::prove::public::{CoreInputs, LeaderInputs};
+use lb_blend_proofs::quota::{
+    Quota,
+    inputs::prove::public::{CoreInputs, LeaderInputs, PowInputs},
+};
 use lb_core::{
     crypto::ZkHash,
     mantle::Value,
@@ -33,6 +36,8 @@ pub struct CurrentEpochState {
     /// These will be used to create the proof verifier after the next
     /// epoch update.
     leader_input: LeaderInputs,
+    /// Same as `leader_input`, but for the `PoW` input.
+    pow_input: PowInputs,
 }
 
 impl CurrentEpochState {
@@ -41,6 +46,7 @@ impl CurrentEpochState {
             epoch: epoch_state.epoch(),
             epoch_randomness: (*epoch_state.nonce()).into(),
             leader_input: settings.leader_inputs(epoch_state),
+            pow_input: settings.pow_inputs(epoch_state),
         }
     }
 
@@ -79,9 +85,11 @@ impl CurrentEpochTracker {
     ///
     /// It returns [`CurrentEpochTrackerOutput::WithTargetEpoch`] by
     /// creating a [`TargetEpochState`] using the collected information,
-    /// if the network size of the new target epoch is not below the
-    /// minimum required. Otherwise, it returns
-    /// [`CurrentEpochTrackerOutput::WithoutTargetEpoch`].
+    /// if the following conditions are met:
+    /// - The network size of the new target epoch is not below the minimum.
+    /// - No multi-epoch jump has occurred.
+    ///
+    /// Otherwise, it returns [`CurrentEpochTrackerOutput::WithoutTargetEpoch`].
     pub fn finalize<ProofsVerifier>(
         &self,
         current_reward_epoch_state: &CurrentEpochState,
@@ -105,6 +113,21 @@ impl CurrentEpochTracker {
             next_epoch_state.epoch,
             last_epoch_state.epoch,
         );
+
+        // On a multi-epoch jump, skip target epoch setup.
+        // See the details in the [`Rewards::update_epoch`] documentation.
+        if next_epoch_state.epoch > last_epoch_state.epoch.strict_add(1.into()) {
+            debug!(
+                target: LOG_TARGET,
+                "Multi-epoch jump from {} to {}. Switching to WithoutTargetEpoch mode",
+                last_epoch_state.epoch,
+                next_epoch_state.epoch,
+            );
+            return CurrentEpochTrackerOutput::WithoutTargetEpoch {
+                current_epoch_state: CurrentEpochState::new(next_epoch_state, settings),
+                current_epoch_tracker: Self::new(),
+            };
+        }
 
         let maybe_declarations = last_epoch_state
             .active_declarations
@@ -134,8 +157,19 @@ impl CurrentEpochTracker {
 
         let proof_verifier = Self::create_proof_verifier(
             current_reward_epoch_state.leader_input,
+            current_reward_epoch_state.pow_input,
             zk_root,
             core_quota,
+        );
+
+        debug!(
+            target: LOG_TARGET,
+            new_target_epoch = %last_epoch_state.epoch(),
+            new_current_epoch = %next_epoch_state.epoch(),
+            declaration_count,
+            epoch_income = self.epoch_income,
+            core_quota = %core_quota,
+            "finalized current epoch tracker with new target epoch established",
         );
 
         CurrentEpochTrackerOutput::WithTargetEpoch {
@@ -151,7 +185,6 @@ impl CurrentEpochTracker {
         }
     }
 
-    #[expect(single_use_lifetimes, reason = "lifetime is required")]
     fn providers_and_zk_root<'d>(
         declarations: impl Iterator<Item = &'d Declaration>,
     ) -> (HashTrieMapSync<ProviderId, (ZkPublicKey, u64)>, ZkHash) {
@@ -183,8 +216,9 @@ impl CurrentEpochTracker {
 
     fn create_proof_verifier<ProofsVerifier: ProofsVerifierTrait>(
         leader_input: LeaderInputs,
+        pow_input: PowInputs,
         zk_root: ZkHash,
-        core_quota: u64,
+        core_quota: Quota,
     ) -> ProofsVerifier {
         ProofsVerifier::new(PoQVerificationInputsMinusSigningKey {
             core: CoreInputs {
@@ -192,6 +226,7 @@ impl CurrentEpochTracker {
                 quota: core_quota,
             },
             leader: leader_input,
+            pow: pow_input,
         })
     }
 }

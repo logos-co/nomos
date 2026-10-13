@@ -16,7 +16,7 @@ use tracing::debug;
 
 use crate::node::NodeHttpClient;
 
-const BLOCK_FEED_INTERVAL: Duration = Duration::from_secs(1);
+const BLOCK_FEED_INTERVAL: Duration = Duration::from_millis(500);
 const BLOCK_FEED_HISTORY_LIMIT: usize = 1024;
 const MAX_RETAINED_HEADERS_PER_PATH: usize = 128;
 const SAFETY_WINDOW_BELOW_LIB: usize = 32;
@@ -74,12 +74,6 @@ impl BlockFeedSnapshot {
         self.node_heads
             .iter()
             .find(|node_head| node_head.node == node_name)
-    }
-
-    /// Returns the retained height for one observed header, if available.
-    #[must_use]
-    pub fn header_height(&self, header: &HeaderId) -> Option<u64> {
-        self.header_heights.get(header).copied()
     }
 
     /// Returns a concise summary for timeout and validation errors.

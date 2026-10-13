@@ -1,7 +1,8 @@
 pub mod blend;
-pub mod locked_notes;
+pub mod service_notes;
 
 use core::{
+    cmp::Ordering,
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
@@ -9,23 +10,37 @@ use std::{collections::HashMap, hash::Hash};
 
 use blake2::{Blake2b, Digest as _};
 use bytes::Bytes;
+use lb_binary_codec::{
+    bincode::{self, BoundedSerializeOp, DeserializeOp as _, SerializeOp as _},
+    canonical::{BinaryCodec, BinaryDecode, BinaryEncode, DecodeError},
+};
+#[cfg(any(test, feature = "test-utils"))]
+use lb_blend_proofs::{
+    quota::{PROOF_OF_QUOTA_SIZE, VerifiedProofOfQuota},
+    selection::{PROOF_OF_SELECTION_SIZE, VerifiedProofOfSelection},
+};
 use lb_cryptarchia_engine::Epoch;
-use lb_key_management_system_keys::keys::ZkPublicKey;
-use lb_utils::bounded_vec::{BoundedVec, NonEmptyBoundedVec};
+#[cfg(any(test, feature = "test-utils"))]
+use lb_groth16::Fr;
+use lb_groth16::fr_to_bytes;
+#[cfg(any(test, feature = "test-utils"))]
+use lb_key_management_system_keys::keys::Ed25519Key;
+use lb_key_management_system_keys::keys::{Ed25519PublicKey, Ed25519Signature, ZkPublicKey};
+use lb_utils::bounded::{BoundedVec, NonEmptyBoundedOrderedSet};
 use multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
 use crate::{
     block::BlockNumber,
-    codec::{self, DeserializeOp as _, SerializeOp as _},
-    mantle::{NoteId, ops::channel::Ed25519PublicKey},
+    mantle::{NoteId, ops::sdp::SdpError, transactions::hash::TxHashView},
+    sdp::blend::ActivityProof,
     utils::{display_hex_bytes_newtype, serde_bytes_newtype},
 };
 
 pub type StakeThreshold = u64;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct MinStake {
     pub threshold: StakeThreshold,
     pub timestamp: BlockNumber,
@@ -35,9 +50,6 @@ pub struct MinStake {
 pub struct ServiceParameters {
     /// Maximum epochs during which an activity message must be sent.
     pub inactivity_period: InactivityPeriod,
-    /// Epochs after which a declaration can be safely deleted by Garbage
-    /// Collection
-    pub retention_period: NumberOfEpochs,
     // Epoch number at which this parameter was set
     pub epoch: Epoch,
 }
@@ -70,6 +82,17 @@ impl InactivityPeriod {
     }
 }
 
+// An inactivity period: the number of epochs it wraps.
+impl BinaryEncode for InactivityPeriod {
+    fn encoded_length(&self) -> usize {
+        self.0.encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.0.encode_into(out);
+    }
+}
+
 impl TryFrom<u32> for InactivityPeriod {
     type Error = InactivityPeriodTooSmall;
 
@@ -94,93 +117,71 @@ pub struct InactivityPeriodTooSmall {
     pub period: NumberOfEpochs,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "Multiaddr")]
-struct BoundedMultiaddr<const MAX_SIZE: usize>(Multiaddr);
-
-impl<const MAX_SIZE: usize> AsRef<Multiaddr> for BoundedMultiaddr<MAX_SIZE> {
-    fn as_ref(&self) -> &Multiaddr {
-        &self.0
-    }
-}
-
-impl<const MAX_SIZE: usize> TryFrom<Multiaddr> for BoundedMultiaddr<MAX_SIZE> {
-    type Error = String;
-
-    fn try_from(value: Multiaddr) -> Result<Self, Self::Error> {
-        if value.len() > MAX_SIZE {
-            return Err(format!(
-                "Multiaddr must not exceed {MAX_LOCATOR_BYTE_SIZE} bytes: {value}"
-            ));
-        }
-
-        Ok(Self(value))
-    }
-}
-
-impl<const MAX_SIZE: usize> TryFrom<Vec<u8>> for BoundedMultiaddr<MAX_SIZE> {
-    type Error = String;
-
-    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        let multiaddr =
-            Multiaddr::try_from(value).map_err(|e| format!("Invalid multiaddr: {e}"))?;
-        Self::try_from(multiaddr)
-    }
-}
-
-impl<const MAX_SIZE: usize, const MIN: usize, const MAX: usize> TryFrom<BoundedVec<u8, MIN, MAX>>
-    for BoundedMultiaddr<MAX_SIZE>
-{
-    type Error = String;
-
-    fn try_from(value: BoundedVec<u8, MIN, MAX>) -> Result<Self, Self::Error> {
-        const {
-            assert!(
-                MAX <= MAX_LOCATOR_BYTE_SIZE,
-                "Max size cannot be more than the maximum allowed byte size for a multiaddr."
-            );
-        }
-        Self::try_from(value.into_inner())
-    }
-}
-
 pub const MAX_LOCATOR_BYTE_SIZE: usize = 329;
 
+type BoundedMultiaddrBytes = BoundedVec<u8, 0, MAX_LOCATOR_BYTE_SIZE>;
+/// A [`Multiaddr`] whose byte length is bounded to `[0,
+/// MAX_LOCATOR_BYTE_SIZE]`.
+///
+/// The shared `lb_utils::bounded` wrapper enforces the byte-length invariant
+/// using `Multiaddr::len()`. `Locator::try_from` performs the additional
+/// locator-specific validation below, such as rejecting unspecified, loopback,
+/// multicast, documentation, and link-local addresses.
+type BoundedMultiaddr = lb_utils::bounded::multiaddr::BoundedMultiaddr<0, MAX_LOCATOR_BYTE_SIZE>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "Multiaddr")]
-pub struct Locator(BoundedMultiaddr<MAX_LOCATOR_BYTE_SIZE>);
+pub struct Locator(BoundedMultiaddr);
+
+#[cfg(feature = "openapi")]
+impl utoipa::PartialSchema for Locator {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::Type::String)
+            .max_length(Some(MAX_LOCATOR_BYTE_SIZE))
+            .description(Some(
+                "Multiaddress, e.g. `/ip4/127.0.0.1/tcp/3000`.".to_owned(),
+            ))
+            .examples(["/ip4/127.0.0.1/tcp/3000"])
+            .build()
+            .into()
+    }
+}
+
+#[cfg(feature = "openapi")]
+impl utoipa::ToSchema for Locator {}
 
 impl Locator {
     #[must_use]
     pub const fn new_unchecked(addr: Multiaddr) -> Self {
-        Self(BoundedMultiaddr(addr))
+        Self(BoundedMultiaddr::new_unchecked(addr))
     }
 
     #[must_use]
     pub fn into_inner(self) -> Multiaddr {
-        self.0.0
+        self.0.into_inner()
     }
 
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.0.len()
+        self.0.as_inner().len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.0.is_empty()
+        self.0.as_inner().is_empty()
     }
 }
 
 impl AsRef<Multiaddr> for Locator {
     fn as_ref(&self) -> &Multiaddr {
-        self.0.as_ref()
+        self.0.as_inner()
     }
 }
 
 impl AsRef<[u8]> for Locator {
     fn as_ref(&self) -> &[u8] {
-        self.0.as_ref().as_ref()
+        self.0.as_inner().as_ref()
     }
 }
 
@@ -188,10 +189,10 @@ impl TryFrom<Multiaddr> for Locator {
     type Error = String;
 
     fn try_from(value: Multiaddr) -> Result<Self, Self::Error> {
-        let bounded_multiaddr = BoundedMultiaddr::<MAX_LOCATOR_BYTE_SIZE>::try_from(value.clone())
+        BoundedMultiaddr::check_len_against_bounds(value.len())
             .map_err(|e| format!("Invalid multiaddr: {e}"))?;
 
-        for protocol in bounded_multiaddr.as_ref() {
+        for protocol in &value {
             match protocol {
                 Protocol::Ip4(ip) if ip.is_unspecified() => {
                     return Err(format!(
@@ -212,7 +213,7 @@ impl TryFrom<Multiaddr> for Locator {
             }
         }
 
-        Ok(Self(bounded_multiaddr))
+        Ok(Self(BoundedMultiaddr::new_unchecked(value)))
     }
 }
 
@@ -253,7 +254,31 @@ impl FromStr for Locator {
 
 impl Display for Locator {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.0.0.fmt(f)
+        self.0.fmt(f)
+    }
+}
+
+impl BinaryEncode for Locator {
+    fn encoded_length(&self) -> usize {
+        self.0.to_vec().encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.0.to_vec().encode_into(out);
+    }
+}
+
+impl BinaryDecode for Locator {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, value) = BoundedMultiaddrBytes::decode(input, &())?;
+        let locator = Self::try_from(value)
+            .map_err(|_| DecodeError::invalid_value::<Self>("Invalid locator bytes"))?;
+        Ok((rest, locator))
     }
 }
 
@@ -290,6 +315,44 @@ impl AsRef<u8> for ServiceType {
     }
 }
 
+impl PartialOrd for ServiceType {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Service types are ordered by the byte each is encoded as, so a map keyed by
+/// service type iterates in the order of their encodings.
+impl Ord for ServiceType {
+    fn cmp(&self, other: &Self) -> Ordering {
+        <Self as AsRef<u8>>::as_ref(self).cmp(<Self as AsRef<u8>>::as_ref(other))
+    }
+}
+
+impl BinaryEncode for ServiceType {
+    fn encoded_length(&self) -> usize {
+        <Self as AsRef<u8>>::as_ref(self).encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        <Self as AsRef<u8>>::as_ref(self).encode_into(out);
+    }
+}
+
+impl BinaryDecode for ServiceType {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, value) = u8::decode(input, &())?;
+        let service = Self::try_from(value)
+            .map_err(|()| DecodeError::invalid_value::<Self>("unknown service type"))?;
+        Ok((rest, service))
+    }
+}
+
 #[cfg(test)]
 mod service_type_tests {
     use strum::IntoEnumIterator as _;
@@ -309,8 +372,14 @@ mod service_type_tests {
 
 pub type Nonce = u64;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct ProviderId(pub Ed25519PublicKey);
+
+impl AsRef<[u8; 32]> for ProviderId {
+    fn as_ref(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+}
 
 #[derive(Debug)]
 pub struct InvalidKeyBytesError;
@@ -332,27 +401,37 @@ impl TryFrom<[u8; 32]> for ProviderId {
 }
 
 impl PartialOrd for ProviderId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for ProviderId {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.as_bytes().cmp(other.0.as_bytes())
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_ref().cmp(other.as_ref())
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, BinaryCodec)]
 pub struct DeclarationId(pub [u8; 32]);
 serde_bytes_newtype!(DeclarationId, 32);
 display_hex_bytes_newtype!(DeclarationId);
+
+impl AsRef<[u8; 32]> for DeclarationId {
+    fn as_ref(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl BoundedSerializeOp for DeclarationId {
+    type Bytes = [u8; 32];
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Declaration {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    pub locked_note_id: NoteId,
+    pub service_note_id: NoteId,
     pub locators: Locators,
     pub zk_id: ZkPublicKey,
     /// The epoch of the block that contained the declaration
@@ -384,7 +463,7 @@ impl Declaration {
         Self {
             service_type: declaration_msg.service_type,
             provider_id: declaration_msg.provider_id,
-            locked_note_id: declaration_msg.locked_note_id,
+            service_note_id: declaration_msg.service_note_id,
             locators: declaration_msg.locators.clone(),
             zk_id: declaration_msg.zk_id,
             created: epoch,
@@ -429,7 +508,7 @@ impl FromIterator<(ServiceType, HashMap<DeclarationId, Declaration>)> for Declar
 }
 
 impl TryFrom<Bytes> for Declarations {
-    type Error = codec::Error;
+    type Error = bincode::Error;
 
     fn try_from(bytes: Bytes) -> Result<Self, Self::Error> {
         Self::from_bytes(&bytes)
@@ -437,7 +516,7 @@ impl TryFrom<Bytes> for Declarations {
 }
 
 impl TryFrom<Declarations> for Bytes {
-    type Error = codec::Error;
+    type Error = bincode::Error;
 
     fn try_from(this: Declarations) -> Result<Self, Self::Error> {
         this.to_bytes()
@@ -445,49 +524,89 @@ impl TryFrom<Declarations> for Bytes {
 }
 
 pub const MAX_DECLARATION_LOCATOR_COUNT: usize = 8;
-pub type Locators = NonEmptyBoundedVec<Locator, MAX_DECLARATION_LOCATOR_COUNT>;
+pub type Locators = NonEmptyBoundedOrderedSet<Locator, MAX_DECLARATION_LOCATOR_COUNT>;
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct DeclarationMessage {
     pub service_type: ServiceType,
     pub locators: Locators,
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
-    pub locked_note_id: NoteId,
+    pub service_note_id: NoteId,
 }
 
 impl DeclarationMessage {
     #[must_use]
     pub fn id(&self) -> DeclarationId {
-        let mut hasher = Blake2b::new();
-        let service = match self.service_type {
-            ServiceType::BlendNetwork => "BN",
-        };
+        declaration_id(
+            self.service_type,
+            &self.provider_id,
+            &self.zk_id,
+            &self.locators,
+        )
+    }
 
-        // From the
-        // [spec](https://www.notion.so/nomos-tech/Service-Declaration-Protocol-Specification-1fd261aa09df819ca9f8eb2bdfd4ec1dw):
-        // declaration_id = Hash(service||provider_id||zk_id||locators)
-        hasher.update(service.as_bytes());
-        hasher.update(self.provider_id.0);
-        for number in self.zk_id.as_fr().0.0 {
-            hasher.update(number.to_le_bytes());
-        }
-        for locator in &self.locators {
-            hasher.update(locator.0.as_ref());
-        }
+    pub(crate) fn preverify(
+        &self,
+        tx_hash_view: &TxHashView,
+        proof_eddsa_signature: &Ed25519Signature,
+    ) -> Result<(), SdpError> {
+        // Ensure ownership over the `provider_id`
+        self.provider_id
+            .0
+            .verify(tx_hash_view.as_bytes(), proof_eddsa_signature)
+            .map_err(|_| SdpError::InvalidEddsaSignature)?;
 
-        DeclarationId(hasher.finalize().into())
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    #[must_use]
+    pub fn sample() -> Self {
+        Self {
+            service_type: ServiceType::BlendNetwork,
+            locators: "/ip4/127.0.0.1/udp/3000/quic-v1"
+                .parse::<Locator>()
+                .expect("Locator is valid.")
+                .into(),
+            provider_id: ProviderId(Ed25519Key::from_bytes(&[24; 32]).public_key()),
+            zk_id: ZkPublicKey::from(Fr::from(25u64)),
+            service_note_id: NoteId(Fr::from(26u64)),
+        }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
-pub struct WithdrawMessage {
-    pub declaration_id: DeclarationId,
-    pub locked_note_id: NoteId,
-    pub nonce: Nonce,
+#[must_use]
+pub fn declaration_id(
+    service_type: ServiceType,
+    provider_id: &ProviderId,
+    zk_id: &ZkPublicKey,
+    locators: &Locators,
+) -> DeclarationId {
+    let mut hasher = Blake2b::new();
+
+    // From the
+    // [spec](https://lip.logos.co/blockchain/raw/bedrock-service-declaration-protocol.html#declaration-storage):
+    // declaration_id = Hash(service||provider_id||zk_id||locators)
+    hasher.update(<ServiceType as AsRef<str>>::as_ref(&service_type).as_bytes());
+    hasher.update(provider_id.as_ref());
+    hasher.update(fr_to_bytes(zk_id.as_fr()));
+    // The locators go in through the wire encoding, which prefixes the list
+    // with its count and every locator with its byte length.
+    hasher.update(locators.encode());
+
+    DeclarationId(hasher.finalize().into())
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
+pub struct WithdrawMessage {
+    pub declaration_id: DeclarationId,
+    pub nonce: Nonce,
+    pub service_note_id: NoteId,
+}
+
+// ActiveMessage = DeclarationId Nonce Metadata — plain field-order concat.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct ActiveMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
@@ -496,17 +615,77 @@ pub struct ActiveMessage {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ActivityMetadata {
-    Blend(Box<blend::ActivityProof>),
+    Blend(Box<ActivityProof>),
+}
+
+impl ActivityMetadata {
+    /// Returns the epoch whose activity is proven by this metadata.
+    #[must_use]
+    pub const fn origin_epoch(&self) -> Epoch {
+        match self {
+            Self::Blend(proof) => proof.epoch,
+        }
+    }
+
+    /// The epoch during which this activity must be submitted/accepted.
+    #[must_use]
+    pub fn submission_epoch(&self) -> Epoch {
+        match self {
+            Self::Blend(proof) => proof.epoch.strict_add(1.into()),
+        }
+    }
+}
+
+const ACTIVE_METADATA_BLEND_TYPE: u8 = 1;
+
+impl BinaryEncode for ActivityMetadata {
+    fn encoded_length(&self) -> usize {
+        match self {
+            Self::Blend(proof) => {
+                ACTIVE_METADATA_BLEND_TYPE.encoded_length() + proof.encoded_length()
+            }
+        }
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Blend(proof) => {
+                ACTIVE_METADATA_BLEND_TYPE.encode_into(out);
+                proof.encode_into(out);
+            }
+        }
+    }
+}
+
+impl BinaryDecode for ActivityMetadata {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (input, metadata_type) = u8::decode(input, &())?;
+        match metadata_type {
+            ACTIVE_METADATA_BLEND_TYPE => {
+                let (input, proof) = ActivityProof::decode(input, &())?;
+                Ok((input, Self::Blend(Box::new(proof))))
+            }
+            other => Err(DecodeError::unknown_discriminant::<Self>(u64::from(other))),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use lb_binary_codec::bincode::{BoundedSerializeOp as _, SerializeOp as _};
     use lb_cryptarchia_engine::Epoch;
     use lb_groth16::{AdditiveGroup as _, Fr};
     use lb_key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
     use multiaddr::Multiaddr;
 
-    use crate::sdp::{Declaration, DeclarationMessage, Locator, Locators, ServiceType};
+    use crate::sdp::{
+        Declaration, DeclarationId, DeclarationMessage, Locator, Locators, ProviderId, ServiceType,
+    };
 
     #[test]
     fn locator_rejects_multiaddr_with_peer_id() {
@@ -563,11 +742,12 @@ mod tests {
     fn empty_locators_fail_to_deserialize() {
         let empty_locators = Vec::<Locator>::new();
         let serialized = serde_json::to_string(&empty_locators).unwrap();
-        assert_eq!(
+        assert!(
             serde_json::from_str::<Locators>(&serialized)
                 .unwrap_err()
-                .to_string(),
-            "Input cannot be empty."
+                .to_string()
+                .contains("Input cannot be empty."),
+            "empty locators should be rejected"
         );
     }
 
@@ -580,18 +760,109 @@ mod tests {
                 .unwrap(),
             provider_id: Ed25519Key::from_bytes(&[0; _]).public_key().into(),
             zk_id: ZkPublicKey::zero(),
-            locked_note_id: Fr::ZERO.into(),
+            service_note_id: Fr::ZERO.into(),
         };
 
         let declaration = Declaration::new(Epoch::new(10), &msg);
         assert_eq!(declaration.service_type, msg.service_type);
         assert_eq!(declaration.provider_id, msg.provider_id);
-        assert_eq!(declaration.locked_note_id, msg.locked_note_id);
+        assert_eq!(declaration.service_note_id, msg.service_note_id);
         assert_eq!(declaration.locators, msg.locators);
         assert_eq!(declaration.zk_id, msg.zk_id);
         assert_eq!(declaration.created, Epoch::new(10));
         assert_eq!(declaration.active, Epoch::new(12)); // created + SNAPSHOT_FINALIZATION_DELAY
         assert_eq!(declaration.withdraw_at, None);
         assert_eq!(declaration.nonce, 0);
+    }
+
+    fn declaration_message(locators: Vec<Locator>) -> DeclarationMessage {
+        DeclarationMessage {
+            service_type: ServiceType::BlendNetwork,
+            locators: locators.try_into().unwrap(),
+            provider_id: Ed25519Key::from_bytes(&[1; _]).public_key().into(),
+            zk_id: ZkPublicKey::new(Fr::from(3u64)),
+            service_note_id: Fr::from(2u64).into(),
+        }
+    }
+
+    // The byte form of a multiaddr is self-describing, so `[A/B]` and `[A, B]`
+    // concatenate to the same bytes. The id has to tell them apart anyway.
+    #[test]
+    fn declaration_id_binds_the_locator_split() {
+        let concatenated = |message: &DeclarationMessage| {
+            message
+                .locators
+                .iter()
+                .flat_map(|locator| <Locator as AsRef<[u8]>>::as_ref(locator).to_vec())
+                .collect::<Vec<u8>>()
+        };
+
+        let joined = declaration_message(vec!["/ip4/203.0.113.10/tcp/4001".parse().unwrap()]);
+        let split = declaration_message(vec![
+            "/ip4/203.0.113.10".parse().unwrap(),
+            "/tcp/4001".parse().unwrap(),
+        ]);
+
+        assert_eq!(concatenated(&joined), concatenated(&split));
+        assert_ne!(joined.id(), split.id());
+    }
+
+    #[test]
+    fn declaration_id_has_exact_bincode_size() {
+        let id = DeclarationId([0x66; 32]);
+        let ordinary = id.to_bytes().unwrap();
+        let bounded = id.to_bounded_bytes().unwrap();
+
+        assert_eq!(ordinary.len(), 32);
+        assert_eq!(bounded.as_ref(), ordinary.as_ref());
+    }
+
+    #[test]
+    fn sdp_byte_types_borrow_their_stored_bytes() {
+        let provider_id = ProviderId(Ed25519Key::from_bytes(&[0; 32]).public_key());
+        let declaration_id = DeclarationId([0x66; 32]);
+
+        assert_eq!(provider_id.as_ref(), provider_id.0.as_bytes());
+        assert_eq!(declaration_id.as_ref(), &declaration_id.0);
+        assert!(std::ptr::eq(provider_id.as_ref(), provider_id.0.as_bytes()));
+        assert!(std::ptr::eq(
+            declaration_id.as_ref(),
+            &raw const declaration_id.0
+        ));
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl WithdrawMessage {
+    #[must_use]
+    pub fn sample() -> Self {
+        Self {
+            declaration_id: DeclarationId([27u8; 32]),
+            service_note_id: NoteId(Fr::from(28u64)),
+            nonce: 29,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl ActiveMessage {
+    #[must_use]
+    pub fn sample() -> Self {
+        let activity = ActivityProof {
+            epoch: Epoch::new(10),
+            signing_key: Ed25519Key::from_bytes(&[1; 32]).public_key(),
+            proof_of_quota: VerifiedProofOfQuota::from_bytes_unchecked([2u8; PROOF_OF_QUOTA_SIZE])
+                .into(),
+            proof_of_selection: VerifiedProofOfSelection::from_bytes_unchecked(
+                [3u8; PROOF_OF_SELECTION_SIZE],
+            )
+            .into(),
+        };
+
+        Self {
+            declaration_id: DeclarationId([30u8; 32]),
+            nonce: 31,
+            metadata: ActivityMetadata::Blend(Box::new(activity)),
+        }
     }
 }

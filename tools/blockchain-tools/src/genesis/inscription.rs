@@ -1,20 +1,22 @@
+use lb_binary_codec::canonical::BinaryEncode as _;
 use lb_config::consensus::{EMPTY_CHANNEL_ID, EMPTY_ED25519_PUBLIC_KEY};
 use lb_core::{
     crypto::ZkDigest,
     mantle::{
-        CryptarchiaParameter,
+        CryptarchiaParameter, GenesisTime,
         ops::channel::{ChannelId, MsgId, inscribe::InscriptionOp},
+        transactions::genesis_tx::ChainId,
     },
 };
 use lb_groth16::{FrBytes, fr_from_bytes};
-use lb_key_management_system_keys::keys::Ed25519PublicKey;
+use lb_key_management_system_keys::keys::UnverifiedEd25519PublicKey;
 use serde_with::{hex::Hex, serde_as};
 use time::OffsetDateTime;
 
 #[serde_as]
 #[derive(serde::Deserialize, Debug)]
 pub struct InscribeParams {
-    pub chain_id: String,
+    pub chain_id: ChainId,
     #[serde(with = "time::serde::iso8601")]
     pub genesis_time: OffsetDateTime,
     #[serde_as(as = "Vec<Hex>")]
@@ -22,7 +24,7 @@ pub struct InscribeParams {
 }
 
 pub fn inscribe<D: ZkDigest>(
-    chain_id: String,
+    chain_id: ChainId,
     genesis_time: OffsetDateTime,
     entropy_sources: impl IntoIterator<Item = FrBytes>,
 ) -> InscriptionOp {
@@ -40,6 +42,8 @@ pub fn inscribe<D: ZkDigest>(
 
     let genesis_nonce_fr = hasher.finalize();
 
+    let genesis_time = GenesisTime::try_from(genesis_time).expect("Invalid genesis time");
+
     let params = CryptarchiaParameter {
         chain_id,
         genesis_time,
@@ -49,11 +53,11 @@ pub fn inscribe<D: ZkDigest>(
     InscriptionOp {
         channel_id: ChannelId::from(EMPTY_CHANNEL_ID),
         inscription: params
-            .encode()
+            .encode_to_vec()
             .try_into()
             .expect("CryptarchiaParameter encoding exceeded MAX_BYTES"),
         parent: MsgId::root(),
-        signer: Ed25519PublicKey::from_bytes(&EMPTY_ED25519_PUBLIC_KEY)
+        signer: UnverifiedEd25519PublicKey::from_bytes(&EMPTY_ED25519_PUBLIC_KEY)
             .expect("Constant EMPTY_ED25519_PUBLIC_KEY should be valid"),
     }
 }

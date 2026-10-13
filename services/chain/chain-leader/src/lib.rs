@@ -5,10 +5,11 @@ mod leadership;
 mod mempool;
 mod metrics;
 mod relays;
+mod tx_selection;
 mod wallet;
 
 use core::fmt::Debug;
-use std::{fmt::Display, iter, pin::Pin, time::Duration};
+use std::{fmt::Display, pin::Pin, time::Duration};
 
 use futures::{Stream, StreamExt as _, stream};
 use lb_chain_network_service::api::{ChainNetworkServiceApi, ChainNetworkServiceData};
@@ -17,18 +18,25 @@ use lb_chain_service::{
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
 };
 use lb_core::{
-    block::{Block, Error as BlockError, MAX_BLOCK_SIZE, MAX_BLOCK_TRANSACTIONS},
+    block::{
+        Block, BlockTransactions, Error as BlockError, MAX_BLOCK_TRANSACTIONS_SIZE, UncleHeaders,
+    },
     header::HeaderId,
     mantle::{
-        AuthenticatedMantleTx, SignedMantleTx, StorageSize, Transaction, TxHash, TxSelect,
-        gas::MainnetGasConstants,
+        OpRef, SignedOps,
+        ledger::verification_mode::StandardMode,
+        traits::{Hashable, MantleTx, SignedMantleTx, StorageSize},
+        transactions::{hash::TxHash, states::Preverified},
     },
     proofs::leader_proof::{Groth16LeaderProof, LeaderPrivate},
+    sdp::blend::PolEpochState,
 };
 use lb_cryptarchia_engine::Slot;
 use lb_key_management_system_service::{api::KmsServiceApi, keys::Ed25519Key};
 use lb_ledger::LedgerState;
+use lb_log_targets::{chain, diagnostic::BLEND_REACHABILITY};
 use lb_services_utils::wait_until_services_are_ready;
+use lb_storage_service::StorageService;
 use lb_time_service::{SlotTick, TimeService, TimeServiceMessage};
 use lb_tx_service::{
     TxMempoolService,
@@ -36,6 +44,7 @@ use lb_tx_service::{
     network::NetworkAdapter as MempoolNetworkAdapter,
     storage::MempoolStorageAdapter,
 };
+use lb_utils::tokio::task::spawn;
 use lb_wallet_service::api::{WalletApi, WalletApiError};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -47,6 +56,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{Level, error, info, instrument, span, trace};
 use tracing_futures::Instrument as _;
+use tx_selection::{TransactionSelection, select_transactions};
 
 pub use crate::wallet::LeaderWalletConfig;
 use crate::{
@@ -57,8 +67,38 @@ use crate::{
     relays::CryptarchiaConsensusRelays,
 };
 
-/// The per-subscriber stream of per-epoch winning slots. Each item
-/// carries a single epoch and that epoch's stream of winning slots.
+fn log_sdp_activity_selected_for_proposal<Tx>(block: &Block<Tx>, ledger_state: &LedgerState)
+where
+    Tx: MantleTx,
+{
+    for (tx, active) in block.transactions_iter().flat_map(|tx| {
+        tx.op_refs_iter().filter_map(move |op| match op {
+            OpRef::SDPActive(active) => Some((tx, active)),
+            _ => None,
+        })
+    }) {
+        let provider_id = ledger_state
+            .mantle_ledger()
+            .sdp_ledger()
+            .get_declaration(&active.declaration_id)
+            .map(|declaration| declaration.provider_id);
+        tracing::debug!(
+            target: LOG_TARGET,
+            diagnostic = BLEND_REACHABILITY,
+            event = "sdp_activity_selected_for_proposal",
+            tx_id = %tx.hash(),
+            provider_id = ?provider_id,
+            declaration_id = %active.declaration_id,
+            proof_epoch = u32::from(active.metadata.origin_epoch()),
+            proposal_block_id = %block.header().id(),
+            proposal_slot = u64::from(block.header().slot()),
+            "Selected SDP activity transaction for proposal"
+        );
+    }
+}
+
+/// The per-subscriber stream of per-epoch winning slots. Each item carries the
+/// state used to construct its stream and that epoch's stream of winning slots.
 ///
 /// `Send` but not `Sync`: each item carries a [`WinningPolSlotStream`] of
 /// `Send`-only per-slot futures (see [`WinningSlotFuture`]), so the handoff is
@@ -68,6 +108,7 @@ pub type WinningPolEpochSlotsStream =
 
 pub struct WinningPolEpochSlots {
     pub epoch: Epoch,
+    pub state: PolEpochState,
     pub slots: WinningPolSlotStream,
 }
 
@@ -89,7 +130,7 @@ pub type WinningPolSlotStream = Pin<Box<dyn Stream<Item = WinningSlotFuture> + S
 const WINNING_POL_EPOCH_HANDOFF_BUFFER_SIZE: usize = 2;
 const SERVICE_ID: &str = "ChainLeader";
 
-pub(crate) const LOG_TARGET: &str = "chain_leader::service";
+pub(crate) const LOG_TARGET: &str = chain::leader::ROOT;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -146,11 +187,8 @@ impl Debug for LeaderMsg {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LeaderSettings<Ts, BlendBroadcastSettings> {
-    #[serde(default)]
-    pub transaction_selector_settings: Ts,
+pub struct LeaderSettings {
     pub config: lb_ledger::Config,
-    pub blend_broadcast_settings: BlendBroadcastSettings,
     pub wallet_config: LeaderWalletConfig,
 }
 
@@ -159,7 +197,6 @@ pub struct CryptarchiaLeader<
     BlendService,
     Mempool,
     MempoolNetAdapter,
-    TxS,
     TimeBackend,
     CryptarchiaService,
     ChainNetwork,
@@ -172,12 +209,10 @@ pub struct CryptarchiaLeader<
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone,
     Mempool::Item: Clone + Eq + Debug + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode>,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
-    TxS: TxSelect<Tx = Mempool::Item>,
-    TxS::Settings: Send,
     TimeBackend: lb_time_service::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
@@ -191,7 +226,6 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
-    TxS,
     TimeBackend,
     CryptarchiaService,
     ChainNetwork,
@@ -202,7 +236,6 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
-        TxS,
         TimeBackend,
         CryptarchiaService,
         ChainNetwork,
@@ -215,19 +248,17 @@ where
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::Settings: Clone,
-    Mempool::Item: AuthenticatedMantleTx + Clone + Eq + Debug,
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode> + Clone + Eq + Debug,
     MempoolNetAdapter:
         MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
-    TxS: TxSelect<Tx = Mempool::Item>,
-    TxS::Settings: Send,
     TimeBackend: lb_time_service::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData,
     ChainNetwork: ChainNetworkServiceData,
     Wallet: lb_wallet_service::api::WalletServiceData,
 {
-    type Settings = LeaderSettings<TxS::Settings, BlendService::BroadcastSettings>;
+    type Settings = LeaderSettings;
     type State = overwatch::services::state::NoState<Self::Settings>;
     type StateOperator = overwatch::services::state::NoOperator<Self::State>;
     type Message = LeaderMsg;
@@ -238,7 +269,6 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
-    TxS,
     TimeBackend,
     CryptarchiaService,
     ChainNetwork,
@@ -249,7 +279,6 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
-        TxS,
         TimeBackend,
         CryptarchiaService,
         ChainNetwork,
@@ -259,16 +288,12 @@ impl<
 where
     BlendService: ServiceData<
             Message = lb_blend_service::message::ProxyServiceMessage<
-                lb_blend_service::message::ServiceMessage<
-                    BlendService::BroadcastSettings,
-                    BlendService::NodeId,
-                >,
+                lb_blend_service::message::ServiceMessage<BlendService::NodeId>,
             >,
         > + lb_blend_service::ServiceComponents<NodeId: Send + Sync>
         + Send
         + 'static,
-    BlendService::BroadcastSettings: Clone + Send + Sync,
-    Mempool: MemPool<Item = SignedMantleTx>
+    Mempool: MemPool<Item = SignedOps<Preverified, StandardMode>>
         + RecoverableMempool<BlockId = HeaderId, Key = TxHash>
         + Send
         + Sync
@@ -276,7 +301,7 @@ where
     Mempool::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: Transaction<Hash = Mempool::Key>
+    Mempool::Item: Hashable<Hash = Mempool::Key>
         + Debug
         + Clone
         + Eq
@@ -286,26 +311,26 @@ where
         + Sync
         + Unpin
         + 'static,
-    Mempool::Item: AuthenticatedMantleTx,
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode>,
     MempoolNetAdapter: MempoolNetworkAdapter<RuntimeServiceId, Payload = Mempool::Item, Key = Mempool::Key>
         + Send
         + Sync
         + 'static,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
-    TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
-    TxS::Settings: Send + Sync + 'static,
     TimeBackend: lb_time_service::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync + 'static,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item> + 'static,
     ChainNetwork: ChainNetworkServiceData<Tx = Mempool::Item>,
     Wallet: lb_wallet_service::api::WalletServiceData + 'static,
     RuntimeServiceId: Debug
+        + Clone
         + Send
         + Sync
         + Display
         + 'static
         + AsServiceId<Self>
         + AsServiceId<BlendService>
+        + AsServiceId<StorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
@@ -334,15 +359,12 @@ where
         .await;
 
         // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService, RuntimeServiceId>::new(
-            self.service_resources_handle
-                .overwatch_handle
-                .relay::<CryptarchiaService>()
-                .await
-                .expect("Failed to estabilish connection with Cryptarchia"),
-        );
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService>::from_overwatch_handle(
+            &self.service_resources_handle.overwatch_handle,
+        )
+        .await;
 
-        let chain_network_api = ChainNetworkServiceApi::<ChainNetwork, RuntimeServiceId>::new(
+        let chain_network_api = ChainNetworkServiceApi::<ChainNetwork>::new(
             self.service_resources_handle
                 .overwatch_handle
                 .relay::<ChainNetwork>()
@@ -352,8 +374,6 @@ where
 
         let LeaderSettings {
             config: ledger_config,
-            transaction_selector_settings,
-            blend_broadcast_settings,
             wallet_config,
         } = self
             .service_resources_handle
@@ -376,31 +396,26 @@ where
                 .expect("Relay with KMS service should be available."),
         );
 
-        let tx_selector = TxS::new(transaction_selector_settings);
-
-        let blend_adapter = BlendAdapter::<BlendService>::new(
-            relays.blend_relay().clone(),
-            blend_broadcast_settings.clone(),
-        );
+        let blend_adapter = BlendAdapter::<BlendService>::new(relays.blend_relay().clone());
 
         // Wait for other services to become ready, with timeout.
-        // (except Chain and ChainLeader)
+        // (except Chain, ChainNetwork, and Blend)
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_mins(1)),
-            BlendService,
             TxMempoolService<_, _, _, _>,
             TimeService<_, _>,
             Wallet,
             PreloadKmsService<_>
         )
         .await?;
-        // Wait for Chain and ChainLeader services to become ready, without timeout
+        // Wait for the remaining dependencies to become ready, without timeout
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             None,
             CryptarchiaService, // becomes ready after recoverying blocks
-            ChainNetwork        // becomes ready after IBD
+            ChainNetwork,       // becomes ready after IBD
+            BlendService        // becomes ready after chain becomes online
         )
         .await?;
 
@@ -416,15 +431,16 @@ where
 
         // Wait until the chain becomes Online mode.
         // We should not propose blocks while the chain is in Bootstrapping mode.
-        info!("Waiting for chain to become Online mode");
+        info!(target: LOG_TARGET, "Waiting for chain to become online");
         cryptarchia_api
             .wait_until_chain_becomes_online()
             .await
             .expect("Waiting for chain to be online should succeed");
-        info!("Chain is now Online. Starting block proposals.");
+        info!(target: LOG_TARGET, "Chain is online. Starting block proposals.");
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(
+            target: LOG_TARGET,
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
@@ -434,7 +450,7 @@ where
                 tokio::select! {
                     Some(SlotTick { slot, epoch }) = slot_timer.next() => {
                         trace!(target: LOG_TARGET, "Received SlotTick for slot {}, ep {}", u64::from(slot), u32::from(epoch));
-                        let Some(SlotContext { tip, epoch_state, eligible_aged }) =
+                        let Some(SlotContext { wallet_tip, epoch_state, eligible_aged, .. }) =
                             fetch_slot_context(&cryptarchia_api, &wallet_api, &ledger_config, slot).await
                         else {
                             error!(target: LOG_TARGET, "Failed to fetch epoch context for slot {slot:?}");
@@ -443,10 +459,10 @@ where
 
                         // The block-proposal proof must prove the winning note is still
                         // unspent, so it needs the latest tip ledger state (fetched per slot).
-                        let tip_state = match cryptarchia_api.get_ledger_state(tip).await {
+                        let tip_state = match cryptarchia_api.get_ledger_state(wallet_tip).await {
                             Ok(Some(state)) => state,
                             Ok(None) => {
-                                error!(target: LOG_TARGET, "Ledger state not found for tip {tip:?}");
+                                error!(target: LOG_TARGET, "Ledger state not found for tip {wallet_tip:?}");
                                 continue;
                             }
                             Err(e) => {
@@ -456,15 +472,39 @@ where
                         };
 
                         let latest_tree = tip_state.latest_utxos();
+                        let proof = match build_proof_for(
+                            &eligible_aged,
+                            latest_tree,
+                            &epoch_state,
+                            slot,
+                            &wallet_api,
+                            &kms_api,
+                        )
+                        .await
+                        {
+                            Ok(proof) => proof,
+                            Err(e) => {
+                                error!(
+                                    target: LOG_TARGET,
+                                    diagnostic = BLEND_REACHABILITY,
+                                    event = "leadership_proof_failure",
+                                    epoch = u32::from(ledger_config.epoch(slot)),
+                                    slot = u64::from(slot),
+                                    error = %e,
+                                    "Failed to build leadership proof"
+                                );
+                                continue;
+                            }
+                        };
 
-                       if let Some((proof, signing_key)) = build_proof_for(&eligible_aged, latest_tree, &epoch_state, slot, &wallet_api, &kms_api).await {
+                        if let Some((proof, signing_key)) = proof {
                             // TODO: spawn as a separate task?
                             match Self::propose_block(
-                                tip,
+                                wallet_tip,
                                 slot,
                                 proof,
                                 &signing_key,
-                                tx_selector.clone(),
+                                &cryptarchia_api,
                                 &relays,
                                 tip_state,
                                 &ledger_config,
@@ -475,7 +515,7 @@ where
                                     Self::apply_and_publish_block_proposal(block, &chain_network_api, &blend_adapter).await;
                                 }
                                 Err(e) => {
-                                    metrics::consensus_proposals_create_failed();
+                                    metrics::consensus_proposals_create_failed("propose_block");
                                     error!(target: LOG_TARGET, "{e}");
                                 }
                             }
@@ -496,7 +536,9 @@ where
         // Hypothesis:
         // 1. Probably related to too many generics.
         // 2. It seems `span` requires a `const` string literal.
-        async_loop.instrument(span!(Level::TRACE, SERVICE_ID)).await;
+        async_loop
+            .instrument(span!(target: LOG_TARGET, Level::TRACE, SERVICE_ID))
+            .await;
 
         Ok(())
     }
@@ -506,7 +548,6 @@ impl<
     BlendService,
     Mempool,
     MempoolNetAdapter,
-    TxS,
     TimeBackend,
     CryptarchiaService,
     ChainNetwork,
@@ -517,7 +558,6 @@ impl<
         BlendService,
         Mempool,
         MempoolNetAdapter,
-        TxS,
         TimeBackend,
         CryptarchiaService,
         ChainNetwork,
@@ -527,23 +567,19 @@ impl<
 where
     BlendService: ServiceData<
             Message = lb_blend_service::message::ProxyServiceMessage<
-                lb_blend_service::message::ServiceMessage<
-                    BlendService::BroadcastSettings,
-                    BlendService::NodeId,
-                >,
+                lb_blend_service::message::ServiceMessage<BlendService::NodeId>,
             >,
         > + lb_blend_service::ServiceComponents<NodeId: Send + Sync>
         + Send
         + 'static,
-    BlendService::BroadcastSettings: Clone + Send + Sync,
-    Mempool: MemPool<Item = SignedMantleTx>
+    Mempool: MemPool<Item = SignedOps<Preverified, StandardMode>>
         + RecoverableMempool<BlockId = HeaderId, Key = TxHash>
         + Send
         + Sync
         + 'static,
     Mempool::RecoveryState: Serialize + DeserializeOwned,
     Mempool::Settings: Clone + Send + Sync + 'static,
-    Mempool::Item: AuthenticatedMantleTx<Hash = Mempool::Key>
+    Mempool::Item: SignedMantleTx<Preverified, StandardMode, Hash = Mempool::Key>
         + Debug
         + Clone
         + Eq
@@ -560,8 +596,6 @@ where
         + 'static,
     <MempoolNetAdapter as MempoolNetworkAdapter<RuntimeServiceId>>::Settings: Send + Sync,
     <Mempool as MemPool>::Storage: MempoolStorageAdapter<RuntimeServiceId> + Clone + Send + Sync,
-    TxS: TxSelect<Tx = Mempool::Item> + Clone + Send + Sync + 'static,
-    TxS::Settings: Send + Sync + 'static,
     TimeBackend: lb_time_service::backends::TimeBackend,
     TimeBackend::Settings: Clone + Send + Sync,
     CryptarchiaService: CryptarchiaServiceData<Tx = Mempool::Item> + 'static,
@@ -575,21 +609,25 @@ where
         + AsServiceId<Wallet>
         + AsServiceId<PreloadKmsService<RuntimeServiceId>>,
 {
-    #[expect(clippy::allow_attributes_without_reason)]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "All arguments are required for proposing a block"
-    )]
     #[instrument(
+        target = LOG_TARGET,
         level = "debug",
-        skip(tx_selector, relays, ledger_state, ledger_config, proof, signing_key)
+        skip(
+            relays,
+            ledger_state,
+            ledger_config,
+            cryptarchia_api,
+            proof,
+            signing_key
+        )
     )]
+    #[expect(clippy::too_many_arguments, reason = "Need all args")]
     async fn propose_block(
         parent: HeaderId,
         slot: Slot,
         proof: Groth16LeaderProof,
         signing_key: &Ed25519Key,
-        tx_selector: TxS,
+        cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService>,
         relays: &CryptarchiaConsensusRelays<
             BlendService,
             Mempool,
@@ -607,54 +645,30 @@ where
 
         let tx_stream: Pin<Box<_>> = Box::pin(txs_stream);
 
-        ledger_state = ledger_state
-            .clone()
-            .try_apply_header::<Groth16LeaderProof, HeaderId>(slot, &proof, ledger_config)?;
+        let uncle_headers = cryptarchia_api
+            .select_uncles(parent, slot)
+            .await
+            .unwrap_or_else(|err| {
+                error!(target: LOG_TARGET, ?slot, %err, "failed to select uncles");
+                // A proposal without uncles is still valid
+                UncleHeaders::empty()
+            });
 
+        (ledger_state, _) = ledger_state
+            .clone()
+            .try_apply_header::<Groth16LeaderProof, HeaderId>(
+                slot,
+                &proof,
+                &uncle_headers.slots(),
+                ledger_config,
+            )?;
         // Collect all candidate transactions up front so the ones that fail can
         // be retried across multiple rounds.
-        let mut pending: Vec<_> = tx_stream.collect().await;
-
-        let mut valid_txs = Vec::new();
-
-        // A transaction may only become valid once another transaction it depends
-        // on has already been applied. Repeatedly attempt to apply the pending
-        // transactions, retrying the full set of failures each round, while a
-        // round keeps adding new transactions to the block.
-        let mut applied_any = true;
-        while applied_any {
-            applied_any = false;
-            let mut still_pending = Vec::with_capacity(pending.len());
-
-            for tx in pending {
-                match ledger_state
-                    .clone()
-                    .try_apply_contents::<HeaderId, MainnetGasConstants>(
-                        ledger_config,
-                        iter::once(tx.clone()),
-                    ) {
-                    Ok((new_state, _events)) => {
-                        ledger_state = new_state;
-                        valid_txs.push(tx);
-                        applied_any = true;
-                    }
-                    Err(err) => {
-                        tracing::trace!(
-                            "tx {:?} not (yet) applicable during block assembly: {:?}",
-                            tx.hash(),
-                            err
-                        );
-                        still_pending.push(tx);
-                    }
-                }
-            }
-
-            pending = still_pending;
-        }
-
-        // Transactions that never became applicable are genuinely invalid against
-        // this block's ledger state and can be evicted from the mempool.
-        let invalid_tx_hashes: Vec<_> = pending.iter().map(Transaction::hash).collect();
+        let TransactionSelection {
+            ledger_state,
+            selected_txs,
+            invalid_tx_hashes,
+        } = select_transactions(ledger_state, tx_stream.collect().await, ledger_config);
 
         if !invalid_tx_hashes.is_empty()
             && let Err(e) = relays
@@ -662,18 +676,22 @@ where
                 .remove_transactions(&invalid_tx_hashes)
                 .await
         {
-            error!("Failed to remove invalid transactions from mempool: {e:?}");
+            error!(target: LOG_TARGET, "Failed to remove invalid transactions from mempool: {e:?}");
         }
 
-        let valid_tx_stream = stream::iter(valid_txs);
-        let txs = txs_for_block(tx_selector.select_tx_from(valid_tx_stream)).await;
+        let valid_tx_stream = stream::iter(selected_txs);
+        let txs = txs_for_block(valid_tx_stream).await;
 
-        let block = Block::create(parent, slot, proof, txs, signing_key)?;
+        let block = Block::create(parent, slot, uncle_headers, proof, txs, signing_key)?;
+        if tracing::enabled!(Level::DEBUG) {
+            log_sdp_activity_selected_for_proposal(&block, &ledger_state);
+        }
 
         info!(
-            "proposed block with id {:?} containing {} transactions ({} removed)",
+            target: LOG_TARGET,
+            "proposed block {:?} with {} transactions ({} removed)",
             block.header().id(),
-            block.transactions().len(),
+            block.transactions_iter().len(),
             invalid_tx_hashes.len()
         );
 
@@ -684,7 +702,7 @@ where
     /// network.
     async fn apply_and_publish_block_proposal(
         block: Block<Mempool::Item>,
-        chain_network_api: &ChainNetworkServiceApi<ChainNetwork, RuntimeServiceId>,
+        chain_network_api: &ChainNetworkServiceApi<ChainNetwork>,
         blend_adapter: &BlendAdapter<BlendService>,
     ) {
         if let Err(e) = chain_network_api
@@ -712,7 +730,7 @@ where
     )]
     async fn handle_inbound_message(
         msg: LeaderMsg,
-        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService>,
         wallet: &WalletApi<Wallet, RuntimeServiceId>,
         kms: &KmsServiceApi<PreloadKmsService<RuntimeServiceId>, RuntimeServiceId>,
         time_relay: &OutboundRelay<TimeServiceMessage>,
@@ -730,14 +748,17 @@ where
                 // channel providing backpressure.
                 let (epoch_handoff_sender, epoch_handoff_receiver) =
                     mpsc::channel(WINNING_POL_EPOCH_HANDOFF_BUFFER_SIZE);
-                tokio::spawn(search_for_winning_slots(
-                    (*cryptarchia).clone(),
-                    (*wallet).clone(),
-                    (*kms).clone(),
-                    (*time_relay).clone(),
-                    (*ledger_config).clone(),
-                    epoch_handoff_sender,
-                ));
+                spawn(
+                    "logos/chain/winning-slot-scanner",
+                    search_for_winning_slots(
+                        (*cryptarchia).clone(),
+                        (*wallet).clone(),
+                        (*kms).clone(),
+                        (*time_relay).clone(),
+                        (*ledger_config).clone(),
+                        epoch_handoff_sender,
+                    ),
+                );
                 let stream: WinningPolEpochSlotsStream =
                     Box::pin(ReceiverStream::new(epoch_handoff_receiver));
                 if sender.send(stream).is_err() {
@@ -748,7 +769,7 @@ where
     }
 
     async fn handle_claim_message(
-        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService>,
         wallet: &WalletApi<Wallet, RuntimeServiceId>,
         config: &LeaderWalletConfig,
         mempool: &MempoolAdapter<Mempool::Item>,
@@ -756,12 +777,12 @@ where
     ) {
         let result = Self::build_and_submit_claim_tx(cryptarchia, wallet, mempool, config).await;
         if resp_tx.send(result).is_err() {
-            error!("Failed to send claim response");
+            error!(target: LOG_TARGET, "Failed to send claim response");
         }
     }
 
     async fn build_and_submit_claim_tx(
-        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService>,
         wallet: &WalletApi<Wallet, RuntimeServiceId>,
         mempool: &MempoolAdapter<Mempool::Item>,
         config: &LeaderWalletConfig,
@@ -772,7 +793,7 @@ where
         let signed_tx = wallet
             .build_leader_claim_tx(
                 tip,
-                ledger_state.mantle_ledger().vouchers_snapshot_root(),
+                *ledger_state.mantle_ledger().vouchers_snapshot_root(),
                 reward_amount,
                 config.funding_pk,
                 config.max_tx_fee,
@@ -786,7 +807,7 @@ where
     }
 
     async fn get_tip_ledger_state(
-        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService, RuntimeServiceId>,
+        cryptarchia: &CryptarchiaServiceApi<CryptarchiaService>,
     ) -> Result<(HeaderId, LedgerState), Error> {
         let tip = cryptarchia.info().await?.cryptarchia_info.tip;
         let ledger_state = cryptarchia
@@ -799,30 +820,33 @@ where
 
 /// Select transactions for a block, truncating the stream at the first
 /// transaction that trips the block size or count limits.
-async fn txs_for_block<Tx, S>(mut txs: S) -> Vec<Tx>
+async fn txs_for_block<Tx, S>(mut txs: S) -> BlockTransactions<Tx>
 where
     Tx: StorageSize,
     S: Stream<Item = Tx> + Unpin,
 {
-    let mut block_size: usize = 0;
-    let mut selected_txs = Vec::new();
+    let mut block_transactions_size: usize = 0;
+    let mut selected_txs = BlockTransactions::empty();
 
-    while selected_txs.len() < MAX_BLOCK_TRANSACTIONS {
+    loop {
         let Some(tx) = txs.next().await else {
             break;
         };
 
         let tx_size = tx.storage_size();
-        let Some(next_block_size) = block_size.checked_add(tx_size) else {
+        let Some(next_block_transactions_size) = block_transactions_size.checked_add(tx_size)
+        else {
             break;
         };
 
-        if next_block_size > MAX_BLOCK_SIZE {
+        if next_block_transactions_size > MAX_BLOCK_TRANSACTIONS_SIZE {
             break;
         }
 
-        block_size = next_block_size;
-        selected_txs.push(tx);
+        if selected_txs.try_push(tx).is_err() {
+            break;
+        }
+        block_transactions_size = next_block_transactions_size;
     }
 
     selected_txs
@@ -845,21 +869,24 @@ mod tests {
 
     #[tokio::test]
     async fn block_tx_selection_respects_transaction_count_limit() {
-        let txs = stream::iter(vec![TestTx { size: 1 }; MAX_BLOCK_TRANSACTIONS + 1]);
+        let txs = stream::iter(vec![
+            TestTx { size: 1 };
+            BlockTransactions::<TestTx>::MAX + 1
+        ]);
 
         let selected = txs_for_block(txs).await;
 
-        assert_eq!(selected.len(), MAX_BLOCK_TRANSACTIONS);
+        assert_eq!(selected.len(), BlockTransactions::<TestTx>::MAX);
     }
 
     #[tokio::test]
     async fn block_tx_selection_respects_block_size_limit() {
         let txs = stream::iter(vec![
             TestTx {
-                size: MAX_BLOCK_SIZE / 2,
+                size: MAX_BLOCK_TRANSACTIONS_SIZE / 2,
             },
             TestTx {
-                size: MAX_BLOCK_SIZE / 2,
+                size: MAX_BLOCK_TRANSACTIONS_SIZE / 2,
             },
             TestTx { size: 1 },
         ]);
@@ -868,7 +895,7 @@ mod tests {
         let selected_size: usize = selected.iter().map(StorageSize::storage_size).sum();
 
         assert_eq!(selected.len(), 2);
-        assert_eq!(selected_size, MAX_BLOCK_SIZE);
+        assert_eq!(selected_size, MAX_BLOCK_TRANSACTIONS_SIZE);
     }
 
     #[tokio::test]
@@ -879,7 +906,7 @@ mod tests {
         let txs = stream::iter(vec![
             TestTx { size: 10 },
             TestTx {
-                size: MAX_BLOCK_SIZE,
+                size: MAX_BLOCK_TRANSACTIONS_SIZE,
             },
             TestTx { size: 10 },
         ]);
@@ -887,7 +914,7 @@ mod tests {
         let selected = txs_for_block(txs).await;
 
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].storage_size(), 10);
+        assert_eq!(selected.as_slice()[0].storage_size(), 10);
     }
 
     #[tokio::test]
@@ -898,7 +925,7 @@ mod tests {
         // reaching here, but the prefix invariant must hold regardless.)
         let txs = stream::iter(vec![
             TestTx {
-                size: MAX_BLOCK_SIZE + 1,
+                size: MAX_BLOCK_TRANSACTIONS_SIZE + 1,
             },
             TestTx { size: 1 },
         ]);

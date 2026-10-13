@@ -1,257 +1,149 @@
 pub mod channel;
-pub mod leader_claim;
-pub mod sdp;
-pub mod transfer;
-
 pub(crate) mod internal;
-
+pub mod leader_claim;
+pub mod op;
+pub mod op_proof;
+pub mod op_proof_ref;
+pub mod op_ref;
+pub mod pow;
+pub mod proof_noop;
+pub mod proof_zk_and_ed;
+pub mod sdp;
 mod serde_;
+pub mod signed_op;
+pub mod signed_op_error;
+pub mod signed_operation;
+pub mod transfer;
 
 use std::sync::LazyLock;
 
-use channel::{
-    config::ChannelConfigOp, deposit::DepositOp, inscribe::InscriptionOp,
-    withdraw::ChannelWithdrawOp,
-};
-use lb_key_management_system_keys::keys::{Ed25519Signature, ZkSignature};
-use nom::{
-    IResult, Parser as _,
-    combinator::map,
-    error::{Error, ErrorKind},
-};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-use super::{
-    gas::{Gas, GasConstants},
-    ops::{
-        leader_claim::LeaderClaimOp,
-        sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
-    },
-};
-use crate::{
-    crypto::{Digest as _, Hash, Hasher},
-    mantle::{
-        encoding::{decode_leader_claim, decode_transfer, encode_leader_claim, encode_transfer_op},
-        nom::{NomDecode, NomEncode},
-        ops::{
-            internal::{OpDe, OpSer},
-            transfer::TransferOp,
-        },
-    },
-    proofs::{
-        channel_multi_sig_proof::ChannelMultiSigProof, leader_claim_proof::Groth16LeaderClaimProof,
-    },
+pub use crate::mantle::ops::{
+    op::{Op, OpId},
+    op_proof::OpProof,
+    op_proof_ref::OpProofRef,
+    op_ref::OpRef,
+    proof_noop::NoOpProof,
+    proof_zk_and_ed::ZkAndEd25519Proof,
+    signed_op::SignedOp,
+    signed_operation::SignedOperation,
 };
 
-static OPERATION_ID_V1: LazyLock<Vec<u8>> = LazyLock::new(|| b"OPERATION_ID_V1".to_vec());
+pub(crate) static OPERATION_ID_V1: LazyLock<Vec<u8>> =
+    LazyLock::new(|| b"OPERATION_ID_V1".to_vec());
 
-pub trait OpId {
-    fn op_id(&self) -> Hash {
-        let mut encoded_bytes = OPERATION_ID_V1.clone();
-        encoded_bytes.extend(self.op_bytes());
-        Hasher::digest(&encoded_bytes).into()
-    }
-
-    fn op_bytes(&self) -> Vec<u8>;
-}
-
-const TRANSFER: u8 = 0x00;
-const CHANNEL_CONFIG: u8 = 0x10;
-const INSCRIBE: u8 = 0x11;
-const CHANNEL_DEPOSIT: u8 = 0x12;
-const CHANNEL_WITHDRAW: u8 = 0x13;
-const SDP_DECLARE: u8 = 0x20;
-const SDP_WITHDRAW: u8 = 0x21;
-const SDP_ACTIVE: u8 = 0x22;
-const LEADER_CLAIM: u8 = 0x30;
-
-/// Core set of supported Mantle operations.
+/// Mantle reference test-vector generators.
 ///
-/// This type serves as the public-facing representation of [`OpSer`] and
-/// [`OpDe`], delegating default serialization and deserialization to them.
+/// This module does not assert library behaviour: it emits reference test
+/// vectors so that alternative implementations (e.g. the nim implementation)
+/// can be checked for conformance against the canonical Rust encoding. Two
+/// generators are provided:
 ///
-/// Serialization and deserialization share a single [`serde_::OpWire`] wire
-/// shape, which carries an `opcode` tag used to identify the correct variant.
-/// Due to limitations in [`bincode`] and [`serde`]'s `#[serde(untagged)]`
-/// enums, binary deserialization is routed through [`decode_op`] instead.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Op {
-    ChannelInscribe(InscriptionOp),
-    ChannelConfig(ChannelConfigOp),
-    ChannelDeposit(DepositOp),
-    ChannelWithdraw(ChannelWithdrawOp),
-    SDPDeclare(SDPDeclareOp),
-    SDPWithdraw(SDPWithdrawOp),
-    SDPActive(SDPActiveOp),
-    LeaderClaim(LeaderClaimOp),
-    Transfer(TransferOp),
-}
-
-/// Delegates serialization through the [`OpInternal`] representation.
-impl Serialize for Op {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if serializer.is_human_readable() {
-            let op_ser = OpSer::from(self);
-            op_ser.serialize(serializer)
-        } else {
-            let bytes = self.encode();
-            serializer.serialize_bytes(&bytes)
-        }
-    }
-}
-
-/// Delegates deserialization through the [`OpDe`] representation.
+/// - [`generate_op_id_test_vectors`]: for every [`Op`] variant, the `payload`
+///   (the canonical operation encoding without the leading opcode byte, i.e.
+///   exactly what [`OpId::op_bytes`] returns) and the resulting `op_id =
+///   Blake2b-256(b"OPERATION_ID_V1" || payload)`. For the variants that
+///   implement [`OpId`] (`Transfer`, `ChannelDeposit`, `ChannelWithdraw`,
+///   `LeaderClaim`) the emitted `op_id` is asserted to equal `OpId::op_id`.
 ///
-/// If the deserializer is non-human-readable it falls back into custom
-/// decoding via [`decode_op`]. Otherwise, it deserializes via [`OpDe`]'s
-/// default behaviour.
-impl<'de> Deserialize<'de> for Op {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        if deserializer.is_human_readable() {
-            OpDe::deserialize(deserializer).map(Self::from)
-        } else {
-            let bytes = <Vec<u8>>::deserialize(deserializer)?;
-            Self::decode(&bytes)
-                .map(|(_, op)| op)
-                .map_err(serde::de::Error::custom)
-        }
+/// - [`generate_mantle_tx_hash_test_vectors`]: for an empty transaction and for
+///   a transaction holding one of every operation, the `encoding` (the
+///   canonical transaction encoding, i.e. `MantleTx::encode`, which is an
+///   op-count byte followed by each `opcode || op_payload`) and the resulting
+///   `tx_hash = Blake2b-256(b"MANTLE_TXHASH_V1" || encoding)`. The emitted hash
+///   is asserted to equal `MantleTx::hash`.
+///
+/// All deterministic inputs are fixed, so the vectors are stable across runs.
+/// The tests are `#[ignore]`d so they are skipped by `cargo test
+/// --all-features`. Run them on demand with:
+/// `cargo test -p logos-blockchain-core mantle_test_vectors -- --ignored
+/// --nocapture`
+#[cfg(test)]
+mod mantle_test_vectors {
+    use lb_binary_codec::canonical::BinaryEncode as _;
+
+    use super::*;
+    use crate::{
+        crypto::{Digest as _, Hasher},
+        mantle::{traits::Hashable as _, transactions::tx_list::Ops},
+    };
+
+    /// `op_id = blake2b256("OPERATION_ID_V1" || op_payload_bytes)`
+    /// where `op_payload_bytes` is the canonical operation encoding without the
+    /// 1-byte opcode tag (i.e. exactly what `OpId::op_bytes` returns).
+    fn op_id_from_payload(payload: &[u8]) -> [u8; 32] {
+        let mut preimage = OPERATION_ID_V1.clone();
+        preimage.extend_from_slice(payload);
+        Hasher::digest(&preimage).into()
     }
-}
 
-// Op = Opcode OpPayload
-impl NomEncode for Op {
-    fn encode(&self) -> Vec<u8> {
-        let op_code = self.code();
-        let mut bytes = op_code.encode();
-        match self {
-            Self::ChannelInscribe(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::ChannelConfig(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::ChannelDeposit(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::ChannelWithdraw(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::SDPDeclare(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::SDPWithdraw(op) => {
-                bytes.extend(op.encode());
-            }
-            Self::SDPActive(op) => {
-                bytes.extend(op.encode());
-            }
-            // TODO: Use `.encode()` once implemented for all other ops
-            Self::LeaderClaim(op) => {
-                bytes.extend(encode_leader_claim(op));
-            }
-            Self::Transfer(op) => {
-                bytes.extend(encode_transfer_op(op));
-            }
-        }
-        bytes
+    /// `tx_hash = blake2b256("MANTLE_TXHASH_V1" || tx_payload_bytes)`
+    /// where `tx_payload_bytes` is the canonical transaction encoding (i.e.
+    /// `MantleTx::encode`).
+    fn tx_hash_from_payload(payload: &[u8]) -> [u8; 32] {
+        let mut preimage = b"MANTLE_TXHASH_V1".to_vec();
+        preimage.extend_from_slice(payload);
+        Hasher::digest(&preimage).into()
     }
-}
 
-impl NomDecode for Op {
-    type Output = Self;
+    fn print_op_vector(op: &Op) {
+        let payload = &op.encode()[1..]; // == OpId::op_bytes()
+        let op_id = op_id_from_payload(payload);
 
-    fn decode(bytes: &[u8]) -> IResult<&[u8], Self::Output> {
-        let (bytes, opcode) = u8::decode(bytes)?;
-
-        match opcode {
-            INSCRIBE => {
-                InscriptionOp::decode(bytes).map(|(bytes, op)| (bytes, Self::ChannelInscribe(op)))
-            }
-            CHANNEL_CONFIG => {
-                ChannelConfigOp::decode(bytes).map(|(bytes, op)| (bytes, Self::ChannelConfig(op)))
-            }
-            CHANNEL_DEPOSIT => {
-                DepositOp::decode(bytes).map(|(bytes, op)| (bytes, Self::ChannelDeposit(op)))
-            }
-            CHANNEL_WITHDRAW => ChannelWithdrawOp::decode(bytes)
-                .map(|(bytes, op)| (bytes, Self::ChannelWithdraw(op))),
-            SDP_DECLARE => {
-                SDPDeclareOp::decode(bytes).map(|(bytes, op)| (bytes, Self::SDPDeclare(op)))
-            }
-            SDP_WITHDRAW => {
-                SDPWithdrawOp::decode(bytes).map(|(bytes, op)| (bytes, Self::SDPWithdraw(op)))
-            }
-            SDP_ACTIVE => {
-                SDPActiveOp::decode(bytes).map(|(bytes, op)| (bytes, Self::SDPActive(op)))
-            }
-            // TODO: Use `.decode()` once implemented for all other ops
-            LEADER_CLAIM => map(decode_leader_claim, Self::LeaderClaim).parse(bytes),
-            TRANSFER => map(decode_transfer, Self::Transfer).parse(bytes),
-            _ => Err(nom::Err::Error(Error::new(bytes, ErrorKind::Fail))),
-        }
+        println!("{}", op.as_str());
+        println!("payload {}", hex::encode(payload));
+        println!("op_id   {}", hex::encode(op_id));
+        println!();
     }
-}
 
-impl Op {
-    #[must_use]
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::ChannelInscribe(_) => "ChannelInscribe",
-            Self::ChannelConfig(_) => "ChannelConfig",
-            Self::ChannelDeposit(_) => "ChannelDeposit",
-            Self::ChannelWithdraw(_) => "ChannelWithdraw",
-            Self::SDPDeclare(_) => "SDPDeclare",
-            Self::SDPWithdraw(_) => "SDPWithdraw",
-            Self::SDPActive(_) => "SDPActive",
-            Self::LeaderClaim(_) => "LeaderClaim",
-            Self::Transfer(_) => "Transfer",
+    fn print_tx_vector(label: &str, tx: &Ops) {
+        let payload = tx.encode();
+        let tx_hash = tx_hash_from_payload(&payload);
+        // The hand-rolled computation must match the production `hash()`.
+        assert_eq!(tx.hash().0, tx_hash);
+
+        println!("{label}");
+        println!("encoding {}", hex::encode(&payload));
+        println!("tx_hash  {}", hex::encode(tx_hash));
+        println!();
+    }
+
+    /// Generates (and prints) the Op ID test vectors for every mantle
+    /// operation. Ignored by default so it never runs under `cargo test
+    /// --all-features`; invoke explicitly with `--ignored --nocapture` to
+    /// regenerate the vectors.
+    #[test]
+    #[ignore = "generates OpId test vectors on demand; run with --ignored --nocapture"]
+    fn generate_op_id_test_vectors() {
+        println!();
+        for op in &Ops::sample() {
+            print_op_vector(op);
+            // Cross-check against the production trait where it is implemented.
+            match op {
+                Op::Transfer(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
+                Op::ChannelDeposit(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
+                Op::ChannelTransfer(o) => {
+                    assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes()));
+                }
+                Op::ChannelWithdraw(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
+                Op::LeaderClaim(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
+                _ => {}
+            }
         }
     }
 
-    #[must_use]
-    pub const fn execution_gas<Constants: GasConstants>(&self) -> Gas {
-        match self {
-            Self::ChannelInscribe(_) => Constants::CHANNEL_INSCRIBE,
-            Self::ChannelConfig(_) => Constants::CHANNEL_CONFIG,
-            Self::ChannelDeposit(_) => Constants::CHANNEL_DEPOSIT,
-            Self::ChannelWithdraw(_) => Constants::CHANNEL_WITHDRAW,
-            Self::SDPDeclare(_) => Constants::SDP_DECLARE,
-            Self::SDPWithdraw(_) => Constants::SDP_WITHDRAW,
-            Self::SDPActive(_) => Constants::SDP_ACTIVE,
-            Self::LeaderClaim(_) => Constants::LEADER_CLAIM,
-            Self::Transfer(_) => Constants::TRANSFER,
-        }
-    }
+    /// Generates (and prints) the Mantle transaction-hash test vectors for an
+    /// empty transaction and for a transaction holding one of every operation.
+    /// Ignored by default so it never runs under `cargo test --all-features`;
+    /// invoke explicitly with `--ignored --nocapture` to regenerate the
+    /// vectors.
+    #[test]
+    #[ignore = "generates Mantle tx-hash test vectors on demand; run with --ignored --nocapture"]
+    fn generate_mantle_tx_hash_test_vectors() {
+        println!();
+        // Empty transaction (zero operations).
+        print_tx_vector("empty (0 ops)", &Ops::new_unchecked(vec![]));
 
-    const fn code(&self) -> u8 {
-        match self {
-            Self::ChannelInscribe(_) => INSCRIBE,
-            Self::ChannelConfig(_) => CHANNEL_CONFIG,
-            Self::ChannelDeposit(_) => CHANNEL_DEPOSIT,
-            Self::ChannelWithdraw(_) => CHANNEL_WITHDRAW,
-            Self::SDPDeclare(_) => SDP_DECLARE,
-            Self::SDPWithdraw(_) => SDP_WITHDRAW,
-            Self::SDPActive(_) => SDP_ACTIVE,
-            Self::LeaderClaim(_) => LEADER_CLAIM,
-            Self::Transfer(_) => TRANSFER,
-        }
+        // Transaction holding one of every operation.
+        print_tx_vector("one of each operation (11 ops)", &Ops::sample());
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum OpProof {
-    Ed25519Sig(Ed25519Signature),
-    ZkSig(ZkSignature),
-    ZkAndEd25519Sigs {
-        zk_sig: ZkSignature,
-        ed25519_sig: Ed25519Signature,
-    },
-    PoC(Groth16LeaderClaimProof),
-    ChannelMultiSigProof(ChannelMultiSigProof),
 }

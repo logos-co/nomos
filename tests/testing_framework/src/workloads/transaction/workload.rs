@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    marker::PhantomData,
     num::{NonZeroU64, NonZeroUsize},
     slice,
     sync::Arc,
@@ -9,16 +8,20 @@ use std::{
 
 use async_trait::async_trait;
 use lb_core::mantle::{
-    GasCalculator as _, GenesisTx as _, Note, OpProof, SignedMantleTx, Transaction as _, Utxo,
-    gas::MainnetGasConstants,
+    Note, OpProof, SignedOps, Utxo,
+    gas::{MainnetGasProfile, TxGasCalculator as _},
+    ledger::verification_mode::StandardMode,
     ops::OpId as _,
-    tx::{GasPrices, MantleTxContext, MantleTxGasContext},
-    tx_builder::MantleTxBuilder,
+    traits::Hashable as _,
+    transactions::{
+        GasPrices, MantleTxBuilder, OpProofs, states::Preverified, tx_list::ops::OpsGasContext,
+    },
 };
 use lb_key_management_system_service::keys::{ZkKey, ZkPublicKey};
 use rand::{seq::SliceRandom as _, thread_rng};
+use testing_framework_app::AppHostEnv;
 use testing_framework_core::scenario::{
-    DynError, Expectation, RunContext, RunMetrics, Workload as ScenarioWorkload,
+    DynError, Expectation, RunContext, Workload as ScenarioWorkload,
 };
 use thiserror::Error;
 use tokio::time::sleep;
@@ -26,9 +29,8 @@ use tracing::debug;
 
 use super::expectation::TxInclusionExpectation;
 use crate::{
-    framework::LbcEnv,
     node::{DeploymentPlan, NodeHttpClient, configs::wallet::WalletAccount},
-    workloads::{LbcBlockFeedEnv, LbcScenarioEnv},
+    workloads::LbcRunContextExt as _,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -58,11 +60,9 @@ enum TxWorkloadError {
 }
 
 #[derive(Clone)]
-pub struct WorkloadImpl<E = LbcEnv> {
+pub struct WorkloadImpl {
     txs_per_block: NonZeroU64,
     user_limit: Option<NonZeroUsize>,
-    accounts: Vec<WalletInput>,
-    _env: PhantomData<fn() -> E>,
 }
 
 #[derive(Clone)]
@@ -71,82 +71,80 @@ struct WalletInput {
     utxo: Utxo,
 }
 
-pub type Workload<E = LbcEnv> = WorkloadImpl<E>;
+pub type Workload = WorkloadImpl;
 
 #[async_trait]
-impl<E> ScenarioWorkload<E> for WorkloadImpl<E>
-where
-    E: LbcScenarioEnv + LbcBlockFeedEnv,
-{
+impl ScenarioWorkload<AppHostEnv> for WorkloadImpl {
     fn name(&self) -> &'static str {
         "tx_workload"
     }
 
-    fn expectations(&self) -> Vec<Box<dyn Expectation<E>>> {
-        vec![Box::new(TxInclusionExpectation::<E>::new(
+    fn expectations(&self) -> Vec<Box<dyn Expectation<AppHostEnv>>> {
+        vec![Box::new(TxInclusionExpectation::new(
             self.txs_per_block,
             self.user_limit,
         ))]
     }
 
-    fn init(
-        &mut self,
-        descriptors: &DeploymentPlan,
-        _run_metrics: &RunMetrics,
-    ) -> Result<(), DynError> {
-        let wallet_accounts = descriptors.config().wallet_config.accounts.clone();
-        if wallet_accounts.is_empty() {
-            return Err(TxWorkloadError::MissingWalletAccounts.into());
-        }
-
-        let _reference_node = descriptors
-            .nodes()
-            .first()
-            .ok_or(TxWorkloadError::MissingReferenceNode)?;
-        let genesis_block = descriptors
-            .config()
-            .genesis_block
-            .as_ref()
-            .ok_or(TxWorkloadError::MissingReferenceNode)?;
-        let utxo_map = wallet_utxo_map(
-            genesis_block
-                .transactions()
-                .next()
-                .expect("Genesis block should contain a genesis tx"),
-        );
-
-        let mut accounts = wallet_accounts
-            .into_iter()
-            .filter_map(|account| {
-                utxo_map
-                    .get(&account.public_key())
-                    .copied()
-                    .map(|utxo| WalletInput { account, utxo })
-            })
-            .collect::<Vec<_>>();
-
-        apply_user_limit(&mut accounts, self.user_limit);
-        if accounts.is_empty() {
-            return Err(TxWorkloadError::MissingWalletUtxos.into());
-        }
-
-        self.accounts = accounts;
-        Ok(())
-    }
-
-    async fn start(&self, ctx: &RunContext<E>) -> Result<(), DynError> {
-        Submission::new(self, ctx)?.execute().await
+    async fn start(&self, ctx: &RunContext<AppHostEnv>) -> Result<(), DynError> {
+        let accounts = prepare_accounts(&ctx.lbc_deployment()?, self.user_limit)?;
+        Submission::new(self, &accounts, ctx)?.execute().await
     }
 }
 
-impl<E> WorkloadImpl<E> {
+/// Maps seeded wallet accounts to their genesis UTXOs for the deployed plan.
+///
+/// Node-count and wallet checks run here rather than during scenario
+/// validation because the outer app-host deployment reports no nodes.
+fn prepare_accounts(
+    descriptors: &DeploymentPlan,
+    user_limit: Option<NonZeroUsize>,
+) -> Result<Vec<WalletInput>, DynError> {
+    let wallet_accounts = descriptors.config().wallet_config.accounts.clone();
+    if wallet_accounts.is_empty() {
+        return Err(TxWorkloadError::MissingWalletAccounts.into());
+    }
+
+    let _reference_node = descriptors
+        .nodes()
+        .first()
+        .ok_or(TxWorkloadError::MissingReferenceNode)?;
+    let genesis_block = descriptors
+        .config()
+        .genesis_block
+        .as_ref()
+        .ok_or(TxWorkloadError::MissingReferenceNode)?;
+    let utxo_map = wallet_utxo_map(
+        genesis_block
+            .transactions_iter()
+            .next()
+            .expect("Genesis block should contain a genesis tx"),
+    );
+
+    let mut accounts = wallet_accounts
+        .into_iter()
+        .filter_map(|account| {
+            utxo_map
+                .get(&account.public_key())
+                .copied()
+                .map(|utxo| WalletInput { account, utxo })
+        })
+        .collect::<Vec<_>>();
+
+    apply_user_limit(&mut accounts, user_limit);
+    if accounts.is_empty() {
+        return Err(TxWorkloadError::MissingWalletUtxos.into());
+    }
+
+    Ok(accounts)
+}
+
+impl WorkloadImpl {
     #[must_use]
     pub const fn new(txs_per_block: NonZeroU64) -> Self {
         Self {
             txs_per_block,
             user_limit: None,
-            accounts: Vec::new(),
-            _env: PhantomData,
         }
     }
 
@@ -157,28 +155,30 @@ impl<E> WorkloadImpl<E> {
     }
 }
 
-impl<E> Default for WorkloadImpl<E> {
+impl Default for WorkloadImpl {
     fn default() -> Self {
         Self::new(NonZeroU64::MIN)
     }
 }
 
-struct Submission<'a, E: LbcScenarioEnv> {
+struct Submission<'a> {
     plan: VecDeque<WalletInput>,
-    ctx: &'a RunContext<E>,
+    ctx: &'a RunContext<AppHostEnv>,
     interval: Duration,
 }
 
-impl<'a, E: LbcScenarioEnv> Submission<'a, E> {
-    fn new(workload: &WorkloadImpl<E>, ctx: &'a RunContext<E>) -> Result<Self, DynError> {
-        if workload.accounts.is_empty() {
+impl<'a> Submission<'a> {
+    fn new(
+        workload: &WorkloadImpl,
+        accounts: &[WalletInput],
+        ctx: &'a RunContext<AppHostEnv>,
+    ) -> Result<Self, DynError> {
+        if accounts.is_empty() {
             return Err(TxWorkloadError::MissingPreparedAccounts.into());
         }
 
-        let submission_plan =
-            submission_plan(workload.txs_per_block, ctx, workload.accounts.len())?;
-        let plan = workload
-            .accounts
+        let submission_plan = submission_plan(workload.txs_per_block, ctx, accounts.len())?;
+        let plan = accounts
             .iter()
             .take(submission_plan.transaction_count)
             .cloned()
@@ -192,8 +192,7 @@ impl<'a, E: LbcScenarioEnv> Submission<'a, E> {
     }
 
     async fn execute(mut self) -> Result<(), DynError> {
-        let gas_context =
-            MantleTxGasContext::new(HashMap::new(), HashMap::new(), GasPrices::new(0, 0));
+        let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::default());
         while let Some(input) = self.plan.pop_front() {
             submit_wallet_transaction(self.ctx, &input, gas_context.clone()).await?;
             if !self.interval.is_zero() {
@@ -205,9 +204,9 @@ impl<'a, E: LbcScenarioEnv> Submission<'a, E> {
 }
 
 async fn submit_wallet_transaction(
-    ctx: &RunContext<impl LbcScenarioEnv>,
+    ctx: &RunContext<AppHostEnv>,
     input: &WalletInput,
-    gas_context: MantleTxGasContext,
+    gas_context: OpsGasContext,
 ) -> Result<(), DynError> {
     let signed_tx = Arc::new(build_wallet_transaction(input, &gas_context)?);
     submit_transaction_via_cluster(ctx, signed_tx).await
@@ -217,13 +216,13 @@ const SUBMIT_RETRIES: usize = 5;
 const SUBMIT_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 async fn submit_transaction_via_cluster(
-    ctx: &RunContext<impl LbcScenarioEnv>,
-    tx: Arc<SignedMantleTx>,
+    ctx: &RunContext<AppHostEnv>,
+    tx: Arc<SignedOps<Preverified, StandardMode>>,
 ) -> Result<(), DynError> {
     let tx_hash = tx.hash();
     debug!(?tx_hash, "submitting transaction via cluster (nodes first)");
 
-    let mut clients = ctx.node_clients().snapshot();
+    let mut clients = ctx.lbc_clients()?;
     if clients.is_empty() {
         return Err(cluster_client_exhausted_error());
     }
@@ -247,7 +246,7 @@ const fn has_submission_retry(attempt: usize) -> bool {
 
 async fn submit_to_clients(
     clients: &mut [NodeHttpClient],
-    tx: &SignedMantleTx,
+    tx: &SignedOps<Preverified, StandardMode>,
     attempt: usize,
 ) -> Result<(), DynError> {
     let tx_hash = tx.hash();
@@ -276,15 +275,11 @@ fn cluster_client_exhausted_error() -> DynError {
 
 fn build_wallet_transaction(
     input: &WalletInput,
-    gas_context: &MantleTxGasContext,
-) -> Result<SignedMantleTx, DynError> {
+    gas_context: &OpsGasContext,
+) -> Result<SignedOps<Preverified, StandardMode>, DynError> {
     let receiver = input.account.public_key();
-    let tx_context = MantleTxContext {
-        gas_context: gas_context.clone(),
-        leader_reward_amount: 0,
-    };
 
-    let provisional_tx = MantleTxBuilder::new(tx_context.clone())
+    let provisional_tx = MantleTxBuilder::new()
         .add_ledger_input(input.utxo)
         .map_err(|err| format!("failed to add provisional input: {err}"))?
         .add_ledger_output(Note::new(input.utxo.note.value, receiver))
@@ -293,7 +288,8 @@ fn build_wallet_transaction(
         .map_err(|err| format!("failed to build provisional tx: {err}"))?;
 
     let fee = provisional_tx
-        .total_gas_cost::<MainnetGasConstants>(gas_context)?
+        .by_ref()
+        .total_gas_cost::<MainnetGasProfile>(gas_context)?
         .into_inner();
     let output_value = input.utxo.note.value.checked_sub(fee).ok_or_else(|| {
         format!(
@@ -302,7 +298,7 @@ fn build_wallet_transaction(
         )
     })?;
 
-    let tx = MantleTxBuilder::new(tx_context)
+    let tx = MantleTxBuilder::new()
         .add_ledger_input(input.utxo)
         .map_err(|err| format!("failed to add input: {err}"))?
         .add_ledger_output(Note::new(output_value, receiver))
@@ -316,14 +312,17 @@ fn build_wallet_transaction(
     )
     .map_err(|err| format!("failed to sign transaction: {err}"))?;
 
-    SignedMantleTx::new(tx, vec![OpProof::ZkSig(signature)])
+    let op_proofs = OpProofs::from([OpProof::ZkSig(signature)]);
+    SignedOps::from_parts(tx, op_proofs)
+        .map_err(|err| format!("failed to build signed transaction: {err}"))?
+        .preverify()
         .map_err(|err| format!("failed to build signed transaction: {err}").into())
 }
 
 fn wallet_utxo_map(
-    genesis_tx: &lb_core::mantle::genesis_tx::GenesisTx,
+    genesis_tx: &lb_core::mantle::transactions::GenesisTx,
 ) -> HashMap<ZkPublicKey, Utxo> {
-    let transfer_op = genesis_tx.genesis_transfer().clone();
+    let transfer_op = genesis_tx.transfer().operation().clone();
     let op_id = transfer_op.op_id();
 
     transfer_op
@@ -344,9 +343,9 @@ pub(super) fn limited_user_count(user_limit: Option<NonZeroUsize>, available: us
     user_limit.map_or(available, |limit| limit.get().min(available))
 }
 
-pub(super) fn submission_plan<E: LbcScenarioEnv>(
+pub(super) fn submission_plan(
     txs_per_block: NonZeroU64,
-    ctx: &RunContext<E>,
+    ctx: &RunContext<AppHostEnv>,
     available_accounts: usize,
 ) -> Result<SubmissionPlan, DynError> {
     if available_accounts == 0 {

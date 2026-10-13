@@ -1,0 +1,19 @@
+use std::collections::BTreeMap;
+
+#[derive(Debug, Clone)]
+pub struct TokioConsoleProfileNode {
+    pub port: u16,
+    pub record_raw: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TokioConsoleProfile {
+    pub profile_nodes: BTreeMap<String, TokioConsoleProfileNode>,
+}
+
+impl TokioConsoleProfile {
+    #[must_use]
+    pub fn node(&self, node_name: &str) -> Option<&TokioConsoleProfileNode> {
+        self.profile_nodes.get(node_name)
+    }
+}

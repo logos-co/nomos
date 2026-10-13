@@ -10,13 +10,16 @@ use std::sync::LazyLock;
 mod diagnostics;
 pub mod env;
 mod framework;
-pub use framework::local::USER_CONFIG_FILE;
+pub use framework::local::{
+    LOGOS_BLOCKCHAIN_NODE_DOWNLOAD_SHA256, LOGOS_BLOCKCHAIN_NODE_DOWNLOAD_URL, USER_CONFIG_FILE,
+    ensure_node_binary_built,
+};
 mod node;
 mod unique_persistent;
 pub mod workloads;
 pub use unique_persistent::{
     get_reserved_available_tcp_port, get_reserved_available_udp_port, hash_str,
-    reap_all_stale_port_blocks, release_reserved_port_block, unique_test_context,
+    release_reserved_port_block, unique_test_context,
 };
 
 pub static IS_DEBUG_TRACING: LazyLock<bool> = LazyLock::new(env::debug_tracing);
@@ -28,20 +31,20 @@ pub use diagnostics::{
     unregister_system_monitor_output_file,
 };
 pub use framework::{
-    BlockFeed, BlockFeedCollector, BlockFeedCollectorRuntime, BlockFeedExtensionFactory,
-    BlockFeedObservation, BlockFeedObserver, BlockFeedSnapshot, BlockFeedWaitError, BlockRecord,
-    BoxedBlockFeedCollector, CoreBuilderExt, LbcComposeDeployer, LbcEnv, LbcK8sDeployer,
-    LbcK8sManualCluster, LbcLocalDeployer, LbcManualCluster, NodeHeadSnapshot, ObservedBlock,
-    ScenarioBuilder, ScenarioBuilderExt, block_feed_source_provider, block_feed_sources,
-    named_block_feed_sources,
+    AppHost, AppHostDeployError, AppHostDeployer, AppHostEnv, AppRunContextExt, BlockFeed,
+    BlockFeedCollector, BlockFeedCollectorRuntime, BlockFeedObservation, BlockFeedObserver,
+    BlockFeedSnapshot, BlockFeedWaitError, BlockRecord, BoxedBlockFeedCollector, LbcClusterApp,
+    LbcClusterBackend, LbcEnv, LbcK8sManualCluster, LbcManualCluster, LbcScenario,
+    NodeHeadSnapshot, NodeStateSnapshotStore, ObservedBlock, ScenarioBuilder, ScenarioBuilderExt,
+    block_feed_sources, named_block_feed_sources,
 };
 // Required by reused node-test config modules importing from crate root.
-pub use node::configs::deployment::{DeploymentBuilder, TopologyConfig};
+pub use node::configs::deployment::{
+    DeploymentBuilder, TopologyConfig, resolve_automatic_genesis_time,
+};
 pub use node::{NodeHttpClient, configs};
 pub use testing_framework_runner_compose::ComposeRunnerError;
-pub use testing_framework_runner_k8s::{
-    K8sRunnerError, ManualClusterError as K8sManualClusterError,
-};
+pub use testing_framework_runner_k8s::ManualClusterError as K8sManualClusterError;
 pub use workloads::{ClusterForkMonitor, ConsensusLiveness, inscription, transaction};
 
 /// Internal helpers for sibling workspace crates.
@@ -54,15 +57,11 @@ pub mod internal {
 }
 
 pub mod prelude {
-    pub use crate::{
-        CoreBuilderExt as _, LbcLocalDeployer, LbcManualCluster, ScenarioBuilder,
-        ScenarioBuilderExt as _,
-    };
+    pub use crate::{AppHostDeployer, LbcManualCluster, ScenarioBuilder, ScenarioBuilderExt as _};
 }
 
 #[must_use]
 pub fn is_truthy_env(key: &str) -> bool {
     std::env::var(key)
-        .ok()
-        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .is_ok_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
 }

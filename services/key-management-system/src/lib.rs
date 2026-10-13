@@ -8,6 +8,7 @@ use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
+        resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
     },
 };
@@ -82,7 +83,7 @@ where
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
             service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                ServiceResourcesHandle {
                     ref mut inbound_relay,
                     status_updater,
                     ..
@@ -188,16 +189,27 @@ where
                     );
                 }
             }
-            KMSMessage::Execute { key_id, operator } => {
-                // TODO: Bubble up errors: https://github.com/logos-blockchain/logos-blockchain/issues/2079
+            KMSMessage::Execute {
+                key_id,
+                operator,
+                reply_channel,
+            } => {
                 metrics::kms_execute_requests();
-                drop(backend.execute(&key_id, operator).await.inspect_err(|e| {
+                let result = backend.execute(&key_id, operator).await;
+                if let Err(e) = &result {
                     metrics::kms_execute_failures();
                     error!(
                         target: LOG_TARGET,
                         "Failed to execute operator with key ID {key_id:?}. Error: {e:?}"
                     );
-                }));
+                }
+
+                if reply_channel.send(result).is_err() {
+                    debug!(
+                        target: LOG_TARGET,
+                        "Could not reply to the execute request channel"
+                    );
+                }
             }
         }
     }

@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub mod blend;
+pub mod chain;
 pub mod channel;
+pub mod mantle;
 pub mod wallet;
 
 /// A no-operation body for endpoints that do not require a request or response

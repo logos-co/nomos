@@ -5,12 +5,15 @@ mod ui;
 use std::{fs, path::Path};
 
 use clap::Parser;
-use lb_core::mantle::ops::channel::{ChannelId, inscribe::Inscription};
-use lb_key_management_system_service::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key};
+use lb_core::mantle::{
+    gas::GasCost,
+    ops::channel::{ChannelId, inscribe::Inscription},
+};
+use lb_key_management_system_service::keys::{ED25519_SECRET_KEY_SIZE, Ed25519Key, ZkPublicKey};
 use lb_zone_sdk::{
     CommonHttpClient,
     adapter::NodeHttpClient,
-    sequencer::{Event, FinalizedOp, FinalizedTx, InscriptionInfo, ZoneSequencer},
+    sequencer::{Event, FinalizedOp, FinalizedTx, FundingConfig, InscriptionInfo, ZoneSequencer},
 };
 use reqwest::Url;
 use tokio::sync::mpsc;
@@ -31,6 +34,16 @@ pub struct InscribeArgs {
     /// Path to the signing key file (created if it doesn't exist)
     #[arg(long, default_value = "sequencer.key", env = "KEY_PATH")]
     key_path: String,
+
+    /// Hex-encoded ZK public key of a funded key in the node's wallet. The
+    /// node spends this key's notes to pay each inscription's transaction fee.
+    #[arg(long, env = "FUNDING_PK", value_parser = parse_zk_public_key)]
+    funding_pk: ZkPublicKey,
+}
+
+fn parse_zk_public_key(hex_key: &str) -> Result<ZkPublicKey, String> {
+    serde_json::from_value(serde_json::Value::String(hex_key.to_owned()))
+        .map_err(|e| format!("invalid ZK public key: {e}"))
 }
 
 fn spawn_stdin_reader(ready: tokio::sync::oneshot::Receiver<()>) -> mpsc::Receiver<String> {
@@ -108,14 +121,17 @@ fn handle_ready(
 // items: Finalised transactions
 // state: Zone state
 fn apply_finalized(items: &[FinalizedTx], state: &mut InMemoryZoneState) {
-    // TUI only cares about inscriptions for rendering; deposit / withdraw
-    // ops have no inscription payload.
+    // TUI only cares about inscriptions for rendering; deposit, withdraw,
+    // config and channel transfer ops have no inscription payload.
     let inscriptions: Vec<InscriptionInfo> = items
         .iter()
         .flat_map(|t| t.ops.iter())
         .filter_map(|op| match op {
             FinalizedOp::Inscription(i) => Some(i.clone()),
-            FinalizedOp::Deposit(_) | FinalizedOp::Withdraw(_) => None,
+            FinalizedOp::Deposit(_)
+            | FinalizedOp::Withdraw(_)
+            | FinalizedOp::Config(_)
+            | FinalizedOp::ChannelTransfer(_) => None,
         })
         .collect();
     state.on_finalized(&inscriptions);
@@ -147,7 +163,7 @@ fn handle_event(
             }
             state.save_checkpoint(checkpoint);
         }
-        Event::MempoolPending(_) | Event::TurnNotification { .. } => {}
+        Event::TurnNotification { .. } => {}
     }
 }
 
@@ -182,8 +198,16 @@ pub async fn run(args: InscribeArgs) {
     // Connect to node
     let node = NodeHttpClient::new(CommonHttpClient::new(None), node_url);
 
+    // Pay transaction fees from a funded key in the node's wallet
+    let funding = FundingConfig {
+        funding_pk: args.funding_pk,
+        change_pk: None,
+        max_tx_fee: GasCost::new(1_000_000),
+        priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
+    };
+
     // Initialise ZoneSequencer
-    let mut sequencer = ZoneSequencer::init(channel_id, signing_key, node, checkpoint);
+    let mut sequencer = ZoneSequencer::init(channel_id, signing_key, node, funding, checkpoint);
 
     // Wait to start reading from stdin until ready
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
@@ -219,7 +243,7 @@ pub async fn run(args: InscribeArgs) {
                 };
 
                 // Publish data
-                match sequencer.handle().publish(inscription) {
+                match sequencer.handle().publish(inscription).await {
 
                     // Get result and checkpoint, update Zone state
                     Ok((result, checkpoint)) => {
@@ -234,7 +258,7 @@ pub async fn run(args: InscribeArgs) {
                     Err(lb_zone_sdk::sequencer::Error::Unavailable { reason }) => {
                         warn!("publish rejected: {reason}");
                         eprintln!(
-                            "  \x1b[33msequencer is still starting up, try again in a moment\x1b[0m"
+                            "  \x1b[33msequencer is not ready (starting up or reconnecting), try again in a moment\x1b[0m"
                         );
                         ui::prompt();
                     }

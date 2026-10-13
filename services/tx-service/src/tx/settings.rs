@@ -1,23 +1,28 @@
-use std::path::PathBuf;
+use core::num::NonZeroUsize;
 
-use lb_services_utils::overwatch::recovery::backends::FileBackendSettings;
+use lb_services_utils::overwatch::{RecoveryData, StorageRecoverySettings};
 use serde::{Deserialize, Serialize};
 
+pub const RECOVERY_KEY_SUFFIX: &[u8] = b"mempool";
+
 /// Settings for the tx mempool service.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TxMempoolSettings<PoolSettings, NetworkAdapterSettings> {
     /// The mempool settings.
     pub pool: PoolSettings,
     /// The network adapter settings.
     pub network_adapter: NetworkAdapterSettings,
-    /// The recovery file path, for the service's [`RecoveryOperator`].
-    pub recovery_path: PathBuf,
+    pub seen_items_subscription_channel_size: NonZeroUsize,
+    #[serde(skip)]
+    pub recovery_data: RecoveryData,
 }
 
-impl<PoolSettings, NetworkAdapterSettings> FileBackendSettings
+impl<PoolSettings, NetworkAdapterSettings> StorageRecoverySettings
     for TxMempoolSettings<PoolSettings, NetworkAdapterSettings>
 {
-    fn recovery_file(&self) -> &PathBuf {
-        &self.recovery_path
+    const RECOVERY_KEY_SUFFIX: &'static [u8] = RECOVERY_KEY_SUFFIX;
+
+    fn recovery_data(&self) -> &RecoveryData {
+        &self.recovery_data
     }
 }

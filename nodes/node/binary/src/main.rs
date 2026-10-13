@@ -1,11 +1,14 @@
 use clap::Parser as _;
 use color_eyre::eyre::{Result, eyre};
+use lb_log_targets::node;
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
 use logos_blockchain_node::{
     UserConfig,
     cli::{CliArgs, Command, build_run_config},
-    config::{DeploymentType, deployment::DeploymentSettings},
-    get_services_to_start, run_node_from_config,
+    config::deployment::DeploymentSettings,
+    get_services_to_start,
+    panic::log_and_exit_hook,
+    run_node_from_config,
 };
 
 #[tokio::main]
@@ -38,10 +41,6 @@ async fn main() -> Result<()> {
             Command::RemoveKey(remove_args) => {
                 return logos_blockchain_node::cli::keys::run_remove_key(*remove_args);
             }
-            Command::Inscribe(inscribe_args) => {
-                lb_tui_zone::run(inscribe_args).await;
-                return Ok(());
-            }
             Command::Participate(participate_args) => {
                 return logos_blockchain_node::cli::participate::run(&participate_args);
             }
@@ -58,13 +57,13 @@ async fn main() -> Result<()> {
     if is_dry_run {
         // Check user config.
         drop(deserialize_value_at_path::<UserConfig>(
-            cli_args.config_path(),
+            cli_args.user_config_path(),
             OnUnknownKeys::Fail,
         )?);
         // If custom, check deployment config.
-        if let DeploymentType::Custom(custom_deployment_config_file) = cli_args.deployment_type() {
+        if let Some(custom_deployment_path) = cli_args.deployment_config_path() {
             drop(deserialize_value_at_path::<DeploymentSettings>(
-                custom_deployment_config_file,
+                custom_deployment_path,
                 OnUnknownKeys::Fail,
             )?);
         }
@@ -80,13 +79,26 @@ async fn main() -> Result<()> {
     }
 
     let run_config = {
-        let user_config =
-            deserialize_value_at_path::<UserConfig>(cli_args.config_path(), OnUnknownKeys::Fail)
-                .inspect_err(|e| {
-                    eprintln!("\nExiting... {e}.\n");
-                })?;
+        let user_config = deserialize_value_at_path::<UserConfig>(
+            cli_args.user_config_path(),
+            OnUnknownKeys::Fail,
+        )
+        .inspect_err(|e| {
+            eprintln!("\nExiting... {e}.\n");
+        })?;
         build_run_config(user_config, cli_args)?
     };
+    let chain_id = run_config.deployment.chain_id();
+    // Only single-era schedules are supported for now, so the node follows the
+    // fork of the genesis era.
+    let fork_digest = run_config.deployment.genesis_fork_digest();
+
+    // A panic in any service leaves the node in an unknown state, so the
+    // standalone binary logs it and exits. The hook is process-wide, which is
+    // why it is installed here rather than in `run_node_from_config`: that
+    // function is also how the node is started when embedded as a library,
+    // where ending the host process is not the node's call to make.
+    std::panic::set_hook(Box::new(log_and_exit_hook));
 
     let app = run_node_from_config(run_config, None)
         .map_err(|e| eyre!("{e}"))
@@ -104,7 +116,11 @@ async fn main() -> Result<()> {
         .inspect_err(|e| {
             eprintln!("\nExiting... {e}.\n");
         })?;
+    tracing::info!(
+        target: node::ROOT,
+        "Running chain {chain_id} on fork {fork_digest}."
+    );
 
-    app.wait_finished().await;
-    Ok(())
+    // An error here means Overwatch shut down because a service panicked.
+    app.wait_finished().await.map_err(|panic| eyre!("{panic}"))
 }

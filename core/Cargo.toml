@@ -18,9 +18,8 @@ ark-ff                        = { workspace = true }
 bincode                       = { workspace = true }
 blake2                        = { workspace = true }
 bytes                         = { workspace = true }
-const-hex                     = { features = ["alloc"], workspace = true }
-futures                       = { features = ["alloc"], workspace = true }
 hex                           = { features = ["alloc"], workspace = true }
+lb-binary-codec               = { workspace = true }
 lb-blend-proofs               = { workspace = true }
 lb-cryptarchia-engine         = { workspace = true }
 lb-groth16                    = { workspace = true }
@@ -32,8 +31,8 @@ lb-pol                        = { workspace = true }
 lb-poseidon2                  = { workspace = true }
 lb-utils                      = { workspace = true }
 lb-utxotree                   = { workspace = true }
+lb-zksign                     = { workspace = true }
 multiaddr                     = { workspace = true }
-nom                           = { features = ["alloc"], workspace = true }
 num-bigint                    = { workspace = true }
 rpds                          = { workspace = true }
 serde                         = { features = ["derive"], workspace = true }
@@ -41,8 +40,10 @@ strum                         = { features = ["derive"], workspace = true }
 thiserror                     = { workspace = true }
 time                          = { workspace = true }
 tracing                       = { workspace = true }
+utoipa                        = { features = ["macros"], optional = true, workspace = true }
 
 [dev-dependencies]
+boon       = { workspace = true }
 divan      = { workspace = true }
 hasher     = { workspace = true }
 rand       = { workspace = true }
@@ -54,4 +55,7 @@ harness = false
 name    = "mantle_tx_components"
 
 [features]
-default = []
+default               = []
+openapi               = ["dep:utoipa", "lb-utils/openapi"]
+test-utils            = []
+unsafe-test-functions = []

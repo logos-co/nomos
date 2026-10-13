@@ -1,16 +1,13 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
-use lb_blend_service::core::network::libp2p::Libp2pBroadcastSettings;
 use lb_chain_network_service::network::adapters::libp2p::LibP2pAdapterSettings;
-use lb_core::sdp::ServiceParameters;
+use lb_core::{block::genesis::GenesisBlock, sdp::ServiceParameters};
 use lb_cryptarchia_engine::EpochConfig;
 use lb_ledger::mantle::sdp::{ServiceRewardsParameters, rewards::blend::RewardsParameters};
 use lb_libp2p::PeerId;
+use lb_services_utils::overwatch::RecoveryData;
 
-use crate::config::{
-    cryptarchia::{deployment::Settings as DeploymentSettings, serde::Config},
-    state::Config as StateConfig,
-};
+use crate::config::cryptarchia::{deployment::Settings as DeploymentSettings, serde::Config};
 
 pub mod deployment;
 pub mod serde;
@@ -28,12 +25,14 @@ impl ServiceConfig {
     )]
     pub fn into_cryptarchia_services_settings(
         self,
+        genesis_block: GenesisBlock,
         blend_rewards_params: RewardsParameters,
-        state_config: &StateConfig,
+        proposal_topic: String,
+        recovery_data: RecoveryData,
     ) -> (
         lb_chain_service::CryptarchiaSettings,
         lb_chain_network_service::ChainNetworkSettings<PeerId, LibP2pAdapterSettings>,
-        lb_chain_leader_service::LeaderSettings<(), Libp2pBroadcastSettings>,
+        lb_chain_leader_service::LeaderSettings,
     ) {
         let ledger_config = lb_ledger::Config {
             consensus_config: self.deployment.consensus_config(),
@@ -61,7 +60,6 @@ impl ServiceConfig {
                                 service_type,
                                 ServiceParameters {
                                     inactivity_period: service_params.inactivity_period,
-                                    retention_period: service_params.retention_period,
                                     epoch: service_params.epoch,
                                 },
                             )
@@ -71,6 +69,22 @@ impl ServiceConfig {
                 service_rewards_params: ServiceRewardsParameters {
                     blend: blend_rewards_params,
                 },
+            },
+            pow_config: lb_ledger::config::PoWConfig {
+                blend: lb_ledger::config::BlendPoWConfig {
+                    base_difficulty: self.deployment.pow_config.blend.base_difficulty,
+                    damping_den_offset: self.deployment.pow_config.blend.damping_den_offset,
+                    damping_num: self.deployment.pow_config.blend.damping_num,
+                    max_step: self.deployment.pow_config.blend.max_step,
+                    target_transactions_per_block: self
+                        .deployment
+                        .pow_config
+                        .blend
+                        .target_transactions_per_block,
+                },
+                // Reused verbatim: the deployment mirror already holds the
+                // validated ledger type.
+                reward: self.deployment.pow_config.reward.clone(),
             },
         };
 
@@ -94,29 +108,31 @@ impl ServiceConfig {
                 },
             },
             config: ledger_config.clone(),
-            recovery_file: state_config.get_path_for_recovery_state(
-                PathBuf::new()
-                    .join("consensus")
-                    .join("chain_service")
-                    .with_extension("json")
-                    .as_path(),
-            ),
-            starting_state: self.deployment.genesis_block.into(),
+            recovery_data,
+            starting_state: genesis_block.into(),
+            sync: lb_chain_service::SyncConfig {
+                block_provider: lb_chain_service::BlockProviderConfig {
+                    batch_size: self.user.service.sync.block_provider.batch_size,
+                },
+            },
         };
         let chain_network_settings = lb_chain_network_service::ChainNetworkSettings {
             bootstrap: lb_chain_network_service::BootstrapConfig {
                 ibd: lb_chain_network_service::IbdConfig {
-                    delay_before_new_download: self
+                    peers: self.user.network.bootstrap.ibd.peers,
+                    tips_fetch_max_attempts: self
                         .user
                         .network
                         .bootstrap
                         .ibd
-                        .delay_before_new_download,
-                    peers: self.user.network.bootstrap.ibd.peers,
+                        .tips_fetch_max_attempts,
+                    tips_fetch_min_delay: self.user.network.bootstrap.ibd.tips_fetch_min_delay,
+                    tips_fetch_max_delay: self.user.network.bootstrap.ibd.tips_fetch_max_delay,
+                    round_delay: self.user.network.bootstrap.ibd.round_delay,
                 },
             },
             network: LibP2pAdapterSettings {
-                topic: self.deployment.gossipsub_protocol.clone(),
+                topic: proposal_topic,
                 max_connected_peers_to_try_download: self
                     .user
                     .network
@@ -131,6 +147,7 @@ impl ServiceConfig {
             sync: lb_chain_network_service::SyncConfig {
                 orphan: lb_chain_network_service::OrphanConfig {
                     max_orphan_cache_size: self.user.network.sync.orphan.max_orphan_cache_size,
+                    max_rejected_cache_size: self.user.network.sync.orphan.max_rejected_cache_size,
                 },
                 tip_poll: lb_chain_network_service::TipPollConfig {
                     enabled: self.user.network.sync.tip_poll.enabled,
@@ -138,13 +155,15 @@ impl ServiceConfig {
                     max_peers_to_sample: self.user.network.sync.tip_poll.max_peers_to_sample,
                 },
             },
+            seen_items_subscription_channel_size: self
+                .user
+                .network
+                .seen_items_subscription_channel_size
+                .try_into()
+                .unwrap(),
         };
         let chain_leader_settings = lb_chain_leader_service::LeaderSettings {
-            blend_broadcast_settings: Libp2pBroadcastSettings {
-                topic: self.deployment.gossipsub_protocol,
-            },
             config: ledger_config,
-            transaction_selector_settings: (),
             wallet_config: lb_chain_leader_service::LeaderWalletConfig {
                 funding_pk: self.user.leader.wallet.funding_pk,
                 max_tx_fee: self.user.leader.wallet.max_tx_fee,

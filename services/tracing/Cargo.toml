@@ -13,7 +13,10 @@ version     = { workspace = true }
 workspace = true
 
 [features]
-profiling = ["console-subscriber"]
+tokio-console = ["dep:console-subscriber"]
+# Backwards-compatible alias. Existing users of `profiling` still get the
+# tracing service's tokio-console support.
+profiling = ["tokio-console"]
 
 [dependencies]
 async-trait        = { workspace = true }
@@ -21,10 +24,10 @@ console-subscriber = { optional = true, workspace = true }
 lb-log-targets     = { workspace = true }
 lb-tracing         = { workspace = true }
 overwatch          = { workspace = true }
+prometheus         = { workspace = true }
 serde              = { workspace = true }
 thiserror          = { workspace = true }
 time               = { workspace = true }
 tokio              = { features = ["sync"], workspace = true }
 tracing            = { workspace = true }
-tracing-appender   = { workspace = true }
 tracing-subscriber = { workspace = true }

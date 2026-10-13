@@ -2,22 +2,42 @@
 
 ### 📦 Prerequisites
 
-1. Download and unzip the **node binary** for your architecture:
+1. Download `logos-core` binaries:
 
-   ```bash
-    tar -xzf logos-blockchain-node-<arch>-<version>.tar.gz
-   ```
+- `lgpd` (Logos Package Downloader): https://github.com/logos-co/logos-package-downloader/releases/latest
+- `lgpm` (Logos Package Manager): https://github.com/logos-co/logos-package-manager/releases/latest
+- `logoscore` (Logos Core CLI): https://github.com/logos-co/logos-logoscore-cli/releases/latest
+
+2. Download the Logos Blockchain module using the Logos Package Downloader:
+
+```bash
+lgpd download blockchain_module --version {{BLOCKCHAIN_MODULE_VERSION}} --output ./
+# writes ./blockchain_module-{{BLOCKCHAIN_MODULE_VERSION}}.lgx
+```
+
+3. Install the Logos Blockchain module using the Logos Package Manager:
+
+```bash
+lgpm --modules-dir ./modules install --file blockchain_module-{{BLOCKCHAIN_MODULE_VERSION}}.lgx
+```
+
+4. Launch the Logos Core CLI in daemon mode and load the blockchain module:
+
+```bash
+logoscore -m ./modules -D &
+logoscore load-module blockchain_module
+```
 
 ### ⚙️ Initialize Your Node
 
 Generate a default configuration by connecting to the bootstrap peers:
 
 ```bash
-./logos-blockchain-node init-config \
-    -p /ip4/65.108.203.235/udp/3000/quic-v1/p2p/{TODO} \
-    -p /ip4/65.108.203.235/udp/3001/quic-v1/p2p/{TODO} \
-    -p /ip4/65.108.203.235/udp/3002/quic-v1/p2p/{TODO} \
-    -p /ip4/65.108.203.235/udp/3003/quic-v1/p2p/{TODO}
+logoscore call blockchain_module generate_user_config '{
+  "initial_peers": [
+{{INITIAL_PEERS}}
+  ]
+}'
 ```
 
 If your node has a known public IP address and you want to disable NAT traversal, you can add `--external-address /ip4/<public-ip>/udp/<port>/quic-v1` to the previous command. Nodes behind NAT or CG-NAT require no extra flags — NAT traversal is enabled by default.
@@ -29,17 +49,17 @@ This takes a few seconds and produces a `user_config.yaml` file.
 Run the node:
 
 ```bash
-./logos-blockchain-node user_config.yaml
+logoscore call blockchain_module start user_config.yaml ""
 ```
 
 The node writes rotating log files (one per hour).
 
 ### ✅ Verify It Works
 
-Check your local consensus state by querying your node's API, by default listening on port `8080`:
+Check your local consensus state by querying your node's API:
 
 ```
-curl -w "\n" http://localhost:8080/cryptarchia/info
+logoscore call blockchain_module get_cryptarchia_info | jq -r .result.value | jq .
 ```
 
 Your node should be in `Bootstrapping` mode for a few minutes, with both `slot` and `height` steadily increasing.
@@ -70,7 +90,7 @@ Either key can be used.
 
 **2. 🚰 Request funds from the faucet**
 
-Visit the [devnet faucet][devnet-faucet] or [testnet faucet][testnet-faucet] and enter the credentials provided by the Logos Blockchain team (you can reach out to them on [Discord][testnet-discord-public]), then paste your wallet key.
+Visit the [devnet faucet][devnet-faucet] or [testnet faucet][testnet-faucet], paste your wallet key into the **Destination Public Key (Hex)** field, and click **Request Funds**. (Questions? Reach the Logos Blockchain team on [Discord][testnet-discord-public].)
 
 A word of caution - do not _powerclick_ your way through as only one request can be made per block! So if you want to receive funds more than once, wait until your balance increases before requesting new funds.
 
@@ -92,16 +112,6 @@ Approximately 3.5h (two epochs) after you receive funds from the faucet, your no
 
 ---
 
-## 📝 Inscribing
-
-Start publishing messages to the blockchain using the built in text sequencer:
-
-```bash
-./logos-blockchain-node inscribe
-```
-
----
-
 ## 🛟 Troubleshooting
 
 Having issues? Reach out to the Logos Blockchain team on [Discord][testnet-discord-public] or check the [testnet Notion page][release-notion] for FAQs and up-to-date instructions.
@@ -117,17 +127,6 @@ Having issues? Reach out to the Logos Blockchain team on [Discord][testnet-disco
     * If this is a release candidate but not the first one that has a GH release, then the previous tag is the version of previous release candidate for this release, e.g., `0.1.3-rc.2` compares against `0.1.3-rc.1`
     * If this is an actual release, then the previous tag is the latest release, e.g., `0.1.3` compares against `0.1.2`
 - [ ] Verify binaries are present for **Mac** and **Linux**
-- [ ] Replace `{TODO}` peer IDs:
-    * For a release candidate (for devnet), you must use:
-
-        ```
-            ./logos-blockchain-node init-config \
-                -p /ip4/65.108.203.235/udp/3000/quic-v1/p2p/12D3KooWNbZTQ86TZ9MrZ2wm6iUFFj25AFTzFLUD7i6XkZHoUzU8 \
-                -p /ip4/65.108.203.235/udp/3001/quic-v1/p2p/12D3KooWNhXaH4XTX6Pp66NDQZxZpXYQzeruwwraMvTxojz1QXPJ \
-                -p /ip4/65.108.203.235/udp/3002/quic-v1/p2p/12D3KooWNTLPg5uYPKgZCDvzyaWNwZNcwVKmfS2bNv52E9L9P7Hf \
-                -p /ip4/65.108.203.235/udp/3003/quic-v1/p2p/12D3KooWMULUG8RXC2esnfLcVzGHohf6KNPSswkCKa1mdpXz4tHH
-        ```
-    * For a release (for testnet), copy-paste the new testnet addresses from the [testnet dashboard][testnet-dashboard]
 - [ ] Delete this checklist and publish
 
 [release-notion]: https://www.notion.so/nomos-tech/Internal-Devnet-Launch-February-2026-2fe261aa09df8025ad94e380933b4cf9#2ff261aa09df8058935ecb85aa587564

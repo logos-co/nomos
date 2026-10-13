@@ -19,40 +19,18 @@ use crate::{
         keys::{AddKeyArgs, GenerateKeyArgs, RemoveKeyArgs},
     },
     config::{
-        ApiArgs, BlendArgs, CryptarchiaArgs, DeploymentArgs, DeploymentSettings, DeploymentType,
-        LogArgs, NetworkArgs, RunConfig, SdpArgs, StateArgs, UserConfig,
-        api::serde::AxumBackendSettings, blend::serde::core::BackendConfig as BlendCoreConfig,
-        network::serde::SwarmConfig, update_api, update_blend, update_cryptarchia, update_network,
-        update_sdp, update_state, update_tracing,
+        ApiArgs, BlendArgs, CryptarchiaArgs, DeploymentArgs, DeploymentSettings, LogArgs,
+        NetworkArgs, RunConfig, SdpArgs, StateArgs, UserConfig, api::serde::AxumBackendSettings,
+        blend::serde::core::BackendConfig as BlendCoreConfig, network::serde::SwarmConfig,
+        update_api, update_blend, update_cryptarchia, update_network, update_sdp, update_state,
+        update_tracing,
     },
 };
 
+/// The same value the `/version` endpoint serves, rendered the way
+/// `BuildVersionInfo`'s `Display` prints it.
 fn long_version() -> String {
-    let head_commit_hash = env!("HEAD_COMMIT_HASH");
-    let head_tag_name = env!("HEAD_TAG_NAME");
-    let pkg_version = env!("PKG_VERSION");
-    let target = env!("TARGET");
-    let profile = env!("PROFILE");
-    let rustc_version = env!("RUSTC_VERSION");
-
-    let commit_line = match (head_commit_hash, head_tag_name) {
-        (commit_hash, tag_name) if !commit_hash.is_empty() && !tag_name.is_empty() => {
-            format!("commit:  {commit_hash} (tag {tag_name})")
-        }
-        (commit_hash, _) if !commit_hash.is_empty() => {
-            format!("commit:  {commit_hash}")
-        }
-        _ => "commit:  unknown".to_owned(),
-    };
-
-    format!(
-        "\
-{pkg_version}
-{commit_line}
-target:  {target}
-profile: {profile}
-rustc:   {rustc_version}"
-    )
+    lb_version::build_version_info().to_string()
 }
 
 #[derive(Parser, Debug)]
@@ -95,20 +73,20 @@ pub struct CliArgs {
 
 impl CliArgs {
     #[must_use]
-    pub fn config_path(&self) -> &Path {
+    pub fn user_config_path(&self) -> &Path {
         self.config
             .as_deref()
             .expect("config path is required when not using a subcommand")
     }
 
     #[must_use]
-    pub const fn dry_run(&self) -> bool {
-        self.check_config_only
+    pub const fn deployment_config_path(&self) -> &Option<PathBuf> {
+        &self.deployment.custom_deployment_path
     }
 
     #[must_use]
-    pub const fn deployment_type(&self) -> &DeploymentType {
-        self.deployment.deployment_type()
+    pub const fn dry_run(&self) -> bool {
+        self.check_config_only
     }
 }
 
@@ -129,8 +107,6 @@ pub enum Command {
     AddKey(Box<AddKeyArgs>),
     /// Remove a key with title from a keystore.
     RemoveKey(Box<RemoveKeyArgs>),
-    /// Publish text inscriptions as zone blocks
-    Inscribe(lb_tui_zone::InscribeArgs),
     /// Generate stakeholder.yaml and provider.yaml from a user config
     Participate(ParticipateArgs),
     /// Print the libp2p `PeerId` derived from the node key in a user config
@@ -147,6 +123,10 @@ pub struct InitArgs {
     /// Defaults to 'keystore.yaml' in the same directory as --output.
     #[clap(long = "keystore", short = 'k')]
     pub keystore: Option<PathBuf>,
+
+    /// Overwrite existing user config and keystore.
+    #[arg(long, default_value_t = false)]
+    pub overwrite: bool,
 
     #[clap(flatten)]
     pub log: LogArgs,
@@ -168,13 +148,17 @@ pub struct InitArgs {
 
     #[clap(flatten)]
     pub state: StateArgs,
+
+    /// Name (or path, relative to the state folder) of the storage DB folder.
+    #[clap(long = "storage-path")]
+    pub storage_path: Option<PathBuf>,
 }
 
 /// Set of arguments for use in c-bindings crate.
 #[derive(Debug)]
 pub struct EmbeddedInitArgs {
     /// Trusted peers to bootstrap from (multiaddr format).
-    /// If `--ibd` is set, peers whose multiaddrs include a `PeerId`
+    /// If `--skip-ibd` is not set, peers whose multiaddrs include a `PeerId`
     /// are also used as IBD peers.
     pub initial_peers: Vec<Multiaddr>,
 
@@ -195,10 +179,12 @@ pub struct EmbeddedInitArgs {
     pub external_address: Option<Multiaddr>,
 
     pub state_path: Option<PathBuf>,
+    pub storage_path: Option<PathBuf>,
+    pub logs_path: Option<PathBuf>,
 
-    /// Enable Initial Block Download (IBD) using peers
-    /// passed via `--initial-peers`/`-p`.
-    pub ibd: bool,
+    /// Disable Initial Block Download (IBD) by leaving the IBD peer list
+    /// empty, regardless of any peers passed via `--initial-peers`/`-p`.
+    pub skip_ibd: bool,
 
     /// Log filter directives to write into the generated config, e.g.
     /// `warn,logos_blockchain=debug,libp2p_gossipsub::behaviour=error`.
@@ -228,9 +214,11 @@ impl From<EmbeddedInitArgs> for InitArgs {
         init_args.blend.blend_addr =
             Some(BlendCoreConfig::default_listening_address(args.blend_port));
 
-        init_args.cryptarchia.ibd = args.ibd;
+        init_args.cryptarchia.skip_ibd = args.skip_ibd;
         init_args.api.addr = Some(args.http_addr);
         init_args.state.path.clone_from(&args.state_path);
+        init_args.storage_path.clone_from(&args.storage_path);
+        init_args.log.directory.clone_from(&args.logs_path);
 
         init_args
     }
@@ -248,7 +236,9 @@ impl Default for EmbeddedInitArgs {
             ),
             external_address: None,
             state_path: None,
-            ibd: false,
+            storage_path: None,
+            logs_path: None,
+            skip_ibd: false,
             log_filter: None,
             kms_file: None,
         }
@@ -258,7 +248,7 @@ impl Default for EmbeddedInitArgs {
 #[derive(Parser, Debug)]
 pub struct UpdateArgs {
     /// Output file path for the generated config.
-    #[clap(long = "user-config", short = 'o', default_value = "user_config.yaml")]
+    #[clap(long = "user-config", short = 'u', default_value = "user_config.yaml")]
     pub user_config: PathBuf,
 
     /// Path for the keystore file.
@@ -354,6 +344,10 @@ pub struct MigrateArgs {
 
     #[clap(flatten)]
     state: StateArgs,
+
+    /// Name (or path, relative to the state folder) of the storage DB folder.
+    #[clap(long = "storage-path")]
+    storage_path: Option<PathBuf>,
 }
 
 impl MigrateArgs {
@@ -371,6 +365,7 @@ impl MigrateArgs {
             sdp: SdpArgs::default(),
             api: ApiArgs::default(),
             state: StateArgs::default(),
+            storage_path: None,
         }
     }
 }
@@ -387,6 +382,8 @@ impl From<MigrateArgs> for InitArgs {
             sdp: migrate.sdp,
             api: migrate.api,
             state: migrate.state,
+            storage_path: migrate.storage_path,
+            overwrite: false,
         }
     }
 }
@@ -443,18 +440,33 @@ pub fn build_run_config(mut user_config: UserConfig, args: CliArgs) -> Result<Ru
     update_api(&mut user_config.api, api_args);
     update_state(&mut user_config.state, state_args);
 
-    let deployment_settings = match deployment_args.deployment_type() {
-        DeploymentType::WellKnown(well_known_deployment) => (*well_known_deployment).into(),
-        DeploymentType::Custom(custom_deployment_config_path) => {
-            deserialize_value_at_path::<DeploymentSettings>(
-                custom_deployment_config_path,
-                OnUnknownKeys::Fail,
-            )?
-        }
+    let deployment_settings = match deployment_args.custom_deployment_path {
+        None => DeploymentSettings::default(),
+        Some(path) => deserialize_value_at_path::<DeploymentSettings>(&path, OnUnknownKeys::Fail)?,
     };
 
     Ok(RunConfig {
         deployment: deployment_settings,
         user: user_config,
     })
+}
+
+/// Builds a [`RunConfig`] applying only environment-variable overrides (no CLI
+/// arguments) on top of `user_config`.
+///
+/// This mirrors the binary's env-override behaviour for embedders such as the
+/// c-bindings, which never go through `CliArgs::parse()`. Every override group
+/// flattened into [`CliArgs`] carries `#[clap(env = "...")]` attributes, so
+/// parsing an argv containing only the program name populates them purely from
+/// their environment variables (leaving `command`/`config` unset). The
+/// resulting overrides are then folded onto `user_config` via
+/// [`build_run_config`], guaranteeing the bindings stay in lockstep with the
+/// binary's supported env vars.
+///
+/// `try_parse_from` (rather than `parse_from`) is used so an invalid env value
+/// returns an error instead of terminating the host process — required in an
+/// FFI context.
+pub fn build_run_config_from_env(user_config: UserConfig) -> Result<RunConfig> {
+    let cli_args = CliArgs::try_parse_from(["lb-node"])?;
+    build_run_config(user_config, cli_args)
 }

@@ -1,3 +1,4 @@
+use lb_c_macros::panic_to_error;
 use lb_chain_leader_service::api::ChainLeaderSerivceApi;
 use lb_node::{
     RuntimeServiceId,
@@ -7,10 +8,9 @@ use lb_node::{
 };
 
 use crate::{
-    LogosBlockchainNode,
-    api::cryptarchia::{Hash, TxHash},
-    errors::OperationStatus,
-    logging,
+    LogosBlockchainNode, OperationStatus,
+    api::cryptarchia::TxHash,
+    errors::OperationStatusCode,
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
 };
@@ -37,7 +37,7 @@ type LeaderService = CryptarchiaLeaderService<
 pub(crate) fn leader_claim_sync(
     node: &LogosBlockchainNode,
 ) -> StatusResult<lb_core::mantle::TxHash> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
 
     runtime_handle.block_on(async {
         let relay = node
@@ -45,22 +45,20 @@ pub(crate) fn leader_claim_sync(
             .relay::<LeaderService>()
             .await
             .map_err(|error| {
-                logging::error!(
-                    "leader_claim_sync",
-                    "Failed to get ChainLeader relay: {error}"
-                );
-                OperationStatus::RelayError
+                OperationStatus::error(
+                    OperationStatusCode::RelayError,
+                    format!("Failed to get ChainLeader relay: {error}"),
+                )
             })?;
 
         ChainLeaderSerivceApi::<LeaderService, RuntimeServiceId>::new(relay)
             .claim()
             .await
             .map_err(|error| {
-                logging::error!(
-                    "leader_claim_sync",
-                    "Failed to claim leader rewards: {error}"
-                );
-                OperationStatus::ServiceError
+                OperationStatus::error(
+                    OperationStatusCode::ServiceError,
+                    format!("Failed to claim leader rewards: {error}"),
+                )
             })
     })
 }
@@ -83,22 +81,13 @@ pub type FfiLeaderClaimResult = FfiStatusResult<TxHash>;
 /// This function is unsafe because it dereferences a raw pointer. The caller
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn leader_claim(node: *const LogosBlockchainNode) -> FfiLeaderClaimResult {
-    return_error_if_null_pointer!("leader_claim", node);
+    return_error_if_null_pointer!(node);
 
     let node = unsafe { &*node };
     let tx_hash = unwrap_or_return_error!(leader_claim_sync(node));
 
-    let Ok(tx_hash_array): Result<Hash, _> =
-        tx_hash.as_signing_bytes().iter().as_slice().try_into()
-    else {
-        logging::error!(
-            "leader_claim",
-            "Failed to convert transaction hash to array."
-        );
-        return FfiLeaderClaimResult::err(OperationStatus::RuntimeError);
-    };
-
-    FfiLeaderClaimResult::ok(tx_hash_array)
+    FfiLeaderClaimResult::ok(tx_hash.0)
 }

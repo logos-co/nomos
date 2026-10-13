@@ -1,5 +1,7 @@
 on:
   pull_request:
+  merge_group:
+    types: [ checks_requested ]
   push:
     branches: [ master ]
 
@@ -12,6 +14,7 @@ concurrency:
 jobs:
   formatting:
     name: Check formatting
+    if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,7 +23,7 @@ jobs:
         uses: actions-rs/toolchain@88dc2356392166efad76775c878094f4e83ff746  # Version 1.0.6
         with:
           # The same version must be used in the `.pre-commit-config.yaml` file
-          toolchain: nightly-2026-04-11
+          toolchain: nightly-2026-08-15
           profile: minimal
           components: rustfmt
           override: true
@@ -38,6 +41,7 @@ jobs:
 
   cargo-deny:
     name: Check cargo-deny rules
+    if: ${{ github.event_name != 'merge_group' }}
     # `cargo-deny` action is only supported on Linux
     runs-on: ubuntu-latest
 
@@ -52,13 +56,14 @@ jobs:
       # Thus, results may differ from local runs.
       # To avoid this, we install and run `cargo-deny` manually.
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked --version 0.19.0
+        run: cargo install cargo-deny --locked --version 0.20.2
 
       - name: Run cargo-deny
-        run: cargo-deny --locked --all-features check --hide-inclusion-graph -c .cargo-deny.toml --show-stats -D warnings
+        run: CARGO_BUILD_WARNINGS=deny cargo-deny --locked --config .cargo-deny.toml check --hide-inclusion-graph --show-stats
 
   workspace-deps:
     name: Check for correctly declared dependencies in the workspace
+    if: ${{ github.event_name != 'merge_group' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -68,6 +73,7 @@ jobs:
 
   unused-deps:
     name: Check for unused dependencies
+    if: ${{ github.event_name != 'merge_group' }}
     strategy:
       fail-fast: false
       matrix:
@@ -78,12 +84,12 @@ jobs:
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
       - name: Install cargo-machete
         uses: bnjbvr/cargo-machete@9f0895d780783da0089162cae9668f6ec6e896c4  # Version 0.8.0
-        # This step also runs `cargo-machete` without the `--with-metadata` flag, which can trigger more false positives.
-        # We ignore errors and run `cargo-machete` with the `--with-metadata` flag for the actual result.
+        # The action's default run omits `--with-metadata`, which can produce false positives.
+        # Treat its result as advisory; the metadata-aware run below is authoritative.
         continue-on-error: true
       - name: Run cargo-machete
         run: cargo machete --with-metadata
-  
+
   lints:
     name: Check Rust lints
     strategy:
@@ -92,7 +98,7 @@ jobs:
         os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     env:
-      RUSTFLAGS: -D warnings
+      CARGO_BUILD_WARNINGS: deny
     steps:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
@@ -118,7 +124,12 @@ jobs:
 
   tests:
     name: Run test suite
-    if: ${{ !startsWith(github.event.pull_request.title, '[WIP]') && !contains(github.event.label.name,  'DO NOT MERGE') }}
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        !startsWith(github.event.pull_request.title, '[WIP]') &&
+        !contains(github.event.pull_request.labels.*.name, 'DO NOT MERGE')
+      }}
     strategy:
       fail-fast: false # all OSes should be tested even if one fails (default: true)
       matrix:
@@ -134,16 +145,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
 
-      - name: Purge old circuits
-        run: |
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            rm -rf ~/.cache/logos/blockchain/
-          elif [[ "$RUNNER_OS" == "macOS" ]]; then
-            rm -rf ~/Library/Caches/logos/blockchain/
-          else
-            echo "Unsupported OS: $RUNNER_OS"
-          fi
-
       # Prune before any builds.
       - name: Prune disk space (cache-aware, self-hosted)
         uses: ./.github/actions/prune-disk-space
@@ -153,11 +154,11 @@ jobs:
         with:
           command: run
           args: >-
-            --locked -p logos-blockchain-node --features testing 
+            --locked -p logos-blockchain-node --features testing
             -- nodes/node/standalone-node-config.yaml --check-config --deployment nodes/node/standalone-deployment-config.yaml
 
       - name: Install cargo-nextest
-        if: ${{ !cancelled()}}
+        if: ${{ !cancelled() }}
         uses: taiki-e/install-action@13608cbb45b01feb47ef444ab1a42dc41ad56f1a # Version 2.79.11
         with:
           tool: cargo-nextest
@@ -167,8 +168,8 @@ jobs:
         uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
         with:
           command: nextest
-          # - We don't test benches as they take 6h+, leading to a timeout
-          # - We also do not test end-to-end integration tests here as those are run in a dedicated step below
+          # - Benchmarks take more than six hours and would exceed the job timeout.
+          # - End-to-end integration tests run separately in their dedicated workflow.
           args: >-
             run --workspace --locked --lib --bins --examples --tests --retries 2
             --all-features --no-fail-fast --exclude logos-blockchain-tests
@@ -186,3 +187,104 @@ jobs:
           name: integration-test-artifacts-${{ runner.os }}-${{ github.sha }}
           include-hidden-files: true
           path: tests/.run_*
+
+  ffi-valgrind:
+    name: FFI valgrind tests
+    if: >-
+      ${{
+        github.event_name == 'pull_request' &&
+        !startsWith(github.event.pull_request.title, '[WIP]') &&
+        !contains(github.event.pull_request.labels.*.name, 'DO NOT MERGE')
+      }}
+    # Valgrind is Linux-only, and the node needs more memory than GitHub-hosted runners have.
+    runs-on: [ self-hosted, Linux ]
+    timeout-minutes: 90
+    steps:
+      - name: Disable rustup override
+        run: rustup override unset || true
+
+      - name: Checkout repository
+        uses: actions/checkout@85e6279cec87321a52edac9c87bce653a07cf6c2  # Version 4.2.2
+        with:
+          fetch-depth: 0
+
+      # The run needs a full build and several minutes under valgrind, so it is
+      # skipped unless the bindings themselves changed.
+      - name: Check whether the C bindings changed
+        id: changes
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if git diff --quiet "origin/$BASE_REF...HEAD" -- c-bindings .github/workflows/code-check.yml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prune disk space (cache-aware, self-hosted)
+        if: steps.changes.outputs.run == 'true'
+        uses: ./.github/actions/prune-disk-space
+
+      # These tests are `#[ignore]`d for the regular runners: they only run
+      # here, with Cargo starting the test binary through valgrind. Any invalid
+      # access or definite leak fails the job.
+      #
+      # Valgrind comes from nix: the runner has no passwordless sudo to install
+      # it with, and nix is already there.
+      #
+      # Valgrind cannot start on Ubuntu's own dynamic loader: it needs a few of
+      # its symbols, which Ubuntu strips and ships in `libc6-dbg` (not
+      # installable here either). So the test binary is started through the
+      # loader of nix's glibc instead, which keeps them. That glibc is newer
+      # than the one the binary was built against, which glibc supports; the
+      # remaining libraries (libstdc++, libgcc_s) still come from the system.
+      - name: Run the FFI safety tests under valgrind
+        if: steps.changes.outputs.run == 'true'
+        env:
+          # Blocks take far longer to arrive under valgrind.
+          FFI_AUDIT_WAIT_SECS: 600
+        run: |
+          glibc="$(nix build --no-link --print-out-paths 'nixpkgs#glibc^out')"
+          export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind \
+            --leak-check=full --errors-for-leak-kinds=definite --error-exitcode=1 \
+            --num-callers=30 --suppressions=$GITHUB_WORKSPACE/c-bindings/valgrind.supp \
+            $glibc/lib/ld-linux-x86-64.so.2 \
+            --library-path $glibc/lib:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu"
+          nix shell 'nixpkgs#valgrind' --command \
+            cargo test --locked -p logos-blockchain-c -- --ignored --test-threads=1 ffi_safety_tests
+
+      - name: Clean up build artifacts
+        if: success() || failure()
+        uses: actions-rs/cargo@9e120dd99b0fbad1c065f686657e914e76bd7b72  # Version 1.0.1
+        with:
+          command: clean
+
+  # Stable required check for nextest unit tests.
+  #
+  # On pull requests, this job succeeds only when both self-hosted nextest unit
+  # test matrix jobs succeeded.
+  #
+  # On merge_group, the real nextest unit tests matrix is skipped and this lightweight
+  # check succeeds because nextest unit tests was already required before queue admission.
+  nextest-unit-tests-result:
+    name: Nextest unit tests result
+    needs: tests
+    if: ${{ always() && github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check nextest unit tests result
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+        run: |
+          if [ "$EVENT_NAME" = "merge_group" ]; then
+            echo "Nextest unit tests already passed before merge-queue admission"
+            exit 0
+          fi
+
+          if [ "$TESTS_RESULT" = "success" ]; then
+            exit 0
+          fi
+
+          echo "Nextest unit tests did not pass: $TESTS_RESULT"
+          exit 1

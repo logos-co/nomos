@@ -1,12 +1,15 @@
+use core::fmt::{self, Display, Formatter};
 use std::{
     collections::{HashMap, VecDeque, hash_map::Entry},
     convert::Infallible,
+    num::NonZeroU64,
+    sync::Arc,
     task::{Context, Poll, Waker},
 };
 
 use either::Either;
-use lb_blend_message::encap::validated::{
-    EncapsulatedMessageWithVerifiedPublicHeader, EncapsulatedMessageWithVerifiedSignature,
+use lb_blend_message::encap::{
+    ProofsVerifier as ProofsVerifierTrait, validated::EncapsulatedMessageWithVerifiedPublicHeader,
 };
 use lb_cryptarchia_engine::Epoch;
 use lb_log_targets::blend;
@@ -15,37 +18,62 @@ use libp2p::{
     swarm::{ConnectionId, NotifyHandler, ToSwarm},
 };
 
-use crate::core::with_core::{
-    behaviour::{
-        Event,
-        handler::FromBehaviour,
-        message_cache::MessageCache,
-        utils::{
-            forward_validated_message_and_update_cache,
-            handle_received_serialized_encapsulated_message_and_update_cache,
+use crate::core::{
+    poq_verification::PendingPoQVerifications,
+    with_core::{
+        behaviour::{
+            Event,
+            handler::FromBehaviour,
+            message_cache::MessageCache,
+            utils::{
+                forward_validated_message_and_update_cache,
+                handle_received_serialized_encapsulated_message,
+            },
         },
+        error::{ReceiveError, SendError},
     },
-    error::{ReceiveError, SendError},
 };
 
 const LOG_TARGET: &str = blend::network::core::core::behaviour::OLD;
 
+#[derive(Debug, Clone, Copy)]
+enum CloseReason {
+    EpochTransitionOver,
+    PeerBlacklisted,
+    MessageHandlingFailed,
+}
+
+impl Display for CloseReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::EpochTransitionOver => "the epoch transition period has passed",
+            Self::PeerBlacklisted => "the peer is blacklisted",
+            Self::MessageHandlingFailed => "the received message could not be handled",
+        })
+    }
+}
+
 /// Defines behaviours for processing messages from the old epoch
 /// until the epoch transition period has passed.
-pub struct OldEpoch {
+pub struct OldEpoch<ProofsVerifier> {
     negotiated_peers: HashMap<PeerId, ConnectionId>,
     events: VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>>,
     waker: Option<Waker>,
     message_cache: MessageCache,
     epoch: Epoch,
+    num_blend_layers: NonZeroU64,
+    /// Verifier for the `PoQ`s of the messages still arriving for this epoch.
+    proofs_verifier: Arc<ProofsVerifier>,
 }
 
-impl OldEpoch {
+impl<ProofsVerifier> OldEpoch<ProofsVerifier> {
     #[must_use]
     pub const fn new(
         negotiated_peers: HashMap<PeerId, ConnectionId>,
         message_cache: MessageCache,
         epoch: Epoch,
+        num_blend_layers: NonZeroU64,
+        proofs_verifier: Arc<ProofsVerifier>,
     ) -> Self {
         Self {
             negotiated_peers,
@@ -53,6 +81,8 @@ impl OldEpoch {
             events: VecDeque::new(),
             waker: None,
             epoch,
+            num_blend_layers,
+            proofs_verifier,
         }
     }
 
@@ -63,14 +93,14 @@ impl OldEpoch {
     /// an error without sending the message.
     pub(super) fn publish_message_with_validated_header(
         &mut self,
-        message: EncapsulatedMessageWithVerifiedPublicHeader,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         intended_epoch: Epoch,
     ) -> Result<(), SendError> {
         if self.epoch != intended_epoch {
             return Err(SendError::InvalidEpoch);
         }
         forward_validated_message_and_update_cache(
-            &(message.into()),
+            message,
             self.negotiated_peers.iter(),
             &mut self.events,
             &mut self.message_cache,
@@ -78,14 +108,14 @@ impl OldEpoch {
         )
     }
 
-    /// Forward an encapsulated message with a validated signature to all
+    /// Forward an encapsulated message with a verified public header to all
     /// negotiated peers, except the specified one.
     ///
     /// If the specified epoch does not match the current epoch, it returns
     /// an error without sending the message.
-    pub(super) fn forward_message_with_validated_signature(
+    pub(super) fn forward_message_with_verified_public_header(
         &mut self,
-        message: &EncapsulatedMessageWithVerifiedSignature,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
         except: PeerId,
         intended_epoch: Epoch,
     ) -> Result<(), SendError> {
@@ -107,7 +137,7 @@ impl OldEpoch {
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     pub(super) fn force_send_serialized_message_to_peer_at_epoch(
         &mut self,
-        serialized_message: Vec<u8>,
+        serialized_message: &[u8],
         peer_id: PeerId,
         epoch: Epoch,
     ) -> Result<(), SendError> {
@@ -125,46 +155,12 @@ impl OldEpoch {
         self.events.push_back(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(*connection_id),
-            event: Either::Left(FromBehaviour::Message(serialized_message)),
+            event: Either::Left(FromBehaviour::Message(crate::OutgoingMessage::from_bytes(
+                serialized_message,
+            ))),
         });
         self.try_wake();
         Ok(())
-    }
-
-    /// Handles a message received from a peer.
-    ///
-    /// # Returns
-    /// - [`Ok(false)`] if the connection is not part of the epoch.
-    /// - [`Ok(true)`] if the message was successfully processed and forwarded.
-    /// - [`Err(Error)`] if the message is invalid or has already been
-    ///   exchanged.
-    pub(super) fn handle_received_serialized_encapsulated_message(
-        &mut self,
-        serialized_message: &[u8],
-        (from_peer_id, from_connection_id): (PeerId, ConnectionId),
-    ) -> Result<bool, ReceiveError> {
-        if !self.is_negotiated(&(from_peer_id, from_connection_id)) {
-            return Ok(false);
-        }
-
-        handle_received_serialized_encapsulated_message_and_update_cache(
-            serialized_message,
-            &mut self.message_cache,
-            from_peer_id,
-            &mut self.events,
-            &mut self.waker,
-            self.epoch,
-        ).inspect_err(|receive_error| {
-            tracing::debug!(target: LOG_TARGET, "Failed to handle message from the old epoch: {receive_error:?}. Closing connection with spammy peer.");
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id: from_peer_id,
-                handler: NotifyHandler::One(from_connection_id),
-                event: Either::Left(FromBehaviour::CloseSubstreams),
-            });
-            self.try_wake();
-        })?;
-
-        Ok(true)
     }
 
     /// Stops the old epoch by returning any events still queued, followed by
@@ -178,14 +174,37 @@ impl OldEpoch {
     /// handlers before the corresponding substreams are closed.
     pub fn stop(mut self) -> VecDeque<ToSwarm<Event, Either<FromBehaviour, Infallible>>> {
         self.events.reserve(self.negotiated_peers.len());
-        for (&peer_id, &connection_id) in &self.negotiated_peers {
-            self.events.push_back(ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::One(connection_id),
-                event: Either::Left(FromBehaviour::CloseSubstreams),
-            });
+        let closing = self
+            .negotiated_peers
+            .iter()
+            .map(|(&peer_id, &connection_id)| (peer_id, connection_id))
+            .collect::<Vec<_>>();
+        for connection in closing {
+            self.close(connection, CloseReason::EpochTransitionOver);
         }
         self.events
+    }
+
+    /// Drops the connection this epoch holds with `peer_id`, if it holds one.
+    pub fn close_connection_with_peer(&mut self, peer_id: &PeerId) {
+        let Some(&connection_id) = self.negotiated_peers.get(peer_id) else {
+            return;
+        };
+        self.close((*peer_id, connection_id), CloseReason::PeerBlacklisted);
+        self.try_wake();
+    }
+
+    /// Asks a handler of this epoch to close its substreams, saying why.
+    fn close(&mut self, (peer_id, connection_id): (PeerId, ConnectionId), reason: CloseReason) {
+        tracing::debug!(
+            target: LOG_TARGET,
+            "Closing old-epoch connection {connection_id:?} with peer {peer_id:?}: {reason}."
+        );
+        self.events.push_back(ToSwarm::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::One(connection_id),
+            event: Either::Left(FromBehaviour::CloseSubstreams),
+        });
     }
 
     /// Checks if the connection is part of the old epoch.
@@ -194,6 +213,21 @@ impl OldEpoch {
         self.negotiated_peers
             .get(peer_id)
             .is_some_and(|&id| id == *connection_id)
+    }
+
+    /// The epoch this is serving.
+    #[must_use]
+    pub const fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// Marks a message whose `PoQ` verified against this epoch's verifier as
+    /// processed, so a copy arriving later is not verified again.
+    pub fn mark_message_as_processed(
+        &mut self,
+        message: &EncapsulatedMessageWithVerifiedPublicHeader,
+    ) {
+        self.message_cache.mark_message_as_processed(message);
     }
 
     /// Returns the peer IDs of all negotiated peers in the old epoch.
@@ -213,7 +247,6 @@ impl OldEpoch {
             && entry.get() == connection_id
         {
             entry.remove();
-            self.message_cache.remove_peer_info(peer_id);
             return true;
         }
         false
@@ -235,5 +268,50 @@ impl OldEpoch {
             self.waker = Some(cx.waker().clone());
             Poll::Pending
         }
+    }
+}
+
+/// The part of the old epoch that needs to verify the `PoQ` of the messages
+/// still arriving for it, and so requires a usable verifier.
+impl<ProofsVerifier> OldEpoch<ProofsVerifier>
+where
+    ProofsVerifier: ProofsVerifierTrait + Send + Sync + 'static,
+{
+    /// Handles a message received from a peer.
+    ///
+    /// # Returns
+    /// - [`Ok(false)`] if the connection is not part of the epoch.
+    /// - [`Ok(true)`] if the message was successfully processed and forwarded.
+    /// - [`Err(Error)`] if the message is invalid or has already been
+    ///   exchanged.
+    pub(super) fn handle_received_serialized_encapsulated_message(
+        &mut self,
+        serialized_message: &[u8],
+        (from_peer_id, from_connection_id): (PeerId, ConnectionId),
+        pending_verifications: &PendingPoQVerifications,
+    ) -> Result<bool, ReceiveError> {
+        if !self.is_negotiated(&(from_peer_id, from_connection_id)) {
+            return Ok(false);
+        }
+
+        handle_received_serialized_encapsulated_message(
+            serialized_message,
+            &self.message_cache,
+            (from_peer_id, from_connection_id),
+            pending_verifications,
+            &mut self.waker,
+            self.epoch,
+            self.num_blend_layers,
+            &self.proofs_verifier,
+        ).inspect_err(|receive_error| {
+            tracing::debug!(target: LOG_TARGET, "Failed to handle message from the old epoch: {receive_error:?}.");
+            self.close(
+                (from_peer_id, from_connection_id),
+                CloseReason::MessageHandlingFailed,
+            );
+            self.try_wake();
+        })?;
+
+        Ok(true)
     }
 }

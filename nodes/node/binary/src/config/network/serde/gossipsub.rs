@@ -3,6 +3,15 @@ use core::time::Duration;
 use libp2p::gossipsub;
 use serde::{Deserialize, Serialize};
 
+/// How long gossipsub remembers seen message IDs before accepting the same
+/// message again.
+///
+/// Upstream libp2p defaults to 60 seconds, which is far shorter than the time
+/// a mempool transaction can stay in flight. Once the entry expires, a peer
+/// re-broadcasting the same transaction is treated as new and the message is
+/// re-propagated through the mesh, so we keep entries for a full day.
+const DEFAULT_DUPLICATE_CACHE_TIME: Duration = Duration::from_hours(24);
+
 // A partial copy of gossipsub::Config for deriving Serialize/Deserialize
 // remotely https://serde.rs/remote-derive.html
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +71,7 @@ impl Default for Config {
             heartbeat_interval: inner_default.heartbeat_interval(),
             fanout_ttl: inner_default.fanout_ttl(),
             check_explicit_peers_ticks: inner_default.check_explicit_peers_ticks(),
-            duplicate_cache_time: inner_default.duplicate_cache_time(),
+            duplicate_cache_time: DEFAULT_DUPLICATE_CACHE_TIME,
             validate_messages: inner_default.validate_messages(),
             do_px: inner_default.do_px(),
             prune_peers: inner_default.prune_peers(),

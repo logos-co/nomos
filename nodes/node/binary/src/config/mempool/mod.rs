@@ -1,41 +1,47 @@
-use std::path::PathBuf;
-
-use lb_core::mantle::{SignedMantleTx, Transaction as _, TxHash};
+use lb_core::mantle::{
+    SignedOps,
+    ledger::verification_mode::StandardMode,
+    traits::Hashable as _,
+    transactions::{hash::TxHash, states::Preverified},
+};
+use lb_services_utils::overwatch::RecoveryData;
 use lb_tx_service::{
-    TxMempoolSettings, network::adapters::libp2p::Settings as Libp2pNetworkAdapterSettings,
+    TxMempoolSettings, backend::MempoolSettings,
+    network::adapters::libp2p::Settings as Libp2pNetworkAdapterSettings,
 };
 
-use crate::config::{
-    mempool::deployment::Settings as DeploymentSettings, state::Config as StateConfig,
-};
+use crate::config::mempool::serde::Config;
 
-pub mod deployment;
+pub mod serde;
 
 pub struct ServiceConfig {
-    pub deployment: DeploymentSettings,
+    pub user: Config,
 }
 
 impl ServiceConfig {
     #[must_use]
     pub fn into_mempool_service_settings(
         self,
-        state_config: &StateConfig,
-    ) -> TxMempoolSettings<(), Libp2pNetworkAdapterSettings<TxHash, SignedMantleTx>> {
-        let recovery_path = state_config.get_path_for_recovery_state(
-            PathBuf::new()
-                .join("mempool")
-                .join("recovery")
-                .with_extension("json")
-                .as_path(),
-        );
-
+        topic: String,
+        recovery_data: RecoveryData,
+    ) -> TxMempoolSettings<
+        MempoolSettings,
+        Libp2pNetworkAdapterSettings<TxHash, SignedOps<Preverified, StandardMode>>,
+    > {
         TxMempoolSettings {
             network_adapter: Libp2pNetworkAdapterSettings {
-                id: SignedMantleTx::hash,
-                topic: self.deployment.pubsub_topic,
+                id: SignedOps::<Preverified, StandardMode>::hash,
+                topic,
             },
-            pool: (),
-            recovery_path,
+            pool: MempoolSettings {
+                tx_ttl: self.user.tx_ttl,
+            },
+            seen_items_subscription_channel_size: self
+                .user
+                .seen_items_subscription_channel_size
+                .try_into()
+                .unwrap(),
+            recovery_data,
         }
     }
 }

@@ -1,52 +1,42 @@
-use lb_core::mantle::{MantleTx, OpProof, SignedMantleTx, TxHash, encoding::Ops};
+use lb_core::mantle::{
+    SignedOps, TxHash,
+    ledger::verification_mode::VerificationMode,
+    traits::{Hashable, MantleTx},
+    transactions::{OpProofRefs, OpRefs, states::VerificationState},
+};
 use serde::Serialize;
 
 #[derive(Serialize)]
-#[serde(remote = "MantleTx")]
-pub struct ApiTransactionSerializer {
-    #[serde(getter = "<MantleTx as lb_core::mantle::Transaction>::hash")]
+pub struct ApiTransactionSerializer<'tx> {
     hash: TxHash,
-    #[serde(getter = "MantleTx::ops")]
-    ops: Ops,
+    ops: OpRefs<'tx>,
 }
 
-#[derive(Serialize)]
-#[serde(remote = "SignedMantleTx")]
-pub struct ApiSignedTransactionSerializer {
-    #[serde(with = "ApiTransactionSerializer")]
-    mantle_tx: MantleTx,
-    ops_proofs: Vec<OpProof>,
-}
-
-#[derive(Serialize)]
-pub struct ApiSignedTransactionRef<'a>(
-    #[serde(with = "ApiSignedTransactionSerializer")] &'a SignedMantleTx,
-);
-
-impl<'a> From<&'a SignedMantleTx> for ApiSignedTransactionRef<'a> {
-    fn from(value: &'a SignedMantleTx) -> Self {
-        Self(value)
+impl<'tx, T> From<&'tx T> for ApiTransactionSerializer<'tx>
+where
+    T: MantleTx + Hashable<Hash = TxHash>,
+{
+    fn from(tx: &'tx T) -> Self {
+        Self {
+            hash: tx.hash(),
+            ops: tx.op_refs(),
+        }
     }
 }
 
-pub mod signed_api_transaction_vec {
-    use lb_core::mantle::SignedMantleTx;
-    use serde::ser::SerializeSeq as _;
+#[derive(Serialize)]
+pub struct ApiSignedTransaction<'tx> {
+    mantle_tx: ApiTransactionSerializer<'tx>,
+    ops_proofs: OpProofRefs<'tx>,
+}
 
-    use crate::api::serializers::transactions::ApiSignedTransactionRef;
-
-    pub fn serialize<Serializer>(
-        value: &Vec<SignedMantleTx>,
-        serializer: Serializer,
-    ) -> Result<Serializer::Ok, Serializer::Error>
-    where
-        Serializer: serde::Serializer,
-    {
-        let mut sequence = serializer.serialize_seq(Some(value.len()))?;
-        for transaction in value {
-            let signed_api_transaction = ApiSignedTransactionRef(transaction);
-            sequence.serialize_element(&signed_api_transaction)?;
+impl<'tx, State: VerificationState, Mode: VerificationMode> From<&'tx SignedOps<State, Mode>>
+    for ApiSignedTransaction<'tx>
+{
+    fn from(value: &'tx SignedOps<State, Mode>) -> Self {
+        Self {
+            mantle_tx: value.into(),
+            ops_proofs: value.op_proof_refs(),
         }
-        sequence.end()
     }
 }

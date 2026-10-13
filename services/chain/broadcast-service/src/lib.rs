@@ -2,8 +2,9 @@ use core::fmt::Debug;
 use std::fmt::Display;
 
 use async_trait::async_trait;
-use derivative::Derivative;
+use educe::Educe;
 use lb_core::header::HeaderId;
+use lb_log_targets::chain;
 use overwatch::{
     OpaqueServiceResourcesHandle,
     services::{
@@ -16,6 +17,7 @@ use tokio::sync::{broadcast, oneshot};
 use tracing::{error, info, trace};
 
 const BROADCAST_CHANNEL_SIZE: usize = 128;
+const LOG_TARGET: &str = chain::broadcast::ROOT;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockInfo {
@@ -23,8 +25,8 @@ pub struct BlockInfo {
     pub header_id: HeaderId,
 }
 
-#[derive(Derivative)]
-#[derivative(Debug)]
+#[derive(Educe)]
+#[educe(Debug)]
 pub enum BlockBroadcastMsg {
     BroadcastFinalizedBlock(BlockInfo),
     SubscribeToFinalizedBlocks {
@@ -64,6 +66,7 @@ where
     async fn run(mut self) -> Result<(), overwatch::DynError> {
         self.service_resources_handle.status_updater.notify_ready();
         info!(
+            target: LOG_TARGET,
             "Service '{}' is ready.",
             <RuntimeServiceId as AsServiceId<Self>>::SERVICE_ID
         );
@@ -72,7 +75,7 @@ where
             match msg {
                 BlockBroadcastMsg::BroadcastFinalizedBlock(block) => {
                     if self.finalized_blocks.send(block).is_err() {
-                        trace!("No listener for finalized blocks. Not broadcasting. ");
+                        trace!(target: LOG_TARGET, "No listener for finalized blocks. Not broadcasting. ");
                     }
                 }
                 BlockBroadcastMsg::SubscribeToFinalizedBlocks { result_sender } => {
@@ -80,7 +83,7 @@ where
                     // of LIB branch change (might happend during bootstrapping), blocks should be
                     // rebroadcasted from the last common header_id.
                     if let Err(err) = result_sender.send(self.finalized_blocks.subscribe()) {
-                        error!("Could not subscribe to new blocks channel: {err:?}");
+                        error!(target: LOG_TARGET, "Could not subscribe to new blocks channel: {err:?}");
                     }
                 }
             }

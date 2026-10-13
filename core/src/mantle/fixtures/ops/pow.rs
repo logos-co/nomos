@@ -1,0 +1,37 @@
+use lb_binary_codec::canonical::codec_fixtures;
+use lb_groth16::{AdditiveGroup as _, Field as _, Fr};
+use lb_key_management_system_keys::keys::ZkPublicKey;
+
+use crate::mantle::{
+    fixtures::ops::op_values::{CLAIM_POW_REWARD, CLAIM_POW_REWARD_PAYLOAD_HEX},
+    ops::{
+        NoOpProof,
+        pow::{ClaimPowRewardOp, PowNullifier},
+    },
+};
+
+codec_fixtures!(
+    NoOpProof,
+    NoOpProof {} => ""
+);
+
+codec_fixtures!(
+    PowNullifier,
+    Fr::ZERO.into() => "0000000000000000000000000000000000000000000000000000000000000000",
+    Fr::ONE.into() => "0100000000000000000000000000000000000000000000000000000000000000",
+);
+
+codec_fixtures!(
+    ClaimPowRewardOp,
+    ClaimPowRewardOp {
+        epoch_nonce: Fr::ZERO,
+        block_hash: [0u8; 32],
+        public_key: ZkPublicKey::new(Fr::ZERO),
+    } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    ClaimPowRewardOp {
+        epoch_nonce: Fr::ZERO,
+        block_hash: [1u8; 32],
+        public_key: ZkPublicKey::new(Fr::from(2u64)),
+    } => "000000000000000000000000000000000000000000000000000000000000000001010101010101010101010101010101010101010101010101010101010101010200000000000000000000000000000000000000000000000000000000000000",
+    CLAIM_POW_REWARD.clone() => CLAIM_POW_REWARD_PAYLOAD_HEX,
+);

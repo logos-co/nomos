@@ -4,6 +4,7 @@ use std::sync::LazyLock;
 use ::serde::{Deserialize, Serialize};
 use ed25519_dalek::{PUBLIC_KEY_LENGTH, VerifyingKey};
 use generic_array::{ArrayLength, GenericArray};
+use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
 use lb_groth16::{Bn254, CompressSize, fr_from_bytes, fr_from_bytes_unchecked, fr_to_bytes};
 use lb_poq::{PoQProof, PoQVerifierInput, PoQWitnessInputs, ProveError, prove, verify};
 use thiserror::Error;
@@ -17,6 +18,7 @@ use crate::{
 };
 
 pub mod inputs;
+pub mod pow;
 mod serde;
 #[cfg(test)]
 mod tests;
@@ -26,6 +28,8 @@ pub mod fixtures;
 
 // Cannot depend on `key-management-system-keys` crate here due to circular
 // dependency.
+pub use lb_poq::{KeyIndex, Quota};
+
 pub(crate) type Ed25519PublicKey = VerifyingKey;
 pub(crate) const ED25519_PUBLIC_KEY_SIZE: usize = PUBLIC_KEY_LENGTH;
 
@@ -43,7 +47,7 @@ pub enum Error {
     InvalidProof,
 }
 
-/// A Proof of Quota as described in the Blend v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#26a261aa09df80f4b119f900fbb36f3f>.
+/// A Proof of Quota as described in the Blend spec: <https://lip.logos.co/blockchain/raw/blend-protocol.html#proof-of-quota>.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProofOfQuota {
     #[serde(with = "lb_groth16::serde::serde_fr")]
@@ -119,6 +123,30 @@ impl TryFrom<[u8; PROOF_OF_QUOTA_SIZE]> for ProofOfQuota {
     }
 }
 
+impl BinaryEncode for ProofOfQuota {
+    fn encoded_length(&self) -> usize {
+        PROOF_OF_QUOTA_SIZE
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&<[u8; _]>::from(self));
+    }
+}
+
+impl BinaryDecode for ProofOfQuota {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, value) = <[u8; _]>::decode(input, &())?;
+        let proof = Self::try_from(value)
+            .map_err(|_| DecodeError::invalid_value::<Self>("not a valid proof of quota"))?;
+        Ok((rest, proof))
+    }
+}
+
 /// A verified Proof of Quota.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct VerifiedProofOfQuota(ProofOfQuota);
@@ -138,8 +166,7 @@ impl VerifiedProofOfQuota {
             private: private_inputs,
             public: *public_inputs,
         }
-        .try_into()
-        .map_err(|e| Error::InvalidInput(Box::new(e)))?;
+        .into();
         let (proof, PoQVerifierInput { key_nullifier, .. }) =
             prove(witness_inputs).map_err(Error::ProofGeneration)?;
         let secret_selection_randomness =
@@ -207,6 +234,16 @@ impl PartialEq<ProofOfQuota> for VerifiedProofOfQuota {
     }
 }
 
+impl BinaryEncode for VerifiedProofOfQuota {
+    fn encoded_length(&self) -> usize {
+        self.0.encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.0.encode_into(out);
+    }
+}
+
 pub enum SelectionRandomnessSecretInput {
     Core {
         sk: ZkHash,
@@ -216,16 +253,20 @@ pub enum SelectionRandomnessSecretInput {
         note_secret_key: ZkHash,
         slot_number: u64,
     },
+    Pow {
+        pow_nonce: ZkHash,
+        epoch_nonce: ZkHash,
+    },
 }
 const DOMAIN_SEPARATION_TAG: [u8; 23] = *b"SELECTION_RANDOMNESS_V1";
 static DOMAIN_SEPARATION_TAG_FR: LazyLock<ZkHash> = LazyLock::new(|| {
     fr_from_bytes(&DOMAIN_SEPARATION_TAG[..])
         .expect("DST for secret selection randomness calculation must be correct.")
 });
-// As per Proof of Quota v1 spec: <https://www.notion.so/nomos-tech/Proof-of-Quota-Specification-215261aa09df81d88118ee22205cbafe?source=copy_link#215261aa09df81adb8ccd1448c9afd68>.
+// As per Proof of Quota spec: <https://lip.logos.co/blockchain/raw/proof-of-quota.html>.
 fn generate_secret_selection_randomness(
     input: &SelectionRandomnessSecretInput,
-    key_index: u64,
+    key_index: KeyIndex,
 ) -> ZkHash {
     let (first_element, second_element) = match input {
         SelectionRandomnessSecretInput::Core { sk, epoch_nonce } => (sk, (*epoch_nonce)),
@@ -233,6 +274,10 @@ fn generate_secret_selection_randomness(
             note_secret_key,
             slot_number,
         } => (note_secret_key, (*slot_number).into()),
+        SelectionRandomnessSecretInput::Pow {
+            pow_nonce,
+            epoch_nonce,
+        } => (pow_nonce, (*epoch_nonce)),
     };
     [
         *DOMAIN_SEPARATION_TAG_FR,

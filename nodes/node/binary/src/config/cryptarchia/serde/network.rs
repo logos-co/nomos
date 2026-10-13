@@ -8,12 +8,24 @@ use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub bootstrap: BootstrapConfig,
     pub sync: SyncConfig,
     pub network: NetworkConfig,
+    pub seen_items_subscription_channel_size: NonZeroU64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            bootstrap: BootstrapConfig::default(),
+            sync: SyncConfig::default(),
+            network: NetworkConfig::default(),
+            seen_items_subscription_channel_size: NonZeroU64::new(64).unwrap(),
+        }
+    }
 }
 
 #[serde_as]
@@ -26,18 +38,29 @@ pub struct BootstrapConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct IbdConfig {
-    /// Peers to download blocks from.
+    /// Peers to query for the chain tip during IBD.
     pub peers: HashSet<PeerId>,
-    /// Delay before attempting the next download
-    /// when no download is needed at the moment from a peer.
+    /// Deprecated: no longer used. Kept for YAML backward compatibility.
     pub delay_before_new_download: Duration,
+    /// Maximum number of attempts when fetching tips from IBD peers.
+    pub tips_fetch_max_attempts: usize,
+    /// Lower bound of the exponential backoff between tip-fetch attempts.
+    pub tips_fetch_min_delay: Duration,
+    /// Upper bound of the exponential backoff between tip-fetch attempts.
+    pub tips_fetch_max_delay: Duration,
+    /// Delay between IBD rounds.
+    pub round_delay: Duration,
 }
 
 impl Default for IbdConfig {
     fn default() -> Self {
         Self {
-            peers: HashSet::default(),
+            peers: HashSet::new(),
             delay_before_new_download: Duration::from_secs(10),
+            tips_fetch_max_attempts: 3,
+            tips_fetch_min_delay: Duration::from_millis(250),
+            tips_fetch_max_delay: Duration::from_secs(1),
+            round_delay: Duration::from_secs(1),
         }
     }
 }
@@ -54,12 +77,19 @@ pub struct SyncConfig {
 pub struct OrphanConfig {
     /// The maximum number of pending orphans to keep in the cache.
     pub max_orphan_cache_size: NonZeroUsize,
+    /// The maximum number of block IDs to remember in the rejected-blocks
+    /// negative cache. The orphan pipeline consults this cache to short-circuit
+    /// known-bad/older-than-LIB blocks before enqueuing or downloading them.
+    ///
+    /// Setting this to `0` disables the cache entirely.
+    pub max_rejected_cache_size: usize,
 }
 
 impl Default for OrphanConfig {
     fn default() -> Self {
         Self {
             max_orphan_cache_size: NonZeroUsize::new(1000).unwrap(),
+            max_rejected_cache_size: 1000,
         }
     }
 }

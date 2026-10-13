@@ -1,7 +1,7 @@
 use core::time::Duration;
 
 use futures::StreamExt as _;
-use lb_blend_scheduling::membership::{Membership, Node};
+use lb_blend_membership::{Membership, Node};
 use lb_key_management_system_keys::keys::{ED25519_PUBLIC_KEY_SIZE, Ed25519PublicKey};
 use lb_libp2p::SwarmEvent;
 use libp2p::{Multiaddr, PeerId};
@@ -11,7 +11,7 @@ use test_log::test;
 use tokio::{select, time::sleep};
 
 use crate::core::{
-    tests::utils::TestSwarm,
+    tests::utils::{TestProofsVerifier, TestSwarm},
     with_edge::behaviour::tests::utils::{BehaviourBuilder, StreamBehaviourExt as _},
 };
 
@@ -40,9 +40,11 @@ async fn start_new_epoch_closes_all_edge_connections() {
     let new_membership = Membership::new_without_local(&[Node {
         address: Multiaddr::empty(),
         id: core_membership_peer,
-        public_key: Ed25519PublicKey::from_bytes(&[0; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
+        public_key: Ed25519PublicKey::from_bytes(&[1; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
     }]);
-    blend_swarm.behaviour_mut().start_new_epoch(new_membership);
+    blend_swarm
+        .behaviour_mut()
+        .start_new_epoch((new_membership, 0.into()), TestProofsVerifier::accepting());
 
     assert_eq!(
         blend_swarm.behaviour().upgraded_edge_peers.len(),
@@ -114,9 +116,11 @@ async fn epoch_transition_updates_membership_for_new_connections() {
     let new_membership = Membership::new_without_local(&[Node {
         address: Multiaddr::empty(),
         id: other_core_peer,
-        public_key: Ed25519PublicKey::from_bytes(&[0; _]).unwrap(),
+        public_key: Ed25519PublicKey::from_bytes(&[1; _]).unwrap(),
     }]);
-    blend_swarm.behaviour_mut().start_new_epoch(new_membership);
+    blend_swarm
+        .behaviour_mut()
+        .start_new_epoch((new_membership, 0.into()), TestProofsVerifier::accepting());
 
     // Now edge_swarm should be able to connect and upgrade.
     let _stream = edge_swarm
