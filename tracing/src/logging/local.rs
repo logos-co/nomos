@@ -10,12 +10,21 @@ use serde::{Deserialize, Serialize};
 use tracing_appender::{non_blocking::WorkerGuard, rolling::Rotation};
 use tracing_subscriber::fmt::{
     Layer,
-    format::{DefaultFields, Format},
+    format::{DefaultFields, Format, Json, JsonFields},
 };
 
 use crate::compressed_appender::CompressedRollingAppender;
 
 pub type FmtLayer<S> = Layer<S, DefaultFields, Format, tracing_appender::non_blocking::NonBlocking>;
+pub type JsonFmtLayer<S> =
+    Layer<S, JsonFields, Format<Json>, tracing_appender::non_blocking::NonBlocking>;
+
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}
 
 /// Worker guards of every non-blocking appender created by this module.
 static APPENDER_GUARDS: Mutex<Vec<WorkerGuard>> = Mutex::new(Vec::new());
@@ -100,8 +109,20 @@ pub struct FileConfig {
     pub appender_type: AppenderType,
 }
 
-#[must_use]
 pub fn create_file_layer<S>(file_config: FileConfig) -> FmtLayer<S> {
+    create_file_layer_with_writer(file_config, |writer| create_writer_layer::<S, _>(writer))
+}
+
+pub fn create_json_file_layer<S>(file_config: FileConfig) -> JsonFmtLayer<S> {
+    create_file_layer_with_writer(file_config, |writer| {
+        create_json_writer_layer::<S, _>(writer)
+    })
+}
+
+fn create_file_layer_with_writer<L, W>(file_config: FileConfig, create_layer: L) -> W
+where
+    L: FnOnce(Box<dyn Write + Send>) -> W,
+{
     let prefix = file_config
         .prefix
         .unwrap_or_else(|| "logos-blockchain.log".into());
@@ -141,9 +162,9 @@ pub fn create_file_layer<S>(file_config: FileConfig) -> FmtLayer<S> {
                 prefix_str,
                 compression_threshold,
             );
-            create_writer_layer(appender)
+            create_layer(Box::new(appender))
         }
-        CompressionType::None => create_writer_layer(rolling_appender),
+        CompressionType::None => create_layer(Box::new(rolling_appender)),
     }
 }
 
@@ -161,10 +182,30 @@ where
     Layer::new().with_level(true).with_writer(non_blocking)
 }
 
+pub fn create_json_writer_layer<S, W>(writer: W) -> JsonFmtLayer<S>
+where
+    W: Write + Send + 'static,
+{
+    let (non_blocking, guard) = tracing_appender::non_blocking(writer);
+
+    // Push the guard to the global list so flush_appenders() works for JSON logs
+    APPENDER_GUARDS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(guard);
+
+    Layer::new()
+        .json()
+        .with_level(true)
+        .with_ansi(false)
+        .with_writer(non_blocking)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
-        env, fs, io,
+        env, fs,
+        io::{self, Result},
         panic::set_hook,
         process::{self, Command, ExitStatus, Stdio},
         sync::{Arc, mpsc},
@@ -347,5 +388,47 @@ mod tests {
             elapsed >= FLUSH_LOCK_TIMEOUT,
             "the hook should have retried up to the timeout, gave up after {elapsed:?}"
         );
+    }
+
+    #[derive(Clone, Default)]
+    struct Buffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize> {
+            self.0
+                .lock()
+                .expect("buffer lock should not be poisoned")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn json_writer_emits_one_json_record_without_ansi() {
+        let buffer = Buffer::default();
+        let output = Arc::clone(&buffer.0);
+        let layer = create_json_writer_layer::<tracing_subscriber::Registry, _>(buffer);
+        let subscriber = tracing_subscriber::registry().with(layer);
+
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "json-log-test", answer = 42, "hello");
+        });
+
+        flush_appenders();
+
+        let bytes = output
+            .lock()
+            .expect("buffer lock should not be poisoned")
+            .clone();
+        let line = std::str::from_utf8(&bytes).expect("JSON log should be UTF-8");
+        let record: serde_json::Value = serde_json::from_str(line).expect("log should be JSON");
+        assert_eq!(record["target"], "json-log-test");
+        assert_eq!(record["fields"]["message"], "hello");
+        assert_eq!(record["fields"]["answer"], 42);
+        assert!(!line.contains('\u{1b}'));
     }
 }
