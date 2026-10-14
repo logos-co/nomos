@@ -57,7 +57,8 @@ pub fn panic_to_error(arguments: TokenStream, item: TokenStream) -> TokenStream 
             )) {
                 Ok(value) => value,
                 Err(payload) => {
-                    let error = <#status as ::lb_c_common::FfiError>::from_panic(payload.as_ref());
+                    let message = ::lb_c_common::panic_message(payload.as_ref());
+                    let error = <#status as ::lb_c_common::FfiError>::from_panic(message);
                     // SAFETY: The panic handler has just created this owned error.
                     unsafe { <#output as ::lb_c_common::FfiReturn<#status>>::from_error(error) }
                 }

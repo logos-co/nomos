@@ -20,7 +20,7 @@ pub use result::FfiResult;
 pub unsafe trait FfiError: Sized {
     fn is_ok(&self) -> bool;
     fn null_pointer(name: &str) -> Self;
-    fn from_panic(payload: &(dyn Any + Send)) -> Self;
+    fn from_panic(message: impl Into<String>) -> Self;
 
     /// Releases an error when the exported function has no return value.
     ///

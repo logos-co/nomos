@@ -4,14 +4,12 @@
 extern crate logos_blockchain_c_common as lb_c_common;
 
 use std::{
-    any::Any,
     ffi::{CStr, c_char},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use lb_c_common::{
-    FfiError, FfiResult, FfiReturn, memory, panic_message, return_error_if_null_pointer,
-    unwrap_or_return_error,
+    FfiError, FfiResult, FfiReturn, memory, return_error_if_null_pointer, unwrap_or_return_error,
 };
 use lb_c_macros::panic_to_error;
 
@@ -25,7 +23,7 @@ struct ConsumerStatus {
 }
 
 impl ConsumerStatus {
-    fn error(code: u32, message: &str) -> Self {
+    fn error(code: u32, message: impl Into<String>) -> Self {
         Self {
             code,
             message: memory::error_message(message),
@@ -43,8 +41,8 @@ unsafe impl FfiError for ConsumerStatus {
         Self::error(1, name)
     }
 
-    fn from_panic(payload: &(dyn Any + Send)) -> Self {
-        Self::error(2, &panic_message(payload))
+    fn from_panic(message: impl Into<String>) -> Self {
+        Self::error(2, message)
     }
 
     unsafe fn release(self) {

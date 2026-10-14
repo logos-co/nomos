@@ -1,9 +1,6 @@
-use std::{
-    any::Any,
-    ffi::{CStr, c_char},
-};
+use std::ffi::{CStr, c_char};
 
-use lb_c_common::{FfiError, FfiReturn, memory, panic_message};
+use lb_c_common::{FfiError, FfiReturn, memory};
 use lb_c_macros::panic_to_error;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
@@ -113,8 +110,8 @@ unsafe impl FfiError for OperationStatus {
 
     /// The status an exported function returns when its body panicked: see
     /// [`panic_to_error`](lb_c_macros::panic_to_error).
-    fn from_panic(payload: &(dyn Any + Send)) -> Self {
-        Self::error(OperationStatusCode::RuntimeError, panic_message(payload))
+    fn from_panic(message: impl Into<String>) -> Self {
+        Self::error(OperationStatusCode::RuntimeError, message)
     }
 
     unsafe fn release(self) {
