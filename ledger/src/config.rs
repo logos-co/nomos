@@ -1,12 +1,14 @@
 use core::num::NonZeroU32;
 use std::num::{NonZero, NonZeroU64, NonZeroU128};
 
-use lb_binary_codec::canonical::{BinaryEncode, codec_fixtures};
+use lb_binary_codec::canonical::{BTreeSet, BinaryEncode, codec_fixtures};
 use lb_core::mantle::{Value, ops::pow::PowReward};
 use lb_cryptarchia_engine::{Epoch, Slot};
 pub use lb_groth16::ModulusShift;
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_pol::LotteryConstants;
+
+pub type ConsensusExcludedKeys = BTreeSet<ZkPublicKey>;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
@@ -14,7 +16,7 @@ pub struct Config {
     pub consensus_config: lb_cryptarchia_engine::Config,
     pub sdp_config: crate::mantle::sdp::Config,
     #[serde(default)]
-    pub faucet_pk: Option<ZkPublicKey>,
+    pub consensus_excluded_keys: ConsensusExcludedKeys,
     pub pow_config: PoWConfig,
 }
 
@@ -498,7 +500,9 @@ mod tests {
     use lb_utils::math::{NonNegativeRatio, PositiveF64};
 
     use crate::{
-        config::{BlendPoWConfig, PoWConfig, RewardPoWConfig, RewardPoWConfigError},
+        config::{
+            BlendPoWConfig, ConsensusExcludedKeys, PoWConfig, RewardPoWConfig, RewardPoWConfigError,
+        },
         mantle::sdp::{ServiceRewardsParameters, rewards::blend::RewardsParameters},
     };
 
@@ -675,7 +679,7 @@ mod tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: ConsensusExcludedKeys::empty(),
             pow_config: PoWConfig {
                 blend: BlendPoWConfig {
                     base_difficulty: ModulusShift::new::<19>(),
@@ -738,7 +742,7 @@ mod tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: ConsensusExcludedKeys::empty(),
             pow_config: PoWConfig {
                 blend: BlendPoWConfig {
                     base_difficulty: ModulusShift::new::<19>(),
@@ -838,7 +842,7 @@ mod tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: ConsensusExcludedKeys::empty(),
             pow_config: PoWConfig {
                 blend: BlendPoWConfig {
                     base_difficulty: ModulusShift::new::<19>(),

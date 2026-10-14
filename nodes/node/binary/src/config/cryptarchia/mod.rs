@@ -47,7 +47,7 @@ impl ServiceConfig {
                     .epoch_config
                     .epoch_stake_distribution_stabilization,
             },
-            faucet_pk: self.deployment.faucet_pk,
+            consensus_excluded_keys: self.deployment.consensus_excluded_keys,
             sdp_config: lb_ledger::mantle::sdp::Config {
                 min_stake: self.deployment.sdp_config.min_stake,
                 service_params: Arc::new(

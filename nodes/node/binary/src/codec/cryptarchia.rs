@@ -22,7 +22,7 @@ impl BinaryEncode for Settings {
             learning_rate,
             uncle_reference_window_in_block,
             sdp_config,
-            faucet_pk,
+            consensus_excluded_keys,
             pow_config,
         } = self;
 
@@ -32,7 +32,7 @@ impl BinaryEncode for Settings {
             + learning_rate.encoded_length()
             + uncle_reference_window_in_block.encoded_length()
             + sdp_config.encoded_length()
-            + faucet_pk.encoded_length()
+            + consensus_excluded_keys.encoded_length()
             + pow_config.encoded_length()
     }
 
@@ -44,7 +44,7 @@ impl BinaryEncode for Settings {
             learning_rate,
             uncle_reference_window_in_block,
             sdp_config,
-            faucet_pk,
+            consensus_excluded_keys,
             pow_config,
         } = self;
 
@@ -54,7 +54,7 @@ impl BinaryEncode for Settings {
         learning_rate.encode_into(out);
         uncle_reference_window_in_block.encode_into(out);
         sdp_config.encode_into(out);
-        faucet_pk.encode_into(out);
+        consensus_excluded_keys.encode_into(out);
         pow_config.encode_into(out);
     }
 }
@@ -184,7 +184,7 @@ pub(super) fn fixture_settings() -> Settings {
         learning_rate: NonNegativeF64::try_from(18.0).unwrap(),
         uncle_reference_window_in_block: NonZeroU32::new(19).unwrap(),
         sdp_config: fixture_sdp_config(),
-        faucet_pk: Some(ZkPublicKey::new(Fr::from(24u64))),
+        consensus_excluded_keys: vec![ZkPublicKey::new(Fr::from(24u64))].try_into().unwrap(),
         pow_config: fixture_pow_config(),
     }
 }
@@ -246,7 +246,7 @@ const fn fixture_blend_pow_config() -> BlendPoWConfig {
 
 pub(super) const SETTINGS_HEX: &str = "
     0c 0d 0e 0f000000 10000000 11000000 0000000000003240 13000000 01000000 00 14000000
-    15000000 1600000000000000 1700000000000000 01
+    15000000 1600000000000000 1700000000000000 01000000
     1800000000000000000000000000000000000000000000000000000000000000 19000000 1a00000000000000
     1b00000000000000 1c000000 1d000000 1e00000000000000 1f00000000000000 20000000
     2100000000000000 2200000000000000 2300000000000000 2400000000000000 2500000000000000

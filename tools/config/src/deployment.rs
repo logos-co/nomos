@@ -166,7 +166,8 @@ pub fn e2e_deployment_settings_with_genesis_block(
                     },
                 },
                 learning_rate: LEARNING_RATE.try_into().expect("1 > 0"),
-                faucet_pk: None,
+                consensus_excluded_keys:
+                    lb_node::config::cryptarchia::deployment::ConsensusExcludedKeys::empty(),
                 pow_config: lb_node::config::cryptarchia::deployment::PoWConfig {
                     blend: lb_node::config::cryptarchia::deployment::BlendPoWConfig {
                         base_difficulty: ModulusShift::new::<BLEND_POW_BASE_DIFFICULTY_EXPONENT>(),

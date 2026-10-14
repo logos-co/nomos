@@ -33,7 +33,7 @@ use lb_groth16::{AdditiveGroup as _, Fr};
 use lb_key_management_system_keys::keys::{Ed25519Key, ZkKey};
 use lb_ledger::{
     LedgerState,
-    config::{BlendPoWConfig, ModulusShift, PoWConfig, RewardPoWConfig},
+    config::{BlendPoWConfig, ConsensusExcludedKeys, ModulusShift, PoWConfig, RewardPoWConfig},
     mantle::sdp::{ServiceRewardsParameters, rewards},
 };
 use lb_storage_service::{
@@ -795,7 +795,7 @@ pub fn ledger_config(security_param: NonZero<u32>) -> lb_ledger::Config {
                 timestamp: 0,
             },
         },
-        faucet_pk: None,
+        consensus_excluded_keys: ConsensusExcludedKeys::empty(),
         pow_config: PoWConfig {
             blend: BlendPoWConfig {
                 base_difficulty: ModulusShift::new::<19>(),
