@@ -101,7 +101,7 @@ where
         let Some(keys) = self.keys_by_deadline.get_mut(&deadline) else {
             return;
         };
-        keys.shift_remove(key);
+        keys.swap_remove(key);
         if keys.is_empty() {
             self.keys_by_deadline.remove(&deadline);
         }
@@ -123,7 +123,7 @@ where
             let Some(keys) = self.parked_by_block.get_mut(&anchor) else {
                 continue;
             };
-            keys.shift_remove(key);
+            keys.swap_remove(key);
             if keys.is_empty() {
                 self.parked_by_block.remove(&anchor);
             }
@@ -194,7 +194,7 @@ where
         let deadline = self.deadline_for(slot);
         for key in keys {
             if let Some(anchors) = self.parked_by_key.get_mut(&key) {
-                anchors.shift_remove(block_id);
+                anchors.swap_remove(block_id);
                 if anchors.is_empty() {
                     self.parked_by_key.remove(&key);
                 }
