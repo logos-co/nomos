@@ -5587,9 +5587,11 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "futures",
+ "hex",
  "indexmap",
  "logos-blockchain-binary-codec",
  "logos-blockchain-core",
+ "logos-blockchain-cryptarchia-engine",
  "logos-blockchain-log-targets",
  "logos-blockchain-network-service",
  "logos-blockchain-services-utils",
