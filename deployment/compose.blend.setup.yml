@@ -1,0 +1,19 @@
+services:
+
+  setup:
+    container_name: blend-setup
+    image: ghcr.io/logos-blockchain/logos-blockchain:${TOOLS_IMAGE_LABEL}
+    volumes:
+      - blend-data:/node-data
+      - ./deployment:/etc/logos-blockchain
+    environment:
+      - BLEND_NODE_COUNT=${BLEND_NODE_COUNT}
+      - BLEND_NET_PORT_BASE=${BLEND_NET_PORT_BASE}
+      - BLEND_BLEND_PORT_BASE=${BLEND_BLEND_PORT_BASE}
+      - BLEND_API_PORT_BASE=${BLEND_API_PORT_BASE}
+      - BLEND_INITIAL_PEERS=${BLEND_INITIAL_PEERS}
+    entrypoint: /etc/logos-blockchain/scripts/blend/setup_blend_data.sh
+
+volumes:
+  blend-data:
+    name: logos-blend-data

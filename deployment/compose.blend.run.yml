@@ -1,0 +1,168 @@
+x-node: &node
+  image: ghcr.io/logos-blockchain/logos-blockchain-node:${NODE_IMAGE_LABEL}
+  volumes:
+    - blend-data:/node-data
+    - ./deployment:/etc/logos-blockchain
+  entrypoint: /etc/logos-blockchain/scripts/blend/run_node.sh
+
+x-env: &env
+  LOG_LEVEL: DEBUG
+  LOG_APPENDER: rolling-max-files
+  LOG_APPENDER_MAX_FILES: 48
+
+services:
+
+  blend-node-0:
+    <<: *node
+    container_name: blend-node-0
+    environment:
+      <<: *env
+      LB_HOST_IDX: 0
+      CFG_NETWORK_PORT: 3000
+      CFG_BLEND_PORT: 3400
+      CFG_API_PORT: 18080
+      STATE_PATH: /node-data/0/state
+    ports:
+      - "3000:3000/udp"
+      - "3400:3400/udp"
+      - "127.0.0.1:18080:18080/tcp"
+
+  blend-node-1:
+    <<: *node
+    container_name: blend-node-1
+    environment:
+      <<: *env
+      LB_HOST_IDX: 1
+      CFG_NETWORK_PORT: 3001
+      CFG_BLEND_PORT: 3401
+      CFG_API_PORT: 18081
+      STATE_PATH: /node-data/1/state
+    ports:
+      - "3001:3001/udp"
+      - "3401:3401/udp"
+      - "127.0.0.1:18081:18081/tcp"
+
+  blend-node-2:
+    <<: *node
+    container_name: blend-node-2
+    environment:
+      <<: *env
+      LB_HOST_IDX: 2
+      CFG_NETWORK_PORT: 3002
+      CFG_BLEND_PORT: 3402
+      CFG_API_PORT: 18082
+      STATE_PATH: /node-data/2/state
+    ports:
+      - "3002:3002/udp"
+      - "3402:3402/udp"
+      - "127.0.0.1:18082:18082/tcp"
+
+  blend-node-3:
+    <<: *node
+    container_name: blend-node-3
+    environment:
+      <<: *env
+      LB_HOST_IDX: 3
+      CFG_NETWORK_PORT: 3003
+      CFG_BLEND_PORT: 3403
+      CFG_API_PORT: 18083
+      STATE_PATH: /node-data/3/state
+    ports:
+      - "3003:3003/udp"
+      - "3403:3403/udp"
+      - "127.0.0.1:18083:18083/tcp"
+
+  blend-node-4:
+    <<: *node
+    container_name: blend-node-4
+    environment:
+      <<: *env
+      LB_HOST_IDX: 4
+      CFG_NETWORK_PORT: 3004
+      CFG_BLEND_PORT: 3404
+      CFG_API_PORT: 18084
+      STATE_PATH: /node-data/4/state
+    ports:
+      - "3004:3004/udp"
+      - "3404:3404/udp"
+      - "127.0.0.1:18084:18084/tcp"
+
+  blend-node-5:
+    <<: *node
+    container_name: blend-node-5
+    environment:
+      <<: *env
+      LB_HOST_IDX: 5
+      CFG_NETWORK_PORT: 3005
+      CFG_BLEND_PORT: 3405
+      CFG_API_PORT: 18085
+      STATE_PATH: /node-data/5/state
+    ports:
+      - "3005:3005/udp"
+      - "3405:3405/udp"
+      - "127.0.0.1:18085:18085/tcp"
+
+  blend-node-6:
+    <<: *node
+    container_name: blend-node-6
+    environment:
+      <<: *env
+      LB_HOST_IDX: 6
+      CFG_NETWORK_PORT: 3006
+      CFG_BLEND_PORT: 3406
+      CFG_API_PORT: 18086
+      STATE_PATH: /node-data/6/state
+    ports:
+      - "3006:3006/udp"
+      - "3406:3406/udp"
+      - "127.0.0.1:18086:18086/tcp"
+
+  blend-node-7:
+    <<: *node
+    container_name: blend-node-7
+    environment:
+      <<: *env
+      LB_HOST_IDX: 7
+      CFG_NETWORK_PORT: 3007
+      CFG_BLEND_PORT: 3407
+      CFG_API_PORT: 18087
+      STATE_PATH: /node-data/7/state
+    ports:
+      - "3007:3007/udp"
+      - "3407:3407/udp"
+      - "127.0.0.1:18087:18087/tcp"
+
+  blend-node-8:
+    <<: *node
+    container_name: blend-node-8
+    environment:
+      <<: *env
+      LB_HOST_IDX: 8
+      CFG_NETWORK_PORT: 3008
+      CFG_BLEND_PORT: 3408
+      CFG_API_PORT: 18088
+      STATE_PATH: /node-data/8/state
+    ports:
+      - "3008:3008/udp"
+      - "3408:3408/udp"
+      - "127.0.0.1:18088:18088/tcp"
+
+  blend-node-9:
+    <<: *node
+    container_name: blend-node-9
+    environment:
+      <<: *env
+      LB_HOST_IDX: 9
+      CFG_NETWORK_PORT: 3009
+      CFG_BLEND_PORT: 3409
+      CFG_API_PORT: 18089
+      STATE_PATH: /node-data/9/state
+    ports:
+      - "3009:3009/udp"
+      - "3409:3409/udp"
+      - "127.0.0.1:18089:18089/tcp"
+
+volumes:
+  blend-data:
+    name: logos-blend-data
+    external: true
