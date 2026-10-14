@@ -1779,11 +1779,13 @@ async fn originals_landing_around_a_tracked_entry_are_re_mirrored() {
     let b_tx = rebuilt(&op_b);
     let (a_orig, c_orig) = (original(&op_a, 1), original(&op_c, 2));
     let (a_hash, c_hash) = (a_orig.hash(), c_orig.hash());
+    let (a_rebuilt, c_rebuilt) = (rebuilt(&op_a), rebuilt(&op_c));
+    let rebuilt_hashes = [a_rebuilt.hash(), c_rebuilt.hash()];
     let mut restored = TxState::new(header_id(0), MsgId::root());
     for (tx, op) in [
-        (rebuilt(&op_a), &op_a),
+        (a_rebuilt, &op_a),
         (b_tx.clone(), &op_b),
-        (rebuilt(&op_c), &op_c),
+        (c_rebuilt, &op_c),
     ] {
         restored
             .submit_inscription(tx, op.parent, op.id(), op.inscription.clone())
@@ -1810,6 +1812,14 @@ async fn originals_landing_around_a_tracked_entry_are_re_mirrored() {
             s.pending_inscription(&hash)
                 .is_some_and(|p| p.this_msg == id),
             "original re-mirrored under its mined hash"
+        );
+    }
+    // The landed originals retire A' and C': with them gone, nothing is left
+    // off-branch to shed.
+    for hash in rebuilt_hashes {
+        assert!(
+            !s.is_tracked(&hash),
+            "rebuilt entry retired by its original"
         );
     }
 }
