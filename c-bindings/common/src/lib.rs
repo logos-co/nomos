@@ -39,7 +39,7 @@ pub trait FfiReturn<Error> {
     unsafe fn from_error(error: Error) -> Self;
 }
 
-impl<Value: Default, Error> FfiReturn<Error> for FfiResult<Value, Error> {
+impl<Value: Default, Error: Default> FfiReturn<Error> for FfiResult<Value, Error> {
     unsafe fn from_error(error: Error) -> Self {
         Self::err(error)
     }

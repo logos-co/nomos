@@ -12,6 +12,7 @@ pub struct FfiResult<Value, Error> {
 
 impl<Value, Error> FfiResult<Value, Error>
 where
+    Value: Default,
     Error: Default,
 {
     pub fn ok(value: Value) -> Self {
@@ -20,12 +21,7 @@ where
             error: Error::default(),
         }
     }
-}
 
-impl<Value, Error> FfiResult<Value, Error>
-where
-    Value: Default,
-{
     pub fn err(error: Error) -> Self {
         Self {
             value: Value::default(),
