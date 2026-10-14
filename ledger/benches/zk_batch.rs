@@ -42,7 +42,7 @@ use lb_utils::math::{NonNegativeRatio, PositiveF64};
 use lb_zksign::verify;
 use logos_blockchain_ledger::{
     Config, LedgerState,
-    config::{BlendPoWConfig, ModulusShift, PoWConfig, RewardPoWConfig},
+    config::{BlendPoWConfig, ConsensusExcludedKeys, ModulusShift, PoWConfig, RewardPoWConfig},
     mantle::sdp::{ServiceRewardsParameters, rewards},
 };
 use num_bigint::BigUint;
@@ -293,7 +293,7 @@ fn config() -> Config {
                 timestamp: 0,
             },
         },
-        faucet_pk: None,
+        consensus_excluded_keys: ConsensusExcludedKeys::empty(),
         pow_config: PoWConfig {
             blend: BlendPoWConfig {
                 base_difficulty: ModulusShift::new::<234>(),

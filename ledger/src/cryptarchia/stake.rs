@@ -207,7 +207,7 @@ mod tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: crate::config::ConsensusExcludedKeys::empty(),
             pow_config: crate::config::PoWConfig {
                 blend: crate::config::BlendPoWConfig {
                     base_difficulty: ModulusShift::new::<19>(),
