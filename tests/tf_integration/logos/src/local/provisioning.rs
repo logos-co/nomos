@@ -477,6 +477,7 @@ fn configure_logging(base_dir: &Path, prefix: &str) -> logger::Layers {
                     loki: None,
                     gelf: None,
                     otlp: None,
+                    format: logger::LogFormat::default(),
                     stdout: false,
                     stderr: false,
                 };
@@ -500,6 +501,7 @@ fn configure_logging(base_dir: &Path, prefix: &str) -> logger::Layers {
         loki: None,
         gelf: None,
         otlp: None,
+        format: logger::LogFormat::default(),
         stdout: false,
         stderr: false,
     }
