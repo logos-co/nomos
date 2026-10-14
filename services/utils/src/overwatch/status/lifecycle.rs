@@ -9,7 +9,6 @@ use crate::overwatch::status::ServiceStatusEntry;
 
 const LOG_TARGET: &str = utils::SERVICE_READINESS;
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(60);
-const LONG_WAIT: Duration = Duration::from_secs(5);
 
 /// Wait for a service to become ready, or report a terminal lifecycle state.
 ///
@@ -46,15 +45,12 @@ where
         let status = status_watcher.current();
         match status {
             ServiceStatus::Ready => {
-                let elapsed = started_at.elapsed();
-                if elapsed >= LONG_WAIT {
-                    info!(
-                        target: LOG_TARGET,
-                        dependency = %service_id,
-                        elapsed_seconds = elapsed.as_secs_f64(),
-                        "Dependency became ready"
-                    );
-                }
+                info!(
+                    target: LOG_TARGET,
+                    dependency = %service_id,
+                    elapsed_seconds = started_at.elapsed().as_secs_f64(),
+                    "Dependency became ready"
+                );
                 return Ok(());
             }
             ServiceStatus::Starting => {}
