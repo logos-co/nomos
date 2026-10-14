@@ -1,12 +1,16 @@
 use std::ptr;
 
+use lb_c_macros::panic_to_error;
+use lb_groth16::fr_to_bytes;
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_node::{PoWService, RuntimeServiceId};
+use lb_pow_service::AutoClaimTick;
 
 use crate::{
     LogosBlockchainNode, OperationStatus,
-    api::{cryptarchia::Hash, wallet::parse_public_key},
+    api::{cryptarchia::Hash, types::value::Value, wallet::parse_public_key},
     errors::OperationStatusCode,
+    option::FfiOption,
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
 };
@@ -26,7 +30,7 @@ use crate::{
 /// An [`OperationStatus`] error on failure, or [`OperationStatus::OK`] on
 /// success.
 pub(crate) fn pow_start_mining_sync(node: &LogosBlockchainNode) -> StatusResult<()> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::start_mining::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
         )
@@ -56,6 +60,7 @@ pub(crate) fn pow_start_mining_sync(node: &LogosBlockchainNode) -> StatusResult<
 /// This function is unsafe because it dereferences a raw pointer. The caller
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_start_mining(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
@@ -80,7 +85,7 @@ pub unsafe extern "C" fn pow_start_mining(node: *const LogosBlockchainNode) -> O
 /// An [`OperationStatus`] error on failure, or [`OperationStatus::OK`] on
 /// success.
 pub(crate) fn pow_stop_mining_sync(node: &LogosBlockchainNode) -> StatusResult<()> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::stop_mining::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
         )
@@ -110,6 +115,7 @@ pub(crate) fn pow_stop_mining_sync(node: &LogosBlockchainNode) -> StatusResult<(
 /// This function is unsafe because it dereferences a raw pointer. The caller
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_stop_mining(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
@@ -136,7 +142,7 @@ pub unsafe extern "C" fn pow_stop_mining(node: *const LogosBlockchainNode) -> Op
 /// An [`OperationStatus`] error on failure, or [`OperationStatus::OK`] on
 /// success.
 pub(crate) fn pow_start_auto_claim_sync(node: &LogosBlockchainNode) -> StatusResult<()> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::start_auto_claim::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
         )
@@ -166,6 +172,7 @@ pub(crate) fn pow_start_auto_claim_sync(node: &LogosBlockchainNode) -> StatusRes
 /// This function is unsafe because it dereferences a raw pointer. The caller
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_start_auto_claim(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
@@ -190,7 +197,7 @@ pub unsafe extern "C" fn pow_start_auto_claim(node: *const LogosBlockchainNode) 
 /// An [`OperationStatus`] error on failure, or [`OperationStatus::OK`] on
 /// success.
 pub(crate) fn pow_stop_auto_claim_sync(node: &LogosBlockchainNode) -> StatusResult<()> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::stop_auto_claim::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
         )
@@ -220,6 +227,7 @@ pub(crate) fn pow_stop_auto_claim_sync(node: &LogosBlockchainNode) -> StatusResu
 /// This function is unsafe because it dereferences a raw pointer. The caller
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_stop_auto_claim(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
@@ -249,7 +257,7 @@ pub(crate) fn pow_claim_sync(
     node: &LogosBlockchainNode,
     claim_address: Option<ZkPublicKey>,
 ) -> StatusResult<lb_core::mantle::TxHash> {
-    let tx_hash = node.get_runtime_handle().block_on(async {
+    let tx_hash = node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::claim::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
             claim_address,
@@ -295,6 +303,7 @@ pub type FfiPoWClaimResult = FfiStatusResult<Hash>;
 /// must ensure that `node` is non-null and points to a valid
 /// [`LogosBlockchainNode`] instance, and that `claim_address` is either null
 /// or points to at least 32 readable bytes.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_claim(
     node: *const LogosBlockchainNode,
@@ -313,16 +322,7 @@ pub unsafe extern "C" fn pow_claim(
     let node = unsafe { &*node };
     let tx_hash = unwrap_or_return_error!(pow_claim_sync(node, claim_address));
 
-    let Ok(tx_hash_array): Result<Hash, _> =
-        tx_hash.as_signing_bytes().iter().as_slice().try_into()
-    else {
-        return FfiPoWClaimResult::err(OperationStatus::error(
-            OperationStatusCode::RuntimeError,
-            "Failed to convert transaction hash to array.",
-        ));
-    };
-
-    FfiPoWClaimResult::ok(tx_hash_array)
+    FfiPoWClaimResult::ok(tx_hash.0)
 }
 
 /// The rewards this node can currently claim.
@@ -333,6 +333,9 @@ pub struct PoWClaimableRewards {
     /// For each claimable ticket, how many more slots it stays within the
     /// reward window before it can no longer be claimed. Points to `len`
     /// contiguous `u64` values.
+    ///
+    /// When the list is empty this pointer is not null, but it points to
+    /// nothing: check the length before reading through it.
     pub slots_until_expiry: *mut u64,
     /// Number of entries in `slots_until_expiry`.
     pub len: usize,
@@ -365,7 +368,7 @@ impl Default for PoWClaimableRewards {
 pub(crate) fn pow_claimable_rewards_sync(
     node: &LogosBlockchainNode,
 ) -> StatusResult<lb_pow_service::ClaimableRewardsInfo> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         lb_api_service::http::pow::claimable_rewards::<PoWService, RuntimeServiceId>(
             node.get_overwatch_handle(),
         )
@@ -403,6 +406,7 @@ pub type FfiPoWClaimableRewardsResult = FfiStatusResult<PoWClaimableRewards>;
 /// This function allocates memory for the `slots_until_expiry` list. The caller
 /// must free the returned value using the [`free_pow_claimable_rewards`]
 /// function.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pow_claimable_rewards(
     node: *const LogosBlockchainNode,
@@ -436,6 +440,10 @@ pub unsafe extern "C" fn pow_claimable_rewards(
 /// This function is unsafe because it reconstructs a boxed slice from a raw
 /// pointer. The caller must only pass values returned by
 /// [`pow_claimable_rewards`] and must call this exactly once per result.
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_pow_claimable_rewards(
     rewards: PoWClaimableRewards,
@@ -449,5 +457,185 @@ pub unsafe extern "C" fn free_pow_claimable_rewards(
     };
 
     drop(slots);
+    OperationStatus::OK
+}
+
+#[repr(C)]
+pub enum PoWAutoClaimTickUnit {
+    Seconds,
+    Slots,
+}
+
+#[repr(C)]
+pub struct PoWClaimTargetStatus {
+    /// The target's public key, as 32 little-endian bytes.
+    pub public_key: [u8; 32],
+    pub threshold: Value,
+    /// `None` means the wallet couldn't be read.
+    pub balance: FfiOption<Value>,
+}
+
+/// The runtime state of unattended claiming.
+///
+/// Mirrors [`lb_pow_service::AutoClaimStatus`], except for the tick:
+/// [`AutoClaimTick`] keeps its period inside the variant, which C cannot
+/// express, so it arrives here as a `tick` plus the `tick_unit` that reads it.
+#[repr(C)]
+pub struct PoWAutoClaimStatus {
+    pub is_armed: bool,
+    pub tick: u64,
+    pub tick_unit: PoWAutoClaimTickUnit,
+    /// The configured claim targets. Points to `targets_len` contiguous
+    /// [`PoWClaimTargetStatus`] values.
+    ///
+    /// When the list is empty this pointer is not null, but it points to
+    /// nothing: check the length before reading through it.
+    pub targets: *mut PoWClaimTargetStatus,
+    /// Number of entries in `targets`.
+    pub targets_len: usize,
+}
+
+impl Default for PoWAutoClaimStatus {
+    fn default() -> Self {
+        Self {
+            is_armed: false,
+            tick: 0,
+            tick_unit: PoWAutoClaimTickUnit::Seconds,
+            targets: ptr::null_mut(),
+            targets_len: 0,
+        }
+    }
+}
+
+/// The runtime state of the `PoW` service, as the running service holds it.
+#[repr(C)]
+#[derive(Default)]
+pub struct PoWStatus {
+    pub is_mining: bool,
+    pub are_rewards_enabled: bool,
+    pub auto_claim: PoWAutoClaimStatus,
+}
+
+/// Reports the runtime state of the `PoW` service.
+///
+/// This is a synchronous wrapper around the asynchronous
+/// [`status`](lb_api_service::http::pow::status) function.
+///
+/// # Arguments
+///
+/// - `node`: A [`LogosBlockchainNode`] instance.
+///
+/// # Returns
+///
+/// A [`Result`] containing the service status on success, or an
+/// [`OperationStatus`] error on failure.
+pub(crate) fn pow_status_sync(
+    node: &LogosBlockchainNode,
+) -> StatusResult<lb_pow_service::PoWStatus> {
+    node.get_runtime_handle()?.block_on(async {
+        lb_api_service::http::pow::status::<PoWService, RuntimeServiceId>(
+            node.get_overwatch_handle(),
+        )
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get PoW status: {error}"),
+            )
+        })
+    })
+}
+
+pub type FfiPoWStatusResult = FfiStatusResult<PoWStatus>;
+
+/// Reports the runtime state of the `PoW` service.
+///
+/// # Arguments
+///
+/// - `node`: A non-null pointer to a [`LogosBlockchainNode`] instance.
+///
+/// # Returns
+///
+/// A [`FfiPoWStatusResult`] containing the service status on success, or an
+/// [`OperationStatus`] error on failure.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure that `node` is non-null and points to a valid
+/// [`LogosBlockchainNode`] instance.
+///
+/// # Memory Management
+///
+/// This function allocates memory for the `auto_claim.targets` list.
+/// The caller must free the returned value using the [`free_pow_status`]
+/// function.
+#[panic_to_error]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWStatusResult {
+    return_error_if_null_pointer!(node);
+
+    let node = unsafe { &*node };
+    let status = unwrap_or_return_error!(pow_status_sync(node));
+
+    let (tick, tick_unit) = match status.auto_claim.tick {
+        AutoClaimTick::Seconds(seconds) => (seconds.get(), PoWAutoClaimTickUnit::Seconds),
+        AutoClaimTick::Slots(slots) => (slots.get(), PoWAutoClaimTickUnit::Slots),
+    };
+
+    let targets: Vec<PoWClaimTargetStatus> = status
+        .auto_claim
+        .targets
+        .into_iter()
+        .map(|target| PoWClaimTargetStatus {
+            public_key: fr_to_bytes(target.public_key.as_fr()),
+            threshold: target.threshold,
+            balance: target.balance.into(),
+        })
+        .collect();
+
+    let len = targets.len();
+    let targets_ptr = Box::leak(targets.into_boxed_slice()).as_mut_ptr();
+
+    FfiPoWStatusResult::ok(PoWStatus {
+        is_mining: status.is_mining,
+        are_rewards_enabled: status.are_rewards_enabled,
+        auto_claim: PoWAutoClaimStatus {
+            is_armed: status.auto_claim.is_armed,
+            tick,
+            tick_unit,
+            targets: targets_ptr,
+            targets_len: len,
+        },
+    })
+}
+
+/// Frees the memory allocated for a [`PoWStatus`] structure.
+///
+/// # Arguments
+///
+/// - `status`: A [`PoWStatus`] structure previously returned by [`pow_status`].
+///
+/// # Safety
+///
+/// This function is unsafe because it reconstructs a boxed slice from a raw
+/// pointer.
+/// The caller must only pass values returned by [`pow_status`] and must call
+/// this exactly once per result.
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn free_pow_status(status: PoWStatus) -> OperationStatus {
+    return_error_if_null_pointer!(status.auto_claim.targets);
+    let targets = unsafe {
+        Box::from_raw(ptr::slice_from_raw_parts_mut(
+            status.auto_claim.targets,
+            status.auto_claim.targets_len,
+        ))
+    };
+
+    drop(targets);
     OperationStatus::OK
 }

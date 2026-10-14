@@ -5,8 +5,8 @@ use super::{
     set_deployment_config_override, set_user_config_override, when,
 };
 
-#[given(expr = "the cluster uses Blend diagnostic parameter set {string}")]
-#[when(expr = "the cluster uses Blend diagnostic parameter set {string}")]
+#[given(expr = "the cluster uses diagnostic parameter set {string}")]
+#[when(expr = "the cluster uses diagnostic parameter set {string}")]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Cucumber step arguments must use owned types"
@@ -102,14 +102,14 @@ fn step_set_deployment_config_setting(
 
 #[given(expr = "the first {int} nodes are declared as blend providers")]
 #[when(expr = "the first {int} nodes are declared as blend providers")]
-fn step_blend_provider_count(world: &mut CucumberWorld, provider_count: usize) -> StepResult {
+async fn step_blend_provider_count(world: &mut CucumberWorld, provider_count: usize) -> StepResult {
     world.cluster.blend_core_nodes = Some(provider_count);
-    rebuild_pending_local_manual_cluster(world)
+    rebuild_pending_local_manual_cluster(world).await
 }
 
 #[given(expr = "the cluster uses SDP funding of {int} per provider split across {int} notes")]
 #[when(expr = "the cluster uses SDP funding of {int} per provider split across {int} notes")]
-fn step_set_sdp_funding(
+async fn step_set_sdp_funding(
     world: &mut CucumberWorld,
     total_value_per_node: u64,
     target_notes_per_node: usize,
@@ -124,12 +124,12 @@ fn step_set_sdp_funding(
         total_value_per_node,
         target_notes_per_node,
     ));
-    rebuild_pending_local_manual_cluster(world)
+    rebuild_pending_local_manual_cluster(world).await
 }
 
 #[given(expr = "no nodes are declared as blend providers")]
 #[when(expr = "no nodes are declared as blend providers")]
-fn step_no_blend_providers(world: &mut CucumberWorld) -> StepResult {
+async fn step_no_blend_providers(world: &mut CucumberWorld) -> StepResult {
     world.cluster.blend_core_nodes = Some(0);
-    rebuild_pending_local_manual_cluster(world)
+    rebuild_pending_local_manual_cluster(world).await
 }

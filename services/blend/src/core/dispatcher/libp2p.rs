@@ -5,9 +5,9 @@ use core::{
 };
 
 use futures::{Stream, StreamExt as _, stream, stream::BoxStream};
+use lb_binary_codec::bincode::DeserializeOp;
 use lb_chain_network_service::Message as ChainNetworkMsg;
 use lb_core::{
-    codec::DeserializeOp,
     header::HeaderId,
     mantle::{traits::Hashable, transactions::hash::PrefixedKey},
 };
@@ -28,7 +28,7 @@ use tokio::sync::oneshot;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
 use super::PayloadDispatcher;
-use crate::message::DataPayload;
+use crate::message::{DataPayload, MAX_PAYLOAD_BODY_SIZE};
 
 const LOG_TARGET: &str = blend::service::CORE;
 
@@ -63,7 +63,17 @@ pub struct Libp2pBroadcastSettings {
 /// Broadcast an unencrypted block proposal to the network by publishing it
 /// under the configured gossipsub topic.
 async fn broadcast_block_proposal(network_relay: &NetworkRelay, topic: String, proposal: Vec<u8>) {
-    if let Err((e, _)) = network_relay
+    if proposal.len() > MAX_PAYLOAD_BODY_SIZE {
+        tracing::error!(
+            target: LOG_TARGET,
+            size = proposal.len(),
+            maximum = MAX_PAYLOAD_BODY_SIZE,
+            "Refusing to broadcast an oversized block proposal"
+        );
+        return;
+    }
+
+    if let Err(error) = network_relay
         .send(NetworkMsg::Process(Command::PubSub(
             PubSubCommand::Broadcast {
                 topic,
@@ -72,7 +82,7 @@ async fn broadcast_block_proposal(network_relay: &NetworkRelay, topic: String, p
         )))
         .await
     {
-        tracing::error!(target: LOG_TARGET, "error broadcasting block proposal: {e}");
+        tracing::error!(target: LOG_TARGET, "error broadcasting block proposal: {error}");
     }
 }
 
@@ -91,31 +101,29 @@ impl AsRef<str> for StreamType {
     }
 }
 
-/// The observations of `subscription`, up to the moment it lags.
+/// The observations of `subscription`, carried on past any lag.
 ///
 /// A missed observation is a delivery this node cannot see, and a delivery it
-/// cannot see is a payload it reveals. Carrying on past a lag would hand an
-/// adversary a way to force those reveals by flooding the node into one — the
-/// cheaper of the two to flood being the transactions — so the stream ends
-/// instead, and the detection that reads it stops with it.
-fn stop_observing_on_lag<Observed>(
+/// cannot see is a payload it broadcasts in the clear once its deadline passes.
+/// That costs the payloads the lag skipped, whereas ending the stream would
+/// cost every payload sent from then on its fallback, so a lag is logged and
+/// the stream goes on from what the channel still holds.
+fn observe_items_ignoring_lags<Observed>(
     subscription: BroadcastStream<Observed>,
     observed_type: StreamType,
 ) -> impl Stream<Item = Observed> + Send
 where
     Observed: Clone + Send + 'static,
 {
-    subscription
-        .take_while(move |subscribed| {
-            ready(match subscribed {
-                Ok(_) => true,
-                Err(BroadcastStreamRecvError::Lagged(missed)) => {
-                    tracing::error!(target: LOG_TARGET, "Missed {missed} {observed_type}; a delivery can no longer be told from a loss, so the direct broadcast is disabled for the rest of this run.", observed_type = observed_type.as_ref());
-                    false
-                }
-            })
+    subscription.filter_map(move |subscribed| {
+        ready(match subscribed {
+            Ok(observed) => Some(observed),
+            Err(BroadcastStreamRecvError::Lagged(missed)) => {
+                tracing::warn!(target: LOG_TARGET, missed, "Missed {missed} {observed_type}; any of this node's own payloads among them is broadcast in the clear at its delivery deadline.", observed_type = observed_type.as_ref());
+                None
+            }
         })
-        .filter_map(|subscribed| ready(subscribed.ok()))
+    })
 }
 
 async fn observe_block_proposals<Tx>(
@@ -125,11 +133,11 @@ where
     Tx: Send + 'static,
 {
     let (result_sender, receiver) = oneshot::channel();
-    if let Err((e, _)) = chain_network_relay
+    if let Err(error) = chain_network_relay
         .send(ChainNetworkMsg::SubscribeToProposals { result_sender })
         .await
     {
-        tracing::error!(target: LOG_TARGET, "Failed to ask the chain network for the proposals it receives: {e}");
+        tracing::error!(target: LOG_TARGET, "Failed to ask the chain network for the proposals it receives: {error}");
         return stream::empty().boxed();
     }
     let Ok(received) = receiver.await else {
@@ -137,7 +145,7 @@ where
         return stream::empty().boxed();
     };
 
-    stop_observing_on_lag(BroadcastStream::new(received), StreamType::Proposals)
+    observe_items_ignoring_lags(BroadcastStream::new(received), StreamType::Proposals)
         .filter_map(|proposal| {
             // Encoded the way it was handed to Blend, so that the two are the same
             // bytes and comparing them is all the sender has to do. One that does
@@ -167,7 +175,7 @@ async fn submit_transaction<Item, Key>(
     };
 
     let (reply_channel, receiver) = oneshot::channel();
-    if let Err((e, _)) = mempool_relay
+    if let Err(error) = mempool_relay
         .send(MempoolMsg::Add {
             key: transaction.hash(),
             payload: transaction,
@@ -175,7 +183,7 @@ async fn submit_transaction<Item, Key>(
         })
         .await
     {
-        tracing::error!(target: LOG_TARGET, "Error submitting a blended transaction to the mempool: {e}");
+        tracing::error!(target: LOG_TARGET, "Error submitting a blended transaction to the mempool: {error}");
         return;
     }
 
@@ -196,11 +204,11 @@ where
     Key: PrefixedKey<Prefix: Send> + Send + 'static,
 {
     let (reply_channel, receiver) = oneshot::channel();
-    if let Err((e, _)) = mempool_relay
+    if let Err(error) = mempool_relay
         .send(MempoolMsg::SubscribeToAccepted { reply_channel })
         .await
     {
-        tracing::error!(target: LOG_TARGET, "Failed to ask the mempool for the transactions it accepts: {e}");
+        tracing::error!(target: LOG_TARGET, "Failed to ask the mempool for the transactions it accepts: {error}");
         return stream::empty().boxed();
     }
     let Ok(accepted) = receiver.await else {
@@ -208,7 +216,7 @@ where
         return stream::empty().boxed();
     };
 
-    stop_observing_on_lag(BroadcastStream::new(accepted), StreamType::Transactions)
+    observe_items_ignoring_lags(BroadcastStream::new(accepted), StreamType::Transactions)
         .filter_map(|transaction| {
             // Encoded the way it was handed to Blend, so that the two are the same
             // bytes and comparing them is all the sender has to do. If it cannot fit into
@@ -241,12 +249,7 @@ where
         + Send
         + Sync
         + 'static
-        + AsServiceId<
-            StorageService<
-                <Mempool::Storage as MempoolStorageAdapter<RuntimeServiceId>>::Backend,
-                RuntimeServiceId,
-            >,
-        >,
+        + AsServiceId<StorageService<RuntimeServiceId>>,
 {
     type Backend = Libp2p;
     type ChainNetworkService = ChainNetwork;
@@ -293,16 +296,36 @@ where
         let transactions_stream =
             stream::once(observe_transactions(self.mempool_relay.clone())).flatten();
 
-        // Each half is followed by a `None` marking its end, so that whichever ends
-        // first stops the merge rather than merely dropping out of it.
-        stream::select(
-            proposals_stream.map(Some).chain(stream::once(ready(None))),
-            transactions_stream
-                .map(Some)
-                .chain(stream::once(ready(None))),
-        )
-        .take_while(|observed| ready(observed.is_some()))
-        .map(|observed| observed.expect("`take_while` stops at the first end marker."))
-        .boxed()
+        stream::select(proposals_stream, transactions_stream).boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::pin::pin;
+
+    use futures::StreamExt as _;
+    use tokio::sync::broadcast;
+    use tokio_stream::wrappers::BroadcastStream;
+
+    use super::{StreamType, observe_items_ignoring_lags};
+
+    /// A lag costs the observations it skipped and nothing after them: the
+    /// stream goes on with what the channel still holds and what it carries
+    /// next.
+    #[tokio::test]
+    async fn observing_carries_on_past_a_lag() {
+        let (channel, subscription) = broadcast::channel(1);
+        let mut observed = pin!(observe_items_ignoring_lags(
+            BroadcastStream::new(subscription),
+            StreamType::Transactions
+        ));
+        // One more than the channel holds, so the first is skipped.
+        channel.send(1).expect("the stream is subscribed");
+        channel.send(2).expect("the stream is subscribed");
+
+        assert_eq!(observed.next().await, Some(2));
+        channel.send(3).expect("the stream is subscribed");
+        assert_eq!(observed.next().await, Some(3));
     }
 }

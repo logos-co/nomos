@@ -1,18 +1,16 @@
 use std::{collections::BTreeSet, time::Duration};
 
-use lb_core::{
-    codec::DeserializeOp as _,
-    mantle::{
-        SignedOps, TxHash,
-        ledger::verification_mode::StandardMode,
-        traits::Hashable as _,
-        transactions::{OpProofs, states::Preverified},
-    },
+use lb_binary_codec::bincode::DeserializeOp as _;
+use lb_core::mantle::{
+    SignedOps, TxHash,
+    ledger::verification_mode::StandardMode,
+    traits::Hashable as _,
+    transactions::{OpProofs, states::Preverified},
 };
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_storage_service::{
-    backends::rocksdb::RocksBackendSettings,
     recovery::{load_recovery_data, recovery_key},
+    rocksdb::RocksBackendSettings,
 };
 use lb_testing_framework::USER_CONFIG_FILE;
 use lb_tx_service::{
@@ -185,7 +183,6 @@ async fn collect_pending_mempool_hashes(
     node_info: &NodeInfo,
 ) -> Result<BTreeSet<TxHash>, StepError> {
     Ok(node_info
-        .started_node
         .client
         .test_mempool_view()
         .await?

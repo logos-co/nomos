@@ -5,12 +5,13 @@ use std::{
 };
 
 use lb_api_service::http::mempool;
+use lb_c_macros::panic_to_error;
 use lb_core::{
     header::HeaderId as CoreHeaderId,
     mantle::{
         Note, NoteId as CoreNoteId, Op, OpProof, SignedOps,
         gas::GasCost,
-        ledger::{Inputs, Outputs, verification_mode::StandardMode},
+        ledger::{BoundedInputs, Inputs, Outputs, verification_mode::StandardMode},
         ops::{
             channel::{
                 ChannelId,
@@ -74,7 +75,7 @@ type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteId, Value)>);
 pub(crate) fn get_known_addresses_sync(
     node: &LogosBlockchainNode,
 ) -> StatusResult<Vec<ZkPublicKey>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(
             node.get_overwatch_handle(),
@@ -155,6 +156,7 @@ pub type FfiKnownAddressesResult = FfiStatusResult<KnownAddresses>;
 ///     free_known_addresses(addresses);
 /// }
 /// ```
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_known_addresses(
     node: *const LogosBlockchainNode,
@@ -233,6 +235,10 @@ pub unsafe extern "C" fn get_known_addresses(
 ///     free_known_addresses(addresses);
 /// }
 /// ```
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> OperationStatus {
     return_error_if_null_pointer!(addresses.addresses);
@@ -243,7 +249,11 @@ pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> Oper
         ))
     };
     for address_pointer in address_pointers {
-        return_error_if_null_pointer!(address_pointer);
+        // A null entry owns nothing. Skipping it rather than returning keeps
+        // the entries after it from leaking.
+        if address_pointer.is_null() {
+            continue;
+        }
         unsafe { drop(Box::from_raw(address_pointer.cast::<[u8; 32]>())) };
     }
     OperationStatus::OK
@@ -266,12 +276,20 @@ pub(crate) fn get_claimable_vouchers_sync(
     node: &LogosBlockchainNode,
     tip: Option<CoreHeaderId>,
 ) -> StatusResult<TipResponse<ClaimableVouchersInfo>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
-        if let Err(status) = node
+        let mut status_watcher = node
             .get_overwatch_handle()
             .status_watcher::<WalletService>()
             .await
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::ServiceError,
+                    format!("Failed to request wallet service status watcher: {error}"),
+                )
+            })?;
+
+        if let Err(status) = status_watcher
             .wait_for(ServiceStatus::Ready, Some(Duration::from_millis(100)))
             .await
         {
@@ -308,6 +326,7 @@ pub(crate) fn get_claimable_vouchers_sync(
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_claimable_vouchers(
     node: *const LogosBlockchainNode,
@@ -362,6 +381,10 @@ pub unsafe extern "C" fn get_claimable_vouchers(
 /// This function is unsafe because it reconstructs a boxed slice from a raw
 /// pointer. The caller must only pass values returned by
 /// [`get_claimable_vouchers`] and must call this exactly once per result.
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_claimable_vouchers(vouchers: ClaimableVouchers) -> OperationStatus {
     return_error_if_null_pointer!(vouchers.vouchers);
@@ -395,7 +418,7 @@ pub(crate) fn get_balance_sync(
     tip: lb_core::header::HeaderId,
     wallet_address: ZkPublicKey,
 ) -> StatusResult<Option<Value>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle
         .block_on(async {
             let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(
@@ -421,8 +444,8 @@ pub type FfiBalanceResult = FfiStatusResult<Value>;
 /// # Arguments
 ///
 /// - `node`: A non-null pointer to a [`LogosBlockchainNode`] instance.
-/// - `wallet_address`: A non-null pointer to the public key bytes of the wallet
-///   address to query.
+/// - `wallet_address`: A non-null pointer to the 32-byte public key of the
+///   wallet address to query.
 /// - `optional_tip`: An optional pointer to the header ID to query the balance
 ///   at. If null, the current tip will be used.
 ///
@@ -435,6 +458,7 @@ pub type FfiBalanceResult = FfiStatusResult<Value>;
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_balance(
     node: *const LogosBlockchainNode,
@@ -496,7 +520,7 @@ pub(crate) fn get_wallet_notes_sync(
     tip: lb_core::header::HeaderId,
     wallet_address: ZkPublicKey,
 ) -> StatusResult<Option<WalletNotesData>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle
         .block_on(async {
             let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(
@@ -543,6 +567,7 @@ pub type FfiWalletNotesResult = FfiStatusResult<WalletNotes>;
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid, and must free the returned
 /// [`WalletNotes`] with [`free_wallet_notes`] exactly once.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_wallet_notes(
     node: *const LogosBlockchainNode,
@@ -615,7 +640,7 @@ pub(crate) fn get_leader_aged_notes_sync(
     node: &LogosBlockchainNode,
     tip: Option<CoreHeaderId>,
 ) -> StatusResult<TipResponse<LeaderAgedNotesInfo>> {
-    node.get_runtime_handle().block_on(async {
+    node.get_runtime_handle()?.block_on(async {
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(
             node.get_overwatch_handle(),
         )
@@ -652,6 +677,7 @@ pub type FfiLeaderAgedNotesResult = FfiStatusResult<LeaderAgedNotes>;
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid, and must free the returned
 /// [`LeaderAgedNotes`] with [`free_leader_aged_notes`] exactly once.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_leader_aged_notes(
     node: *const LogosBlockchainNode,
@@ -696,11 +722,13 @@ pub unsafe extern "C" fn get_leader_aged_notes(
 /// This function is unsafe because it reconstructs a boxed slice from a raw
 /// pointer. The caller must only pass values returned by
 /// [`get_leader_aged_notes`] and must call this exactly once per result.
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_leader_aged_notes(notes: LeaderAgedNotes) -> OperationStatus {
-    if notes.notes.is_null() {
-        return OperationStatus::OK;
-    }
+    return_error_if_null_pointer!(notes.notes);
     let notes = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(notes.notes, notes.len)) };
     drop(notes);
     OperationStatus::OK
@@ -713,11 +741,13 @@ pub unsafe extern "C" fn free_leader_aged_notes(notes: LeaderAgedNotes) -> Opera
 /// This function is unsafe because it reconstructs a boxed slice from a raw
 /// pointer. The caller must only pass values returned by [`get_wallet_notes`]
 /// and must call this exactly once per result.
+///
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_wallet_notes(notes: WalletNotes) -> OperationStatus {
-    if notes.notes.is_null() {
-        return OperationStatus::OK;
-    }
+    return_error_if_null_pointer!(notes.notes);
     let notes = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(notes.notes, notes.len)) };
     drop(notes);
     OperationStatus::OK
@@ -809,7 +839,7 @@ pub(crate) fn transfer_funds_sync(
     recipient_public_key: ZkPublicKey,
     amount: u64,
 ) -> StatusResult<SignedOps<Preverified, StandardMode>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let handle = node.get_overwatch_handle();
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
@@ -863,6 +893,7 @@ pub type FfiTransferFundsResult = FfiStatusResult<Hash>;
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn transfer_funds(
     node: *const LogosBlockchainNode,
@@ -911,14 +942,7 @@ pub unsafe extern "C" fn transfer_funds(
         recipient_public_key,
         amount,
     ));
-    let transaction_hash = transaction.hash().as_signing_bytes();
-    let Ok(transaction_hash_array) = transaction_hash.iter().as_slice().try_into() else {
-        return FfiTransferFundsResult::err(OperationStatus::error(
-            OperationStatusCode::RuntimeError,
-            "Failed to convert transaction hash to array.",
-        ));
-    };
-    FfiTransferFundsResult::ok(transaction_hash_array)
+    FfiTransferFundsResult::ok(transaction.hash().0)
 }
 
 /// Parses a 32-byte little-endian buffer into a [`ZkPublicKey`].
@@ -1062,7 +1086,7 @@ pub(crate) fn channel_deposit_with_notes_sync(
     funding_public_keys: Vec<ZkPublicKey>,
     max_tx_fee: GasCost,
 ) -> StatusResult<SignedOps<Preverified, StandardMode>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let handle = node.get_overwatch_handle();
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
@@ -1151,6 +1175,7 @@ pub(crate) fn channel_deposit_with_notes_sync(
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid and that the array lengths are
 /// accurate.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn channel_deposit_with_notes(
     node: *const LogosBlockchainNode,
@@ -1246,14 +1271,7 @@ pub unsafe extern "C" fn channel_deposit_with_notes(
         funding_public_keys,
         max_tx_fee,
     ));
-    let transaction_hash = transaction.hash().as_signing_bytes();
-    let Ok(transaction_hash_array) = transaction_hash.iter().as_slice().try_into() else {
-        return FfiChannelDepositResult::err(OperationStatus::error(
-            OperationStatusCode::RuntimeError,
-            "Failed to convert transaction hash to array.",
-        ));
-    };
-    FfiChannelDepositResult::ok(transaction_hash_array)
+    FfiChannelDepositResult::ok(transaction.hash().0)
 }
 
 /// Selects notes (largest-first) whose combined value covers `amount`.
@@ -1366,7 +1384,7 @@ pub(crate) fn channel_deposit_sync(
     amount: Value,
     metadata: Metadata,
 ) -> StatusResult<SignedOps<Preverified, StandardMode>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let handle = node.get_overwatch_handle();
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
@@ -1432,7 +1450,7 @@ pub(crate) fn channel_deposit_sync(
             .id();
         let deposit = DepositOp {
             channel_id,
-            inputs: Inputs::new([deposit_note_id]),
+            inputs: BoundedInputs::from(deposit_note_id).into(),
             metadata,
         };
 
@@ -1507,6 +1525,7 @@ pub(crate) fn channel_deposit_sync(
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn channel_deposit(
     node: *const LogosBlockchainNode,
@@ -1560,14 +1579,7 @@ pub unsafe extern "C" fn channel_deposit(
         amount,
         metadata,
     ));
-    let transaction_hash = transaction.hash().as_signing_bytes();
-    let Ok(transaction_hash_array) = transaction_hash.iter().as_slice().try_into() else {
-        return FfiChannelDepositResult::err(OperationStatus::error(
-            OperationStatusCode::RuntimeError,
-            "Failed to convert transaction hash to array.",
-        ));
-    };
-    FfiChannelDepositResult::ok(transaction_hash_array)
+    FfiChannelDepositResult::ok(transaction.hash().0)
 }
 
 /// Funds a transaction from the node's wallet.
@@ -1581,7 +1593,7 @@ pub(crate) fn wallet_fund_tx_sync(
     node: &LogosBlockchainNode,
     request: WalletFundRequestBody,
 ) -> StatusResult<WalletFundResponseBody> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let handle = node.get_overwatch_handle();
         let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
@@ -1701,6 +1713,7 @@ pub type FfiWalletFundResult = FfiStatusResult<*mut c_char>;
 ///
 /// This function allocates the returned C string. The caller must free it
 /// using the [`free_cstring`](crate::api::free_cstring) function.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn wallet_fund_tx(
     node: *const LogosBlockchainNode,
@@ -1773,6 +1786,7 @@ pub type FfiSubmitTransactionResult = FfiStatusResult<Hash>;
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
 /// must ensure that all pointers are valid.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn submit_signed_transaction(
     node: *const LogosBlockchainNode,
@@ -1813,8 +1827,8 @@ pub unsafe extern "C" fn submit_signed_transaction(
         }
     };
 
-    let transaction_hash = preverified_tx.hash().as_signing_bytes();
-    let runtime_handle = node.get_runtime_handle();
+    let transaction_hash = preverified_tx.hash().0;
+    let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
     let submit_result = runtime_handle.block_on(async {
         mempool::add_tx(node.get_overwatch_handle(), preverified_tx, Hashable::hash).await
     });
@@ -1825,11 +1839,5 @@ pub unsafe extern "C" fn submit_signed_transaction(
         ));
     }
 
-    let Ok(transaction_hash_array) = transaction_hash.iter().as_slice().try_into() else {
-        return FfiSubmitTransactionResult::err(OperationStatus::error(
-            OperationStatusCode::RuntimeError,
-            "Failed to convert transaction hash to array.",
-        ));
-    };
-    FfiSubmitTransactionResult::ok(transaction_hash_array)
+    FfiSubmitTransactionResult::ok(transaction_hash)
 }

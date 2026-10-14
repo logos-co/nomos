@@ -11,7 +11,7 @@ use lb_zone_sdk::{
 use crate::{
     db::{Databases, PendingPublish, SuffixWrite},
     error::Error,
-    protocol::{self, ChannelInscription, TxId},
+    protocol::{self, ChannelBatch, ChannelWrite, TxId},
 };
 
 const TARGET: &str = lb_log_targets::logos_sql::APPLIER;
@@ -35,7 +35,7 @@ enum RebuildCause {
     /// transaction automatically, so the rebuild removes its effect and
     /// reports it as displaced. This also resumes a rebuild interrupted after
     /// the displacement was recorded.
-    PendingWriteInvalidated(PendingPublish),
+    PendingWriteInvalidated(Vec<PendingPublish>),
     /// Canonical channel history changed and `LIVE.db` must drop orphaned SQL.
     ChannelFork,
 }
@@ -50,7 +50,7 @@ enum ApplicationPlan {
 }
 
 impl ApplyTarget {
-    fn apply(self, db: &mut Databases, write: &ChannelInscription) -> Result<(), Error> {
+    fn apply(self, db: &mut Databases, write: &ChannelWrite) -> Result<(), Error> {
         match self {
             Self::Live => db.apply_adopted_write(write),
             Self::Lib => db.apply_finalized_write_to_lib(write),
@@ -88,14 +88,14 @@ pub fn on_event(db: &mut Databases, event: &Event, channel_id: ChannelId) -> Res
             checkpoint,
             channel_update,
             finalized,
-        } => process_blocks(db, checkpoint, channel_update, finalized, channel_id)?,
+            ..
+        } => process_blocks(db, checkpoint, channel_update, finalized, channel_id),
         Event::Ready => {
             tracing::info!(target: TARGET, "sequencer ready");
+            Ok(())
         }
-        Event::MempoolPending(_) | Event::TurnNotification { .. } => {}
+        Event::TurnNotification { .. } => Ok(()),
     }
-
-    Ok(())
 }
 
 /// Applies one block event before advancing its checkpoint.
@@ -126,7 +126,9 @@ fn process_blocks(
         ApplicationPlan::Rebuild(cause) => changes.rebuild(db, &cause)?,
     }
 
-    db.persist_checkpoint(checkpoint)
+    db.persist_checkpoint(checkpoint)?;
+
+    Ok(())
 }
 
 impl SqlChanges {
@@ -148,8 +150,8 @@ impl SqlChanges {
             .collect();
 
         Self {
-            adopted: Self::collect_channel_inscriptions(&channel_update.adopted, channel_id),
-            orphaned: Self::collect_channel_inscriptions(&channel_update.orphaned, channel_id),
+            adopted: Self::collect_channel_inscriptions(channel_update.adopted(), channel_id),
+            orphaned: Self::collect_channel_inscriptions(channel_update.orphaned(), channel_id),
             finalized,
         }
     }
@@ -186,18 +188,20 @@ impl SqlChanges {
     /// optimistic local effect must move or disappear, or canonical history
     /// removes an effect that is already present in `LIVE.db`.
     fn application_plan(&self, db: &Databases) -> Result<ApplicationPlan, Error> {
-        if let Some(pending) = db.pending_publish()? {
+        let pending = db.pending_writes()?;
+
+        if let Some(first) = pending.first() {
             // The rebuild records the displacement first, then replaces
             // `LIVE.db`, which removes its pending-write record. If both records
             // still exist, the process stopped between those two steps and the
             // rebuild must resume.
-            if db.is_write_displaced(pending.tx_id)? {
+            if db.pending_write_rebuild_was_interrupted(first.tx_id)? {
                 return Ok(ApplicationPlan::Rebuild(
                     RebuildCause::PendingWriteInvalidated(pending),
                 ));
             }
 
-            if self.changes_pending_base(db)? {
+            if self.changes_history_before_pending_write(db)? {
                 return Ok(ApplicationPlan::Rebuild(
                     RebuildCause::PendingWriteInvalidated(pending),
                 ));
@@ -214,16 +218,14 @@ impl SqlChanges {
     /// Reports whether this event changed the history below a pending local
     /// write.
     ///
-    /// Adoptions and orphans always change that base. Finalizing a write
-    /// already retained in the live suffix only moves the finalized
-    /// boundary and does not invalidate the pending write's execution
-    /// order.
-    fn changes_pending_base(&self, db: &Databases) -> Result<bool, Error> {
-        if !self.adopted.is_empty() || !self.orphaned.is_empty() {
+    /// Orphans change the base. Adopting or finalizing a write already in the
+    /// live suffix does not: its effects preceded the queued local writes.
+    fn changes_history_before_pending_write(&self, db: &Databases) -> Result<bool, Error> {
+        if !self.orphaned.is_empty() {
             return Ok(true);
         }
 
-        for inscription in &self.finalized {
+        for inscription in self.adopted.iter().chain(&self.finalized) {
             if !db.live_suffix_contains(inscription.this_msg)? {
                 return Ok(true);
             }
@@ -248,14 +250,18 @@ impl SqlChanges {
     fn rebuild(&self, db: &mut Databases, cause: &RebuildCause) -> Result<(), Error> {
         match cause {
             RebuildCause::PendingWriteInvalidated(pending) => {
-                db.record_unpublished_displacement(pending)?;
+                for write in pending {
+                    db.record_pending_write_displacement(write)?;
+                }
             }
             RebuildCause::ChannelFork => {}
         }
 
         Self::apply_inscriptions(db, &self.finalized, ApplyTarget::Lib)?;
         self.apply_history_delta(db)?;
-        rebuild_live_from_suffix(db)
+        rebuild_live_from_suffix(db)?;
+
+        Ok(())
     }
 
     fn apply_inscriptions(
@@ -270,8 +276,7 @@ impl SqlChanges {
         Ok(())
     }
 
-    /// Applies this event to the replayable suffix and local displacement
-    /// outcomes.
+    /// Applies this event to the replayable suffix and local write statuses.
     fn apply_history_delta(&self, db: &mut Databases) -> Result<(), Error> {
         let finalized = self
             .finalized
@@ -294,20 +299,22 @@ impl SqlChanges {
 
         for inscription in &self.adopted {
             let payload = inscription.payload.as_ref();
-            let write = match ChannelInscription::decode(payload) {
-                Ok(write) => write,
+            let batch = match ChannelBatch::decode(payload) {
+                Ok(batch) => batch,
                 Err(error) => {
                     handle_write_error(db, inscription, None, error)?;
                     continue;
                 }
             };
 
-            writes.push(SuffixWrite {
-                this_msg: inscription.this_msg,
-                tx_id: write.tx_id,
-                payload: payload.to_vec(),
-                local: false,
-            });
+            for write in batch.into_writes() {
+                writes.push(SuffixWrite {
+                    this_msg: inscription.this_msg,
+                    tx_id: write.tx_id,
+                    payload: write.encode_stored()?,
+                    local: false,
+                });
+            }
         }
 
         Ok(writes)
@@ -324,7 +331,7 @@ fn rebuild_live_from_suffix(db: &mut Databases) -> Result<(), Error> {
     let mut rebuild = db.begin_live_rebuild()?;
 
     for retained in suffix {
-        let write = ChannelInscription::decode(&retained.payload)
+        let write = ChannelWrite::decode(&retained.payload)
             .map_err(|_| Error::InvalidLocalState("stored live suffix payload is malformed"))?;
 
         if write.tx_id != retained.tx_id {
@@ -360,22 +367,25 @@ fn apply_inscription(
 ) -> Result<(), Error> {
     let payload = inscription.payload.as_ref();
 
-    let write = match ChannelInscription::decode(payload) {
-        Ok(write) => write,
+    let batch = match ChannelBatch::decode(payload) {
+        Ok(batch) => batch,
         Err(error) => return handle_write_error(db, inscription, None, error),
     };
 
-    if let Err(error) = target.apply(db, &write) {
-        return handle_write_error(db, inscription, Some(write.tx_id), error);
-    }
+    for write in batch.into_writes() {
+        if let Err(error) = target.apply(db, &write) {
+            handle_write_error(db, inscription, Some(write.tx_id), error)?;
+            continue;
+        }
 
-    tracing::debug!(
-        target: TARGET,
-        tx_id = ?write.tx_id,
-        statements = write.transaction.statements().len(),
-        ?target,
-        "channel write processed"
-    );
+        tracing::debug!(
+            target: TARGET,
+            tx_id = ?write.tx_id,
+            statements = write.transaction.statements().len(),
+            ?target,
+            "channel write processed"
+        );
+    }
 
     Ok(())
 }
@@ -427,7 +437,7 @@ fn is_logos_sql_inscription(inscription: &InscriptionInfo) -> bool {
 #[cfg(test)]
 mod tests {
     use lb_zone_sdk::{
-        Ed25519PublicKey,
+        UnverifiedEd25519PublicKey,
         node_types::{ChannelId, HeaderId, MsgId, Slot, TxHash},
         sequencer::{
             ChannelUpdate, ChannelUpdateTx, Event, FinalizedOp, FinalizedTx, InscriptionInfo,
@@ -439,14 +449,211 @@ mod tests {
 
     use super::on_event;
     use crate::{
-        db::{Databases, SuffixWrite},
+        PublicationConfig,
+        db::{Databases, SuffixWrite, tests::open_databases},
         protocol::{
-            CapturedFunctionCalls, ChannelInscription, EncodedWrite, PAYLOAD_MARKER, Statement,
-            Transaction, TxId,
+            CapturedFunctionCalls, ChannelBatch, ChannelWrite, EncodedWrite, PAYLOAD_MARKER,
+            Statement, Transaction, TxId,
         },
+        publication::Publication,
+        status::WriteStatus,
     };
 
     const CHANNEL_ID: [u8; 32] = [9; 32];
+
+    #[test]
+    fn a_failed_transaction_does_not_rollback_other_batch_members() {
+        let dir = TempDir::new().unwrap();
+        let mut db = open_databases(dir.path()).unwrap();
+        let sql = [
+            "CREATE TABLE items(value INTEGER PRIMARY KEY)",
+            "INSERT INTO items VALUES (1)",
+            "INSERT INTO items VALUES (2); INSERT INTO missing VALUES (1)",
+            "INSERT INTO items VALUES (1)",
+            "INSERT INTO items VALUES (3)",
+        ];
+        let writes = sql
+            .into_iter()
+            .map(|sql| ChannelWrite {
+                tx_id: TxId::generate(),
+                transaction: Transaction::new(
+                    sql.split(';')
+                        .map(|sql| Statement::new(sql.to_owned(), Vec::new()).unwrap())
+                        .collect(),
+                )
+                .unwrap(),
+                captured_function_calls: CapturedFunctionCalls::empty(),
+            })
+            .collect();
+        let payload = ChannelBatch::new(writes).unwrap().encode().unwrap();
+        let event = blocks_processed(
+            checkpoint(1, 1),
+            vec![ChannelUpdateTx::Inscription(inscription(&payload, 1))],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        on_event(&mut db, &event, ChannelId::from(CHANNEL_ID)).unwrap();
+        on_event(&mut db, &event, ChannelId::from(CHANNEL_ID)).unwrap();
+
+        let connection = Databases::open_reader(db.live_path()).unwrap();
+        let values: Vec<i64> = connection
+            .prepare("SELECT value FROM items ORDER BY value")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        assert_eq!(values, vec![1, 3]);
+        assert_eq!(db.rejected_write_count().unwrap(), 2);
+
+        let event = blocks_processed(
+            checkpoint(2, 2),
+            Vec::new(),
+            Vec::new(),
+            vec![finalized(&payload, 1)],
+        );
+        on_event(&mut db, &event, ChannelId::from(CHANNEL_ID)).unwrap();
+        assert_eq!(item_count(db.lib_path()), 2);
+    }
+
+    #[test]
+    fn batched_writes_are_displaced_restored_and_finalized_together() {
+        let dir = TempDir::new().unwrap();
+        let mut db = open_databases(dir.path()).unwrap();
+        let first = TxId::from([2; 32]);
+        let second = TxId::from([1; 32]);
+
+        db.commit_local_write(
+            first,
+            &transaction("CREATE TABLE items(value INTEGER)", Vec::new()),
+        )
+        .unwrap();
+        db.commit_local_write(
+            second,
+            &transaction("INSERT INTO items VALUES (random())", Vec::new()),
+        )
+        .unwrap();
+        let original: i64 = Databases::open_reader(db.live_path())
+            .unwrap()
+            .query_row("SELECT value FROM items", [], |row| row.get(0))
+            .unwrap();
+        let publication = Publication::prepare(
+            db.pending_writes().unwrap(),
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap()
+        .unwrap();
+        db.complete_batch(&checkpoint(1, 1), MsgId::from([1; 32]), &publication.writes)
+            .unwrap();
+
+        let orphan = blocks_processed(
+            checkpoint(2, 2),
+            Vec::new(),
+            vec![ChannelUpdateTx::Inscription(inscription(
+                &publication.payload,
+                1,
+            ))],
+            Vec::new(),
+        );
+        on_event(&mut db, &orphan, ChannelId::from(CHANNEL_ID)).unwrap();
+
+        assert!(!table_exists(db.live_path(), "items"));
+        let displaced: Vec<_> = db
+            .unhandled_displacements()
+            .unwrap()
+            .into_iter()
+            .map(|write| write.tx_id)
+            .collect();
+        assert_eq!(displaced, vec![first, second]);
+        drop(db);
+
+        let mut db = open_databases(dir.path()).unwrap();
+        let restore = blocks_processed(
+            checkpoint(3, 3),
+            vec![ChannelUpdateTx::Inscription(inscription(
+                &publication.payload,
+                1,
+            ))],
+            Vec::new(),
+            Vec::new(),
+        );
+        on_event(&mut db, &restore, ChannelId::from(CHANNEL_ID)).unwrap();
+
+        assert_eq!(item_count(db.live_path()), 1);
+        let restored: i64 = Databases::open_reader(db.live_path())
+            .unwrap()
+            .query_row("SELECT value FROM items", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(restored, original);
+        assert_eq!(db.unhandled_displacements().unwrap(), []);
+        assert_eq!(db.write_status(first).unwrap(), Some(WriteStatus::Live));
+        assert_eq!(db.write_status(second).unwrap(), Some(WriteStatus::Live));
+
+        let finish = blocks_processed(
+            checkpoint(4, 4),
+            Vec::new(),
+            Vec::new(),
+            vec![finalized(&publication.payload, 1)],
+        );
+        on_event(&mut db, &finish, ChannelId::from(CHANNEL_ID)).unwrap();
+
+        assert_eq!(item_count(db.lib_path()), 1);
+        assert_eq!(
+            db.write_status(first).unwrap(),
+            Some(WriteStatus::Finalized)
+        );
+        assert_eq!(
+            db.write_status(second).unwrap(),
+            Some(WriteStatus::Finalized)
+        );
+        assert!(db.live_suffix().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_changed_base_displaces_every_queued_write() {
+        let dir = TempDir::new().unwrap();
+        let mut db = open_databases(dir.path()).unwrap();
+        let first = TxId::generate();
+        let second = TxId::generate();
+        db.commit_local_write(
+            first,
+            &transaction("CREATE TABLE items(value INTEGER)", Vec::new()),
+        )
+        .unwrap();
+        db.commit_local_write(
+            second,
+            &transaction("INSERT INTO items VALUES (1)", Vec::new()),
+        )
+        .unwrap();
+
+        let foreign = encoded_write(&transaction(
+            "CREATE TABLE foreign_data(value INTEGER)",
+            Vec::new(),
+        ));
+        let event = blocks_processed(
+            checkpoint(1, 1),
+            vec![ChannelUpdateTx::Inscription(inscription(
+                &foreign.payload,
+                1,
+            ))],
+            Vec::new(),
+            Vec::new(),
+        );
+        on_event(&mut db, &event, ChannelId::from(CHANNEL_ID)).unwrap();
+
+        assert!(db.pending_writes().unwrap().is_empty());
+        assert!(!table_exists(db.live_path(), "items"));
+        assert!(table_exists(db.live_path(), "foreign_data"));
+        let displaced: Vec<_> = db
+            .unhandled_displacements()
+            .unwrap()
+            .into_iter()
+            .map(|write| write.tx_id)
+            .collect();
+        assert_eq!(displaced, vec![first, second]);
+    }
 
     fn checkpoint(byte: u8, slot: u64) -> SequencerCheckpoint {
         SequencerCheckpoint {
@@ -456,6 +663,7 @@ mod tests {
             lib_slot: Slot::from(slot),
             channel_notes: Vec::new(),
             finalized_config: MsgId::root(),
+            funding: Vec::new(),
         }
     }
 
@@ -468,7 +676,7 @@ mod tests {
                 .to_vec()
                 .try_into()
                 .expect("test payload should fit an inscription"),
-            signer: Some(Ed25519PublicKey::from_bytes(&[0u8; 32]).unwrap()),
+            signer: Some(UnverifiedEd25519PublicKey::from_bytes(&[0u8; 32]).unwrap()),
         }
     }
 
@@ -478,13 +686,19 @@ mod tests {
         orphaned: Vec<ChannelUpdateTx>,
         finalized: Vec<FinalizedTx>,
     ) -> Event {
+        let channel_update = if orphaned.is_empty() {
+            ChannelUpdate::Extension { adopted }
+        } else {
+            ChannelUpdate::Conflict {
+                common_prefix: Vec::new(),
+                adopted,
+                orphaned,
+            }
+        };
         Event::BlocksProcessed {
             checkpoint,
-            channel_update: ChannelUpdate {
-                orphaned,
-                adopted,
-                adopted_deposits: Vec::new(),
-            },
+            channel_update,
+            deposits: Vec::new(),
             finalized,
         }
     }
@@ -542,6 +756,13 @@ mod tests {
             .expect("journal mode should be readable")
     }
 
+    fn assert_status(db: &Databases, tx_id: TxId, expected: Option<WriteStatus>) {
+        assert_eq!(
+            db.write_status(tx_id).expect("write status should load"),
+            expected
+        );
+    }
+
     fn text_values(path: &std::path::Path, table: &str) -> Vec<String> {
         let connection = Databases::open_reader(path).expect("database should open for reading");
         let mut statement = connection
@@ -558,7 +779,7 @@ mod tests {
     #[test]
     fn adopted_writes_apply_to_live_in_channel_order() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
         let lib_path = db.lib_path().to_owned();
 
@@ -594,7 +815,7 @@ mod tests {
     #[test]
     fn finalized_backfill_applies_to_lib_and_live_once() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
         let lib_path = db.lib_path().to_owned();
 
@@ -626,7 +847,7 @@ mod tests {
     #[test]
     fn replay_after_apply_completes_checkpoint_without_duplicate_effects() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
         let transaction = Transaction::new(vec![
             Statement::new(
@@ -642,7 +863,7 @@ mod tests {
         ])
         .expect("transaction should be valid");
         let encoded = encoded_write(&transaction);
-        let write = ChannelInscription::decode(&encoded.payload).expect("payload should decode");
+        let write = ChannelWrite::decode(&encoded.payload).expect("payload should decode");
 
         // Simulate a crash after SQL and its applied marker commit but before
         // the ZoneSDK checkpoint is persisted.
@@ -650,7 +871,7 @@ mod tests {
             .expect("write should apply before the simulated crash");
         drop(db);
 
-        let mut db = Databases::open(dir.path()).expect("databases should reopen");
+        let mut db = open_databases(dir.path()).expect("databases should reopen");
 
         let expected_checkpoint = checkpoint(2, 2);
         let event = blocks_processed(
@@ -679,7 +900,7 @@ mod tests {
     #[test]
     fn locally_applied_write_is_not_executed_when_adopted() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let setup = transaction("CREATE TABLE items(value INTEGER NOT NULL)", Vec::new());
@@ -729,12 +950,13 @@ mod tests {
     #[test]
     fn finalizing_an_earlier_local_write_preserves_the_next_pending_write() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
         let lib_path = db.lib_path().to_owned();
 
         let create = transaction("CREATE TABLE items(value INTEGER NOT NULL)", Vec::new());
-        db.commit_local_write(TxId::generate(), &create)
+        let create_tx_id = db
+            .commit_local_write(TxId::generate(), &create)
             .expect("schema write should commit");
         let create_pending = db
             .pending_publish()
@@ -773,17 +995,13 @@ mod tests {
                 .tx_id,
             insert_tx_id
         );
-        assert!(
-            db.displaced_writes()
-                .expect("displaced writes should load")
-                .is_empty()
-        );
+        assert_status(&db, create_tx_id, Some(WriteStatus::Finalized));
     }
 
     #[test]
     fn rejected_sql_does_not_block_following_writes() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let insert = encoded_write(&transaction(
@@ -818,7 +1036,7 @@ mod tests {
         assert!(table_exists(&live_path, "items"));
 
         drop(db);
-        let db = Databases::open(dir.path()).expect("databases should reopen");
+        let db = open_databases(dir.path()).expect("databases should reopen");
 
         assert_eq!(
             db.rejected_write_count().expect("rejections should load"),
@@ -829,7 +1047,7 @@ mod tests {
     #[test]
     fn malformed_payload_does_not_block_following_writes() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let mut malformed = encoded_write(&transaction(
@@ -874,14 +1092,14 @@ mod tests {
     #[test]
     fn reused_transaction_id_does_not_block_following_writes() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let first = encoded_write(&transaction(
             "CREATE TABLE first_write(value INTEGER)",
             Vec::new(),
         ));
-        let conflicting = ChannelInscription {
+        let conflicting = ChannelWrite {
             tx_id: first.tx_id,
             transaction: transaction("CREATE TABLE conflicting_write(value INTEGER)", Vec::new()),
             captured_function_calls: CapturedFunctionCalls::empty(),
@@ -926,7 +1144,7 @@ mod tests {
     #[test]
     fn unsupported_protocol_does_not_block_following_writes() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let mut unsupported = encoded_write(&transaction(
@@ -971,14 +1189,13 @@ mod tests {
     }
 
     #[test]
-    fn orphaned_local_write_rebuilds_live_and_reports_displacement() {
+    fn active_reader_keeps_its_snapshot_during_live_rebuild() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
-        let local_tx_id = db
-            .commit_local_write(TxId::generate(), &local)
+        db.commit_local_write(TxId::generate(), &local)
             .expect("local write should commit");
         let local_pending = db
             .pending_publish()
@@ -1025,11 +1242,6 @@ mod tests {
         assert!(!table_exists(&live_path, "local_write"));
         assert!(table_exists(&live_path, "adopted_too_early"));
         assert_eq!(journal_mode(&live_path), "wal");
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
-
         let local_still_visible: bool = reader
             .query_row(
                 "SELECT EXISTS(
@@ -1059,34 +1271,75 @@ mod tests {
             .expect("reader should observe rebuilt state after its snapshot");
 
         assert!(adopted_visible);
+    }
 
-        let restore_original = blocks_processed(
-            checkpoint(3, 3),
-            vec![ChannelUpdateTx::Inscription(inscription(&local_payload, 1))],
-            vec![ChannelUpdateTx::Inscription(inscription(
-                &adopted.payload,
-                2,
-            ))],
+    #[test]
+    fn local_write_reports_orphaned_adopted_and_finalized() {
+        let dir = TempDir::new().expect("temporary directory should be created");
+        let mut db = open_databases(dir.path()).expect("databases should open");
+        let live_path = db.live_path().to_owned();
+
+        let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
+        let local_tx_id = db
+            .commit_local_write(TxId::generate(), &local)
+            .expect("local write should commit");
+        let pending = db
+            .pending_publish()
+            .expect("pending write should load")
+            .expect("pending write should exist");
+        let payload = pending.payload.clone();
+
+        db.complete_publish(&checkpoint(1, 1), MsgId::from([1; 32]), &pending)
+            .expect("local publish should be complete");
+
+        let orphan = blocks_processed(
+            checkpoint(2, 2),
+            Vec::new(),
+            vec![ChannelUpdateTx::Inscription(inscription(&payload, 1))],
             Vec::new(),
         );
 
-        on_event(&mut db, &restore_original, ChannelId::from(CHANNEL_ID))
-            .expect("restored branch should rebuild live state");
+        on_event(&mut db, &orphan, ChannelId::from(CHANNEL_ID))
+            .expect("local write should be orphaned");
+
+        assert!(!table_exists(&live_path, "local_write"));
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
+
+        drop(db);
+        let mut db = open_databases(dir.path()).expect("databases should reopen");
+
+        let restore = blocks_processed(
+            checkpoint(3, 3),
+            vec![ChannelUpdateTx::Inscription(inscription(&payload, 1))],
+            Vec::new(),
+            Vec::new(),
+        );
+
+        on_event(&mut db, &restore, ChannelId::from(CHANNEL_ID))
+            .expect("original channel position should return");
 
         assert!(table_exists(&live_path, "local_write"));
-        assert!(!table_exists(&live_path, "adopted_too_early"));
-        assert!(
-            db.displaced_writes()
-                .expect("displaced writes should load")
-                .is_empty(),
-            "restoring the original channel position clears displacement"
+        assert_status(&db, local_tx_id, Some(WriteStatus::Live));
+
+        let finalize = blocks_processed(
+            checkpoint(4, 4),
+            Vec::new(),
+            Vec::new(),
+            vec![finalized(&payload, 1)],
         );
+
+        on_event(&mut db, &finalize, ChannelId::from(CHANNEL_ID))
+            .expect("local write should finalize");
+
+        assert!(table_exists(&live_path, "local_write"));
+        assert!(table_exists(db.lib_path(), "local_write"));
+        assert_status(&db, local_tx_id, Some(WriteStatus::Finalized));
     }
 
     #[test]
     fn branch_change_preserves_the_unchanged_live_suffix() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let create = encoded_write(&transaction(
@@ -1112,7 +1365,7 @@ mod tests {
             .expect("initial suffix should apply");
 
         drop(db);
-        let mut db = Databases::open(dir.path()).expect("databases should reopen");
+        let mut db = open_databases(dir.path()).expect("databases should reopen");
 
         let replacement = encoded_write(&transaction(
             "INSERT INTO items(value) VALUES (?1)",
@@ -1137,18 +1390,13 @@ mod tests {
             .expect("replayed branch update should be idempotent");
 
         assert_eq!(text_values(&live_path, "items"), vec!["new"]);
-        assert!(
-            db.displaced_writes()
-                .expect("displaced writes should load")
-                .is_empty(),
-            "foreign orphaned writes are not application outcomes"
-        );
+        assert_status(&db, old_branch.tx_id, None);
     }
 
     #[test]
     fn foreign_adoption_displaces_an_unpublished_local_write() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
@@ -1180,16 +1428,13 @@ mod tests {
                 .expect("pending publication should load")
                 .is_none()
         );
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
     }
 
     #[test]
     fn rollback_displaces_an_unpublished_write_based_on_removed_state() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let previous = encoded_write(&transaction(
@@ -1227,16 +1472,13 @@ mod tests {
 
         assert!(!table_exists(&live_path, "previous_write"));
         assert!(!table_exists(&live_path, "local_write"));
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
     }
 
     #[test]
     fn replay_finishes_a_rebuild_after_the_suffix_commit() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
@@ -1256,14 +1498,14 @@ mod tests {
 
         // Simulate a crash after the control-state transaction commits but
         // before the replacement LIVE database is installed.
-        db.record_unpublished_displacement(&pending)
+        db.record_pending_write_displacement(&pending)
             .expect("displacement should be recorded");
         db.apply_history_delta(
             &[],
             &[],
             &[SuffixWrite {
                 this_msg: foreign_inscription.this_msg,
-                tx_id: ChannelInscription::decode(&foreign.payload)
+                tx_id: ChannelWrite::decode(&foreign.payload)
                     .expect("payload should decode")
                     .tx_id,
                 payload: foreign.payload.clone(),
@@ -1273,7 +1515,7 @@ mod tests {
         .expect("suffix update should commit");
         drop(db);
 
-        let mut db = Databases::open(dir.path()).expect("databases should reopen");
+        let mut db = open_databases(dir.path()).expect("databases should reopen");
         let replayed_event = blocks_processed(
             checkpoint(2, 2),
             vec![ChannelUpdateTx::Inscription(foreign_inscription)],
@@ -1291,16 +1533,13 @@ mod tests {
                 .expect("pending publication should load")
                 .is_none()
         );
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
     }
 
     #[test]
     fn finalized_backfill_finishes_a_rebuild_after_the_suffix_commit() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
@@ -1320,14 +1559,14 @@ mod tests {
 
         // Simulate a crash after the control-state transaction commits but
         // before the replacement LIVE database is installed.
-        db.record_unpublished_displacement(&pending)
+        db.record_pending_write_displacement(&pending)
             .expect("displacement should be recorded");
         db.apply_history_delta(
             &[],
             &[],
             &[SuffixWrite {
                 this_msg: foreign_inscription.this_msg,
-                tx_id: ChannelInscription::decode(&foreign.payload)
+                tx_id: ChannelWrite::decode(&foreign.payload)
                     .expect("payload should decode")
                     .tx_id,
                 payload: foreign.payload.clone(),
@@ -1337,7 +1576,7 @@ mod tests {
         .expect("suffix update should commit");
         drop(db);
 
-        let mut db = Databases::open(dir.path()).expect("databases should reopen");
+        let mut db = open_databases(dir.path()).expect("databases should reopen");
         let backfilled_event = blocks_processed(
             checkpoint(2, 2),
             Vec::new(),
@@ -1359,16 +1598,13 @@ mod tests {
                 .expect("pending publication should load")
                 .is_none()
         );
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
     }
 
     #[test]
     fn newly_discovered_finalized_write_displaces_an_unpublished_local_write() {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let mut db = Databases::open(dir.path()).expect("databases should open");
+        let mut db = open_databases(dir.path()).expect("databases should open");
         let live_path = db.live_path().to_owned();
 
         let local = transaction("CREATE TABLE local_write(value INTEGER)", Vec::new());
@@ -1393,9 +1629,6 @@ mod tests {
         assert!(!table_exists(&live_path, "local_write"));
         assert!(table_exists(&live_path, "finalized_write"));
         assert!(table_exists(db.lib_path(), "finalized_write"));
-        assert_eq!(
-            db.displaced_writes().expect("displaced writes should load"),
-            vec![local_tx_id]
-        );
+        assert_status(&db, local_tx_id, Some(WriteStatus::Displaced));
     }
 }

@@ -793,7 +793,7 @@ mod pol_tests {
         RewardPoWConfig {
             reward_pool_genesis: 1_000_000_000,
             epoch_reward_genesis: 1_000_000,
-            initial_difficulty: ModulusShift::new::<26>(),
+            minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: core::num::NonZeroU64::new(10).unwrap(),
             target_claims_per_block: 100,
@@ -922,7 +922,6 @@ mod pol_tests {
         type Kms = ();
         type Cryptarchia = ();
         type Tx = ();
-        type Storage = ();
     }
 
     impl DummyWallet {

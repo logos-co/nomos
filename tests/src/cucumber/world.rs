@@ -5,33 +5,36 @@ use std::{
     hash::BuildHasher,
     num::NonZero,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Mutex, atomic::AtomicUsize},
+    time::{Duration, Instant},
 };
 
+pub use blockchain_test_support::runtime_info::{NodeWalletKey, NodeWalletKeyRole};
 use cucumber::World;
 use educe::Educe;
+use lb_binary_codec::bincode::DeserializeOp as _;
 use lb_core::{
-    codec::DeserializeOp as _,
     header::HeaderId,
     mantle::{
         GenesisTime, SignedOps, Utxo, Value,
         ledger::verification_mode::StandardMode,
         ops::channel::{
-            ChannelId, deposit::DepositOp, inscribe::Inscription, withdraw::ChannelWithdrawOp,
+            ChannelId, MsgId, deposit::DepositOp, inscribe::Inscription,
+            withdraw::ChannelWithdrawOp,
         },
         transactions::{
             hash::TxHash,
             states::{Preverified, VerificationState},
         },
     },
+    proofs::channel_multi_sig_proof::IndexedSignatures,
 };
 use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
 use lb_key_management_system_service::keys::{Ed25519Key, Ed25519PublicKey, ZkPublicKey};
 use lb_libp2p::{Multiaddr, PeerId};
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
-    LbcEnv, LbcK8sManualCluster, LbcManualCluster, NodeHttpClient, ScenarioBuilder,
+    LbcClusterBackend, LbcEnv, LbcK8sManualCluster, LbcScenario, NodeHttpClient, ScenarioBuilder,
     ScenarioBuilderExt as _,
     configs::{deployment::SdpFundingConfig, wallet::WalletAccount},
     env::set_default_env,
@@ -39,7 +42,7 @@ use lb_testing_framework::{
 };
 use reqwest::Url;
 use testing_framework_core::{
-    scenario::{PeerSelection, Scenario, StartedNode},
+    scenario::{ClusterHandle, NodeControl, PeerSelection},
     topology::DeploymentSeed,
 };
 use tokio::task::JoinHandle;
@@ -56,18 +59,22 @@ use crate::{
     },
     cucumber::{
         TARGET,
+        background_tasks::{
+            BackgroundBestNodeSelection, BackgroundTasks, ContinuousTransactionLoadProgress,
+        },
         defaults::{
             CUCUMBER_NODE_CONFIG_OVERRIDE, LOGOS_BLOCKCHAIN_NODE_BIN, init_node_log_dir_defaults,
         },
+        deployment::{LocalDeployment, LocalImplementation, runtime_info::NodeRuntimeInfoSource},
         error::{StepError, StepResult},
         fee_reserve::{SCENARIO_FEE_ACCOUNT_NAME, ScenarioFeeState},
         logos_sql::LogosSqlState,
         steps::{
-            nodes::BlendRelayRegistry,
+            nodes::{BlendRelayRegistry, restore_all_blend_reachability},
             tokio_console::profile::TokioConsoleProfile,
             zone::runner::{
                 Event, IndexedSignature, InscriptionId, PreparedChannelConfig, SequencerCheckpoint,
-                SequencerClient, TxStatusUpdate,
+                SequencerClient,
             },
         },
         utils::{make_builder, shared_host_bin_path},
@@ -150,7 +157,11 @@ pub struct ManualClusterSpec {
 impl ManualNodeConfigOverrides {
     pub const fn apply_to(&self, config: &mut RunConfig) {
         if let Some(security_param) = self.cryptarchia_security_param {
-            config.deployment.cryptarchia.security_param = security_param;
+            config
+                .deployment
+                .genesis_era_parameters_mut()
+                .cryptarchia
+                .security_param = security_param;
         }
 
         if let Some(prolonged_bootstrap_period) = self.prolonged_bootstrap_period {
@@ -175,9 +186,14 @@ impl ManualNodeConfigOverrides {
 pub struct ZonePublishedMessage {
     pub payload: Inscription,
     pub inscription_id: Option<InscriptionId>,
+    /// The channel message id, stable across a stale-refund rebuild.
+    pub msg_id: Option<MsgId>,
 }
 
 pub type ZoneDiscardedPayloads = Arc<tokio::sync::Mutex<HashSet<Inscription>>>;
+/// The first channel-view contract violation a sequencer's drive loop
+/// recorded, shared with the checker that writes it.
+pub type ZoneViewViolation = Arc<Mutex<Option<String>>>;
 
 pub struct ZoneSequencerIdentity {
     signing_key: Ed25519Key,
@@ -193,7 +209,6 @@ pub struct ZoneSequencerRuntime {
     checkpoint_rx: tokio::sync::watch::Receiver<Option<SequencerCheckpoint>>,
     channel_view_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::SequencerChannelView>,
     turn_to_write_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::TurnNotification>,
-    tx_status_rx: Option<tokio::sync::broadcast::Receiver<TxStatusUpdate>>,
     discarded_payloads: Option<ZoneDiscardedPayloads>,
 }
 
@@ -228,6 +243,8 @@ pub struct ZoneState {
     indexer: Option<ZoneReaderConfig>,
     sequencers: HashMap<String, ZoneSequencerIdentity>,
     runtimes: HashMap<String, ZoneSequencerRuntime>,
+    /// One per run of the sequencer alias, so a violation survives a restart.
+    view_violations: HashMap<String, Vec<ZoneViewViolation>>,
     default_sequencer_alias: Option<String>,
     published_messages: HashMap<String, ZonePublishedMessage>,
     submitted_deposits: HashMap<String, (DepositOp, Value)>,
@@ -241,9 +258,8 @@ pub struct ZoneState {
     saved_checkpoints: HashMap<String, SequencerCheckpoint>,
     latest_checkpoints: HashMap<String, SequencerCheckpoint>,
     prepared_configs: HashMap<String, PreparedChannelConfig>,
-    prepared_config_signatures: HashMap<String, Vec<IndexedSignature>>,
+    prepared_config_signatures: HashMap<String, IndexedSignatures>,
     sequencer_startups: HashMap<String, ZoneSequencerStartup>,
-    observed_mempool_pending: HashMap<String, HashSet<InscriptionId>>,
     sorted_total_payloads: Option<usize>,
     sorted_expected_by_sequencer: Option<HashMap<String, Vec<Inscription>>>,
     expected_custom_payloads: Vec<Inscription>,
@@ -390,6 +406,7 @@ impl ZoneState {
         alias: String,
         payload: Inscription,
         inscription_id: Option<InscriptionId>,
+        msg_id: Option<MsgId>,
         sequencer_alias: Option<&str>,
         checkpoint: Option<SequencerCheckpoint>,
     ) {
@@ -399,6 +416,7 @@ impl ZoneState {
             ZonePublishedMessage {
                 payload,
                 inscription_id,
+                msg_id,
             },
         );
 
@@ -507,6 +525,14 @@ impl ZoneState {
             .collect()
     }
 
+    pub fn published_message(&self, alias: &str) -> Result<&ZonePublishedMessage, StepError> {
+        self.published_messages
+            .get(alias)
+            .ok_or_else(|| StepError::LogicalError {
+                message: format!("Zone message alias '{alias}' is not tracked"),
+            })
+    }
+
     pub fn message_tx_hashes_for_aliases(
         &self,
         aliases: &[String],
@@ -524,28 +550,6 @@ impl ZoneState {
                     })
             })
             .collect()
-    }
-
-    pub fn record_mempool_pending(
-        &mut self,
-        sequencer_alias: impl Into<String>,
-        tx_hashes: impl IntoIterator<Item = InscriptionId>,
-    ) {
-        self.observed_mempool_pending
-            .entry(sequencer_alias.into())
-            .or_default()
-            .extend(tx_hashes);
-    }
-
-    #[must_use]
-    pub fn has_observed_mempool_pending(
-        &self,
-        sequencer_alias: &str,
-        tx_hash: &InscriptionId,
-    ) -> bool {
-        self.observed_mempool_pending
-            .get(sequencer_alias)
-            .is_some_and(|observed| observed.contains(tx_hash))
     }
 
     pub fn published_message_payloads(&self) -> Result<Vec<Inscription>, StepError> {
@@ -573,15 +577,23 @@ impl ZoneState {
             })
     }
 
-    pub fn add_prepared_config_signature(&mut self, alias: String, signature: IndexedSignature) {
+    pub fn add_prepared_config_signature(
+        &mut self,
+        alias: String,
+        IndexedSignature {
+            channel_key_index,
+            signature,
+        }: IndexedSignature,
+    ) {
         self.prepared_config_signatures
             .entry(alias)
             .or_default()
-            .push(signature);
+            .try_insert(channel_key_index, signature)
+            .unwrap();
     }
 
     #[must_use]
-    pub fn prepared_config_signatures(&self, alias: &str) -> Vec<IndexedSignature> {
+    pub fn prepared_config_signatures(&self, alias: &str) -> IndexedSignatures {
         self.prepared_config_signatures
             .get(alias)
             .cloned()
@@ -645,24 +657,6 @@ impl ZoneState {
             .map(|runtime| runtime.checkpoint_rx.clone())
     }
 
-    pub fn take_sequencer_tx_status_rx(
-        &mut self,
-        sequencer_alias: &str,
-    ) -> Result<tokio::sync::broadcast::Receiver<TxStatusUpdate>, StepError> {
-        self.runtimes
-            .get_mut(sequencer_alias)
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!("Zone sequencer '{sequencer_alias}' is not running"),
-            })?
-            .tx_status_rx
-            .take()
-            .ok_or_else(|| StepError::LogicalError {
-                message: format!(
-                    "Zone sequencer '{sequencer_alias}' tx-status receiver was already consumed"
-                ),
-            })
-    }
-
     pub fn resolve_checkpoint(
         &self,
         alias: impl AsRef<str>,
@@ -691,12 +685,16 @@ impl ZoneState {
         checkpoint_rx: tokio::sync::watch::Receiver<Option<SequencerCheckpoint>>,
         channel_view_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::SequencerChannelView>,
         turn_to_write_rx: tokio::sync::watch::Receiver<lb_zone_sdk::sequencer::TurnNotification>,
-        tx_status_rx: tokio::sync::broadcast::Receiver<TxStatusUpdate>,
         discarded_payloads: Option<ZoneDiscardedPayloads>,
+        view_violation: ZoneViewViolation,
     ) {
         if let Some(runtime) = self.runtimes.remove(&alias) {
             runtime.abort_tasks();
         }
+        self.view_violations
+            .entry(alias.clone())
+            .or_default()
+            .push(view_violation);
 
         self.runtimes.insert(
             alias,
@@ -707,7 +705,6 @@ impl ZoneState {
                 checkpoint_rx,
                 channel_view_rx,
                 turn_to_write_rx,
-                tx_status_rx: Some(tx_status_rx),
                 discarded_payloads,
             },
         );
@@ -737,6 +734,26 @@ impl ZoneState {
             .ok_or(StepError::LogicalError {
                 message: format!("Zone sequencer '{alias}' is not running"),
             })
+    }
+
+    /// Channel-view contract violations recorded by any run of any sequencer,
+    /// as `(alias, message)`.
+    #[must_use]
+    pub fn view_violations(&self) -> Vec<(String, String)> {
+        let mut violations: Vec<(String, String)> = self
+            .view_violations
+            .iter()
+            .flat_map(|(alias, runs)| {
+                runs.iter().filter_map(|run| {
+                    run.lock()
+                        .ok()
+                        .and_then(|violation| violation.clone())
+                        .map(|message| (alias.clone(), message))
+                })
+            })
+            .collect();
+        violations.sort();
+        violations
     }
 
     pub fn stop_sequencer(&mut self, alias: &str) -> Result<(), StepError> {
@@ -858,6 +875,7 @@ impl ZoneState {
         self.prepared_configs.clear();
         self.prepared_config_signatures.clear();
         self.expected_custom_payloads.clear();
+        self.view_violations.clear();
     }
 
     pub fn remember_expected_custom_payloads(&mut self, payloads: Vec<Inscription>) {
@@ -948,6 +966,9 @@ pub struct ScenarioLifecycle {
     /// Automated: Whether to perform readiness checks on nodes after starting
     /// them.
     pub readiness_checks: bool,
+    /// Monotonic stop completion times used to enforce a brief grace period
+    /// before Cucumber restarts nodes.
+    pub node_stopped_at: HashMap<String, Instant>,
 }
 
 /// Chain and genesis parameters captured at cluster build time.
@@ -969,12 +990,24 @@ pub struct ChainParameters {
 }
 
 /// Manual-cluster deployment state: cluster instances, build recipe, and
-/// node-level deployment facts.
+/// node runtime information.
 #[derive(Default)]
 pub struct ClusterState {
-    /// Manual: Optional local cluster instance for scenarios that use the local
-    /// deployer.
-    pub local_cluster: Option<LbcManualCluster>,
+    /// Implementation selected once by the Cucumber runner.
+    pub implementation: LocalImplementation,
+
+    /// Logos handle for steps that need typed Logos configuration.
+    ///
+    /// The world stays concrete because the Cucumber step macros do not support
+    /// a world generic over the node implementation. Shared steps use
+    /// `local_app` instead; this handle is present only for the normal Logos
+    /// runner, even when an external factory happens to deploy Logos nodes.
+    pub logos_cluster: Option<ClusterHandle<LbcEnv>>,
+
+    /// Owns the selected local app, including its cleanup guards.
+    pub local_app: Option<LocalDeployment>,
+    pub node_runtime_info: Option<Arc<dyn NodeRuntimeInfoSource>>,
+
     /// Manual: Optional k8s manual cluster instance for scenarios that use the
     /// k8s deployer.
     pub k8s_manual_cluster: Option<LbcK8sManualCluster>,
@@ -1030,23 +1063,115 @@ impl NodeHeightSnapshots {
     }
 }
 
+impl ClusterState {
+    pub(crate) fn install_local(&mut self, app: LocalDeployment) -> StepResult {
+        self.node_runtime_info = Some(
+            app.runtime()
+                .get::<Arc<dyn NodeRuntimeInfoSource>>()
+                .ok_or_else(|| StepError::LogicalError {
+                    message: "Local app does not provide node runtime information".into(),
+                })?,
+        );
+        self.logos_cluster = match self.implementation {
+            LocalImplementation::Logos => app.runtime().get::<ClusterHandle<LbcEnv>>(),
+            LocalImplementation::External(_) => None,
+        };
+        self.local_app = Some(app);
+        self.k8s_manual_cluster = None;
+        Ok(())
+    }
+
+    pub const fn logos_cluster(&self) -> Option<&ClusterHandle<LbcEnv>> {
+        self.logos_cluster.as_ref()
+    }
+
+    pub fn local_control(&self) -> Result<&dyn NodeControl, StepError> {
+        let app = self
+            .local_app
+            .as_ref()
+            .ok_or_else(|| StepError::LogicalError {
+                message: "No local app available".into(),
+            })?;
+
+        Ok(app.handle().as_ref())
+    }
+}
+
 /// Runtime observations collected by the tagged Blend/TSI diagnostic
 /// scenarios.
 #[derive(Default)]
 pub struct BlendDiagnosticState {
-    /// Current phase of the diagnostic scenario.
-    pub phase: Option<BlendDiagnosticPhase>,
+    /// Shared phase and provider reachability state. Background diagnostics
+    /// can update it without borrowing the Cucumber world.
+    pub reachability: BlendDiagnosticReachability,
     /// Node whose Time-service clock drives the diagnostic observation.
     pub reference_node: Option<String>,
     /// Number of epoch-observation steps completed by the scenario.
     pub observation_count: u32,
     /// Nodes successfully stopped during the diagnostic outage phase.
     pub stopped_nodes: HashSet<String>,
-    /// Nodes whose Blend endpoint is intentionally unreachable during the
-    /// diagnostic outage phase while their processes remain running.
-    pub blend_unreachable_nodes: HashSet<String>,
     /// Whether this scenario has written its diagnostic timeline header.
-    pub timeline_header_written: Mutex<bool>,
+    pub timeline_header_written: Arc<Mutex<bool>>,
+}
+
+#[derive(Clone, Default)]
+pub struct BlendDiagnosticReachability {
+    inner: Arc<Mutex<BlendDiagnosticReachabilityState>>,
+}
+
+#[derive(Default)]
+struct BlendDiagnosticReachabilityState {
+    phase: Option<BlendDiagnosticPhase>,
+    /// Nodes whose Blend endpoint is intentionally unreachable while their
+    /// processes remain running.
+    unreachable_nodes: HashSet<String>,
+}
+
+impl BlendDiagnosticReachability {
+    #[must_use]
+    pub fn phase(&self) -> Option<BlendDiagnosticPhase> {
+        self.lock().phase
+    }
+
+    pub fn set_phase(&self, phase: Option<BlendDiagnosticPhase>) {
+        self.lock().phase = phase;
+    }
+
+    pub fn set_reachable(&self, node_name: &str, reachable: bool) {
+        let mut state = self.lock();
+        if reachable {
+            state.unreachable_nodes.remove(node_name);
+            if state.phase == Some(BlendDiagnosticPhase::Outage) {
+                state.phase = Some(BlendDiagnosticPhase::Recovery);
+            }
+        } else {
+            if state.unreachable_nodes.is_empty() {
+                state.phase = Some(BlendDiagnosticPhase::Outage);
+            }
+            state.unreachable_nodes.insert(node_name.to_owned());
+        }
+    }
+
+    #[must_use]
+    pub fn unreachable_nodes(&self) -> HashSet<String> {
+        self.lock().unreachable_nodes.clone()
+    }
+
+    pub fn replace_unreachable_nodes(
+        &self,
+        unreachable_nodes: HashSet<String>,
+        phase: BlendDiagnosticPhase,
+    ) {
+        let mut state = self.lock();
+        state.unreachable_nodes = unreachable_nodes;
+        state.phase = Some(phase);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BlendDiagnosticReachabilityState> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// Node-startup configuration written by steps before nodes start and consumed
@@ -1171,6 +1296,8 @@ pub struct WalletScanner {
     pub seeds: HashMap<String, ScannerSeed>,
     /// Manual: Transaction hashes observed in blocks by the wallet scanner.
     pub observed_transaction_hashes: SharedObservedTransactionHashes,
+    /// The scanner runtime is owned by another `CucumberWorld` view.
+    pub(super) runtime_is_shared: bool,
 }
 
 impl WalletScanner {
@@ -1181,9 +1308,15 @@ impl WalletScanner {
     }
 }
 
+#[derive(Debug)]
+pub(super) struct BlendChurnProgress {
+    pub(super) rows_applied: Arc<AtomicUsize>,
+    pub(super) total_rows: usize,
+}
+
 /// Fork-group assignment of nodes: a forward map plus a reverse lookup kept in
 /// lockstep. Empty means "no groups defined" and all nodes participate.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ForkGroups {
     /// `group_name` -> set of `node_names`.
     node_groups: HashMap<String, BTreeSet<String>>,
@@ -1291,12 +1424,21 @@ pub struct CucumberWorld {
     /// the wallet's known keys at startup; the override is per-node because a
     /// target key a node's wallet does not track aborts that node's startup.
     pub auto_claim_overrides: HashMap<String, Vec<ConfigOverride>>,
+    /// Scenario-owned background diagnostics and transaction workloads.
+    pub(super) background_tasks: BackgroundTasks,
+    /// Progress for the currently scheduled per-epoch Blend churn rows.
+    pub(super) blend_churn_progress: Option<BlendChurnProgress>,
+    /// Completed-batch counters for the continuous next-wallet load task.
+    pub(super) continuous_transaction_load_progress: Option<ContinuousTransactionLoadProgress>,
+    /// Best-node polling settings for a scenario-owned background workload.
+    pub(super) background_best_node_selection: BackgroundBestNodeSelection,
 }
 
 impl Drop for CucumberWorld {
     fn drop(&mut self) {
         self.logos_sql.clear();
         self.zone.clear();
+        self.background_tasks.abort_all();
         self.blend_relays.shutdown();
         self.scanner.shutdown();
         self.wallet_registry.shutdown();
@@ -1383,9 +1525,9 @@ impl Debug for CucumberWorld {
             )
             .field("genesis_block_id", &self.chain.genesis_block_id)
             .field("slots_per_epoch", &self.chain.slots_per_epoch)
-            .field("local_cluster", {
-                if self.cluster.local_cluster.is_some() {
-                    &"Has LbcManualCluster"
+            .field("local_app", {
+                if self.cluster.local_app.is_some() {
+                    &"Has local app cluster"
                 } else {
                     &"None"
                 }
@@ -1507,7 +1649,10 @@ impl Debug for CucumberWorld {
                 "deployment_config_overrides",
                 &user_config_overrides_display(&self.startup.deployment_config_overrides),
             )
-            .field("blend_diagnostic_phase", &self.blend_diagnostics.phase)
+            .field(
+                "blend_diagnostic_phase",
+                &self.blend_diagnostics.reachability.phase(),
+            )
             .field(
                 "blend_diagnostic_reference_node",
                 &self.blend_diagnostics.reference_node,
@@ -1522,9 +1667,22 @@ impl Debug for CucumberWorld {
             )
             .field(
                 "blend_diagnostic_unreachable_nodes",
-                &self.blend_diagnostics.blend_unreachable_nodes,
+                &self.blend_diagnostics.reachability.unreachable_nodes(),
             )
             .field("blend_relays", &self.blend_relays.is_enabled().ok())
+            .field("background_tasks", &self.background_tasks)
+            .field("blend_churn_progress", &self.blend_churn_progress)
+            .field(
+                "continuous_transaction_load_progress",
+                &self
+                    .continuous_transaction_load_progress
+                    .as_ref()
+                    .map(ContinuousTransactionLoadProgress::snapshot),
+            )
+            .field(
+                "background_best_node_selection",
+                &self.background_best_node_selection,
+            )
             .field("sdp_funding_config", &self.cluster.sdp_funding_config)
             .field(
                 "deployment_config_override_path",
@@ -1569,33 +1727,6 @@ pub struct PreparedPriorityFee {
     pub initial_storage_price: u64,
 }
 
-/// A scenario wallet is either user-owned or backed by a node wallet key.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum NodeWalletKeyRole {
-    Funding,
-    VoucherMaster,
-    BlendZk,
-    General,
-}
-
-impl NodeWalletKeyRole {
-    #[must_use]
-    pub const fn priority(self) -> u8 {
-        match self {
-            Self::Funding => 0,
-            Self::VoucherMaster => 1,
-            Self::BlendZk => 2,
-            Self::General => 3,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NodeWalletKey {
-    pub wallet_pk: String,
-    pub role: NodeWalletKeyRole,
-}
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum WalletType {
     /// User-defined wallets are signed and tracked by the Cucumber harness.
@@ -1629,7 +1760,7 @@ impl WalletInfo {
     #[must_use]
     pub fn public_key_hex(&self) -> String {
         match &self.wallet_type {
-            WalletType::User { wallet_account, .. } => wallet_account.public_key_hex(),
+            WalletType::User { wallet_account } => wallet_account.public_key_hex(),
             WalletType::Funding { key } => key.wallet_pk.clone(),
         }
     }
@@ -1637,7 +1768,7 @@ impl WalletInfo {
     /// Helper to get the wallet's public key as a `ZkPublicKey` type.
     pub fn public_key(&self) -> Result<ZkPublicKey, StepError> {
         match &self.wallet_type {
-            WalletType::User { wallet_account, .. } => Ok(wallet_account.public_key()),
+            WalletType::User { wallet_account } => Ok(wallet_account.public_key()),
             WalletType::Funding { key } => {
                 Ok(ZkPublicKey::from_bytes(&hex::decode(&key.wallet_pk)?)?)
             }
@@ -1682,13 +1813,13 @@ pub type ChainInfoMap = HashMap<u64, String>;
 pub type WalletInfoMap = HashMap<String, WalletInfo>;
 
 /// Information about a started node in the world
+#[derive(Clone)]
 pub struct NodeInfo {
     /// Node name
     pub name: String,
-    /// The actual started node instance
-    pub started_node: StartedNode<LbcEnv>,
-    /// General node configuration used to start the node
-    pub run_config: Option<RunConfig>,
+    /// Name assigned to the node by TF.
+    pub runtime_name: String,
+    pub client: NodeHttpClient,
     /// Chain height vs. hash at that height
     pub chain_info: ChainInfoMap,
     /// The wallets associated with this node.
@@ -1721,6 +1852,30 @@ impl NodeInfo {
 }
 
 impl CucumberWorld {
+    /// Join scenario-owned tasks, restore provider reachability, then close
+    /// controllable Blend relays. The Cucumber after-hook also calls this so
+    /// failed scenarios do not leave background work running into the next.
+    pub async fn stop_background_activity(&mut self) -> StepResult {
+        let mut errors = Vec::new();
+        if let Err(error) = self.stop_all_background_tasks().await {
+            errors.push(error.to_string());
+        }
+        self.continuous_transaction_load_progress = None;
+        self.blend_churn_progress = None;
+        if let Err(error) = restore_all_blend_reachability(self).await {
+            errors.push(error.to_string());
+        }
+        self.blend_relays.shutdown();
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(StepError::StepFail {
+                message: errors.join("; "),
+            })
+        }
+    }
+
     /// Return the stable deployment seed for this manual-cluster scenario,
     /// generating it on first use.
     pub fn manual_cluster_deployment_seed(&mut self) -> DeploymentSeed {
@@ -1840,7 +1995,7 @@ impl CucumberWorld {
     }
 
     pub async fn ensure_wallet_scanner_started(&mut self) -> StepResult {
-        if self.scanner.runtime.is_some() {
+        if self.scanner.runtime.is_some() || self.scanner.runtime_is_shared {
             tokio::task::yield_now().await;
             return Ok(());
         }
@@ -2030,8 +2185,12 @@ impl CucumberWorld {
     /// Build a scenario for local deployment based on the current world
     /// configuration. This performs necessary preflight checks and returns
     /// a built scenario ready for deployment.
-    pub fn build_local_scenario(&self) -> Result<Scenario<LbcEnv>, StepError> {
+    pub fn build_local_scenario(&self) -> Result<LbcScenario, StepError> {
         let builder = self.make_builder_for_deployer(DeployerKind::Local)?;
+        self.cluster
+            .implementation
+            .require_logos("automatic workload scenarios")?;
+
         builder
             .build()
             .map_err(|source| StepError::ScenarioBuild { source })
@@ -2039,7 +2198,10 @@ impl CucumberWorld {
 
     /// Build a scenario for k8s deployment based on the current world
     /// configuration.
-    pub fn build_k8s_scenario(&self) -> Result<Scenario<LbcEnv>, StepError> {
+    pub fn build_k8s_scenario(&self) -> Result<LbcScenario, StepError> {
+        self.cluster
+            .implementation
+            .require_logos("Kubernetes scenarios")?;
         let builder = self.make_builder_for_deployer(DeployerKind::K8s)?;
         builder
             .build()
@@ -2051,7 +2213,7 @@ impl CucumberWorld {
     pub fn preflight(&self, expected: DeployerKind) -> Result<(), StepError> {
         self.ensure_expected_deployer(expected)?;
 
-        if expected.requires_local_node_binary() {
+        if expected.requires_local_node_binary() && self.cluster.implementation.is_logos() {
             Self::ensure_local_node_binary()?;
         }
 
@@ -2081,7 +2243,12 @@ impl CucumberWorld {
             .ok_or(StepError::MissingRunDuration)?
             .get();
 
-        let mut builder: ScenarioBuilderWith = make_builder(&topology, self.lifecycle.genesis_time);
+        let mut builder: ScenarioBuilderWith = make_builder(&topology, self.lifecycle.genesis_time)
+            .with_backend(match expected {
+                DeployerKind::Local => LbcClusterBackend::Local,
+                DeployerKind::Compose => LbcClusterBackend::Compose,
+                DeployerKind::K8s => LbcClusterBackend::K8s,
+            });
 
         builder = builder.with_run_duration(Duration::from_secs(duration_secs));
         if let Some(wallets) = self.lifecycle.spec.wallets {
@@ -2148,8 +2315,7 @@ impl CucumberWorld {
             .ok_or(StepError::LogicalError {
                 message: format!("Runtime node '{node_name}' not found"),
             })?
-            .started_node
-            .name
+            .runtime_name
             .clone())
     }
 
@@ -2232,7 +2398,6 @@ impl CucumberWorld {
             .ok_or(StepError::LogicalError {
                 message: format!("Node info for '{node_name}' not found in world"),
             })?
-            .started_node
             .client
             .clone())
     }
@@ -2506,17 +2671,15 @@ impl CucumberWorld {
                     wallet.node_name, wallet.wallet_name
                 ),
             })?;
-        let response = tokio::time::timeout(
-            Duration::from_secs(10),
-            node.started_node.client.transfer_funds(body),
-        )
-        .await
-        .map_err(|_| StepError::Timeout {
-            message: format!(
-                "Submit transaction '{}/{}' ",
-                wallet.wallet_name, wallet.node_name
-            ),
-        })??;
+        let response =
+            tokio::time::timeout(Duration::from_secs(10), node.client.transfer_funds(body))
+                .await
+                .map_err(|_| StepError::Timeout {
+                    message: format!(
+                        "Submit transaction '{}/{}' ",
+                        wallet.wallet_name, wallet.node_name
+                    ),
+                })??;
 
         Ok(response.hash)
     }
@@ -2584,9 +2747,9 @@ impl CucumberWorld {
                 &format!("{:?}", self.chain.genesis_block_utxos),
             )
             .field("genesis_block_id", &self.chain.genesis_block_id)
-            .field("local_cluster", {
-                if self.cluster.local_cluster.is_some() {
-                    &"Has LbcManualCluster"
+            .field("local_app", {
+                if self.cluster.local_app.is_some() {
+                    &"Has local app cluster"
                 } else {
                     &"None"
                 }
@@ -2757,7 +2920,7 @@ fn nodes_info_display(nodes_info: &HashMap<String, NodeInfo>) -> String {
                 .map(|w| w.wallet_name.clone())
                 .collect();
             let wallets_str = format!("[{}]", wallets.join(", "));
-            format!("'{k}: {} {wallets_str}'", v.started_node.name)
+            format!("'{k}: {} {wallets_str}'", v.runtime_name)
         })
         .collect();
     format!("HashMap<String, NodeInfo>({})", nodes.join(", "))
@@ -2963,6 +3126,42 @@ mod node_wallet_tests {
         assert!(!node_wallet(NodeWalletKeyRole::VoucherMaster).is_scanner_tracked_wallet());
         assert!(!node_wallet(NodeWalletKeyRole::BlendZk).is_scanner_tracked_wallet());
         assert!(!node_wallet(NodeWalletKeyRole::General).is_scanner_tracked_wallet());
+    }
+}
+
+#[cfg(test)]
+mod blend_diagnostic_reachability_tests {
+    use super::{BlendDiagnosticPhase, BlendDiagnosticReachability};
+
+    #[test]
+    fn cloned_handle_tracks_relay_churn_and_recovery() {
+        let reachability = BlendDiagnosticReachability::default();
+        let background_handle = reachability.clone();
+        reachability.set_phase(Some(BlendDiagnosticPhase::Baseline));
+        background_handle.set_phase(Some(BlendDiagnosticPhase::Outage));
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Outage));
+
+        background_handle.set_reachable("NODE_1", false);
+        background_handle.set_reachable("NODE_3", false);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Outage));
+        let unreachable = reachability.unreachable_nodes();
+        assert_eq!(unreachable.len(), 2);
+        assert!(unreachable.contains("NODE_1"));
+        assert!(unreachable.contains("NODE_3"));
+
+        background_handle.set_reachable("NODE_1", true);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Recovery));
+        assert_eq!(
+            reachability
+                .unreachable_nodes()
+                .into_iter()
+                .collect::<Vec<_>>(),
+            ["NODE_3".to_owned()]
+        );
+
+        background_handle.set_reachable("NODE_3", true);
+        assert_eq!(reachability.phase(), Some(BlendDiagnosticPhase::Recovery));
+        assert!(reachability.unreachable_nodes().is_empty());
     }
 }
 

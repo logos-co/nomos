@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use lb_codec::BinaryEncode as _;
+use lb_binary_codec::canonical::BinaryEncode as _;
 use lb_core::{
     block::genesis::{GenesisBlock, GenesisBlockBuilder},
     mantle::{
@@ -8,7 +8,7 @@ use lb_core::{
         ops::{
             Op, OpId as _, ZkAndEd25519Proof,
             channel::{
-                ChannelId, Ed25519PublicKey, MsgId,
+                ChannelId, MsgId,
                 inscribe::{Inscription, InscriptionOp},
             },
             transfer::TransferOp,
@@ -19,7 +19,7 @@ use lb_core::{
 };
 use lb_groth16::{AdditiveGroup as _, CompressedGroth16Proof, Fr};
 use lb_key_management_system_service::keys::{
-    Ed25519Key, Ed25519Signature, ZkKey, ZkPublicKey, ZkSignature,
+    Ed25519Key, Ed25519Signature, UnverifiedEd25519PublicKey, ZkKey, ZkPublicKey, ZkSignature,
 };
 use lb_node::{Hashable as _, SignedOps};
 use num_bigint::BigUint;
@@ -124,6 +124,7 @@ pub struct ServiceNote {
     pub output_index: usize,
 }
 
+#[derive(Clone)]
 pub struct BaseConsensusMaterial {
     pub regular_note_keys: Vec<ZkKey>,
     pub blend_notes: Vec<ServiceNote>,
@@ -204,7 +205,7 @@ fn inscription_for_current_test(
             .encode_to_vec(),
         ),
         parent: MsgId::root(),
-        signer: Ed25519PublicKey::from_bytes(&EMPTY_ED25519_PUBLIC_KEY).unwrap(),
+        signer: UnverifiedEd25519PublicKey::from_bytes(&EMPTY_ED25519_PUBLIC_KEY).unwrap(),
     }
 }
 
@@ -292,27 +293,28 @@ pub fn create_consensus_configs_with_additional_wallet_outputs_and_sdp_funding_c
     let genesis_block = create_genesis_block(&material.utxos, test_context, genesis_time);
 
     (
-        material
-            .regular_note_keys
-            .into_iter()
-            .enumerate()
-            .map(|(i, sk)| {
-                let funding_sk = material.sdp_notes[i].sk.clone();
-                let funding_pk = material.sdp_notes[i].pk;
-                let blend_note = material.blend_notes[i].clone();
-
-                GeneralConsensusConfig {
-                    blend_note,
-                    known_key: sk,
-                    funding_sk,
-                    funding_pk,
-                    other_keys: Vec::new(),
-                    prolonged_bootstrap_period,
-                }
-            })
-            .collect(),
+        configs_from_material(&material, prolonged_bootstrap_period),
         genesis_block,
     )
+}
+
+pub(crate) fn configs_from_material(
+    material: &BaseConsensusMaterial,
+    prolonged_bootstrap_period: Duration,
+) -> Vec<GeneralConsensusConfig> {
+    material
+        .regular_note_keys
+        .iter()
+        .enumerate()
+        .map(|(i, key)| GeneralConsensusConfig {
+            known_key: key.clone(),
+            blend_note: material.blend_notes[i].clone(),
+            funding_sk: material.sdp_notes[i].sk.clone(),
+            funding_pk: material.sdp_notes[i].pk,
+            other_keys: Vec::new(),
+            prolonged_bootstrap_period,
+        })
+        .collect()
 }
 
 #[must_use]
@@ -495,7 +497,7 @@ pub fn create_genesis_block_with_declarations(
                 .unwrap();
         let ed25519_sig = provider
             .provider_sk
-            .sign_payload(mantle_tx_hash.as_signing_bytes().as_ref());
+            .sign_payload(mantle_tx_hash.as_signing_bytes());
         let proof = ZkAndEd25519Proof {
             zk_sig,
             ed25519_sig,

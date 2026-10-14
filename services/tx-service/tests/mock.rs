@@ -9,9 +9,9 @@ use std::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt as _, stream};
 use indexmap::IndexMap;
+use lb_binary_codec::bincode::{DeserializeOp as _, SerializeOp as _};
 use lb_core::{
     block::MAX_BLOCK_TRANSACTIONS_SIZE,
-    codec::{DeserializeOp as _, SerializeOp as _},
     header::HeaderId,
     mantle::{
         mock::{MockTransaction, MockTxId},
@@ -29,8 +29,8 @@ use lb_services_utils::overwatch::{
 };
 use lb_storage_service::{
     StorageService,
-    backends::rocksdb::{self, RocksBackend},
     recovery::{StorageRecoveryBackend, load_recovery_data},
+    rocksdb,
 };
 use lb_tracing_service::{Tracing, TracingSettings};
 use lb_utils::noop_service::NoService;
@@ -45,7 +45,7 @@ use logos_blockchain_tx_service::{
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 use overwatch::{
-    overwatch::OverwatchRunner,
+    overwatch::{OverwatchRunner, Shutdown},
     services::{ServiceData, relay::OutboundRelay},
 };
 use overwatch_derive::*;
@@ -54,7 +54,6 @@ use tempfile::TempDir;
 type MockRecoveryBackend = StorageRecoveryBackend<
     TxMempoolState<PoolRecoveryState<MockTxId>, MempoolSettings, ()>,
     TxMempoolSettings<MempoolSettings, ()>,
-    RocksBackend,
     RuntimeServiceId,
 >;
 
@@ -72,11 +71,11 @@ type MockMempoolService = GenericTxMempoolService<
     RuntimeServiceId,
 >;
 
-#[derive_services]
+#[derive_services(panic_policy = Shutdown)]
 struct MockPoolNode {
     logging: Tracing<RuntimeServiceId>,
     network: NetworkService<Mock, RuntimeServiceId>,
-    storage: StorageService<RocksBackend, RuntimeServiceId>,
+    storage: StorageService<RuntimeServiceId>,
     mockpool: MockMempoolService,
     no_service: NoService,
 }
@@ -115,6 +114,7 @@ fn mock_pool_node_settings(
             mockpool: TxMempoolSettings {
                 pool: MempoolSettings::default(),
                 network_adapter: (),
+                seen_items_subscription_channel_size: 64.try_into().unwrap(),
                 recovery_data: RecoveryData::default(),
             },
             logging: TracingSettings::default(),
@@ -199,15 +199,12 @@ struct FailingStorageAdapter;
 
 #[async_trait]
 impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
-    type Backend = RocksBackend;
     type Item = MockTransaction<MockMessage>;
     type Key = MockTxId;
     type Error = Infallible;
 
     fn new(
-        _storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
+        _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self::default()
     }
@@ -250,15 +247,12 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
 
 #[async_trait]
 impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
-    type Backend = RocksBackend;
     type Item = MockTransaction<MockMessage>;
     type Key = MockTxId;
     type Error = MempoolError;
 
     fn new(
-        _storage_relay: OutboundRelay<
-            <StorageService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
-        >,
+        _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self
     }
@@ -497,7 +491,7 @@ async fn removed_items_are_not_pending_but_still_fetchable() {
         .expect("pending view should still work")
         .collect::<Vec<_>>()
         .await;
-    assert!(pending_after_remove.is_empty());
+    assert_eq!(pending_after_remove, []);
 
     let fetched_after_remove = pool
         .get_items_by_keys([tx_id])
@@ -590,15 +584,16 @@ fn local_submission_rejects_oversized_tx() {
             } if size > MAX_BLOCK_TRANSACTIONS_SIZE
         ));
 
-        assert!(
+        assert_eq!(
             app.runtime()
                 .handle()
-                .block_on(pending_txs(&mempool_outbound))
-                .is_empty()
+                .block_on(pending_txs(&mempool_outbound)),
+            []
         );
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
     });
 }
 
@@ -655,7 +650,8 @@ fn mempool_view_preserves_receive_order() {
         assert_eq!(pending, expected_txs);
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
     });
 }
 
@@ -741,7 +737,8 @@ fn test_mock_mempool() {
         }
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
 
         let recovery_data = load_recovery_data(rocksdb::RocksBackendSettings {
             db_path: temp_dir.path().join("test_db"),
@@ -752,6 +749,7 @@ fn test_mock_mempool() {
         let recovery_settings = TxMempoolSettings {
             pool: MempoolSettings::default(),
             network_adapter: (),
+            seen_items_subscription_channel_size: 64.try_into().unwrap(),
             recovery_data,
         };
         let recovered_state =
@@ -845,6 +843,7 @@ fn prefix_lookup_tracks_the_pending_set() {
         );
 
         drop(app.runtime().handle().block_on(app.handle().shutdown()));
-        app.blocking_wait_finished();
+        app.blocking_wait_finished()
+            .expect("No service should panic");
     });
 }

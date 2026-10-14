@@ -6,7 +6,7 @@ pub mod network;
 mod relays;
 mod sync;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, num::NonZeroUsize};
 use std::{
     fmt::Display,
     hash::Hash,
@@ -15,7 +15,10 @@ use std::{
 
 use bootstrap::ibd::ChainNetworkIbdBlockProcessor;
 use futures::{StreamExt as _, future::join_all};
-use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
+use lb_chain_service::{
+    AppliedBlock,
+    api::{CryptarchiaServiceApi, CryptarchiaServiceData},
+};
 use lb_core::{
     block::{Block, BlockTransactions, Proposal, verify_header_alone, verify_header_signature},
     header::HeaderId,
@@ -77,14 +80,13 @@ const SERVICE_ID: &str = "ChainNetwork";
 pub(crate) const LOG_TARGET: &str = chain::network::ROOT;
 const FUTURE_BLOCK_MAX_RETRIES: usize = 3;
 const FUTURE_BLOCK_RETRY_DELAY: Duration = Duration::from_millis(500);
-const RECEIVED_PROPOSALS_BUFFER: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
     Cryptarchia(#[from] lb_chain_service::api::ApiError),
     #[error("Serialization error: {0}")]
-    Serialisation(#[from] lb_core::codec::Error),
+    Serialisation(#[from] lb_binary_codec::bincode::Error),
     #[error("Invalid block: {0}")]
     InvalidBlock(String),
     #[error("Header is not valid on its own: {0}")]
@@ -142,6 +144,7 @@ where
     pub network: NetworkAdapterSettings,
     pub bootstrap: BootstrapConfig<NodeId>,
     pub sync: SyncConfig,
+    pub seen_items_subscription_channel_size: NonZeroUsize,
 }
 
 #[expect(clippy::allow_attributes_without_reason)]
@@ -257,12 +260,7 @@ where
         + AsServiceId<Self>
         + AsServiceId<Cryptarchia>
         + AsServiceId<NetworkService<NetAdapter::Backend, RuntimeServiceId>>
-        + AsServiceId<
-            StorageService<
-                <Mempool::Storage as MempoolStorageAdapter<RuntimeServiceId>>::Backend,
-                RuntimeServiceId,
-            >,
-        >
+        + AsServiceId<StorageService<RuntimeServiceId>>
         + AsServiceId<
             TxMempoolService<MempoolNetAdapter, Mempool, Mempool::Storage, RuntimeServiceId>,
         >
@@ -272,7 +270,12 @@ where
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
     ) -> Result<Self, DynError> {
-        let (received_proposals_sender, _) = broadcast::channel(RECEIVED_PROPOSALS_BUFFER);
+        let received_proposals_buffer = service_resources_handle
+            .settings_handle
+            .notifier()
+            .get_updated_settings()
+            .seen_items_subscription_channel_size;
+        let (received_proposals_sender, _) = broadcast::channel(received_proposals_buffer.get());
         Ok(Self {
             service_resources_handle,
             received_proposals_sender,
@@ -296,6 +299,7 @@ where
             network: network_config,
             bootstrap: bootstrap_config,
             sync: sync_config,
+            ..
         } = self
             .service_resources_handle
             .settings_handle
@@ -384,8 +388,8 @@ where
                 .time_relay()
                 .send(TimeServiceMessage::Subscribe { sender })
                 .await
-                .map_err(|(e, _)| {
-                    DynError::from(format!("failed to subscribe to slot ticks: {e}"))
+                .map_err(|error| {
+                    DynError::from(format!("failed to subscribe to slot ticks: {error}"))
                 })?;
             receiver
                 .await
@@ -1040,13 +1044,13 @@ where
 #[instrument(
     target = LOG_TARGET,
     level = "debug",
-    skip(block, cryptarchia, mempool_adapter),
+    skip(block, cryptarchia, mempool),
     fields(block_id = %block.header().id(), tx_count = block.transactions().len())
 )]
 async fn apply_block_and_reconcile_mempool<Cryptarchia, Mempool>(
     block: Block<Cryptarchia::Tx>,
     cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
-    mempool_adapter: &MempoolAdapter<Mempool::Item>,
+    mempool: &MempoolAdapter<Mempool::Item>,
 ) -> Result<(), Error>
 where
     Cryptarchia: CryptarchiaServiceData,
@@ -1056,45 +1060,28 @@ where
 {
     trace!(target: LOG_TARGET, "Received proposal with ID: {:?}", block.header().id());
 
-    let (tip, reorged_txs) = cryptarchia.apply_block(block.clone()).await?;
-    let reorged_tx_count = reorged_txs.len();
-    let included_tx_count = block.transactions_iter().len();
+    let block_id = block.header().id();
+    let AppliedBlock {
+        tip,
+        newly_canonical_txs,
+        reorged_txs,
+    } = cryptarchia.apply_block(block).await?;
+    debug!(
+        target: LOG_TARGET, ?block_id, ?tip,
+        retired_txs = newly_canonical_txs.len(), reinserted_txs = reorged_txs.len(),
+        "block applied; reconciling mempool"
+    );
 
-    // Remove included content from mempool if the block was applied to the honest
-    // chain. Otherwise, we keep them in mempool, so they can be included to the
-    // honest chain later when this node proposes blocks.
-    if tip == block.header().id() {
-        debug!(
-            target: LOG_TARGET,
-            "Applied block {:?} to the canonical chain; included {} transactions and will reinsert {} reorged transactions",
-            block.header().id(),
-            included_tx_count,
-            reorged_tx_count
-        );
-        mempool_adapter
-            .remove_transactions(
-                &block
-                    .transactions_iter()
-                    .map(Hashable::hash)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .unwrap_or_else(
-                |e| error!(target: LOG_TARGET, "Could not mark transactions in block: {e}"),
-            );
-    } else {
-        debug!(
-            target: LOG_TARGET,
-            "Applied block {:?} off the canonical chain; keeping {} included transactions in mempool because the current tip is {:?}",
-            block.header().id(),
-            included_tx_count,
-            tip
-        );
+    // Remove txs of every block that entered the canonical chain.
+    // Do this even when there is no tx to remove because this also triggers mempool
+    // TTL eviction.
+    if let Err(err) = mempool.remove_transactions(&newly_canonical_txs).await {
+        error!(target: LOG_TARGET, err, "could not remove transactions from mempool");
     }
 
     // Re-insert reorged txs back into the mempool.
     join_all(reorged_txs.into_iter().map(|tx| {
-        let mempool_adapter = mempool_adapter.clone();
+        let mempool_adapter = mempool.clone();
         async move {
             if let Err(e) = mempool_adapter.add_transaction(tx).await {
                 error!(target: LOG_TARGET, "Could not reinsert a reorged tx into mempool: {e:?}");
@@ -1183,12 +1170,11 @@ where
 mod tests {
     use std::{
         collections::HashSet,
-        num::NonZeroUsize,
         sync::atomic::{AtomicUsize, Ordering},
     };
 
     use futures::stream;
-    use lb_codec::BinaryDecodeExt as _;
+    use lb_binary_codec::canonical::BinaryDecodeExt as _;
     use lb_core::{
         block::UncleHeaders,
         mantle::{

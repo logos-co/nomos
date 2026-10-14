@@ -9,11 +9,13 @@ use lb_tracing::{
     filter::envfilter::{EnvFilterConfig, create_envfilter_layer, default_envfilter_config},
     logging::{
         gelf::{GelfConfig, create_gelf_layer},
-        local::{AppenderType, FileConfig, create_file_layer, create_writer_layer},
+        local::{
+            AppenderType, FileConfig, create_file_layer, create_writer_layer, flush_appenders,
+        },
         loki::{LokiConfig, create_loki_layer},
         otlp::{OtlpLoggingConfig, create_otlp_layer},
     },
-    metrics::otlp::{OtlpMetricsConfig, create_otlp_metrics_layer},
+    metrics::{layer::create_metrics_layer, open_metrics::OpenMetrics, otlp::OtlpMetricsConfig},
     tracing::otlp::{OtlpTracingConfig, create_otlp_tracing_layer},
 };
 use overwatch::{
@@ -25,7 +27,6 @@ use overwatch::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::Level;
-use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     EnvFilter, filter::LevelFilter, layer::SubscriberExt as _, util::SubscriberInitExt as _,
 };
@@ -41,8 +42,8 @@ const LOG_TARGET: &str = log_targets_tracing::SERVICE;
 
 pub struct Tracing<RuntimeServiceId> {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
-    logger_guards: Vec<WorkerGuard>,
     filter_reload_handles: Vec<FilterReloadHandle>,
+    open_metrics: Option<OpenMetrics>,
     _runtime_service_id: PhantomData<RuntimeServiceId>,
 }
 
@@ -50,6 +51,9 @@ pub enum TracingMessage {
     ReloadFilter {
         filter: EnvFilterConfig,
         reply_channel: tokio::sync::oneshot::Sender<Result<(), TracingFilterReloadError>>,
+    },
+    ReadOpenMetrics {
+        reply_channel: tokio::sync::oneshot::Sender<Result<String, TracingOpenMetricsError>>,
     },
 }
 
@@ -63,9 +67,16 @@ pub enum TracingFilterReloadError {
     SinkReload { sink_index: usize, message: String },
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum TracingOpenMetricsError {
+    #[error("OpenMetrics is not enabled.")]
+    NotEnabled,
+    #[error("Could not read OpenMetrics: {0}")]
+    Read(prometheus::Error),
+}
+
 struct LoggerLayers {
     layers: Vec<Box<dyn tracing_subscriber::Layer<LoggerSubscriber> + Send + Sync>>,
-    guards: Vec<WorkerGuard>,
     reload_handles: Vec<FilterReloadHandle>,
     filter: EnvFilter,
 }
@@ -74,7 +85,6 @@ impl LoggerLayers {
     fn new(filter: EnvFilter) -> Self {
         Self {
             layers: Vec::new(),
-            guards: Vec::new(),
             reload_handles: Vec::new(),
             filter,
         }
@@ -88,14 +98,6 @@ impl LoggerLayers {
 
         self.layers.push(Box::new(layer.with_filter(filter)));
         self.reload_handles.push(reload_handle);
-    }
-
-    fn add_guarded_layer<L>(&mut self, layer: L, guard: WorkerGuard)
-    where
-        L: tracing_subscriber::Layer<LoggerSubscriber> + Send + Sync + 'static,
-    {
-        self.add_layer(layer);
-        self.guards.push(guard);
     }
 }
 
@@ -122,9 +124,19 @@ pub enum FilterLayerSettings {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum MetricsLayerSettings {
-    Otlp(OtlpMetricsConfig),
-    None,
+pub struct MetricsLayerSettings {
+    pub otlp: Option<OtlpMetricsConfig>,
+    pub enable_open_metrics: bool,
+}
+
+impl MetricsLayerSettings {
+    #[must_use]
+    pub const fn none() -> Self {
+        Self {
+            otlp: None,
+            enable_open_metrics: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -171,7 +183,7 @@ impl Default for TracingSettings {
             },
             tracing: TracingLayerSettings::None,
             filter: FilterLayerSettings::None,
-            metrics: MetricsLayerSettings::None,
+            metrics: MetricsLayerSettings::none(),
             console: ConsoleLayerSettings::None,
             level: Level::INFO,
         }
@@ -212,7 +224,10 @@ impl<RuntimeServiceId> ServiceCore<RuntimeServiceId> for Tracing<RuntimeServiceI
 where
     RuntimeServiceId: AsServiceId<Self> + Display + Send,
 {
-    #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "All layers are built here, refactor later."
+    )]
     fn init(
         service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
         _initial_state: Self::State,
@@ -229,18 +244,15 @@ where
         let mut logger_layers = LoggerLayers::new(initial_env_filter(&config)?);
 
         if let Some(file_config) = config.logger.file {
-            let (layer, guard) = create_file_layer(file_config);
-            logger_layers.add_guarded_layer(layer, guard);
+            logger_layers.add_layer(create_file_layer(file_config));
         }
 
         if config.logger.stdout {
-            let (layer, guard) = create_writer_layer(std::io::stdout());
-            logger_layers.add_guarded_layer(layer, guard);
+            logger_layers.add_layer(create_writer_layer(std::io::stdout()));
         }
 
         if config.logger.stderr {
-            let (layer, guard) = create_writer_layer(std::io::stderr());
-            logger_layers.add_guarded_layer(layer, guard);
+            logger_layers.add_layer(create_writer_layer(std::io::stderr()));
         }
 
         if let Some(loki_config) = config.logger.loki {
@@ -273,14 +285,17 @@ where
             other_layers.push(Box::new(tracing_layer));
         }
 
-        if let MetricsLayerSettings::Otlp(config) = config.metrics {
-            let metrics_layer = create_otlp_metrics_layer(config)?;
-            other_layers.push(Box::new(metrics_layer));
-        }
+        let open_metrics =
+            match create_metrics_layer(config.metrics.otlp, config.metrics.enable_open_metrics)? {
+                Some((metrics_layer, open_metrics)) => {
+                    other_layers.push(Box::new(metrics_layer));
+                    open_metrics
+                }
+                None => None,
+            };
 
         let LoggerLayers {
             layers: logger_layers,
-            guards: logger_guards,
             reload_handles: filter_reload_handles,
             ..
         } = logger_layers;
@@ -340,17 +355,17 @@ where
 
         Ok(Self {
             service_resources_handle,
-            logger_guards,
             filter_reload_handles,
             _runtime_service_id: PhantomData,
+            open_metrics,
         })
     }
 
     async fn run(self) -> Result<(), overwatch::DynError> {
         let Self {
-            logger_guards: _logger_guard,
             mut service_resources_handle,
             filter_reload_handles,
+            open_metrics,
             ..
         } = self;
 
@@ -370,11 +385,25 @@ where
                     let result = reload_filters(&filter_reload_handles, &filter);
                     drop(reply_channel.send(result));
                 }
+                TracingMessage::ReadOpenMetrics { reply_channel } => {
+                    let open_metrics_string = read_open_metrics(open_metrics.as_ref());
+                    drop(reply_channel.send(open_metrics_string));
+                }
             }
         }
 
+        flush_appenders();
+
         Ok(())
     }
+}
+
+fn read_open_metrics(
+    open_metrics: Option<&OpenMetrics>,
+) -> Result<String, TracingOpenMetricsError> {
+    open_metrics.map_or(Err(TracingOpenMetricsError::NotEnabled), |open_metrics| {
+        open_metrics.read().map_err(TracingOpenMetricsError::Read)
+    })
 }
 
 fn reload_filters(
@@ -442,5 +471,28 @@ mod serde_level {
         S: Serializer,
     {
         value.as_str().serialize(serializer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OpenMetrics, TracingOpenMetricsError, read_open_metrics};
+
+    #[test]
+    fn read_open_metrics_without_open_metrics_is_not_enabled() {
+        assert!(matches!(
+            read_open_metrics(None),
+            Err(TracingOpenMetricsError::NotEnabled)
+        ));
+    }
+
+    #[test]
+    fn read_open_metrics_with_open_metrics_reads_it() {
+        let (open_metrics, _reader) = OpenMetrics::new().unwrap();
+
+        assert_eq!(
+            read_open_metrics(Some(&open_metrics)).unwrap(),
+            open_metrics.read().unwrap()
+        );
     }
 }

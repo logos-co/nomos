@@ -16,7 +16,8 @@ workspace = true
 [dependencies]
 bincode                          = { workspace = true }
 blake2                           = { workspace = true }
-lb-codec                         = { workspace = true }
+flate2                           = { features = ["rust_backend"], workspace = true }
+lb-binary-codec                  = { workspace = true }
 lb-key-management-system-service = { workspace = true }
 lb-log-targets                   = { workspace = true }
 lb-utils                         = { workspace = true }
@@ -33,3 +34,4 @@ clap       = { features = ["derive", "env", "help", "std"], workspace = true }
 hex        = { workspace = true }
 lb-groth16 = { workspace = true }
 tempfile   = { workspace = true }
+tokio      = { features = ["io-util", "net"], workspace = true }

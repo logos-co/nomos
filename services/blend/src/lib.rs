@@ -12,7 +12,7 @@ use lb_blend::scheduling::epoch::UninitializedEpochEventStream;
 use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
 use lb_core::{
     mantle::NoteId,
-    sdp::{DeclarationId, DeclarationMessage, Locator, ProviderId, ServiceType},
+    sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
 };
 use lb_key_management_system_service::{
     api::KmsServiceApi,
@@ -20,13 +20,14 @@ use lb_key_management_system_service::{
 };
 use lb_log_targets::blend;
 use lb_network_service::NetworkService;
-use lb_sdp_service::{SdpMessage, SdpServiceApi};
+use lb_sdp_service::{SdpMessage, SdpServiceApi, SdpSubmission};
 use lb_services_utils::wait_until_services_are_ready;
 use lb_time_service::TimeService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
         AsServiceId, ServiceCore, ServiceData,
+        resources::ServiceResourcesHandle,
         state::{NoOperator, NoState},
     },
 };
@@ -170,7 +171,7 @@ where
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
             service_resources_handle:
-                OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                ServiceResourcesHandle {
                     ref mut inbound_relay,
                     ref overwatch_handle,
                     ref settings_handle,
@@ -323,7 +324,7 @@ async fn submit_blend_sdp_declaration<SdpService>(
     service_note_id: NoteId,
     non_ephemeral_signing_key_public: Ed25519PublicKey,
     zk_id: ZkPublicKey,
-) -> Result<DeclarationId, lb_sdp_service::api::Error>
+) -> Result<SdpSubmission, lb_sdp_service::api::Error>
 where
     SdpService: ServiceData<Message = SdpMessage>,
 {
@@ -332,7 +333,7 @@ where
         "Submitting Blend service declaration to SDP with locator {locator:?} and service note id {service_note_id:?}",
     );
     let sdp_declaration = DeclarationMessage {
-        locators: [locator].into(),
+        locators: locator.into(),
         service_note_id,
         provider_id: ProviderId(non_ephemeral_signing_key_public),
         service_type: ServiceType::BlendNetwork,

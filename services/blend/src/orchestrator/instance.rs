@@ -74,7 +74,7 @@ where
     pub async fn new(
         mode: Mode,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-    ) -> Result<Self, orchestrator::Error> {
+    ) -> Result<Self, orchestrator::Error<CoreService::Message>> {
         Ok(match mode {
             Mode::Core => Self::Core(OnDemandServiceMode::new(overwatch_handle.clone()).await?),
             Mode::Edge => Self::Edge(OnDemandServiceMode::new(overwatch_handle.clone()).await?),
@@ -90,7 +90,7 @@ where
     pub async fn handle_inbound_message(
         &self,
         message: CoreService::Message,
-    ) -> Result<(), orchestrator::Error> {
+    ) -> Result<(), orchestrator::Error<CoreService::Message>> {
         match self {
             Self::Core(mode) => mode.handle_inbound_message(message).await,
             Self::Edge(mode) | Self::EdgeAfterCore { mode, .. } => {
@@ -108,7 +108,7 @@ where
         event: EpochEvent<MembershipInfo<NodeId>>,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
         minimum_network_size: NonZeroU64,
-    ) -> Result<Self, orchestrator::Error>
+    ) -> Result<Self, orchestrator::Error<CoreService::Message>>
     where
         NodeId: Eq + Hash,
     {
@@ -137,7 +137,7 @@ where
         self,
         to_mode: Mode,
         overwatch_handle: &OverwatchHandle<RuntimeServiceId>,
-    ) -> Result<Self, orchestrator::Error> {
+    ) -> Result<Self, orchestrator::Error<CoreService::Message>> {
         let previous_mode = self.mode();
         if previous_mode == to_mode {
             // Already serving this mode. If a core is still draining behind
@@ -262,9 +262,10 @@ mod tests {
     use libp2p::Multiaddr;
     use overwatch::{
         DynError, OpaqueServiceResourcesHandle,
-        overwatch::OverwatchRunner,
+        overwatch::{OverwatchRunner, Shutdown},
         services::{
             ServiceCore,
+            resources::ServiceResourcesHandle,
             state::{NoOperator, NoState},
         },
     };
@@ -502,7 +503,7 @@ mod tests {
 
     type TestInstance = Instance<CoreService, EdgeService, BroadcastService, RuntimeServiceId>;
 
-    #[overwatch::derive_services]
+    #[overwatch::derive_services(panic_policy = Shutdown)]
     struct Services {
         core: CoreService,
         edge: EdgeService,
@@ -534,7 +535,7 @@ mod tests {
         async fn run(self) -> Result<(), DynError> {
             let Self {
                 service_resources_handle:
-                    OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ServiceResourcesHandle {
                         ref status_updater, ..
                     },
                 ..
@@ -572,7 +573,7 @@ mod tests {
         async fn run(self) -> Result<(), DynError> {
             let Self {
                 service_resources_handle:
-                    OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ServiceResourcesHandle {
                         ref status_updater, ..
                     },
                 ..
@@ -610,7 +611,7 @@ mod tests {
         async fn run(self) -> Result<(), DynError> {
             let Self {
                 service_resources_handle:
-                    OpaqueServiceResourcesHandle::<Self, RuntimeServiceId> {
+                    ServiceResourcesHandle {
                         ref status_updater, ..
                     },
                 ..

@@ -10,18 +10,19 @@ use lb_tx_service::{
     network::adapters::libp2p::Settings as Libp2pNetworkAdapterSettings,
 };
 
-use crate::config::mempool::deployment::Settings as DeploymentSettings;
+use crate::config::mempool::serde::Config;
 
-pub mod deployment;
+pub mod serde;
 
 pub struct ServiceConfig {
-    pub deployment: DeploymentSettings,
+    pub user: Config,
 }
 
 impl ServiceConfig {
     #[must_use]
     pub fn into_mempool_service_settings(
         self,
+        topic: String,
         recovery_data: RecoveryData,
     ) -> TxMempoolSettings<
         MempoolSettings,
@@ -30,11 +31,16 @@ impl ServiceConfig {
         TxMempoolSettings {
             network_adapter: Libp2pNetworkAdapterSettings {
                 id: SignedOps::<Preverified, StandardMode>::hash,
-                topic: self.deployment.pubsub_topic,
+                topic,
             },
             pool: MempoolSettings {
-                tx_ttl: self.deployment.tx_ttl,
+                tx_ttl: self.user.tx_ttl,
             },
+            seen_items_subscription_channel_size: self
+                .user
+                .seen_items_subscription_channel_size
+                .try_into()
+                .unwrap(),
             recovery_data,
         }
     }

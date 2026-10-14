@@ -2,33 +2,31 @@
 
 pub mod phases;
 
-use core::fmt::{Debug, Display};
+use core::fmt::Debug;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     pin::Pin,
     time::Duration,
 };
 
-use bytes::Bytes;
 use futures::{Stream, StreamExt as _, future::join_all, stream};
 use lb_chain_broadcast_service::{BlockBroadcastMsg, BlockInfo};
 use lb_core::{
     block::{Block, SignedHeader, UncleHeaders},
-    events::Events,
     header::HeaderId,
     mantle::{
-        OpRef,
+        OpRef, TxHash,
         ledger::verification_mode::StandardMode,
-        traits::{MantleTx, PreverifiedMantleTransaction, SignedMantleTx, StorageSize},
+        traits::{Hashable, MantleTx, PreverifiedMantleTransaction, SignedMantleTx, StorageSize},
         transactions::states::Preverified,
     },
     sdp::ServiceType,
 };
 use lb_cryptarchia_engine::{Epoch, PrunedBlocks, Slot};
-use lb_cryptarchia_sync::{BlocksUnavailableReason, ProviderResponse};
+use lb_cryptarchia_sync::{BlocksUnavailableReason, GetTipResponseReason, ProviderResponse};
 use lb_log_targets::diagnostic::BLEND_REACHABILITY;
 use lb_network_service::message::ChainSyncEvent;
-use lb_storage_service::{api::chain::StorageChainApi, backends::StorageBackend};
+use lb_storage_service::api::StorageApi;
 use lb_utils::bounded::UpperBoundedVec;
 use overwatch::{
     DynError,
@@ -39,11 +37,11 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::{
-    ChainServiceInfo, ConsensusMsg, Cryptarchia, CryptarchiaConsensusState, EpochStateQueryResult,
-    Error, LOG_TARGET, LibUpdate, ProcessedBlockEvent, PrunedBlocksInfo, Query, metrics,
+    AppliedBlock, BlockOrigin, ChainServiceInfo, ConsensusMsg, Cryptarchia,
+    CryptarchiaConsensusState, EpochStateQueryResult, Error, LOG_TARGET, LibUpdate,
+    ProcessedBlockEvent, PrunedBlocksInfo, Query, metrics,
     notifier::ChainOnlineNotifier,
     relays::{BroadcastRelay, CryptarchiaConsensusRelays},
-    storage::{StorageAdapter as _, adapters::StorageAdapter},
     sync::block_provider::BlockProvider,
 };
 
@@ -51,6 +49,7 @@ pub struct ProcessBlockOutcome<Tx> {
     pub pruned_blocks: PrunedBlocks<HeaderId>,
     pub reorged_block_ids: Vec<HeaderId>,
     pub reorged_txs: Vec<Tx>,
+    pub newly_canonical_txs: Vec<TxHash>,
 }
 
 // Source tips normally leave this map when they pass the LIB. These small
@@ -113,12 +112,10 @@ impl EpochStateQuerySourceTracker {
 }
 
 /// The chain service in the phase `P`.
-pub struct Service<Phase, Tx, Storage, RuntimeServiceId>
+pub struct Service<Phase, Tx>
 where
     Phase: phases::Phase,
     Tx: PreverifiedMantleTransaction + Clone + Eq + Debug,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
 {
     phase: Phase,
     cryptarchia: Cryptarchia,
@@ -129,15 +126,15 @@ where
     chain_online_notifier: ChainOnlineNotifier,
     current_slot: Slot,
     storage_blocks_to_remove: HashSet<HeaderId>,
-    relays: CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
-    sync_blocks_provider: BlockProvider<Storage, Tx>,
+    relays: CryptarchiaConsensusRelays<Tx>,
+    sync_blocks_provider: BlockProvider<Tx>,
     slot_timer: lb_time_service::EpochSlotTickStream,
     state_recording_timer: tokio::time::Interval,
     prolonged_bootstrap_period: Duration,
     epoch_state_query_sources: EpochStateQuerySourceTracker,
 }
 
-impl<Phase, Tx, Storage, RuntimeServiceId> Service<Phase, Tx, Storage, RuntimeServiceId>
+impl<Phase, Tx> Service<Phase, Tx>
 where
     Phase: phases::Phase,
     Tx: PreverifiedMantleTransaction
@@ -152,17 +149,9 @@ where
         + Sync
         + Unpin
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
 {
     /// Move to the `NextPhase`, carrying all the shared ingredients over.
-    fn with_phase<NextPhase: phases::Phase>(
-        self,
-        phase: NextPhase,
-    ) -> Service<NextPhase, Tx, Storage, RuntimeServiceId> {
+    fn with_phase<NextPhase: phases::Phase>(self, phase: NextPhase) -> Service<NextPhase, Tx> {
         Service {
             phase,
             cryptarchia: self.cryptarchia,
@@ -186,12 +175,16 @@ where
     async fn apply_block_and_reply(
         &mut self,
         block: Block<Tx>,
-        reply_channel: oneshot::Sender<Result<(HeaderId, Vec<Tx>), Error>>,
+        reply_channel: oneshot::Sender<Result<AppliedBlock<Tx>, Error>>,
     ) {
         match self.process_block_and_update_state(block).await {
             Ok(outcome) => {
                 reply_channel
-                    .send(Ok((self.cryptarchia.tip(), outcome.reorged_txs)))
+                    .send(Ok(AppliedBlock {
+                        tip: self.cryptarchia.tip(),
+                        newly_canonical_txs: outcome.newly_canonical_txs,
+                        reorged_txs: outcome.reorged_txs,
+                    }))
                     .unwrap_or_else(|_| {
                         error!(target: LOG_TARGET, "Could not send process block result through channel");
                     });
@@ -217,6 +210,7 @@ where
             &mut self.cryptarchia,
             block,
             self.current_slot,
+            BlockOrigin::Network,
             &self.relays,
             &self.new_block_subscription_sender,
             &self.lib_subscription_sender,
@@ -237,7 +231,7 @@ where
         self.storage_blocks_to_remove = delete_stale_blocks_from_storage(
             outcome.pruned_blocks.stale_blocks().copied(),
             &self.storage_blocks_to_remove,
-            self.relays.storage_adapter(),
+            self.relays.storage(),
         )
         .await;
 
@@ -327,7 +321,7 @@ where
                     &self.cryptarchia,
                     from_descendant,
                     to_ancestor,
-                    self.relays.storage_adapter().clone(),
+                    self.relays.storage().clone(),
                 );
                 reply_channel.send(stream).unwrap_or_else(
                     |_| error!(target: LOG_TARGET, "could not send block stream through channel"),
@@ -415,7 +409,7 @@ where
                     });
             }
             Query::GetBlockEvents { id, reply_channel } => {
-                let events = self.relays.storage_adapter().get_block_events(&id).await;
+                let events = self.relays.storage().get_block_events(&id).await;
                 reply_channel.send(events).unwrap_or_else(|_| {
                     error!(target: LOG_TARGET, "Could not send block events through channel");
                 });
@@ -467,12 +461,7 @@ where
             // Every block accepted into the block tree is persisted, so a
             // candidate must be loadable. Even if not, a proposal is still
             // valid with fewer uncles.
-            let Some(block) = self
-                .relays
-                .storage_adapter()
-                .get_block(&candidate.id())
-                .await
-            else {
+            let Some(block) = self.relays.storage().get_block(&candidate.id()).await else {
                 error!(target: LOG_TARGET, candidate = ?candidate.id(), "uncle candidate not found in storage");
                 continue;
             };
@@ -483,7 +472,8 @@ where
         }
 
         UncleHeaders::new(
-            UpperBoundedVec::try_from(uncles).expect("at most MAX_UNCLES uncles are selected"),
+            UpperBoundedVec::try_from(uncles)
+                .expect("at most MAX_UNCLES unique uncles are selected"),
         )
     }
 
@@ -770,11 +760,12 @@ fn log_canonical_blend_snapshots<Tx>(cryptarchia: &Cryptarchia, block: &Block<Tx
     skip(cryptarchia, block, relays, new_block_subscription_sender, lib_broadcaster),
     fields(block_id = %block.header().id(), tx_count = block.transactions_iter().count(), current_slot = ?current_slot)
 )]
-pub async fn process_block<Tx, Storage, RuntimeServiceId>(
+pub async fn process_block<Tx>(
     cryptarchia: &mut Cryptarchia,
     block: Block<Tx>,
     current_slot: Slot,
-    relays: &CryptarchiaConsensusRelays<Tx, Storage, RuntimeServiceId>,
+    origin: BlockOrigin,
+    relays: &CryptarchiaConsensusRelays<Tx>,
     new_block_subscription_sender: &broadcast::Sender<ProcessedBlockEvent>,
     lib_broadcaster: &broadcast::Sender<LibUpdate>,
 ) -> Result<ProcessBlockOutcome<Tx>, Error>
@@ -791,18 +782,14 @@ where
         + Sync
         + Unpin
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
 {
     debug!(target: LOG_TARGET, "Received proposal with ID: {:?}", block.header().id());
     let header = block.header().clone();
     let prev_lib = cryptarchia.lib();
 
     let mut candidate = cryptarchia.clone();
-    let applied = candidate.try_apply_block_with_state_retention(block.clone(), current_slot)?;
+    let applied =
+        candidate.try_apply_block_with_state_retention(block.clone(), current_slot, origin)?;
     let new_lib = candidate.lib();
 
     let tx_count = block.transactions_iter().count();
@@ -815,7 +802,7 @@ where
     );
 
     relays
-        .storage_adapter()
+        .storage()
         .store_block_data(
             header.id(),
             header.parent(),
@@ -830,7 +817,7 @@ where
         &candidate,
         &block,
         &applied.newly_canonical_blocks,
-        relays.storage_adapter(),
+        relays.storage(),
     )
     .await;
     candidate.prune_ledger_states(applied.pruned_blocks.all());
@@ -890,30 +877,135 @@ where
         }
     }
 
-    let reorged_txs: Vec<_> = join_all(
-        applied
-            .reorged_blocks
-            .iter()
-            .map(|id| relays.storage_adapter().get_block(id)),
+    let newly_canonical_txs: Vec<_> =
+        newly_canonical_txs(&block, &applied.newly_canonical_blocks, relays.storage())
+            .await
+            .collect();
+    let reorged_txs = reorged_txs(
+        applied.reorged_blocks.iter(),
+        &newly_canonical_txs,
+        relays.storage(),
     )
-    .await
-    .into_iter()
-    .flatten()
-    .flat_map(Block::into_transactions)
-    .collect();
+    .await;
 
     Ok(ProcessBlockOutcome {
         pruned_blocks: applied.pruned_blocks,
         reorged_block_ids: applied.reorged_blocks.iter().copied().collect(),
-        reorged_txs,
+        reorged_txs: reorged_txs.collect(),
+        newly_canonical_txs,
     })
 }
 
-async fn log_newly_canonical_blocks<Tx, Storage, RuntimeServiceId>(
+/// Transactions carried by `block_ids`, loaded from storage.
+async fn load_block_txs<'a, Tx>(
+    block_ids: impl Iterator<Item = &'a HeaderId>,
+    storage: &StorageApi<Tx>,
+) -> impl Iterator<Item = Tx>
+where
+    Tx: Hashable<Hash = TxHash>
+        + StorageSize
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + 'static,
+{
+    join_all(block_ids.map(async move |block_id| {
+        let block = storage.get_block(block_id).await;
+        if block.is_none() {
+            warn!(target: LOG_TARGET, %block_id, "Could not load a block from storage");
+        }
+        block
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .flat_map(Block::into_transactions)
+}
+
+/// Tx hashes carried by `newly_canonical_blocks`.
+///
+/// If `applied_block` is among the `newly_canonical_blocks`, its txs are loaded
+/// from `applied_block` instead of storage. This saves a storage read in the
+/// common case where the applied block extends the tip, which is the only newly
+/// canonical block then.
+async fn newly_canonical_txs<Tx>(
+    applied_block: &Block<Tx>,
+    newly_canonical_blocks: &[HeaderId],
+    storage: &StorageApi<Tx>,
+) -> impl Iterator<Item = TxHash>
+where
+    Tx: Hashable<Hash = TxHash>
+        + StorageSize
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + 'static,
+{
+    // Gather txs from all newly canonical blocks except `applied_block`.
+    let applied_block_id = applied_block.header().id();
+    let early_txs = load_block_txs(
+        newly_canonical_blocks
+            .iter()
+            .filter(move |block_id| **block_id != applied_block_id),
+        storage,
+    )
+    .await;
+
+    // Gather txs from `applied_block` if it's among the newly canonical blocks.
+    let applied_txs = newly_canonical_blocks
+        .contains(&applied_block_id)
+        .then(|| applied_block.transactions_iter())
+        .into_iter()
+        .flatten();
+
+    // Return all gathered txs.
+    early_txs
+        .map(|tx| tx.hash())
+        .chain(applied_txs.map(Hashable::hash))
+}
+
+/// Transactions carried by `reorged_blocks` that are not in
+/// `newly_canonical_txs`.
+///
+/// The newly canonical blocks often carry the same transactions as the reorged
+/// blocks. Those transactions are still canonical.
+async fn reorged_txs<'a, Tx>(
+    reorged_blocks: impl Iterator<Item = &'a HeaderId>,
+    newly_canonical_txs: &[TxHash],
+    storage: &StorageApi<Tx>,
+) -> impl Iterator<Item = Tx>
+where
+    Tx: Hashable<Hash = TxHash>
+        + StorageSize
+        + Serialize
+        + DeserializeOwned
+        + Clone
+        + Eq
+        + Send
+        + Sync
+        + 'static,
+{
+    let mut reorged_txs = load_block_txs(reorged_blocks, storage).await.peekable();
+    // Most blocks reorg nothing, so the set is built only when needed.
+    let newly_canonical_txs: HashSet<TxHash> = if reorged_txs.peek().is_some() {
+        newly_canonical_txs.iter().copied().collect()
+    } else {
+        HashSet::new()
+    };
+    reorged_txs.filter(move |tx| !newly_canonical_txs.contains(&tx.hash()))
+}
+
+async fn log_newly_canonical_blocks<Tx>(
     cryptarchia: &Cryptarchia,
     applied_block: &Block<Tx>,
     newly_canonical_blocks: &[HeaderId],
-    storage: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    storage: &StorageApi<Tx>,
 ) where
     Tx: PreverifiedMantleTransaction
         + SignedMantleTx<Preverified, StandardMode>
@@ -927,11 +1019,6 @@ async fn log_newly_canonical_blocks<Tx, Storage, RuntimeServiceId>(
         + Sync
         + Unpin
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
 {
     if !tracing::enabled!(target: LOG_TARGET, tracing::Level::INFO) {
         return;
@@ -968,11 +1055,11 @@ async fn log_newly_canonical_blocks<Tx, Storage, RuntimeServiceId>(
 ///
 /// First tries to find blocks from memory. If any block is missing from
 /// memory, it falls back to loading all subsequent blocks from storage.
-pub fn get_block_ids<Tx, Storage, RuntimeServiceId>(
+pub fn get_block_ids<Tx>(
     cryptarchia: &Cryptarchia,
     from_descendant: HeaderId,
     to_ancestor: HeaderId,
-    storage_adapter: StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    storage: StorageApi<Tx>,
 ) -> Pin<Box<dyn Stream<Item = Result<HeaderId, Error>> + Send>>
 where
     Tx: PreverifiedMantleTransaction
@@ -987,11 +1074,6 @@ where
         + Sync
         + Unpin
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
 {
     let branches = cryptarchia.consensus.branches();
 
@@ -1016,23 +1098,21 @@ where
     }
 
     let storage_stream =
-        stream::once(
-            async move { load_block_ids_from_storage(current, to_ancestor, storage_adapter) },
-        )
-        .flatten();
+        stream::once(async move { load_block_ids_from_storage(current, to_ancestor, storage) })
+            .flatten();
     Box::pin(stream::iter(in_memory).chain(storage_stream))
 }
 
 /// Retrieves the block IDs from descendant (inclusive) to ancestor
 /// (inclusive) from the storage, in child-to-parent order.
 ///
-/// This is implemented here, and not as a method of `StorageAdapter`, to
+/// This is implemented here, and not as a method of `StorageApi`, to
 /// simplify the panic and error message handling.
 #[expect(closure_returning_async_block, reason = "required by try_unfold")]
-pub fn load_block_ids_from_storage<Tx, Storage, RuntimeServiceId>(
+pub fn load_block_ids_from_storage<Tx>(
     from_descendant: HeaderId,
     to_ancestor: HeaderId,
-    storage: StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    storage: StorageApi<Tx>,
 ) -> impl Stream<Item = Result<HeaderId, Error>>
 where
     Tx: PreverifiedMantleTransaction
@@ -1047,11 +1127,6 @@ where
         + Sync
         + Unpin
         + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
 {
     // Yield `from_descendant` first since we already know it,
     // and yield subsequent parents by loading them from storage lazily.
@@ -1091,33 +1166,17 @@ where
 ///
 /// This function returns any block that fails to be deleted from the
 /// storage layer.
-pub async fn delete_stale_blocks_from_storage<Tx, Storage, RuntimeServiceId>(
+pub async fn delete_stale_blocks_from_storage<Tx>(
     stale_blocks: impl Iterator<Item = HeaderId> + Send,
     additional_blocks: &HashSet<HeaderId>,
-    storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    storage: &StorageApi<Tx>,
 ) -> HashSet<HeaderId>
 where
-    Tx: PreverifiedMantleTransaction
-        + SignedMantleTx<Preverified, StandardMode>
-        + StorageSize
-        + Debug
-        + Clone
-        + Eq
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + Unpin
-        + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
+    Tx: Clone + Eq + Serialize + DeserializeOwned + Hashable<Hash = TxHash> + StorageSize,
 {
     match delete_blocks_from_storage(
         stale_blocks.chain(additional_blocks.iter().copied()),
-        storage_adapter,
+        storage,
     )
     .await
     {
@@ -1137,33 +1196,17 @@ where
 /// If any request fails, the header ID and the generated error for each
 /// failing request are collected and returned as part of the `Err`
 /// result.
-async fn delete_blocks_from_storage<Headers, Tx, Storage, RuntimeServiceId>(
+async fn delete_blocks_from_storage<Headers, Tx>(
     block_headers: Headers,
-    storage_adapter: &StorageAdapter<Storage, Tx, RuntimeServiceId>,
+    storage: &StorageApi<Tx>,
 ) -> Result<(), Vec<(HeaderId, DynError)>>
 where
     Headers: Iterator<Item = HeaderId> + Send,
-    Tx: PreverifiedMantleTransaction
-        + SignedMantleTx<Preverified, StandardMode>
-        + StorageSize
-        + Debug
-        + Clone
-        + Eq
-        + Serialize
-        + DeserializeOwned
-        + Send
-        + Sync
-        + Unpin
-        + 'static,
-    Storage: StorageBackend + Send + Sync + 'static,
-    <Storage as StorageChainApi>::Tx: From<Bytes> + AsRef<[u8]>,
-    <Storage as StorageChainApi>::Block: TryFrom<Block<Tx>> + TryInto<Block<Tx>> + Into<Bytes>,
-    <Storage as StorageChainApi>::Events: TryFrom<Events> + TryInto<Events>,
-    RuntimeServiceId: Display + 'static,
+    Tx: Clone + Eq + Serialize + DeserializeOwned + Hashable<Hash = TxHash> + StorageSize,
 {
     let blocks_to_delete = block_headers.collect::<Vec<_>>();
     let block_deletion_outcomes = blocks_to_delete.iter().copied().zip(
-        storage_adapter
+        storage
             .remove_blocks(blocks_to_delete.iter().copied())
             .await,
     );
@@ -1228,7 +1271,7 @@ async fn broadcast_finalized_block(
     broadcast_relay
         .send(BlockBroadcastMsg::BroadcastFinalizedBlock(block_info))
         .await
-        .map_err(|(error, _)| Box::new(error) as DynError)
+        .map_err(|error| Box::new(error) as DynError)
 }
 
 /// Update and persist `CryptarchiaConsensusState`.
@@ -1256,7 +1299,7 @@ async fn reject_chain_sync_event(event: ChainSyncEvent) {
     match event {
         ChainSyncEvent::ProvideBlocksRequest { reply_sender, .. } => {
             let response = ProviderResponse::Unavailable {
-                reason: BlocksUnavailableReason::Unknown("Node is not in online mode".to_owned()),
+                reason: BlocksUnavailableReason::Unknown,
             };
             if let Err(err) = reply_sender.send(response).await {
                 error!(target: LOG_TARGET, %err, "failed to send chain sync response");
@@ -1269,10 +1312,10 @@ async fn reject_chain_sync_event(event: ChainSyncEvent) {
 }
 
 async fn send_chain_sync_rejection<ResponseType>(
-    sender: mpsc::Sender<ProviderResponse<ResponseType>>,
+    sender: mpsc::Sender<ProviderResponse<ResponseType, GetTipResponseReason>>,
 ) {
     let response = ProviderResponse::Unavailable {
-        reason: "Node is not in online mode".to_owned(),
+        reason: GetTipResponseReason::NodeNotOnline,
     };
     if let Err(err) = sender.send(response).await {
         error!(target: LOG_TARGET, %err, "failed to send chain sync response");

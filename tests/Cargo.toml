@@ -21,8 +21,10 @@ lb-mmr      = { workspace = true }
 lb-utxotree = { workspace = true }
 
 [dependencies]
+async-trait                      = { workspace = true }
 axum                             = { features = ["http1", "json", "tokio"], workspace = true }
 bincode                          = { workspace = true }
+blockchain-test-support          = { workspace = true }
 cucumber                         = { features = ["macros", "output-junit"], workspace = true }
 ed25519                          = { workspace = true }
 educe                            = { features = ["Default"], workspace = true }
@@ -30,8 +32,8 @@ futures                          = { workspace = true }
 futures-util                     = { workspace = true }
 hex                              = { workspace = true }
 lb-api-service                   = { workspace = true }
+lb-binary-codec                  = { workspace = true }
 lb-chain-service                 = { workspace = true }
-lb-codec                         = { workspace = true }
 lb-common-http-client            = { workspace = true }
 lb-config                        = { workspace = true }
 lb-core                          = { workspace = true }
@@ -44,7 +46,7 @@ lb-log-targets                   = { workspace = true }
 lb-mmr                           = { workspace = true }
 lb-node                          = { features = ["testing"], workspace = true }
 lb-pow-service                   = { workspace = true }
-lb-storage-service               = { features = ["rocksdb-backend"], workspace = true }
+lb-storage-service               = { workspace = true }
 lb-testing-framework             = { workspace = true }
 lb-tx-service                    = { workspace = true }
 lb-utils                         = { workspace = true }
@@ -55,6 +57,7 @@ libp2p                           = { workspace = true }
 logos-sql                        = { workspace = true }
 num-bigint                       = { workspace = true }
 rand                             = { workspace = true }
+rand_chacha                      = { workspace = true }
 reqwest                          = { features = ["json"], workspace = true }
 rpds                             = { workspace = true }
 rusqlite                         = { workspace = true }
@@ -65,6 +68,7 @@ serial_test                      = { workspace = true }
 strum                            = { features = ["derive", "std"], workspace = true }
 strum_macros                     = { workspace = true }
 tempfile                         = { workspace = true }
+testing-framework-app            = { workspace = true }
 testing-framework-core           = { workspace = true }
 testing-framework-runner-local   = { workspace = true }
 thiserror                        = { workspace = true }

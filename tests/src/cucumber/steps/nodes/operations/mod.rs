@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     fs,
     net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream},
-    num::NonZero,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -20,12 +19,12 @@ use lb_node::config::{
     DeploymentSettings, RunConfig,
     tracing::serde::console::{Layer as ConsoleLayer, TokioConfig},
 };
-use lb_testing_framework::{
-    LbcEnv, LbcManualCluster, NodeHttpClient, USER_CONFIG_FILE, configs::wallet::WalletAccount,
-};
+use lb_testing_framework::{LbcEnv, NodeHttpClient, configs::wallet::WalletAccount};
 use libp2p::Multiaddr;
 use reqwest::{Client, Url};
-use testing_framework_core::scenario::{PeerSelection, StartNodeOptions, StartedNode};
+use testing_framework_core::scenario::{
+    ClusterWaitHandle, NodeControl, NodeLaunchOptions, PeerSelection, StartNodeOptions,
+};
 use tokio::time::{Instant as TokioInstant, sleep, timeout};
 use tracing::{info, warn};
 
@@ -44,8 +43,8 @@ use crate::cucumber::{
         tokio_console::profile::TokioConsoleProfileNode,
     },
     utils::{
-        display_last_path_components, extract_child_dir_name, matching_child_dirs,
-        node_wallet_keys_from_node_yaml, peer_id_from_node_yaml, track_progress, truncate_hash,
+        display_last_path_components, extract_child_dir_name, matching_child_dirs, track_progress,
+        truncate_hash,
     },
     wallet::snapshot::{create_and_save_all_wallets_snapshot, restore_wallet_snapshot_if_present},
     world::{
@@ -103,7 +102,10 @@ mod resources;
 mod snapshots;
 mod synchronization;
 
-pub use blend_relay::{BlendRelayRegistry, set_blend_reachability};
+pub use blend_relay::{
+    BlendReachabilityTransition, BlendRelayRegistry, apply_blend_reachability_set,
+    restore_all_blend_reachability, set_blend_reachability,
+};
 pub use consensus::{
     ensure_all_nodes_agree_on_lib, nodes_converged, poll_all_nodes_and_update_consensus_cache,
 };

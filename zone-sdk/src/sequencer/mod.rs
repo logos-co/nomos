@@ -65,6 +65,7 @@
 mod actor;
 mod backfill;
 mod block_fetch;
+mod block_states;
 mod channel_wallet;
 mod client;
 mod handle;
@@ -90,17 +91,17 @@ pub use lb_core::{
         ops::{OpProof, channel::config::ChannelConfigOp},
         transactions::Ops,
     },
-    proofs::channel_multi_sig_proof::IndexedSignature,
+    proofs::channel_multi_sig_proof::{IndexedSignature, IndexedSignatures},
 };
-pub use lb_key_management_system_service::keys::{Ed25519Key, Ed25519PublicKey};
+pub use lb_key_management_system_service::keys::{Ed25519Key, UnverifiedEd25519PublicKey};
 // Pure key-only signing primitive for prepared multi-sig artifacts — usable by
 // an offline key holder with no sequencer or chain state.
 pub use tx_builder::sign_prepared;
 pub use types::{
     AtomicWithdrawInfo, ChannelNote, ChannelTransferInfo, ChannelUpdate, ChannelUpdateTx,
     ChannelWalletView, DepositInfo, Error, Event, FinalizedOp, FinalizedTx, FundingConfig,
-    InscriptionId, InscriptionInfo, PendingTx, PreparedChannelConfig, PublishResult,
-    SequencerChannelView, SequencerCheckpoint, SequencerConfig, TurnNotification, TxSource,
-    TxStatus, TxStatusUpdate, WithdrawArg, WithdrawInfo, WithdrawInputs,
+    InscriptionId, InscriptionInfo, PendingFunding, PendingTx, PreparedAtomicBundle,
+    PreparedChannelConfig, PublishResult, SequencerChannelView, SequencerCheckpoint,
+    SequencerConfig, TurnNotification, WithdrawArg, WithdrawInfo, WithdrawInputs,
 };
 pub use zone_sequencer::ZoneSequencer;

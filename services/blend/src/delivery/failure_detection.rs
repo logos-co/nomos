@@ -4,7 +4,6 @@ use core::{
     num::NonZeroU64,
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 use std::collections::HashMap;
 
@@ -12,9 +11,7 @@ use futures::{
     Stream, StreamExt as _,
     stream::{BoxStream, Fuse},
 };
-use lb_blend::scheduling::message_scheduler::round_info::Round;
-use tokio::time::{MissedTickBehavior, interval};
-use tokio_stream::wrappers::IntervalStream;
+use lb_blend::primitives::time::{Round, RoundClock};
 
 use crate::{
     LOG_TARGET, core::dispatcher::PayloadDispatcher, delivery::broadcast_undelivered_messages,
@@ -28,7 +25,7 @@ struct BlendedPayloadDetails {
 
 pub struct FailureDetector {
     maximum_blending_delay: NonZeroU64,
-    rounds_clock: IntervalStream,
+    round_clock: RoundClock,
     current_round: Round,
     payload_broadcasts: Fuse<BoxStream<'static, DataPayload>>,
     /// Messages sent out via Blend, up to the round their deadline passes.
@@ -39,18 +36,14 @@ impl FailureDetector {
     #[must_use]
     pub fn new(
         maximum_blending_delay: NonZeroU64,
-        round_duration: Duration,
+        round_duration_in_seconds: NonZeroU64,
         payload_broadcasts: BoxStream<'static, DataPayload>,
     ) -> Self {
-        let clock = {
-            let mut clock = interval(round_duration);
-            clock.set_missed_tick_behavior(MissedTickBehavior::Skip);
-            clock
-        };
+        let round_clock = RoundClock::new(round_duration_in_seconds);
         Self {
             maximum_blending_delay,
-            rounds_clock: IntervalStream::new(clock),
-            current_round: Round::from(0),
+            current_round: round_clock.current_round(),
+            round_clock,
             payload_broadcasts: payload_broadcasts.fuse(),
             unacknowledged_blended_payloads: HashMap::new(),
         }
@@ -76,7 +69,8 @@ impl FailureDetector {
         }
     }
 
-    fn take_expired_payloads(&mut self, now: Round) -> Vec<DataPayload> {
+    fn take_expired_payloads(&mut self) -> Vec<DataPayload> {
+        let now = self.current_round;
         let (expired, still_waiting): (HashMap<_, _>, HashMap<_, _>) =
             take(&mut self.unacknowledged_blended_payloads)
                 .into_iter()
@@ -144,35 +138,25 @@ impl Stream for FailureDetector {
             // Take what the broadcasting channel has for us before looking at the clock,
             // so that a payload delivered in this very round is never the one the same
             // round reveals.
-            loop {
+            while !self.payload_broadcasts.is_done() {
                 match self.payload_broadcasts.poll_next_unpin(cx) {
                     Poll::Pending => break,
                     Poll::Ready(Some(delivered)) => self.mark_payload_as_delivered(&delivered),
-                    Poll::Ready(None) => {
-                        tracing::error!(
-                            target: LOG_TARGET,
-                            "Lost sight of the broadcasting channel; a delivery can no longer be told from a loss, so the direct broadcast is disabled for the rest of this run."
-                        );
-                        return Poll::Ready(None);
-                    }
+                    Poll::Ready(None) => tracing::warn!(
+                        target: LOG_TARGET,
+                        "Lost sight of the broadcasting channel; every payload still awaiting delivery is broadcast in the clear at its delivery deadline."
+                    ),
                 }
             }
-            match self.rounds_clock.poll_next_unpin(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Ready(Some(_)) => {
-                    let now = Round::from(
-                        self.current_round
-                            .inner()
-                            .checked_add(1)
-                            .expect("Round computation overflow."),
-                    );
-                    self.current_round = now;
-                    let expired = self.take_expired_payloads(now);
-                    if !expired.is_empty() {
-                        return Poll::Ready(Some(expired));
-                    }
-                }
+            let now = self.round_clock.poll_current(cx);
+            if now <= self.current_round {
+                return Poll::Pending;
+            }
+            self.current_round = now;
+
+            let expired = self.take_expired_payloads();
+            if !expired.is_empty() {
+                return Poll::Ready(Some(expired));
             }
         }
     }
@@ -180,14 +164,19 @@ impl Stream for FailureDetector {
 
 #[cfg(test)]
 mod tests {
-    use futures::{StreamExt as _, stream};
+    use core::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use futures::{Stream as _, StreamExt as _, stream, task::noop_waker_ref};
     use tokio::{sync::mpsc, time::Instant};
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
     use crate::{
         delivery::{
             FailureDetector,
-            test_utils::{DEADLINE, ROUND, proposal, transaction, until},
+            test_utils::{DEADLINE, ROUND, ROUND_IN_SECONDS, proposal, transaction, until},
         },
         message::DataPayload,
         test_utils::dispatcher::TestPayloadDispatcher,
@@ -199,10 +188,34 @@ mod tests {
         let (channel, broadcasts) = mpsc::unbounded_channel();
         let detection = FailureDetector::new(
             DEADLINE,
-            ROUND,
+            ROUND_IN_SECONDS,
             UnboundedReceiverStream::new(broadcasts).boxed(),
         );
         (detection, Instant::now(), channel)
+    }
+
+    /// A detector too busy to be polled for several rounds must not lose them.
+    /// Counting ticks would lose them: the interval behind it skips what was
+    /// missed, so its clock would fall behind wall time for good and every
+    /// deadline after that would be owed more than it should be.
+    ///
+    /// Polled once, by hand, so the paused clock cannot auto-advance and hide
+    /// the difference.
+    #[tokio::test(start_paused = true)]
+    async fn rounds_that_pass_unobserved_still_count() {
+        let (mut detection, _start, _channel) = watching();
+        detection.mark_payload_as_blended(proposal());
+
+        // The whole deadline passes with nothing polling the detector.
+        tokio::time::advance(ROUND * u32::try_from(DEADLINE.get() + 2).unwrap()).await;
+
+        let mut context = Context::from_waker(noop_waker_ref());
+        assert_eq!(
+            Pin::new(&mut detection).poll_next(&mut context),
+            Poll::Ready(Some(vec![proposal()])),
+            "one poll after the deadline elapsed must reveal the payload, however \
+             many rounds went by unobserved"
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -290,7 +303,7 @@ mod tests {
 
         let (mut detection, start, _channel) = watching();
         detection.mark_payload_as_blended(proposal());
-        assert!(until(&mut detection, start, APART).await.is_empty());
+        assert_eq!(until(&mut detection, start, APART).await, []);
         detection.mark_payload_as_blended(proposal());
 
         assert!(
@@ -331,26 +344,46 @@ mod tests {
         );
     }
 
-    /// The broadcasting channel is the only evidence of delivery there is.
-    /// Without it every payload looks lost, so carrying on would answer a
-    /// broken observer by revealing everything this node sends — the
-    /// opposite of what the fallback is for.
+    /// The broadcasting channel is the only evidence of delivery there is, but
+    /// not what the deadlines run on: without it a payload still leaves at its
+    /// deadline, rather than waiting for an observation that cannot come.
     #[tokio::test(start_paused = true)]
-    async fn losing_sight_of_the_broadcasting_channel_stops_the_detection() {
-        let mut detection = FailureDetector::new(DEADLINE, ROUND, stream::empty().boxed());
+    async fn losing_sight_of_the_broadcasting_channel_leaves_the_deadlines_running() {
+        let mut detection =
+            FailureDetector::new(DEADLINE, ROUND_IN_SECONDS, stream::empty().boxed());
         let start = Instant::now();
         detection.mark_payload_as_blended(proposal());
 
-        assert!(
-            until(&mut detection, start, DEADLINE.get() + 2)
-                .await
-                .is_empty(),
-            "a node that cannot see the channel must not answer that by revealing its own traffic"
+        assert_eq!(
+            until(&mut detection, start, DEADLINE.get() + 2).await,
+            vec![proposal()]
         );
         assert_eq!(
-            detection.next().await,
-            None,
-            "the branch this feeds is disabled outright rather than polled forever"
+            detection.outstanding_payloads_count(),
+            0,
+            "nothing stays tracked for the rest of the run"
+        );
+    }
+
+    /// A payload leaves at its deadline, so an observation of it that comes
+    /// later — the one a lag skipped, or one the network was slow to make — has
+    /// nothing left to clear.
+    #[tokio::test(start_paused = true)]
+    async fn an_observation_after_the_deadline_is_ignored() {
+        let (mut detection, start, channel) = watching();
+        detection.mark_payload_as_blended(proposal());
+        assert_eq!(
+            until(&mut detection, start, DEADLINE.get() + 2).await,
+            vec![proposal()]
+        );
+
+        channel.send(proposal()).expect("the watch is listening");
+
+        assert_eq!(until(&mut detection, start, DEADLINE.get() + 4).await, []);
+        assert_eq!(
+            detection.outstanding_payloads_count(),
+            0,
+            "an observation never starts tracking a payload"
         );
     }
 
@@ -364,7 +397,7 @@ mod tests {
         detection.mark_payload_as_blended(proposal());
         channel.send(proposal()).expect("the watch is listening");
         // Let the delivery land before the second copy goes out.
-        assert!(until(&mut detection, start, 2).await.is_empty());
+        assert_eq!(until(&mut detection, start, 2).await, []);
 
         detection.mark_payload_as_blended(proposal());
 
@@ -386,7 +419,7 @@ mod tests {
         detection.mark_payload_as_blended(proposal());
         channel.send(proposal()).expect("the watch is listening");
         // One round in, so the delivery has landed and the deadline has not.
-        assert!(until(&mut detection, start, 1).await.is_empty());
+        assert_eq!(until(&mut detection, start, 1).await, []);
 
         tokio::time::timeout(
             ROUND,

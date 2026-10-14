@@ -2,7 +2,9 @@ use std::fmt::{Debug, Display};
 
 use lb_chain_service::api::CryptarchiaServiceData;
 use lb_core::sdp::{ActivityMetadata, DeclarationId, DeclarationMessage};
-use lb_sdp_service::{SdpService, mempool::SdpMempoolAdapter, state::SdpStateStorage};
+use lb_sdp_service::{
+    SdpService, SdpSubmission, mempool::SdpMempoolAdapter, state::SdpStateStorage,
+};
 use overwatch::{DynError, overwatch::OverwatchHandle};
 
 pub async fn post_declaration_handler<
@@ -14,7 +16,7 @@ pub async fn post_declaration_handler<
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration: DeclarationMessage,
-) -> Result<DeclarationId, DynError>
+) -> Result<SdpSubmission, DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     ChainService: CryptarchiaServiceData + Send + Sync + 'static,
@@ -36,8 +38,7 @@ where
             declaration: Box::new(declaration),
             reply_channel,
         })
-        .await
-        .map_err(|(e, _)| e)?;
+        .await?;
 
     reply_rx.await?
 }
@@ -51,7 +52,7 @@ pub async fn post_activity_handler<
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
     metadata: ActivityMetadata,
-) -> Result<(), DynError>
+) -> Result<SdpSubmission, DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     ChainService: CryptarchiaServiceData + Send + Sync + 'static,
@@ -66,13 +67,16 @@ where
         >,
 {
     let relay = handle.relay().await?;
+    let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
 
     relay
-        .send(lb_sdp_service::SdpMessage::PostActivity { metadata })
-        .await
-        .map_err(|(e, _)| e)?;
+        .send(lb_sdp_service::SdpMessage::PostActivity {
+            metadata,
+            reply_channel: Some(reply_channel),
+        })
+        .await?;
 
-    Ok(())
+    reply_rx.await?
 }
 
 pub async fn post_withdrawal_handler<
@@ -84,7 +88,7 @@ pub async fn post_withdrawal_handler<
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
     declaration_id: DeclarationId,
-) -> Result<(), DynError>
+) -> Result<SdpSubmission, DynError>
 where
     MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
     ChainService: CryptarchiaServiceData + Send + Sync + 'static,
@@ -99,13 +103,16 @@ where
         >,
 {
     let relay = handle.relay().await?;
+    let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
 
     relay
-        .send(lb_sdp_service::SdpMessage::PostWithdrawal { declaration_id })
-        .await
-        .map_err(|(e, _)| e)?;
+        .send(lb_sdp_service::SdpMessage::PostWithdrawal {
+            declaration_id,
+            reply_channel,
+        })
+        .await?;
 
-    Ok(())
+    reply_rx.await?
 }
 
 pub async fn post_set_declaration_id_handler<
@@ -139,8 +146,7 @@ where
             declaration_id,
             reply_channel,
         })
-        .await
-        .map_err(|(e, _)| Box::new(e) as DynError)?;
+        .await?;
 
     reply_rx.await?.map_err(|e| Box::new(e) as DynError)?;
 

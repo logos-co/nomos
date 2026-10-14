@@ -3,6 +3,18 @@
 /// Errors returned by the `λSQL` library.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// This instance follows channel history but does not publish writes.
+    #[error("this Logos SQL instance is read-only")]
+    ReadOnly,
+
+    /// Local displacements need an application decision before new writes.
+    #[error("handle displaced writes before submitting new writes")]
+    UnhandledDisplacements,
+
+    /// The selected displacement was handled, cleared, or replaced.
+    #[error("displacement is no longer awaiting handling; refresh the displacement list")]
+    StaleDisplacement,
+
     /// A participant state file or directory could not be accessed.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -36,8 +48,8 @@ pub enum Error {
     #[error("invalid local state: {0}")]
     InvalidLocalState(&'static str),
 
-    /// A local write is committed but has not yet been accepted by `ZoneSDK`.
-    #[error("a committed write is still waiting for ZoneSDK to accept it")]
+    /// The local publication queue is full or its SDK checkpoint needs saving.
+    #[error("publication is pending; retry once the local queue can accept writes")]
     PublishPending,
 
     /// The encoded transaction does not conform to the `λSQL` protocol.

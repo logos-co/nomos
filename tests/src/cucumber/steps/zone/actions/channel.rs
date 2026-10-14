@@ -1,7 +1,7 @@
 use super::{
-    AtomicZoneDepositRequest, CucumberWorld, Duration, Ed25519Key, Inscription, Keys, Metadata,
+    AtomicZoneDepositRequest, CucumberWorld, Duration, Ed25519Key, Inscription, Metadata,
     PublishDeadline, PublishResult, SequencerCheckpoint, Step, StepError, StepResult, TxHash, Utxo,
-    WalletInfo, WalletReservedInputs, ZONE_CHANNEL_DEPOSIT_THRESHOLD,
+    VerifiedChannelKeys, WalletInfo, WalletReservedInputs, ZONE_CHANNEL_DEPOSIT_THRESHOLD,
     ZONE_CHANNEL_WITHDRAW_THRESHOLD, ZoneDeposit, ZoneTestError, build_zone_deposit,
     build_zone_deposit_from_values, current_available_utxos_for_wallet, log_step_error,
     make_inscription, publish_atomic_zone_withdraw, submit_atomic_zone_deposit,
@@ -48,7 +48,7 @@ pub(in super::super) async fn submit_zone_channel_config(
 
     let ((result, post_call_checkpoint), _signed_tx) = handle
         .channel_config(
-            Keys::new_unchecked(authorized_keys),
+            VerifiedChannelKeys::new_unchecked(authorized_keys),
             posting_timeframe.into(),
             posting_timeout.into(),
             ZONE_CHANNEL_WITHDRAW_THRESHOLD,
@@ -70,8 +70,8 @@ pub(in super::super) async fn submit_zone_channel_config(
     .await
 }
 
-/// Builds and funds the config, storing it for the per-signer steps. Reads
-/// only public keys; `threshold` sets both the config and transfer thresholds.
+/// `threshold` sets both the config and transfer thresholds;
+/// `posting_timeframe` is in slots (0 = no rotation).
 pub(in super::super) async fn prepare_zone_channel_config(
     world: &mut CucumberWorld,
     step: &Step,
@@ -79,6 +79,7 @@ pub(in super::super) async fn prepare_zone_channel_config(
     transaction_alias: String,
     authorized_aliases: Vec<String>,
     threshold: u16,
+    posting_timeframe: u32,
 ) -> StepResult {
     let client = log_step_error(step, world.zone.sequencer_client(sequencer_alias))?.clone();
 
@@ -89,8 +90,8 @@ pub(in super::super) async fn prepare_zone_channel_config(
 
     let prepared = client
         .prepare_channel_config(
-            Keys::new_unchecked(authorized_keys.clone()),
-            0.into(),
+            VerifiedChannelKeys::new_unchecked(authorized_keys.clone()),
+            posting_timeframe.into(),
             0.into(),
             threshold,
             threshold,
@@ -123,8 +124,7 @@ pub(in super::super) async fn prepare_zone_channel_config(
     Ok(())
 }
 
-/// One participant's independent signature, using only `signer_alias`'s own
-/// key — never another party's.
+/// Signs using only `signer_alias`'s own key.
 pub(in super::super) fn sign_prepared_zone_channel_config(
     world: &mut CucumberWorld,
     step: &Step,
@@ -152,7 +152,6 @@ pub(in super::super) fn sign_prepared_zone_channel_config(
     Ok(())
 }
 
-/// Gathers the collected signatures and submits the fully-signed config.
 pub(in super::super) async fn submit_prepared_zone_channel_config(
     world: &mut CucumberWorld,
     step: &Step,
@@ -161,10 +160,9 @@ pub(in super::super) async fn submit_prepared_zone_channel_config(
 ) -> StepResult {
     let client = log_step_error(step, world.zone.sequencer_client(sequencer_alias))?.clone();
     let prepared = log_step_error(step, world.zone.prepared_config(&transaction_alias))?.clone();
-    // Collected in arbitrary signer order; the proof requires strictly
-    // ascending index order, so canonicalize before submitting.
-    let mut signatures = world.zone.prepared_config_signatures(&transaction_alias);
-    signatures.sort_unstable();
+    // Collected in arbitrary signer order, which the proof's binary tree-based map
+    // puts in index order.
+    let signatures = world.zone.prepared_config_signatures(&transaction_alias);
 
     let mut checkpoint_rx = world
         .zone
@@ -192,8 +190,6 @@ pub(in super::super) async fn submit_prepared_zone_channel_config(
     .await
 }
 
-/// Resolve the checkpoint containing a submitted config tx and record it for
-/// later assertions.
 async fn record_submitted_config(
     world: &mut CucumberWorld,
     sequencer_alias: &str,
@@ -269,6 +265,7 @@ pub(in super::super) fn remember_published_zone_message(
         message_alias,
         payload,
         Some(result.inscription_id()),
+        Some(result.tx.inscription().this_msg),
         Some(sequencer_alias),
         checkpoint,
     );
@@ -363,8 +360,7 @@ pub(in super::super) async fn submit_zone_deposit_transaction(
     Ok(())
 }
 
-/// Submits a multi-input channel deposit that consumes one wallet note per
-/// listed value, exercising the channel wallet's per-note value tracking.
+/// Consumes one wallet note per listed value.
 pub(in super::super) async fn submit_zone_multi_deposit_transaction(
     world: &mut CucumberWorld,
     step: &Step,
@@ -541,15 +537,9 @@ pub(in super::super) async fn submit_zone_withdraw_transaction(
     Ok(())
 }
 
-/// Action wrapper for the new `publish_atomic_withdraw` SDK API. Mirrors
-/// [`submit_zone_withdraw_transaction`] but uses the high-level fire-and-forget
-/// flow: SDK fills the withdraw nonce, locates its own accredited-key index,
-/// builds the bundled `MantleTx`, signs locally, and submits.
-///
 /// `withdraw_rows` carries one `(alias, outputs)` per `WithdrawArg`; each
-/// withdraw is remembered under its own alias so multi-withdraw bundles can
-/// be asserted per-withdraw via the indexer step. `bundle_alias` is remembered
-/// as the bundle's tx hash for `zone transaction "..." is finalized`.
+/// withdraw is remembered under its own alias for per-withdraw indexer
+/// assertions, and `bundle_alias` under the bundle's tx hash.
 pub(in super::super) async fn publish_atomic_zone_withdraw_transaction(
     world: &mut CucumberWorld,
     step: &Step,
@@ -584,10 +574,8 @@ pub(in super::super) async fn publish_atomic_zone_withdraw_transaction(
         .map_err(|error| zone_step_error(step, &error))?
     };
 
-    // A bundle carries a single `ChannelWithdrawOp` that releases every
-    // recipient note the transfer created, regardless of how many withdraw args
-    // were passed. Remember that one op under each row alias so per-withdraw
-    // indexer assertions all resolve to the same finalized op.
+    // A bundle carries a single `ChannelWithdrawOp` regardless of how many
+    // withdraw args were passed; every row alias resolves to that one op.
     let [withdraw_op] = submission.withdraws.as_slice() else {
         return Err(zone_step_error(
             step,

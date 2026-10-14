@@ -1,12 +1,14 @@
 use std::ffi::{CString, c_char};
 
 use lb_blend_service::message::NetworkInfo;
+use lb_c_macros::panic_to_error;
 use lb_core::{
     mantle::NoteId,
     sdp::{self, Locator},
 };
 use lb_groth16::fr_from_bytes;
 use lb_node::{RuntimeServiceId, generic_services::blend::BlendService};
+use lb_sdp_service::SdpSubmission;
 use multiaddr::PeerId;
 
 use crate::{
@@ -75,6 +77,7 @@ unsafe fn parse_locator(ptr: *const c_char) -> Result<Locator, OperationStatus> 
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn blend_join_as_core_node(
     node: *const LogosBlockchainNode,
@@ -91,7 +94,8 @@ pub unsafe extern "C" fn blend_join_as_core_node(
 
     let node = unsafe { &*node };
 
-    let result: StatusResult<sdp::DeclarationId> = node.get_runtime_handle().block_on(async {
+    let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
+    let result: StatusResult<SdpSubmission> = runtime_handle.block_on(async {
         lb_api_service::http::blend::blend_join_network::<
             BlendService<RuntimeServiceId>,
             RuntimeServiceId,
@@ -105,7 +109,9 @@ pub unsafe extern "C" fn blend_join_as_core_node(
         })
     });
 
-    result.map(DeclarationId::from).into()
+    result
+        .map(|submission| DeclarationId::from(submission.declaration_id))
+        .into()
 }
 
 /// Gets the current Blend network information.
@@ -125,7 +131,7 @@ pub unsafe extern "C" fn blend_join_as_core_node(
 pub(crate) fn blend_info_sync(
     node: &LogosBlockchainNode,
 ) -> StatusResult<Option<NetworkInfo<PeerId>>> {
-    let runtime_handle = node.get_runtime_handle();
+    let runtime_handle = node.get_runtime_handle()?;
     let overwatch_handle = node.get_overwatch_handle();
 
     runtime_handle
@@ -164,6 +170,7 @@ pub type FfiBlendInfoResult = FfiStatusResult<*mut c_char>;
 /// This function allocates memory for the output C string. The caller must
 /// free this memory using the [`free_cstring`](super::free_cstring) function.
 #[must_use]
+#[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn blend_info(node: *const LogosBlockchainNode) -> FfiBlendInfoResult {
     return_error_if_null_pointer!(node);

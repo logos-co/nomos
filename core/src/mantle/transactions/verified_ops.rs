@@ -2,11 +2,18 @@ use std::{iter::Enumerate, vec::IntoIter};
 
 use crate::mantle::{
     VerificationError,
+    batch::DeferredProofs,
     ledger::verification_mode::StandardMode,
-    ops::{SignedOp, signed_op::VerifiedSignedOp},
+    ops::SignedOp,
     traits::Hashable as _,
-    transactions::{OperationVerificationHelper, SignedOps, hash::TxHashView, states::Preverified},
+    transactions::{
+        OperationVerificationHelper, SignedOps,
+        hash::TxHashView,
+        states::{Preverified, Verified},
+    },
 };
+
+pub type VerifiedOperationStep = (VerifiedOperations, SignedOp<Verified, StandardMode>);
 
 pub struct VerifiedOperations {
     signed_ops: Enumerate<IntoIter<SignedOp<Preverified, StandardMode>>>,
@@ -34,10 +41,17 @@ impl VerifiedOperations {
     /// sequence by construction: there is no way to verify an operation
     /// against a state its predecessor never contributed to.
     ///
+    /// # Parameters
+    ///
+    /// - `helper`: Provider of verification context. It must reflect every
+    ///   preceding operation in this transaction.
+    /// - `deferred_proofs`: Batch that receives the operation's deferred proof,
+    ///   if it has one. Only updated on verification success.
+    ///
     /// # Returns
     ///
-    /// - `Some(Ok((Self, VerifiedSignedOp<StandardMode>)))` if the next
-    ///   operation is successfully verified.
+    /// - `Some(Ok(VerifiedOperationStep))` if the next operation is
+    ///   successfully verified.
     /// - `Some(Err(error))` if the next operation fails verification.
     /// - `None` if there are no more operations to verify.
     ///
@@ -48,9 +62,11 @@ impl VerifiedOperations {
     pub fn next(
         mut self,
         helper: &impl OperationVerificationHelper,
-    ) -> Option<Result<(Self, VerifiedSignedOp<StandardMode>), VerificationError>> {
+        deferred_proofs: &mut DeferredProofs,
+    ) -> Option<Result<VerifiedOperationStep, VerificationError>> {
         let (index, signed_op) = self.signed_ops.next()?;
-        let verify_result = signed_op.into_verified(index, &self.tx_hash_view, helper);
+        let verify_result =
+            signed_op.into_verified(index, &self.tx_hash_view, helper, deferred_proofs);
 
         Some(
             verify_result
@@ -78,21 +94,31 @@ mod tests {
 
     use crate::mantle::{
         Note, Utxo, VerificationError,
+        batch::DeferredProofs,
         channel::{Channels, Error},
-        ledger::Inputs,
-        ops::channel::{ChannelId, config::Keys},
+        ledger::{BoundedInputs, verification_mode::StandardMode},
+        ops::channel::ChannelId,
+        traits::Hashable as _,
         transactions::{
+            SignedOps,
+            states::Preverified,
             tx_list::signed_ops::test_utils::{create_withdraw_tx, make_channel_state},
             verification_helper::test_utils::TestOperationVerificationHelper,
         },
     };
 
-    #[test]
-    fn helper_backed_verification_accepts_valid_channel_withdraw() {
+    fn valid_withdraw() -> (
+        SignedOps<Preverified, StandardMode>,
+        TestOperationVerificationHelper,
+    ) {
         let channel_id = ChannelId::from([8u8; 32]);
         let key0 = Ed25519Key::from_bytes(&[8; 32]);
         let key1 = Ed25519Key::from_bytes(&[9; 32]);
-        let keys = Keys::new_unchecked(vec![key0.public_key(), key1.public_key()]);
+        let keys = [
+            key0.public_key().into_unverified(),
+            key1.public_key().into_unverified(),
+        ]
+        .into();
 
         let input_sk = ZkKey::from(BigUint::from(1u8));
         let utxo = Utxo {
@@ -101,7 +127,7 @@ mod tests {
             note: Note::new(10, input_sk.to_public_key()),
         };
         let note_id = utxo.id();
-        let withdraw_inputs = Inputs::from([note_id]);
+        let withdraw_inputs = BoundedInputs::from(note_id).into();
 
         let signed_tx = create_withdraw_tx(channel_id, &[&key0, &key1], Some(withdraw_inputs));
 
@@ -117,15 +143,23 @@ mod tests {
         let helper = TestOperationVerificationHelper::new(
             channels,
             [
-                ((channel_id, 0), key0.public_key()),
-                ((channel_id, 1), key1.public_key()),
+                ((channel_id, 0), key0.public_key().into_unverified()),
+                ((channel_id, 1), key1.public_key().into_unverified()),
             ],
         )
         .with_utxos(vec![utxo]);
 
+        (signed_tx, helper)
+    }
+
+    #[test]
+    fn helper_backed_verification_accepts_valid_channel_withdraw() {
+        let (signed_tx, helper) = valid_withdraw();
+
+        let mut deferred_proofs = DeferredProofs::new();
         signed_tx
             .into_verified()
-            .next(&helper)
+            .next(&helper, &mut deferred_proofs)
             .expect("Cursor should yield the WithdrawOp")
             .expect("WithdrawOp should verify");
     }
@@ -142,10 +176,38 @@ mod tests {
 
         let helper = TestOperationVerificationHelper::new(Channels::new(), []);
 
-        let verification_result = signed_tx.into_verified().next(&helper).unwrap();
+        let mut deferred_proofs = DeferredProofs::new();
+        let verification_result = signed_tx
+            .into_verified()
+            .next(&helper, &mut deferred_proofs)
+            .unwrap();
         assert_eq!(
             verification_result.err().unwrap(),
             VerificationError::ChannelVerificationError(Error::InvalidSignature)
         );
+    }
+
+    #[test]
+    fn next_returns_none_once_the_operations_are_exhausted() {
+        let (signed_tx, helper) = valid_withdraw();
+        let verified_ops = signed_tx.into_verified();
+
+        let mut deferred_proofs = DeferredProofs::new();
+        let (verified_ops, _) = verified_ops
+            .next(&helper, &mut deferred_proofs)
+            .expect("Cursor should yield the WithdrawOp")
+            .expect("WithdrawOp should verify");
+
+        assert!(verified_ops.next(&helper, &mut deferred_proofs).is_none());
+    }
+
+    #[test]
+    fn tx_hash_view_carries_the_transaction_hash() {
+        let (signed_tx, _helper) = valid_withdraw();
+        let tx_hash = signed_tx.hash();
+
+        let verified_ops = signed_tx.into_verified();
+
+        assert_eq!(verified_ops.tx_hash_view().tx_hash(), &tx_hash);
     }
 }

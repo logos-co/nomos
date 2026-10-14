@@ -937,15 +937,11 @@ mod tests {
 
     fn new_cryptarchia() -> lb_chain_service::Cryptarchia {
         let ledger_config = ledger_config();
-        lb_chain_service::Cryptarchia::from_lib(
+        lb_chain_service::Cryptarchia::from_genesis(
             [GENESIS_ID; 32].into(),
             LedgerState::from_utxos(empty(), &ledger_config),
-            [GENESIS_ID; 32].into(),
             ledger_config,
             lb_cryptarchia_engine::State::Bootstrapping,
-            0.into(),
-            0,
-            UncleSlots::default(),
         )
     }
 
@@ -955,7 +951,7 @@ mod tests {
         RewardPoWConfig {
             reward_pool_genesis: 1_000_000_000,
             epoch_reward_genesis: 1_000_000,
-            initial_difficulty: ModulusShift::new::<26>(),
+            minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
             target_claims_per_block: 100,

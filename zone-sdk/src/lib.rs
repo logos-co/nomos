@@ -60,8 +60,8 @@
 //!
 //! loop {
 //!     match sequencer.next_event().await {
-//!         Event::BlocksProcessed { checkpoint, channel_update, finalized } => {
-//!             let _ = (checkpoint, channel_update, finalized);
+//!         Event::BlocksProcessed { checkpoint, channel_update, deposits, finalized } => {
+//!             let _ = (checkpoint, channel_update, deposits, finalized);
 //!         }
 //!         Event::Ready                             => {}
 //!         Event::TurnNotification { notification } => { let _ = notification; }
@@ -108,7 +108,6 @@ pub mod node_types {
 }
 
 pub use lb_common_http_client::{CommonHttpClient, Slot};
-pub use lb_core::mantle::ops::channel::Ed25519PublicKey;
 use lb_core::{
     crypto::Hash,
     events::DepositRecreatedNotes,
@@ -118,6 +117,7 @@ use lb_core::{
         ops::channel::{MsgId, deposit::Metadata, inscribe::Inscription},
     },
 };
+pub use lb_key_management_system_service::keys::UnverifiedEd25519PublicKey;
 
 /// A message from a zone channel, included/finalized in Bedrock
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +137,8 @@ pub struct ZoneBlock {
     pub id: MsgId,
     /// The opaque inscription data.
     pub data: Inscription,
+    /// The public key of the signer of this zone block.
+    pub signer: UnverifiedEd25519PublicKey,
 }
 
 /// A deposit from a zone channel, included/finalized in Bedrock

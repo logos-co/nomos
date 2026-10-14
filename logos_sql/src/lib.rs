@@ -11,11 +11,14 @@ mod error;
 mod functions;
 mod logos_sql;
 mod protocol;
+mod publication;
 mod runtime;
 mod sql;
+mod status;
 
 pub use error::Error;
-pub use logos_sql::{LogosSql, LogosSqlConfig};
+pub use logos_sql::{LogosSql, LogosSqlConfig, PublicationConfig, WriterConfig};
 pub use protocol::TxId;
 pub use rusqlite::types::ToSql;
 pub use sql::TransactionBuilder;
+pub use status::{Displacement, DisplacementReason, WriteStatus};

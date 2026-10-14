@@ -26,7 +26,12 @@ serde                         = { features = ["derive"], workspace = true }
 thiserror                     = { workspace = true }
 time                          = { workspace = true }
 tokio                         = { workspace = true }
+tokio-stream                  = { features = ["sync"], workspace = true }
 tracing                       = { workspace = true }
+utoipa                        = { features = ["macros"], optional = true, workspace = true }
+
+[features]
+openapi = ["dep:utoipa", "lb-core/openapi"]
 
 [dev-dependencies]
 lb-blend-proofs       = { workspace = true }
