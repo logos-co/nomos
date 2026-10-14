@@ -25,7 +25,7 @@ use crate::{
         policy::{BlockSlots, EvictableTx as _, PowClaimEvictionSettings},
     },
     metrics,
-    storage::MempoolStorageAdapter,
+    storage::{BlockSlotLookup, MempoolStorageAdapter},
 };
 
 const REMOVED_ITEM_GRACE_PERIOD: Duration = Duration::from_mins(10);
@@ -124,6 +124,7 @@ where
     BlockId: Hash
         + Eq
         + Copy
+        + Debug
         + Send
         + Sync
         + 'static
@@ -292,6 +293,7 @@ where
     BlockId: Hash
         + Eq
         + Copy
+        + Debug
         + Send
         + Sync
         + 'static
@@ -346,6 +348,7 @@ where
     BlockId: Hash
         + Eq
         + Copy
+        + Debug
         + Send
         + Sync
         + 'static
@@ -405,7 +408,8 @@ where
 
     /// Slots of the blocks the `PoW` reward claims in `item` are anchored
     /// to, for those storage already holds. The rest resolve once the chain
-    /// reports the block processed.
+    /// reports the block processed; that includes anchors whose lookup
+    /// failed, which are logged and left to that notification or the TTL.
     async fn resolve_claim_anchors(&self, item: &Item) -> BlockSlots<BlockId> {
         // Collected up front: the op iterator borrows `item` and is not `Send`.
         let anchors = item
@@ -416,16 +420,17 @@ where
             return BlockSlots::new();
         }
         let anchors = anchors.into_iter().collect::<Vec<_>>();
-        self.storage_adapter
-            .get_block_slots(&anchors)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::warn!(
-                    target: LOG_TARGET,
-                    "Failed to look up the anchor blocks of PoW reward claims: {e:?}"
-                );
-                BlockSlots::new()
-            })
+        let BlockSlotLookup { slots, failed } =
+            self.storage_adapter.get_block_slots(&anchors).await;
+        for (anchor, error) in failed {
+            tracing::warn!(
+                target: LOG_TARGET,
+                "Failed to look up the anchor block of a PoW reward claim; \
+                 the claim waits for the block to be processed: \
+                 block_id={anchor:?}, error={error:?}"
+            );
+        }
+        slots
     }
 
     async fn prune_removed_items(&mut self) {

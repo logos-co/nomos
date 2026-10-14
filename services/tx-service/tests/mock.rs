@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    convert::Infallible,
     num::NonZeroU64,
     pin::Pin,
     sync::{Arc, Mutex, atomic::AtomicBool},
@@ -51,7 +50,7 @@ use logos_blockchain_tx_service::{
         PowClaimEvictionSettings, RecoverableMempool as _, Status,
     },
     network::adapters::mock::{MOCK_TX_CONTENT_TOPIC, MockAdapter, mock_message},
-    storage::{MempoolStorageAdapter, adapters::rocksdb::RocksStorageAdapter},
+    storage::{BlockSlotLookup, MempoolStorageAdapter, adapters::rocksdb::RocksStorageAdapter},
     tx::{service::GenericTxMempoolService, state::TxMempoolState},
 };
 use overwatch::{
@@ -220,6 +219,8 @@ struct InMemoryStorageAdapter {
     items: Arc<Mutex<BTreeMap<TxHash, Ops>>>,
     /// Slots of the blocks "stored" alongside the transactions.
     block_slots: Arc<Mutex<HashMap<HeaderId, Slot>>>,
+    /// Blocks whose lookup fails instead of answering.
+    failing_blocks: Arc<Mutex<HashSet<HeaderId>>>,
 }
 
 impl InMemoryStorageAdapter {
@@ -228,6 +229,14 @@ impl InMemoryStorageAdapter {
             .lock()
             .expect("in-memory storage adapter lock should not be poisoned")
             .insert(block_id, Slot::from(slot));
+        self
+    }
+
+    fn with_failing_block(self, block_id: HeaderId) -> Self {
+        self.failing_blocks
+            .lock()
+            .expect("in-memory storage adapter lock should not be poisoned")
+            .insert(block_id);
         self
     }
 }
@@ -240,7 +249,7 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
     type Item = Ops;
     type Key = TxHash;
     type BlockId = HeaderId;
-    type Error = Infallible;
+    type Error = MempoolError;
 
     fn new(
         _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
@@ -286,15 +295,29 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
     async fn get_block_slots(
         &self,
         block_ids: &[Self::BlockId],
-    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
+    ) -> BlockSlotLookup<Self::BlockId, Self::Error> {
         let known = self
             .block_slots
             .lock()
-            .expect("in-memory storage adapter lock should not be poisoned");
-        Ok(block_ids
-            .iter()
-            .filter_map(|block_id| known.get(block_id).map(|slot| (*block_id, *slot)))
-            .collect())
+            .expect("in-memory storage adapter lock should not be poisoned")
+            .clone();
+        let failing = self
+            .failing_blocks
+            .lock()
+            .expect("in-memory storage adapter lock should not be poisoned")
+            .clone();
+        let mut lookup = BlockSlotLookup::default();
+        for block_id in block_ids {
+            if failing.contains(block_id) {
+                lookup.failed.push((
+                    *block_id,
+                    MempoolError::StorageError("test block lookup failure".to_owned()),
+                ));
+            } else if let Some(slot) = known.get(block_id) {
+                lookup.slots.insert(*block_id, *slot);
+            }
+        }
+        lookup
     }
 }
 
@@ -330,9 +353,20 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
 
     async fn get_block_slots(
         &self,
-        _block_ids: &[Self::BlockId],
-    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
-        Ok(HashMap::new())
+        block_ids: &[Self::BlockId],
+    ) -> BlockSlotLookup<Self::BlockId, Self::Error> {
+        BlockSlotLookup {
+            slots: HashMap::new(),
+            failed: block_ids
+                .iter()
+                .map(|block_id| {
+                    (
+                        *block_id,
+                        MempoolError::StorageError("test storage failure".to_owned()),
+                    )
+                })
+                .collect(),
+        }
     }
 }
 
@@ -952,6 +986,57 @@ async fn claim_with_unknown_anchor_waits_for_its_block() {
     // the chain already passed.
     pool.on_processed_block(anchor, Slot::from(100u64)).await;
     assert_eq!(pool.status(&[claim_id]), vec![Status::Unknown]);
+}
+
+/// A failed anchor lookup is logged and the claim parked, so the claims
+/// whose anchors did resolve are still tracked and the failed one still
+/// resolves once its block is reported processed.
+#[tokio::test]
+async fn failed_anchor_lookup_keeps_the_resolved_anchors() {
+    let resolved = HeaderId::from([1u8; 32]);
+    let failing = HeaderId::from([2u8; 32]);
+    let storage = InMemoryStorageAdapter::default()
+        .with_block(resolved, 100)
+        .with_failing_block(failing);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+
+    let both = Ops::from([
+        Op::ClaimPowReward(ClaimPowRewardOp {
+            block_hash: resolved.into(),
+            ..ClaimPowRewardOp::sample()
+        }),
+        Op::ClaimPowReward(ClaimPowRewardOp {
+            block_hash: failing.into(),
+            ..ClaimPowRewardOp::sample()
+        }),
+    ]);
+    let both_id = both.hash();
+    let failing_only = claim_tx(failing);
+    let failing_only_id = failing_only.hash();
+    pool.add_item(both_id, both)
+        .await
+        .expect("a claim with a failed anchor lookup should still be added");
+    pool.add_item(failing_only_id, failing_only)
+        .await
+        .expect("a claim with a failed anchor lookup should still be added");
+
+    // The resolved anchor keeps its deadline of slot 131; the other claim
+    // has no deadline until its block is processed.
+    processed_block(&mut pool, 130).await;
+    assert_eq!(
+        pool.status(&[both_id, failing_only_id]),
+        vec![Status::Pending, Status::Pending]
+    );
+    processed_block(&mut pool, 131).await;
+    assert_eq!(
+        pool.status(&[both_id, failing_only_id]),
+        vec![Status::Unknown, Status::Pending]
+    );
+    processed_block(&mut pool, 1_000).await;
+    assert_eq!(pool.status(&[failing_only_id]), vec![Status::Pending]);
+
+    pool.on_processed_block(failing, Slot::from(100u64)).await;
+    assert_eq!(pool.status(&[failing_only_id]), vec![Status::Unknown]);
 }
 
 #[tokio::test]

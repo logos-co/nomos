@@ -4,6 +4,7 @@ use std::{
     num::NonZeroU64,
 };
 
+use indexmap::IndexSet;
 use lb_core::mantle::traits::Hashable;
 use lb_cryptarchia_engine::Slot;
 use serde::{Deserialize, Serialize};
@@ -48,11 +49,11 @@ pub struct PowClaimPolicy<Key, BlockId> {
     /// Eviction slot of every tracked transaction.
     deadline_by_key: HashMap<Key, Slot>,
     /// Tracked transactions ordered by eviction slot.
-    keys_by_deadline: BTreeMap<Slot, Vec<Key>>,
+    keys_by_deadline: BTreeMap<Slot, IndexSet<Key>>,
     /// Transactions whose anchor block has not been seen yet, by anchor.
-    parked_by_block: HashMap<BlockId, Vec<Key>>,
+    parked_by_block: HashMap<BlockId, IndexSet<Key>>,
     /// The unseen anchors of every parked transaction.
-    parked_by_key: HashMap<Key, Vec<BlockId>>,
+    parked_by_key: HashMap<Key, IndexSet<BlockId>>,
 }
 
 impl<Key, BlockId> PowClaimPolicy<Key, BlockId>
@@ -90,14 +91,17 @@ where
             self.untrack_deadline(&key, current);
         }
         self.deadline_by_key.insert(key.clone(), deadline);
-        self.keys_by_deadline.entry(deadline).or_default().push(key);
+        self.keys_by_deadline
+            .entry(deadline)
+            .or_default()
+            .insert(key);
     }
 
     fn untrack_deadline(&mut self, key: &Key, deadline: Slot) {
         let Some(keys) = self.keys_by_deadline.get_mut(&deadline) else {
             return;
         };
-        keys.retain(|held| held != key);
+        keys.shift_remove(key);
         if keys.is_empty() {
             self.keys_by_deadline.remove(&deadline);
         }
@@ -107,8 +111,8 @@ where
         self.parked_by_block
             .entry(anchor.clone())
             .or_default()
-            .push(key.clone());
-        self.parked_by_key.entry(key).or_default().push(anchor);
+            .insert(key.clone());
+        self.parked_by_key.entry(key).or_default().insert(anchor);
     }
 
     fn unpark(&mut self, key: &Key) {
@@ -119,7 +123,7 @@ where
             let Some(keys) = self.parked_by_block.get_mut(&anchor) else {
                 continue;
             };
-            keys.retain(|held| held != key);
+            keys.shift_remove(key);
             if keys.is_empty() {
                 self.parked_by_block.remove(&anchor);
             }
@@ -190,7 +194,7 @@ where
         let deadline = self.deadline_for(slot);
         for key in keys {
             if let Some(anchors) = self.parked_by_key.get_mut(&key) {
-                anchors.retain(|anchor| anchor != block_id);
+                anchors.shift_remove(block_id);
                 if anchors.is_empty() {
                     self.parked_by_key.remove(&key);
                 }

@@ -1,7 +1,7 @@
-use std::{collections::HashMap, marker::PhantomData, pin::Pin};
+use std::{marker::PhantomData, pin::Pin};
 
 use async_trait::async_trait;
-use futures::{Stream, StreamExt as _, TryStreamExt as _};
+use futures::{Stream, StreamExt as _};
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -9,12 +9,14 @@ use lb_core::{
         transactions::hash::TxHash,
     },
 };
-use lb_cryptarchia_engine::Slot;
 use lb_storage_service::{StorageService, api::StorageApi};
 use overwatch::services::{ServiceData, relay::OutboundRelay};
 use serde::{Deserialize, Serialize};
 
-use crate::{backend::MempoolError, storage::MempoolStorageAdapter};
+use crate::{
+    backend::MempoolError,
+    storage::{BlockSlotLookup, MempoolStorageAdapter},
+};
 
 /// How many block lookups [`RocksStorageAdapter::get_block_slots`] keeps in
 /// flight at once.
@@ -90,17 +92,26 @@ where
     async fn get_block_slots(
         &self,
         block_ids: &[Self::BlockId],
-    ) -> Result<HashMap<Self::BlockId, Slot>, Self::Error> {
+    ) -> BlockSlotLookup<Self::BlockId, Self::Error> {
         let storage = &self.storage;
         futures::stream::iter(block_ids.iter().copied())
-            .map(async |block_id| {
-                let block = storage.try_get_block(&block_id).await?;
-                Ok::<_, overwatch::DynError>(block.map(|block| (block_id, block.header().slot())))
-            })
+            .map(async |block_id| (block_id, storage.try_get_block(&block_id).await))
             .buffer_unordered(MAX_CONCURRENT_BLOCK_LOOKUPS)
-            .try_filter_map(async |found| Ok(found))
-            .try_collect()
+            .fold(
+                BlockSlotLookup::default(),
+                async |mut lookup, (block_id, result)| {
+                    match result {
+                        Ok(Some(block)) => {
+                            lookup.slots.insert(block_id, block.header().slot());
+                        }
+                        Ok(None) => {}
+                        Err(error) => lookup
+                            .failed
+                            .push((block_id, MempoolError::DynamicPoolError(error))),
+                    }
+                    lookup
+                },
+            )
             .await
-            .map_err(MempoolError::DynamicPoolError)
     }
 }
