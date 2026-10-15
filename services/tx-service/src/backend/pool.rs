@@ -412,8 +412,7 @@ where
     fn retire(&mut self, keys: impl IntoIterator<Item = ItemKey<Item>>, at: u64, cause: &str) {
         let mut count = 0usize;
         for key in keys {
-            let was_pending = self.pending_items.shift_remove(&key);
-            if !was_pending {
+            if !self.pending_items.shift_remove(&key) {
                 continue;
             }
             self.evictor.on_remove(&key);
