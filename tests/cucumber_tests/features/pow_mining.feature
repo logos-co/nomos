@@ -72,6 +72,7 @@ Feature: PoW mining
     Then node "NODE_3" reports PoW mining off
     When I start mining on node "NODE_3"
     Then node "NODE_3" reports PoW mining on
+    When I stop mining on node "NODE_3"
     And I claim PoW rewards on node "NODE_3" as "POW_CLAIM_TX" within 120 seconds
     Then transaction "POW_CLAIM_TX" is included on node "NODE_1" in 120 seconds
     # The balance grows by exactly the reward the claim transaction paid to the

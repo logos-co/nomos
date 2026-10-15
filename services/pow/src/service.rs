@@ -482,6 +482,7 @@ where
         // used later, to publish claim transactions.
         wait_until_services_are_ready_with_lifecycle!(
             &service_resources_handle.overwatch_handle,
+            None,
             CryptarchiaService,
             WalletService,
             TimeService<TimeBackendType, RuntimeServiceId>,
