@@ -423,9 +423,12 @@ pub struct GetPeerIdArgs {
     pub config: PathBuf,
 }
 
-/// Applies CLI overrides from `args` to `user_config` and returns a
-/// `RunConfig` ready to start the node.
-pub fn build_run_config(mut user_config: UserConfig, args: CliArgs) -> Result<RunConfig> {
+/// Builds the [`RunConfig`] the node runs with, applying the `args` overrides
+/// on top of the `user_config`.
+pub fn build_run_config_with_cli_args(
+    mut user_config: UserConfig,
+    args: CliArgs,
+) -> Result<RunConfig> {
     let CliArgs {
         tracing: tracing_args,
         api: api_args,
@@ -456,22 +459,13 @@ pub fn build_run_config(mut user_config: UserConfig, args: CliArgs) -> Result<Ru
     })
 }
 
-/// Builds a [`RunConfig`] applying only environment-variable overrides (no CLI
-/// arguments) on top of `user_config`.
+/// Builds the [`RunConfig`] the node runs with, using the default [`CliArgs`]
+/// overrides.
 ///
-/// This mirrors the binary's env-override behaviour for embedders such as the
-/// c-bindings, which never go through `CliArgs::parse()`. Every override group
-/// flattened into [`CliArgs`] carries `#[clap(env = "...")]` attributes, so
-/// parsing an argv containing only the program name populates them purely from
-/// their environment variables (leaving `command`/`config` unset). The
-/// resulting overrides are then folded onto `user_config` via
-/// [`build_run_config`], guaranteeing the bindings stay in lockstep with the
-/// binary's supported env vars.
+/// # Notes
 ///
-/// `try_parse_from` (rather than `parse_from`) is used so an invalid env value
-/// returns an error instead of terminating the host process — required in an
-/// FFI context.
-pub fn build_run_config_from_env(user_config: UserConfig) -> Result<RunConfig> {
+/// - [`CliArgs`] also reads env vars, so those still apply.
+pub fn build_run_config(user_config: UserConfig) -> Result<RunConfig> {
     let cli_args = CliArgs::try_parse_from(["lb-node"])?;
-    build_run_config(user_config, cli_args)
+    build_run_config_with_cli_args(user_config, cli_args)
 }
