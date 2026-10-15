@@ -11,7 +11,7 @@ mod update;
 
 use std::hash::Hash;
 
-pub use config::Config;
+pub use config::{Config, ConsensusExcludedKeys};
 use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::{EpochState, UtxoTree};
 #[cfg(test)]

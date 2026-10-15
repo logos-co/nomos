@@ -21,7 +21,7 @@ use lb_utils::yaml::{OnUnknownKeys, deserialize_value_from_reader};
 use logos_blockchain_tools::{
     apply_dotted_kv,
     genesis::{
-        distribution::{self, Faucet, StakeHolderInfo},
+        distribution::{self, ConsensusExcludedKey, StakeHolderInfo},
         inscription::{self, InscribeParams},
     },
     overwrite_yaml, set_at_path,
@@ -81,9 +81,9 @@ pub struct CeremonyArgs {
     #[arg(long, value_name = "FILE")]
     pub providers: PathBuf,
 
-    /// Faucet definition for stake distribution.
+    /// Consensus-excluded key definition for stake distribution.
     #[arg(long, value_name = "FILE")]
-    pub faucet: PathBuf,
+    pub consensus_excluded_keys: PathBuf,
 
     /// The genesis template: the parameters of era zero. The ceremony
     /// generates the rest of the deployment config from it. Without it, the
@@ -183,9 +183,9 @@ struct DistributeArgs {
     #[arg(long, value_name = "FILE")]
     providers: PathBuf,
 
-    /// YAML file containing faucet info.
+    /// YAML file containing consensus-excluded key info.
     #[arg(long, value_name = "FILE")]
-    faucet: PathBuf,
+    consensus_excluded_keys: PathBuf,
 
     /// Write notes output to FILE instead of stdout.
     #[arg(long, short, value_name = "FILE")]
@@ -230,9 +230,9 @@ fn main() -> Result<()> {
 /// Where a deployment config keeps its genesis block.
 const GENESIS_BLOCK_PATH: &str = "genesis_block";
 
-/// Where a deployment config keeps the faucet key of the era starting at
-/// genesis, which is the era a genesis ceremony configures.
-const GENESIS_ERA_FAUCET_PK_PATH: &str = "eras.0.cryptarchia.faucet_pk";
+/// Where a deployment config keeps the consensus-excluded keys of the era
+/// starting at genesis, which is the era a genesis ceremony configures.
+const GENESIS_ERA_CONSENSUS_EXCLUDED_KEYS_PATH: &str = "eras.0.cryptarchia.consensus_excluded_keys";
 
 // ── ceremony implementation
 // ─────────────────────────────────────────────────────
@@ -247,10 +247,11 @@ fn run_ceremony(args: &CeremonyArgs) -> Result<()> {
 
     let stakeholders: Vec<StakeHolderInfo> = load_yaml_file(&args.stake_holders)?;
     let providers: Vec<DeclarationConfig> = load_yaml_file(&args.providers)?;
-    let faucet: Faucet = load_yaml_file(&args.faucet)?;
-    let (transfer_op, declarations) = distribution::distribute(stakeholders, providers, &faucet)
-        .map_err(|e| anyhow::anyhow!(e))
-        .context("Failed to calculate distribution during ceremony")?;
+    let excluded_key: ConsensusExcludedKey = load_yaml_file(&args.consensus_excluded_keys)?;
+    let (transfer_op, declarations) =
+        distribution::distribute(stakeholders, providers, &excluded_key)
+            .map_err(|e| anyhow::anyhow!(e))
+            .context("Failed to calculate distribution during ceremony")?;
     let notes: Vec<Note> = transfer_op.notes().collect();
 
     let mut config_value = load_genesis_template(args.template.as_ref())?;
@@ -274,8 +275,8 @@ fn run_ceremony(args: &CeremonyArgs) -> Result<()> {
     .map_err(|e| anyhow::anyhow!(e))?;
     set_at_path(
         &mut config_value,
-        GENESIS_ERA_FAUCET_PK_PATH,
-        struct_to_yaml_value(&faucet.zk_id)?,
+        GENESIS_ERA_CONSENSUS_EXCLUDED_KEYS_PATH,
+        struct_to_yaml_value(&[excluded_key.zk_id])?,
     )
     .map_err(|e| anyhow::anyhow!(e))?;
 
@@ -431,11 +432,12 @@ fn build_genesis_block(
 fn run_distribute(args: &DistributeArgs) -> Result<()> {
     let stakeholders: Vec<StakeHolderInfo> = load_yaml_file(&args.stake_holders)?;
     let providers: Vec<DeclarationConfig> = load_yaml_file(&args.providers)?;
-    let faucet: Faucet = load_yaml_file(&args.faucet)?;
+    let excluded_key: ConsensusExcludedKey = load_yaml_file(&args.consensus_excluded_keys)?;
 
-    let (transfer_op, declarations) = distribution::distribute(stakeholders, providers, &faucet)
-        .map_err(|e| anyhow::anyhow!(e))
-        .context("Failed to calculate distribution")?;
+    let (transfer_op, declarations) =
+        distribution::distribute(stakeholders, providers, &excluded_key)
+            .map_err(|e| anyhow::anyhow!(e))
+            .context("Failed to calculate distribution")?;
     let notes: Vec<Note> = transfer_op.notes().collect();
 
     let notes_value = struct_to_yaml_value(&notes)?;

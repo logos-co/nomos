@@ -411,8 +411,8 @@ async fn next_epoch_tick(
 }
 
 /// Fetches the [`SlotContext`] for `slot` from the tip: the tip header, the
-/// slot's epoch state, and the wallet's eligible leader UTXOs (with the faucet
-/// UTXO filtered out). Returns `None` if any lookup fails.
+/// slot's epoch state, and the wallet's eligible leader UTXOs (with the
+/// consensus-excluded UTXOs filtered out). Returns `None` if any lookup fails.
 pub async fn fetch_slot_context<CryptarchiaService, Wallet, RuntimeServiceId>(
     cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService>,
     wallet_api: &WalletApi<Wallet, RuntimeServiceId>,
@@ -441,14 +441,15 @@ where
         .get_leader_aged_notes(Some(wallet_tip))
         .await
         .ok()?;
-    let eligible = match &ledger_config.faucet_pk {
-        Some(faucet_pk) => eligible_utxos
-            .response
-            .into_iter()
-            .filter(|utxo| utxo.utxo.note.pk != *faucet_pk)
-            .collect(),
-        None => eligible_utxos.response,
-    };
+    let eligible = eligible_utxos
+        .response
+        .into_iter()
+        .filter(|utxo| {
+            !ledger_config
+                .consensus_excluded_keys
+                .contains(&utxo.utxo.note.pk)
+        })
+        .collect();
     Some(SlotContext {
         wallet_tip,
         epoch_state,
@@ -576,7 +577,7 @@ mod pol_tests {
     use lb_groth16::{Fr, fr_from_bytes_unchecked};
     use lb_key_management_system_service::keys::{UnsecuredZkKey, ZkKey};
     use lb_ledger::{
-        config::{BlendPoWConfig, ModulusShift, PoWConfig, RewardPoWConfig},
+        config::{BlendPoWConfig, ConsensusExcludedKeys, ModulusShift, PoWConfig, RewardPoWConfig},
         mantle::sdp::{
             Config as SdpConfig, ServiceRewardsParameters, rewards::blend::RewardsParameters,
         },
@@ -845,7 +846,7 @@ mod pol_tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: ConsensusExcludedKeys::empty(),
             pow_config: PoWConfig {
                 blend: BlendPoWConfig {
                     base_difficulty: ModulusShift::new::<19>(),

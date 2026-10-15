@@ -7,6 +7,7 @@ use std::{
 use bytes::Bytes;
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_services_utils::overwatch::RecoveryData;
+use lb_tracing::logging::local::TextKind;
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
 use tracing::Level;
 
@@ -35,6 +36,7 @@ use crate::{
         tracing::serde::{
             console::{Layer as ConsoleLayer, TokioConfig},
             filter::{EnvConfig, Layer},
+            logger::LogFormat,
         },
         wallet::{
             ServiceConfig as WalletServiceConfig,
@@ -70,6 +72,15 @@ fn tokio_console_config_defaults_to_loopback_default_console_port() {
     assert_eq!(config.bind_address, IpAddr::V4(Ipv4Addr::LOCALHOST));
     assert_eq!(config.port, 6_669);
     assert_eq!(config.recording_path, None);
+}
+
+#[test]
+fn log_format_defaults_to_text_and_accepts_json() {
+    assert_eq!(LogFormat::default(), LogFormat::Text(TextKind::Ansi));
+    assert_eq!(
+        serde_yaml::from_str::<LogFormat>("Json").unwrap(),
+        LogFormat::Json
+    );
 }
 
 #[test]
@@ -261,7 +272,11 @@ fn service_settings_receive_recovery_data() {
     let mempool_service_settings = MempoolServiceConfig {
         user: user_config.mempool.clone(),
     }
-    .into_mempool_service_settings(protocol_names.mempool_topic, recovery_data.clone());
+    .into_mempool_service_settings(
+        protocol_names.mempool_topic,
+        recovery_data.clone(),
+        core::num::NonZeroU64::new(1).expect("non-zero"),
+    );
     assert_eq!(
         mempool_service_settings
             .recovery_data

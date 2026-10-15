@@ -81,7 +81,7 @@ deployment/ceremony/genesis/
     deployment-template.yaml      # PER-TYPE era-zero params (consensus / blend / time)
     stakeholders.yaml             # PER-TYPE genesis stake distribution
     providers.yaml                # PER-TYPE bootstrap providers (id, locators)
-    faucet.yaml                   # PER-TYPE faucet identity + funds
+    consensus_excluded_keys.yaml  # PER-TYPE consensus-excluded identity + funds
 ```
 
 The per-environment `.env` files (`.env.devnet`, `.env.testnet`) live in
@@ -117,7 +117,8 @@ Shared blueprints reused by every deployment type; not edited per release.
 ### 2. Template for a certain deployment type
 Per-type blueprints; change only when a network type is re-defined.
 
-- The blueprint files in `deployment/ceremony/genesis/<env>/` (`deployment-template.yaml`, `stakeholders.yaml`, `providers.yaml`, `faucet.yaml`)
+- The blueprint files in `deployment/ceremony/genesis/<env>/` (`deployment-template.yaml`, `stakeholders.yaml`, `providers.yaml`,
+  `consensus_excluded_keys.yaml`)
 - The `# DEPLOYMENT TYPE` section of `.env.<env>`
   (`TOOLS_IMAGE_LABEL`, `EXPLORER_IMAGE_LABEL`, `ENV_TITLE_STRING`,
   `PUBLIC_IP_ADDR`, `DOCKER_COMPOSE_LIBP2P_REPLICAS`, node ports)

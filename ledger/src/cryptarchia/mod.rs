@@ -743,7 +743,7 @@ impl LedgerState {
         let total_stake = utxos
             .utxos()
             .iter()
-            .filter(|(_, (utxo, _))| config.faucet_pk.is_none_or(|fpk| utxo.note.pk != fpk))
+            .filter(|(_, (utxo, _))| !config.consensus_excluded_keys.contains(&utxo.note.pk))
             .map(|(_, (utxo, _))| utxo.note.value)
             .sum::<Value>()
             .max(1); // TODO: Change total_stake to NonZeroU64: https://github.com/logos-blockchain/logos-blockchain/issues/2166
@@ -1105,7 +1105,7 @@ pub mod tests {
                     timestamp: 0,
                 },
             },
-            faucet_pk: None,
+            consensus_excluded_keys: crate::config::ConsensusExcludedKeys::empty(),
             // `alpha = 1/2`, `T_tx = 10`, `k = 4`, with a baseline that is a
             // perfect square so the reference load lands on it exactly.
             pow_config: crate::config::PoWConfig {

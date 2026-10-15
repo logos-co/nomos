@@ -1,6 +1,6 @@
 //! Single-owner runtime for SQL writes and channel events.
 
-use std::time::Duration;
+use std::{num::NonZeroU16, thread, time::Duration};
 
 use lb_zone_sdk::{
     adapter::NodeHttpClient,
@@ -8,9 +8,10 @@ use lb_zone_sdk::{
     sequencer::{Event, SequencerCheckpoint, ZoneSequencer, channel_inscriptions},
 };
 use tokio::{
+    runtime::Builder,
     sync::{mpsc, oneshot},
     task::JoinHandle,
-    time::{Instant, sleep_until},
+    time::{Instant, MissedTickBehavior, interval, sleep_until},
 };
 
 use crate::{
@@ -60,22 +61,23 @@ pub struct RuntimeHandle {
     task: JoinHandle<Result<(), Error>>,
 }
 
-/// Starts the task that owns the sequencer and writable database connections.
+/// Starts the dedicated thread that owns the sequencer and database writer.
 pub fn spawn(
     sequencer: ZoneSequencer<NodeHttpClient>,
     db: Databases,
     channel_id: ChannelId,
     restored_checkpoint: Option<SequencerCheckpoint>,
     read_only: bool,
-) -> RuntimeHandle {
+    max_batch_transactions: NonZeroU16,
+) -> Result<RuntimeHandle, Error> {
     let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
     let (ready_tx, ready_rx) = oneshot::channel();
 
     let runtime = Runtime {
-        sequencer,
         db,
         channel_id,
         read_only,
+        max_batch_transactions,
         command_rx,
         sequencer_ready: false,
         ready_checkpoint_pending: false,
@@ -84,13 +86,13 @@ pub fn spawn(
         publish_state: PublishState::Idle,
         next_publish_at: Instant::now() + BATCH_DELAY,
     };
-    let task = tokio::spawn(runtime.run(restored_checkpoint));
+    let task = runtime.spawn(sequencer, restored_checkpoint)?;
 
-    RuntimeHandle {
+    Ok(RuntimeHandle {
         command_tx,
         ready_rx,
         task,
-    }
+    })
 }
 
 impl RuntimeHandle {
@@ -204,10 +206,10 @@ enum PublishState {
 
 /// State owned exclusively by the participant's background task.
 struct Runtime {
-    sequencer: ZoneSequencer<NodeHttpClient>,
     db: Databases,
     channel_id: ChannelId,
     read_only: bool,
+    max_batch_transactions: NonZeroU16,
     command_rx: mpsc::Receiver<Command>,
     sequencer_ready: bool,
     ready_checkpoint_pending: bool,
@@ -224,40 +226,106 @@ struct PendingEvent {
 }
 
 impl Runtime {
-    async fn run(mut self, restored_checkpoint: Option<SequencerCheckpoint>) -> Result<(), Error> {
+    fn spawn(
+        self,
+        sequencer: ZoneSequencer<NodeHttpClient>,
+        restored_checkpoint: Option<SequencerCheckpoint>,
+    ) -> Result<JoinHandle<Result<(), Error>>, Error> {
+        // SQL and database rebuilds are synchronous. Keep the existing owner
+        // loop on its own thread so they cannot block the application's async
+        // workers. Its executor still drives the sequencer's network requests.
+        let executor = Builder::new_current_thread().enable_all().build()?;
+        let (finished_tx, finished_rx) = oneshot::channel();
+        let task = executor.spawn(async move {
+            let result = self.run(sequencer, restored_checkpoint).await;
+            let _ = finished_tx.send(());
+            result
+        });
+
+        thread::Builder::new()
+            .name("logos-sql".to_owned())
+            .spawn(move || {
+                // Cancellation or panic drops the sender too, allowing the
+                // executor and thread to stop even without graceful shutdown.
+                executor.block_on(async { drop(finished_rx.await) });
+            })?;
+
+        Ok(task)
+    }
+
+    async fn run(
+        mut self,
+        mut sequencer: ZoneSequencer<NodeHttpClient>,
+        restored_checkpoint: Option<SequencerCheckpoint>,
+    ) -> Result<(), Error> {
         self.recover_published_write(restored_checkpoint.as_ref())?;
 
-        let mut retry = tokio::time::interval(PUBLISH_RETRY_INTERVAL);
-        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut retry = interval(PUBLISH_RETRY_INTERVAL);
+        retry.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
         loop {
-            let publication_ready = self.can_publish()
-                && self.event_pending_retry.is_none()
-                && (matches!(self.publish_state, PublishState::CheckpointPending { .. })
-                    || self.db.has_pending_writes()?);
+            let event = {
+                // Keep the same SDK event future across commands. Restarting it
+                // for each write can starve channel processing under sustained load.
+                // Leave this scope before publishing to release the sequencer borrow.
+                let event = sequencer.next_event();
+                tokio::pin!(event);
 
-            // `ZoneSDK::publish` only queues the node post; `next_event` drives
-            // it. Do not poll events until the returned checkpoint commits. A
-            // crash while the write remains pending therefore means it never
-            // reached the node, which the applier's recovery plan relies on.
-            tokio::select! {
-                command = self.command_rx.recv() => {
-                    let Some(command) = command else {
-                        return Ok(());
-                    };
+                loop {
+                    let retry_event = self.event_pending_retry.is_some();
+                    let save_publication =
+                        matches!(self.publish_state, PublishState::CheckpointPending { .. });
 
-                    if !self.handle_command(command) {
-                        return self.shutdown_result();
+                    // Finish the previous event before taking another. Also save
+                    // the publication checkpoint before polling the SDK, since
+                    // polling sends queued publications to the node.
+                    let ready_for_events = !retry_event && !save_publication;
+
+                    tokio::select! {
+                        event = &mut event, if ready_for_events => {
+                            break Some(event);
+                        }
+                        command = self.command_rx.recv() => {
+                            let Some(command) = command else {
+                                return self.shutdown_result();
+                            };
+
+                            if !self.handle_command(command) {
+                                return self.shutdown_result();
+                            }
+
+                            if !ready_for_events {
+                                break None;
+                            }
+                        }
+                        _ = retry.tick(), if retry_event => {
+                            break None;
+                        }
+                        () = sleep_until(self.next_publish_at),
+                            if save_publication && !retry_event && self.can_publish() => break None,
                     }
-                },
-                event = self.sequencer.next_event(), if self.event_pending_retry.is_none() && !matches!(self.publish_state, PublishState::CheckpointPending { .. }) => {
-                    self.handle_event(event);
-                },
-                _ = retry.tick(), if self.event_pending_retry.is_some() => {
-                    self.retry_pending_event()?;
-                },
-                () = sleep_until(self.next_publish_at), if publication_ready => {
-                    self.publish_queued_writes().await;
+                }
+            };
+
+            // Release the event future before accessing SDK history for a rebuild.
+            if let Some(event) = event {
+                self.handle_event(event, &sequencer);
+            } else {
+                self.retry_pending_event(&sequencer)?;
+            }
+
+            // Publish against fully applied channel history, after the batch
+            // collection delay or failure backoff has elapsed.
+            let event_applied = self.event_pending_retry.is_none();
+            let publish_delay_elapsed = Instant::now() >= self.next_publish_at;
+
+            if self.can_publish() && event_applied && publish_delay_elapsed {
+                let save_publication =
+                    matches!(self.publish_state, PublishState::CheckpointPending { .. });
+
+                // An accepted publication must be saved even if the queue is empty.
+                if save_publication || self.db.has_pending_writes()? {
+                    self.publish_queued_writes(&mut sequencer).await;
                 }
             }
         }
@@ -369,7 +437,7 @@ impl Runtime {
         Ok(tx_id)
     }
 
-    const fn ensure_ready_to_write(&self) -> Result<(), Error> {
+    fn ensure_ready_to_write(&self) -> Result<(), Error> {
         if self.read_only {
             return Err(Error::ReadOnly);
         }
@@ -386,25 +454,58 @@ impl Runtime {
             return Err(Error::SequencerNotReady);
         }
 
+        // The SDK is still loading existing unfinalized history.
+        // Block new writes until that history has been used to rebuild LIVE.db.
+        if self.db.rebuild_required()? {
+            return Err(Error::SequencerNotReady);
+        }
+
         Ok(())
     }
 
     /// Publication failures leave the committed write pending for retry.
-    async fn publish_queued_writes(&mut self) {
-        self.next_publish_at = Instant::now() + BATCH_DELAY;
+    async fn publish_queued_writes(&mut self, sequencer: &mut ZoneSequencer<NodeHttpClient>) {
+        let result = self
+            .advance_publish(sequencer)
+            .await
+            .and_then(|()| self.db.pending_write_count());
 
-        if let Err(error) = self.advance_publish().await {
-            self.next_publish_at = Instant::now() + PUBLISH_RETRY_INTERVAL;
-            tracing::warn!(
-                target: TARGET,
-                %error,
-                "committed writes remain queued for publication"
-            );
-        }
+        let delay = match result {
+            Ok(queued) if queued >= usize::from(self.max_batch_transactions.get()) => {
+                Duration::ZERO
+            }
+            Ok(_) => BATCH_DELAY,
+            Err(error) => {
+                tracing::warn!(
+                    target: TARGET,
+                    %error,
+                    "committed writes remain queued for publication"
+                );
+
+                PUBLISH_RETRY_INTERVAL
+            }
+        };
+
+        // A full batch needs no collection delay. Smaller batches still get
+        // time to fill; the run loop drives the SDK before either is published.
+        self.next_publish_at = Instant::now() + delay;
     }
 
-    fn handle_event(&mut self, event: Event) {
-        let result = applier::on_event(&mut self.db, &event, self.channel_id);
+    fn apply_event(
+        &mut self,
+        event: &Event,
+        sequencer: &ZoneSequencer<NodeHttpClient>,
+    ) -> Result<(), Error> {
+        if let Some(rebuild) = applier::on_event(&mut self.db, event, self.channel_id)? {
+            let history = sequencer.channel_history();
+            rebuild.finish(&mut self.db, history)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_event(&mut self, event: Event, sequencer: &ZoneSequencer<NodeHttpClient>) {
+        let result = self.apply_event(&event, sequencer);
 
         match result {
             Ok(()) => {
@@ -417,18 +518,25 @@ impl Runtime {
         }
     }
 
-    fn retry_pending_event(&mut self) -> Result<(), Error> {
+    fn retry_pending_event(
+        &mut self,
+        sequencer: &ZoneSequencer<NodeHttpClient>,
+    ) -> Result<(), Error> {
         if let Some(pending) = self.event_pending_retry.take() {
-            return self.retry_event(pending);
+            return self.retry_event(pending, sequencer);
         }
 
         Ok(())
     }
 
-    fn retry_event(&mut self, pending: PendingEvent) -> Result<(), Error> {
+    fn retry_event(
+        &mut self,
+        pending: PendingEvent,
+        sequencer: &ZoneSequencer<NodeHttpClient>,
+    ) -> Result<(), Error> {
         let event = pending.event;
 
-        match applier::on_event(&mut self.db, &event, self.channel_id) {
+        match self.apply_event(&event, sequencer) {
             Ok(()) => {}
             Err(error) => {
                 if !is_retryable_apply_error(&error) {
@@ -473,10 +581,19 @@ impl Runtime {
         !self.read_only && self.sequencer_ready && !self.ready_checkpoint_pending
     }
 
-    async fn advance_publish(&mut self) -> Result<(), Error> {
+    async fn advance_publish(
+        &mut self,
+        sequencer: &mut ZoneSequencer<NodeHttpClient>,
+    ) -> Result<(), Error> {
+        // Do not publish a pending write that the unfinished rebuild removes.
+        if self.db.rebuild_required()? {
+            return Ok(());
+        }
         self.persist_publish_checkpoint()?;
 
-        let Some(pending) = Publication::prepare(self.db.pending_writes()?)? else {
+        let Some(pending) =
+            Publication::prepare(self.db.pending_writes()?, self.max_batch_transactions)?
+        else {
             return Ok(());
         };
 
@@ -486,7 +603,7 @@ impl Runtime {
             .try_into()
             .map_err(|_| Error::InscriptionTooLarge)?;
 
-        let (published, checkpoint) = self.sequencer.handle().publish(inscription).await?;
+        let (published, checkpoint) = sequencer.handle().publish(inscription).await?;
         let this_msg = published.tx.inscription().this_msg;
 
         tracing::trace!(
@@ -575,6 +692,8 @@ const fn is_retryable_apply_error(error: &Error) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use lb_key_management_system_service::keys::Ed25519Key;
     use lb_zone_sdk::{
         CommonHttpClient,
@@ -587,13 +706,88 @@ mod tests {
     };
     use rusqlite::Connection;
     use tempfile::TempDir;
-    use tokio::sync::{mpsc, oneshot};
+    use tokio::{
+        io::AsyncReadExt as _,
+        net::TcpListener,
+        sync::{mpsc, oneshot},
+        time::{sleep, timeout},
+    };
 
-    use super::{COMMAND_CHANNEL_CAPACITY, Command, PendingEvent, PublishState, Runtime};
+    use super::{
+        COMMAND_CHANNEL_CAPACITY, Command, PendingEvent, PublishState, Runtime, RuntimeHandle,
+    };
     use crate::{
-        db::Databases, error::Error, publication::Publication, sql::TransactionBuilder,
+        PublicationConfig,
+        db::{Databases, tests::open_databases},
+        error::Error,
+        protocol::TxId,
+        publication::Publication,
+        sql::TransactionBuilder,
         status::WriteStatus,
     };
+
+    #[tokio::test]
+    async fn commands_do_not_cancel_an_unfinished_event() {
+        let (_dir, mut runtime, _) = runtime();
+        let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+        runtime.command_rx = command_rx;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let sequencer = sequencer_at(&format!("http://{}", listener.local_addr().unwrap()));
+
+        let commands = async {
+            // Hold the SDK's first node request open while commands arrive.
+            // Restarting next_event would abandon it and issue another request.
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(connection.read_u8().await.unwrap());
+            }
+
+            for _ in 0..4 {
+                let (response_tx, response_rx) = oneshot::channel();
+                command_tx
+                    .send(Command::UnhandledDisplacements { response_tx })
+                    .await
+                    .unwrap();
+                assert_eq!(response_rx.await.unwrap().unwrap(), Vec::new());
+            }
+
+            let restarted = timeout(Duration::from_millis(250), listener.accept())
+                .await
+                .is_ok();
+            command_tx.send(Command::Shutdown).await.unwrap();
+
+            restarted
+        };
+
+        let (result, restarted) = timeout(Duration::from_secs(5), async {
+            tokio::join!(runtime.run(sequencer, None), commands)
+        })
+        .await
+        .expect("commands and the event should both complete");
+
+        result.unwrap();
+        assert!(
+            !restarted,
+            "commands must not restart the SDK's node request"
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_does_not_wait_for_an_event() {
+        let (_dir, mut runtime, _) = runtime();
+        let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+        runtime.command_rx = command_rx;
+        command_tx.send(Command::Shutdown).await.unwrap();
+
+        let result = timeout(Duration::from_secs(5), runtime.run(sequencer(), None))
+            .await
+            .expect("shutdown should interrupt the wait");
+
+        result.unwrap();
+    }
 
     #[tokio::test]
     async fn writes_queue_locally_and_survive_a_publication_failure() {
@@ -619,14 +813,17 @@ mod tests {
         }
 
         // This test sequencer has no node connection and cannot accept a publish.
-        runtime.publish_queued_writes().await;
+        runtime.publish_queued_writes(&mut sequencer()).await;
         assert_eq!(runtime.db.pending_writes().unwrap().len(), 3);
         drop(runtime);
 
-        let db = Databases::open(dir.path()).unwrap();
-        let publication = Publication::prepare(db.pending_writes().unwrap())
-            .unwrap()
-            .unwrap();
+        let db = open_databases(dir.path()).unwrap();
+        let publication = Publication::prepare(
+            db.pending_writes().unwrap(),
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(
             publication
                 .writes
@@ -655,9 +852,12 @@ mod tests {
             runtime.execute(tx_id, &transaction).unwrap();
         }
 
-        let publication = Publication::prepare(runtime.db.pending_writes().unwrap())
-            .unwrap()
-            .unwrap();
+        let publication = Publication::prepare(
+            runtime.db.pending_writes().unwrap(),
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap()
+        .unwrap();
         let mut event = blocks_processed();
         let Event::BlocksProcessed {
             checkpoint,
@@ -686,16 +886,127 @@ mod tests {
             .finish()
             .unwrap();
         runtime.execute(tx_id, &transaction).unwrap();
-        runtime.handle_event(event);
+        runtime.handle_event(event, &sequencer());
 
         assert!(runtime.event_pending_retry.is_none());
-        assert_eq!(runtime.db.unhandled_displacements().unwrap(), []);
+        assert_eq!(runtime.db.unhandled_displacements().unwrap(), Vec::new());
         assert_eq!(runtime.db.pending_writes().unwrap()[0].tx_id, tx_id);
         let connection = Databases::open_reader(runtime.db.live_path()).unwrap();
         let count: i64 = connection
             .query_row("SELECT count(*) FROM items", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn waiting_for_sqlite_does_not_block_the_application() {
+        let (_dir, mut runtime, ready_rx) = runtime();
+        runtime.sequencer_ready = true;
+
+        let connection = Connection::open(runtime.db.live_path()).unwrap();
+        connection
+            .execute_batch("CREATE TABLE items(value INTEGER); BEGIN IMMEDIATE")
+            .unwrap();
+
+        let (command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
+        runtime.command_rx = command_rx;
+        let (response_tx, response_rx) = oneshot::channel();
+        let (tx_id, transaction) = TransactionBuilder::new("INSERT INTO items VALUES (1)")
+            .query("INSERT INTO missing VALUES (1)")
+            .finish()
+            .unwrap();
+        command_tx
+            .try_send(Command::Execute {
+                tx_id,
+                transaction,
+                response_tx,
+            })
+            .unwrap();
+
+        let task = runtime.spawn(sequencer(), None).unwrap();
+        let handle = RuntimeHandle {
+            command_tx,
+            ready_rx,
+            task,
+        };
+
+        // SQLite waits for our lock. This single-threaded application must
+        // still wake up and release it, rather than wait for SQLite's timeout.
+        let started = Instant::now();
+        sleep(Duration::from_millis(100)).await;
+        connection.execute_batch("ROLLBACK").unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        // The second statement deliberately fails: no publication is needed
+        // to test the worker, and the first statement must be rolled back.
+        let result = timeout(Duration::from_secs(5), response_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Err(Error::Database(_))));
+        let rows: i64 = connection
+            .query_row("SELECT count(*) FROM items", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+
+        timeout(Duration::from_secs(5), handle.shutdown())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn worker_startup_failure_reaches_the_caller() {
+        let (_dir, runtime, _) = runtime();
+        Connection::open(runtime.db.live_path())
+            .unwrap()
+            .execute_batch("DROP TABLE __logos_sql_pending_publish")
+            .unwrap();
+
+        let mut handle = super::spawn(
+            sequencer(),
+            runtime.db,
+            runtime.channel_id,
+            None,
+            false,
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap();
+        let result = timeout(Duration::from_secs(5), handle.wait_until_ready())
+            .await
+            .unwrap();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn worker_can_be_cancelled_while_waiting_for_the_node() {
+        let (_dir, runtime, _) = runtime();
+        let handle = super::spawn(
+            sequencer(),
+            runtime.db,
+            runtime.channel_id,
+            None,
+            false,
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap();
+
+        // A command response confirms the worker started and can serve the
+        // application while the node is unavailable.
+        assert!(
+            handle
+                .write_status(TxId::generate())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        handle.abort();
+
+        let error = timeout(Duration::from_secs(5), handle.task)
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert!(error.is_cancelled());
     }
 
     #[tokio::test]
@@ -706,7 +1017,7 @@ mod tests {
         reader.read_only = true;
         reader.sequencer_ready = true;
 
-        reader.handle_event(adopt_event(inscription.clone()));
+        reader.handle_event(adopt_event(inscription.clone()), &sequencer());
 
         let connection = Databases::open_reader(reader.db.live_path()).unwrap();
         let count: i64 = connection
@@ -731,7 +1042,7 @@ mod tests {
                 .is_err()
         );
 
-        writer.handle_event(orphan_event(inscription));
+        writer.handle_event(orphan_event(inscription), &sequencer());
         let displacement = writer.db.unhandled_displacements().unwrap().remove(0);
 
         assert!(matches!(
@@ -746,8 +1057,8 @@ mod tests {
         let (_dir, mut runtime, _) = runtime();
         let first = published_local_write(&mut runtime, 2);
         let second = published_local_write(&mut runtime, 3);
-        runtime.handle_event(orphan_event(first));
-        runtime.handle_event(orphan_event(second));
+        runtime.handle_event(orphan_event(first), &sequencer());
+        runtime.handle_event(orphan_event(second), &sequencer());
         let displacements = runtime.db.unhandled_displacements().unwrap();
         let displacement = &displacements[0];
 
@@ -790,10 +1101,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unfinished_rebuild_blocks_writes_and_publication() {
+        let (_dir, mut runtime, _) = runtime();
+        runtime.sequencer_ready = true;
+        let (tx_id, transaction) = prepare_transaction("CREATE TABLE pending(value TEXT)")
+            .finish()
+            .unwrap();
+        runtime.db.commit_local_write(tx_id, &transaction).unwrap();
+        runtime.db.require_rebuild().unwrap();
+
+        runtime
+            .advance_publish(&mut sequencer())
+            .await
+            .expect("publication waits without contacting the node");
+        assert_eq!(runtime.db.pending_publish().unwrap().unwrap().tx_id, tx_id);
+
+        let (next_id, next) = prepare_transaction("CREATE TABLE next(value TEXT)")
+            .finish()
+            .unwrap();
+        assert!(matches!(
+            runtime.execute(next_id, &next),
+            Err(Error::SequencerNotReady)
+        ));
+    }
+
+    #[tokio::test]
     async fn failed_retry_keeps_the_displacement_available_for_review() {
         let (_dir, mut runtime, _) = runtime();
         let original = published_local_write(&mut runtime, 2);
-        runtime.handle_event(orphan_event(original.clone()));
+        runtime.handle_event(orphan_event(original.clone()), &sequencer());
         let displacement = runtime.db.unhandled_displacements().unwrap().remove(0);
 
         // The table now exists, but the original write is still displaced.
@@ -825,11 +1161,11 @@ mod tests {
         for restored in [false, true] {
             let (_dir, mut runtime, _) = runtime();
             let original = published_local_write(&mut runtime, 2);
-            runtime.handle_event(orphan_event(original.clone()));
+            runtime.handle_event(orphan_event(original.clone()), &sequencer());
             let displacement = runtime.db.unhandled_displacements().unwrap().remove(0);
 
             if restored {
-                runtime.handle_event(adopt_event(original));
+                runtime.handle_event(adopt_event(original), &sequencer());
             } else {
                 runtime.db.mark_displacement_handled(&displacement).unwrap();
             }
@@ -848,11 +1184,11 @@ mod tests {
     async fn an_old_displacement_cannot_retry_a_new_occurrence() {
         let (_dir, mut runtime, _) = runtime();
         let original = published_local_write(&mut runtime, 2);
-        runtime.handle_event(orphan_event(original.clone()));
+        runtime.handle_event(orphan_event(original.clone()), &sequencer());
         let old = runtime.db.unhandled_displacements().unwrap().remove(0);
 
-        runtime.handle_event(adopt_event(original.clone()));
-        runtime.handle_event(orphan_event(original));
+        runtime.handle_event(adopt_event(original.clone()), &sequencer());
+        runtime.handle_event(orphan_event(original), &sequencer());
         let current = runtime.db.unhandled_displacements().unwrap();
         runtime.sequencer_ready = true;
 
@@ -870,7 +1206,7 @@ mod tests {
         runtime.sequencer_ready = true;
         let first = published_local_write(&mut runtime, 2);
         let second = published_local_write(&mut runtime, 3);
-        runtime.handle_event(orphan_event(first));
+        runtime.handle_event(orphan_event(first), &sequencer());
         let first = runtime.db.unhandled_displacements().unwrap()[0].clone();
 
         let (tx_id, transaction) = TransactionBuilder::new("CREATE TABLE resumed(value INTEGER)")
@@ -882,7 +1218,7 @@ mod tests {
         ));
         assert!(runtime.db.pending_publish().unwrap().is_none());
 
-        runtime.handle_event(orphan_event(second));
+        runtime.handle_event(orphan_event(second), &sequencer());
         runtime.db.mark_displacement_handled(&first).unwrap();
         let (tx_id, transaction) = TransactionBuilder::new("CREATE TABLE resumed(value INTEGER)")
             .finish()
@@ -1001,7 +1337,7 @@ mod tests {
             )
             .expect("failure should be installed");
 
-        runtime.handle_event(event);
+        runtime.handle_event(event, &sequencer());
 
         assert!(runtime.event_pending_retry.is_some());
         assert_eq!(
@@ -1012,10 +1348,63 @@ mod tests {
         control
             .execute_batch("DROP TRIGGER fail_checkpoint")
             .expect("failure should be removed");
-        runtime.retry_pending_event().expect("event should recover");
+        runtime
+            .retry_pending_event(&sequencer())
+            .expect("event should recover");
 
         assert!(runtime.event_pending_retry.is_none());
         assert!(runtime.db.has_unhandled_displacements().unwrap());
+    }
+
+    #[tokio::test]
+    async fn writes_resume_after_the_publication_checkpoint_is_saved() {
+        let (dir, mut runtime, _) = runtime();
+        runtime.sequencer_ready = true;
+        let (tx_id, transaction) = TransactionBuilder::new("CREATE TABLE items(value INTEGER)")
+            .finish()
+            .unwrap();
+        runtime.execute(tx_id, &transaction).unwrap();
+
+        let pending = Publication::prepare(
+            runtime.db.pending_writes().unwrap(),
+            PublicationConfig::default().max_transactions,
+        )
+        .unwrap()
+        .unwrap();
+        let Event::BlocksProcessed { checkpoint, .. } = blocks_processed() else {
+            unreachable!()
+        };
+        runtime.publish_state = PublishState::CheckpointPending {
+            pending,
+            this_msg: MsgId::from([2; 32]),
+            checkpoint: Box::new(checkpoint),
+        };
+
+        let control = Connection::open(dir.path().join("control.db")).unwrap();
+        control
+            .execute_batch(
+                "CREATE TRIGGER fail_checkpoint BEFORE UPDATE OF checkpoint ON __logos_sql_state
+                 BEGIN SELECT RAISE(FAIL, 'test checkpoint failure'); END;",
+            )
+            .unwrap();
+
+        assert!(runtime.persist_publish_checkpoint().is_err());
+        let (next_id, next_write) = TransactionBuilder::new("INSERT INTO items VALUES (1)")
+            .finish()
+            .unwrap();
+        assert!(matches!(
+            runtime.execute(next_id, &next_write),
+            Err(Error::PublishPending)
+        ));
+
+        control
+            .execute_batch("DROP TRIGGER fail_checkpoint")
+            .unwrap();
+        runtime.persist_publish_checkpoint().unwrap();
+        runtime.execute(next_id, &next_write).unwrap();
+
+        assert!(matches!(runtime.publish_state, PublishState::Idle));
+        assert_eq!(runtime.db.pending_writes().unwrap()[0].tx_id, next_id);
     }
 
     #[tokio::test]
@@ -1060,33 +1449,15 @@ mod tests {
 
     fn runtime() -> (TempDir, Runtime, oneshot::Receiver<()>) {
         let dir = TempDir::new().expect("temporary directory should be created");
-        let db = Databases::open(dir.path()).expect("databases should open");
+        let db = open_databases(dir.path()).expect("databases should open");
         let channel_id = ChannelId::from([9; 32]);
-        let node = NodeHttpClient::new(
-            CommonHttpClient::new(None),
-            "http://127.0.0.1:1"
-                .parse()
-                .expect("test node URL should parse"),
-        );
-        let sequencer = ZoneSequencer::init(
-            channel_id,
-            Ed25519Key::from_bytes(&[7; 32]),
-            node,
-            FundingConfig {
-                funding_pk: lb_groth16::Fr::from(1u64).into(),
-                change_pk: None,
-                max_tx_fee: u64::MAX.into(),
-                priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
-            },
-            None,
-        );
         let (_command_tx, command_rx) = mpsc::channel(COMMAND_CHANNEL_CAPACITY);
         let (ready_tx, ready_rx) = oneshot::channel();
         let runtime = Runtime {
-            sequencer,
             db,
             channel_id,
             read_only: false,
+            max_batch_transactions: PublicationConfig::default().max_transactions,
             command_rx,
             sequencer_ready: false,
             ready_checkpoint_pending: false,
@@ -1097,6 +1468,29 @@ mod tests {
         };
 
         (dir, runtime, ready_rx)
+    }
+
+    fn sequencer() -> ZoneSequencer<NodeHttpClient> {
+        sequencer_at("http://127.0.0.1:1")
+    }
+
+    fn sequencer_at(url: &str) -> ZoneSequencer<NodeHttpClient> {
+        let node = NodeHttpClient::new(
+            CommonHttpClient::new(None),
+            url.parse().expect("test node URL should parse"),
+        );
+        ZoneSequencer::init(
+            ChannelId::from([9; 32]),
+            Ed25519Key::from_bytes(&[7; 32]),
+            node,
+            FundingConfig {
+                funding_pk: lb_groth16::Fr::from(1u64).into(),
+                change_pk: None,
+                max_tx_fee: u64::MAX.into(),
+                priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
+            },
+            None,
+        )
     }
 
     fn blocks_processed() -> Event {
