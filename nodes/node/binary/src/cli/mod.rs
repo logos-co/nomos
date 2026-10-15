@@ -19,8 +19,8 @@ use crate::{
         keys::{AddKeyArgs, GenerateKeyArgs, RemoveKeyArgs},
     },
     config::{
-        ApiArgs, BlendArgs, CryptarchiaArgs, DeploymentArgs, DeploymentSettings, LogArgs,
-        NetworkArgs, RunConfig, SdpArgs, StateArgs, UserConfig, api::serde::AxumBackendSettings,
+        ApiArgs, BlendArgs, CryptarchiaArgs, DeploymentArgs, DeploymentSettings, NetworkArgs,
+        RunConfig, SdpArgs, StateArgs, TracingArgs, UserConfig, api::serde::AxumBackendSettings,
         blend::serde::core::BackendConfig as BlendCoreConfig, network::serde::SwarmConfig,
         update_api, update_blend, update_cryptarchia, update_network, update_sdp, update_state,
         update_tracing,
@@ -47,9 +47,9 @@ pub struct CliArgs {
     /// file and then exit.
     #[clap(long = "check-config", action)]
     check_config_only: bool,
-    /// Overrides log config.
+    /// Overrides tracing config.
     #[clap(flatten)]
-    log: LogArgs,
+    tracing: TracingArgs,
     /// Overrides network config.
     #[clap(flatten)]
     network: NetworkArgs,
@@ -129,7 +129,7 @@ pub struct InitArgs {
     pub overwrite: bool,
 
     #[clap(flatten)]
-    pub log: LogArgs,
+    pub tracing: TracingArgs,
 
     #[clap(flatten)]
     pub network: NetworkArgs,
@@ -193,6 +193,9 @@ pub struct EmbeddedInitArgs {
     /// Path for the generated KMS keys YAML file.
     /// Defaults to 'kms.yaml' in the same directory as --output.
     pub kms_file: Option<PathBuf>,
+
+    /// Enable on-demand `OpenMetrics` rendering.
+    pub enable_open_metrics: bool,
 }
 
 impl From<EmbeddedInitArgs> for InitArgs {
@@ -203,7 +206,6 @@ impl From<EmbeddedInitArgs> for InitArgs {
             ..Default::default()
         };
 
-        init_args.log.filter.clone_from(&args.log_filter);
         init_args.network.port = Some(args.net_port);
         init_args
             .network
@@ -218,7 +220,9 @@ impl From<EmbeddedInitArgs> for InitArgs {
         init_args.api.addr = Some(args.http_addr);
         init_args.state.path.clone_from(&args.state_path);
         init_args.storage_path.clone_from(&args.storage_path);
-        init_args.log.directory.clone_from(&args.logs_path);
+        init_args.tracing.log.filter.clone_from(&args.log_filter);
+        init_args.tracing.log.directory.clone_from(&args.logs_path);
+        init_args.tracing.metrics.enabled = Some(args.enable_open_metrics);
 
         init_args
     }
@@ -241,6 +245,7 @@ impl Default for EmbeddedInitArgs {
             skip_ibd: false,
             log_filter: None,
             kms_file: None,
+            enable_open_metrics: false,
         }
     }
 }
@@ -260,7 +265,7 @@ pub struct UpdateArgs {
     pub yes: bool,
 
     #[clap(flatten)]
-    log: LogArgs,
+    tracing: TracingArgs,
 
     #[clap(flatten)]
     network: NetworkArgs,
@@ -303,7 +308,7 @@ impl Default for UpdateArgs {
             user_config: "user_config.yaml".into(),
             keystore: "keystore.yaml".into(),
             yes: false,
-            log: LogArgs::default(),
+            tracing: TracingArgs::default(),
             network: NetworkArgs::default(),
             blend: BlendArgs::default(),
             cryptarchia: CryptarchiaArgs::default(),
@@ -325,7 +330,7 @@ pub struct MigrateArgs {
     pub keystore: PathBuf,
 
     #[clap(flatten)]
-    log: LogArgs,
+    tracing: TracingArgs,
 
     #[clap(flatten)]
     network: NetworkArgs,
@@ -358,7 +363,7 @@ impl MigrateArgs {
         Self {
             output,
             keystore,
-            log: LogArgs::default(),
+            tracing: TracingArgs::default(),
             network: NetworkArgs::default(),
             blend: BlendArgs::default(),
             cryptarchia: CryptarchiaArgs::default(),
@@ -375,7 +380,7 @@ impl From<MigrateArgs> for InitArgs {
         Self {
             output: migrate.output,
             keystore: Some(migrate.keystore),
-            log: migrate.log,
+            tracing: migrate.tracing,
             network: migrate.network,
             blend: migrate.blend,
             cryptarchia: migrate.cryptarchia,
@@ -422,7 +427,7 @@ pub struct GetPeerIdArgs {
 /// `RunConfig` ready to start the node.
 pub fn build_run_config(mut user_config: UserConfig, args: CliArgs) -> Result<RunConfig> {
     let CliArgs {
-        log: log_args,
+        tracing: tracing_args,
         api: api_args,
         network: network_args,
         blend: blend_args,
@@ -432,7 +437,7 @@ pub fn build_run_config(mut user_config: UserConfig, args: CliArgs) -> Result<Ru
         state: state_args,
         ..
     } = args;
-    update_tracing(&mut user_config.tracing, log_args)?;
+    update_tracing(&mut user_config.tracing, tracing_args)?;
     update_network(&mut user_config.network, network_args)?;
     update_blend(&mut user_config.blend, blend_args);
     update_cryptarchia(&mut user_config.cryptarchia, cryptarchia_args);
