@@ -1,6 +1,6 @@
 pub mod config;
 mod libp2p;
-pub use libp2p::messages::DownloadBlocksRequest;
+pub use libp2p::{behaviour::PeerBlockPredicate, messages::DownloadBlocksRequest};
 mod messages;
 pub use messages::{GetTipResponse, GetTipResponseReason, SerialisedBlock};
 

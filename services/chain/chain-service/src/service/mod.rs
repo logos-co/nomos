@@ -1305,7 +1305,7 @@ async fn reject_chain_sync_event(event: ChainSyncEvent) {
                 error!(target: LOG_TARGET, %err, "failed to send chain sync response");
             }
         }
-        ChainSyncEvent::ProvideTipRequest { reply_sender } => {
+        ChainSyncEvent::ProvideTipRequest { reply_sender, .. } => {
             send_chain_sync_rejection(reply_sender).await;
         }
     }

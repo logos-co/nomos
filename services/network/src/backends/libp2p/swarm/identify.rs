@@ -12,7 +12,18 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     pub(super) fn handle_identify_event(&mut self, event: identify::Event) {
         match event {
             identify::Event::Received { peer_id, info, .. } => {
+                if self.is_globally_blocked(peer_id) {
+                    let _ = self.swarm.disconnect_peer(peer_id);
+                    return;
+                }
                 self.handle_identify_received(peer_id, info);
+            }
+            identify::Event::Sent { peer_id, .. }
+            | identify::Event::Pushed { peer_id, .. }
+            | identify::Event::Error { peer_id, .. }
+                if self.is_globally_blocked(peer_id) =>
+            {
+                let _ = self.swarm.disconnect_peer(peer_id);
             }
             event => {
                 tracing::trace!(target: LOG_TARGET, "Identify event: {:?}", event);

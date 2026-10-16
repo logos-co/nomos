@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use lb_log_targets::libp2p as lb_log_targets_libp2p;
 use libp2p::{
     Multiaddr, PeerId, StreamProtocol,
-    kad::{PeerInfo, QueryId, RoutingUpdate},
+    kad::{PeerInfo, QueryId, RecordKey, RoutingUpdate, store::RecordStore as _},
 };
 use rand::RngCore;
 
@@ -57,6 +57,20 @@ impl<R: Clone + Send + RngCore + 'static> Behaviour<R> {
                 peer_id
             );
         }
+    }
+
+    pub(crate) fn kademlia_remove_peer(&mut self, peer_id: &PeerId) {
+        if self.kademlia.remove_peer(peer_id).is_some() {
+            tracing::debug!(target: LOG_TARGET, "Removed peer {peer_id} from Kademlia");
+        }
+    }
+
+    pub(crate) fn kademlia_remove_record(&mut self, key: &RecordKey) {
+        self.kademlia.store_mut().remove(key);
+    }
+
+    pub(crate) fn kademlia_remove_provider(&mut self, key: &RecordKey, provider: &PeerId) {
+        self.kademlia.store_mut().remove_provider(key, provider);
     }
 
     pub(crate) fn kademlia_routing_table_dump(&mut self) -> HashMap<u32, Vec<PeerId>> {

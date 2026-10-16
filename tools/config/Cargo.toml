@@ -18,6 +18,7 @@ testing = ["lb-node/testing"]
 
 [dependencies]
 hex                              = { workspace = true }
+lb-banning-service               = { workspace = true }
 lb-binary-codec                  = { workspace = true }
 lb-core                          = { workspace = true }
 lb-cryptarchia-engine            = { workspace = true }

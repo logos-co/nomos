@@ -643,7 +643,9 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl<RuntimeServiceId: Send + Sync> NetworkAdapter<RuntimeServiceId> for MockNetworkAdapter {
+    impl<RuntimeServiceId: Send + Sync + 'static> NetworkAdapter<RuntimeServiceId>
+        for MockNetworkAdapter
+    {
         type Backend = Mock;
         type Settings = ();
         type PeerId = ();
@@ -655,6 +657,7 @@ mod tests {
             _network_relay: OutboundRelay<
                 <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
             >,
+            _chain_sync_ban_view: lb_banning_service::LocalBanView,
         ) -> Self {
             Self::new()
         }

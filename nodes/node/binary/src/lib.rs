@@ -10,6 +10,7 @@ mod codec;
 use std::collections::HashMap;
 
 use color_eyre::eyre::{Result, eyre};
+use lb_banning_service::BanningService as CentralBanningService;
 pub use lb_blend_service::core::backends::libp2p::Libp2pBlendBackend as BlendBackend;
 use lb_core::{
     block::Proposal,
@@ -89,6 +90,8 @@ pub type TracingService = Tracing<RuntimeServiceId>;
 pub(crate) type NetworkService =
     lb_network_service::NetworkService<NetworkBackend, RuntimeServiceId>;
 
+pub(crate) type BanningService = CentralBanningService<RuntimeServiceId>;
+
 pub(crate) type BlendCoreService = generic_services::blend::BlendCoreService<RuntimeServiceId>;
 pub(crate) type BlendEdgeService = generic_services::blend::BlendEdgeService<RuntimeServiceId>;
 pub(crate) type BlendBroadcastService =
@@ -138,6 +141,7 @@ pub type SystemSigService = SystemSig<RuntimeServiceId>;
 
 #[derive_services(panic_policy = Shutdown)]
 pub struct LogosBlockchain {
+    banning: BanningService,
     network: NetworkService,
     blend: BlendService,
     blend_core: BlendCoreService,
@@ -209,6 +213,8 @@ pub fn run_node_from_config(
     .into_rocks_backend_settings(&config.user.state);
 
     let recovery_data = load_recovery_data(storage_config.clone())?;
+    let mut banning_config = config.user.banning;
+    banning_config.recovery_data = recovery_data.clone();
 
     let (blend_config, blend_core_config, blend_edge_config) = BlendConfig {
         user: config.user.blend,
@@ -228,6 +234,7 @@ pub fn run_node_from_config(
     }
     .into_time_service_settings(&cryptarchia_deployment, genesis_time);
 
+    let configured_ban_policy = banning_config.configured_ban_policy();
     let (chain_service_config, chain_network_config, chain_leader_config) = CryptarchiaConfig {
         user: config.user.cryptarchia,
         deployment: cryptarchia_deployment,
@@ -237,6 +244,7 @@ pub fn run_node_from_config(
         blend_rewards_params,
         protocol_names.cryptarchia_topic.clone(),
         recovery_data.clone(),
+        configured_ban_policy.clone(),
     );
 
     let mempool_service_config = MempoolConfig {
@@ -250,6 +258,7 @@ pub fn run_node_from_config(
 
     let network_service_config = NetworkConfig {
         user: config.user.network,
+        configured_ban_policy,
     }
     .into_network_config(
         &protocol_names,
@@ -293,6 +302,7 @@ pub fn run_node_from_config(
 
     let app = OverwatchRunner::<LogosBlockchain>::run(
         LogosBlockchainServiceSettings {
+            banning: banning_config,
             network: network_service_config,
             blend: blend_config.clone(),
             blend_core: blend_core_config,

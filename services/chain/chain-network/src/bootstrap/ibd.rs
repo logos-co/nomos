@@ -832,6 +832,7 @@ mod tests {
             _network_relay: OutboundRelay<
                 <NetworkService<Self::Backend, RuntimeServiceId> as ServiceData>::Message,
             >,
+            _chain_sync_ban_view: lb_banning_service::LocalBanView,
         ) -> Self {
             unimplemented!()
         }

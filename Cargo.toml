@@ -62,6 +62,7 @@ members = [
   "nodes/node/http-client",
   "nodes/version",
   "services/api",
+  "services/banning",
   "services/blend",
   "services/chain/broadcast-service",
   "services/chain/chain-leader",
@@ -114,6 +115,7 @@ common-http-client                 = { default-features = false, package = "logo
 hasher                             = { default-features = false, version = "0.1.4" }
 jf-poseidon2                       = { default-features = false, git = "https://github.com/EspressoSystems/jellyfish.git", rev = "8d80230358e900f8d63765a937f63f4978ca1daa" }
 lb-api-service                     = { default-features = false, package = "logos-blockchain-api-service", path = "./services/api" }
+lb-banning-service                 = { default-features = false, package = "logos-blockchain-banning-service", path = "./services/banning" }
 lb-binary-codec                    = { default-features = false, package = "logos-blockchain-binary-codec", path = "./binary-codec" }
 lb-binary-codec-macros             = { default-features = false, package = "logos-blockchain-binary-codec-macros", path = "./binary-codec/macros" }
 lb-blake2btree                     = { default-features = false, package = "logos-blockchain-blake2btree", path = "merkle/blake2btree" }

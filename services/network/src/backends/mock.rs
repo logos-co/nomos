@@ -2,6 +2,7 @@ use core::fmt;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    pin::Pin,
     sync::{Arc, Mutex},
 };
 
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::{self, Sender};
 use tokio_stream::wrappers::BroadcastStream;
 
-use super::{Debug, NetworkBackend, OverwatchHandle};
+use super::{BanningSynchronizer, Debug, NetworkBackend, OverwatchHandle};
 
 const LOG_TARGET: &str = network_service::backends::MOCK;
 
@@ -311,6 +312,15 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Mock {
 
     async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent> {
         BroadcastStream::new(self.chainsync_events_tx.subscribe())
+    }
+}
+
+impl<RuntimeServiceId> BanningSynchronizer<RuntimeServiceId> for Mock {
+    fn start_banning_synchronizer(
+        &self,
+        _overwatch_handle: OverwatchHandle<RuntimeServiceId>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        Box::pin(async {})
     }
 }
 
