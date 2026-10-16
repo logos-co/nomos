@@ -24,6 +24,11 @@ Feature: Password manager
       | show email                                  | notes: recovery codes stored elsewhere |
       | list                                        | email (andrus@example.org)         |
       | displacements                               | no displacements awaiting review  |
+    And the password manager using sequencer "SEQ_A" runs this session in 180 seconds:
+      | command                                     | output                            |
+      | show email                                  | password: another-fake-password    |
+      | show email                                  | notes: recovery codes stored elsewhere |
+      | list                                        | email (andrus@example.org)         |
       | remove email                                | committed locally as              |
       | show email                                  | credential not found              |
     Then I stop all nodes

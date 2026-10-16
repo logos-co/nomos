@@ -30,8 +30,10 @@ tokio                            = { features = ["macros", "rt", "sync", "time"]
 tracing                          = { workspace = true }
 
 [dev-dependencies]
-clap       = { features = ["derive", "env", "help", "std"], workspace = true }
-hex        = { workspace = true }
-lb-groth16 = { workspace = true }
-tempfile   = { workspace = true }
-tokio      = { features = ["io-util", "net"], workspace = true }
+chacha20poly1305 = { features = ["alloc", "rand_core"], workspace = true }
+clap             = { features = ["derive", "env", "help", "std"], workspace = true }
+hex              = { workspace = true }
+lb-groth16       = { workspace = true }
+tempfile         = { workspace = true }
+tokio            = { features = ["io-util", "net"], workspace = true }
+zeroize          = { features = ["alloc"], workspace = true }

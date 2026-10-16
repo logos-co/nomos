@@ -76,7 +76,7 @@ impl Command {
 /// Reads commands from the terminal until the user exits or input closes.
 pub async fn run(manager: &PasswordManager) -> AppResult<()> {
     println!("Password manager is running. Enter `help` to list commands.");
-    println!("WARNING: passwords are replicated in plaintext; do not enter real credentials.");
+    println!("Credentials are encrypted; labels remain public. Use test credentials only.");
 
     let mut reported = Vec::new();
 
