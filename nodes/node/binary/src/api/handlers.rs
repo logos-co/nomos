@@ -675,7 +675,7 @@ where
     request_body = JoinBlendRequestBody,
     responses(
         (status = 200, description = "Join the blend network", body = lb_sdp_service::SdpSubmission),
-        (status = 404, description = "No note available on this node's blend ZK key", body = ErrorBody),
+        (status = 404, description = "No eligible note on this node's blend ZK key", body = ErrorBody),
         (status = 500, description = "Internal server error", body = ErrorBody),
     )
 )]
@@ -749,14 +749,16 @@ where
     let balance = response.ok_or_else(|| {
         ApiError::NotFound(format!("wallet does not hold blend ZK key {zk_id:?}"))
     })?;
-    if balance.notes.is_empty() {
-        return Err(ApiError::NotFound(format!(
-            "blend ZK key {zk_id:?} holds no notes"
-        )));
-    }
 
     let chain =
         CryptarchiaServiceApi::<Cryptarchia<RuntimeServiceId>>::from_overwatch_handle(handle).await;
+    let threshold = chain
+        .get_ledger_config()
+        .await
+        .map_err(ApiError::internal)?
+        .sdp_config
+        .min_stake
+        .threshold;
     let ledger = chain
         .get_ledger_state(tip)
         .await
@@ -764,19 +766,13 @@ where
         .ok_or_else(|| ApiError::internal_message(format!("no ledger state at tip {tip:?}")))?;
     let locked = ledger.mantle_ledger().service_notes();
 
-    balance
-        .notes
-        .iter()
-        .filter(|(note_id, _)| {
-            !locked.is_used_for_service(note_id, &lb_core::sdp::ServiceType::BlendNetwork)
-        })
-        .max_by_key(|(_, value)| **value)
-        .map(|(note_id, _)| *note_id)
-        .ok_or_else(|| {
-            ApiError::NotFound(format!(
-                "every note on blend ZK key {zk_id:?} is already locked for blend"
-            ))
-        })
+    let notes: Vec<_> = balance.notes.into_iter().collect();
+    blend::select_service_note(
+        &notes,
+        |note_id| locked.is_used_for_service(&note_id, &lb_core::sdp::ServiceType::BlendNetwork),
+        threshold,
+    )
+    .map_err(|error| ApiError::NotFound(format!("blend ZK key {zk_id:?}: {error}")))
 }
 
 #[utoipa::path(
