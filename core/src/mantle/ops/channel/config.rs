@@ -108,10 +108,13 @@ impl PreverifiableOperation<StandardMode>
     fn preverify(&self, _context: &Self::Context<'_>) -> Result<(), Self::Error> {
         let operation = self.operation();
 
-        // Check config is well-formed
+        // Check config is well-formed. The configuration threshold must be
+        // reachable with the accredited keys, otherwise the channel would be
+        // locked out of any future reconfiguration.
         if operation.configuration_threshold == 0
             || operation.transfer_threshold == 0
             || operation.keys.is_empty()
+            || usize::from(operation.configuration_threshold) > operation.keys.len()
         {
             return Err(Error::InvalidChannelConfig);
         }
@@ -130,13 +133,6 @@ impl VerifiableOperation<StandardMode>
     fn verify(&self, context: &Self::Context<'_>) -> Result<Self::DeferredProof, Self::Error> {
         let operation = self.operation();
         let proof = self.proof();
-
-        // The configuration threshold must be reachable with the accredited
-        // keys, otherwise the channel would be locked out of any future
-        // reconfiguration.
-        if usize::from(operation.configuration_threshold) > operation.keys.len() {
-            return Err(Error::InvalidChannelConfig);
-        }
 
         // Check that the indexes are unique and there is the same number of proof and
         // index. This is enforced by the proof structure that enforces it.
@@ -387,48 +383,36 @@ mod tests {
     }
 
     #[test]
-    fn verify_rejects_a_configuration_threshold_above_the_key_count() {
+    fn preverify_rejects_a_configuration_threshold_above_the_key_count() {
         let operation = ChannelConfigOp::sample();
         let configuration_threshold = u16::try_from(operation.keys.len() + 1).unwrap();
-        let signed_operation = preverified(
+        let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
             ChannelConfigOp {
                 configuration_threshold,
                 ..operation
             },
-            ChannelMultiSigProof::sample_with_signatures(0),
+            ChannelMultiSigProof::sample_with_signatures(1),
         );
 
         assert_eq!(
-            signed_operation
-                .verify(&ChannelConfigValidationContext {
-                    channels: &Channels::new(),
-                    tx_hash_view: &TxHashView::from(TxHash::from([9u8; 32])),
-                })
-                .unwrap_err(),
-            Error::InvalidChannelConfig
+            signed_operation.preverify(&()),
+            Err(Error::InvalidChannelConfig)
         );
     }
 
     #[test]
-    fn verify_accepts_a_configuration_threshold_equal_to_the_key_count() {
+    fn preverify_accepts_a_configuration_threshold_equal_to_the_key_count() {
         let operation = ChannelConfigOp::sample();
         let configuration_threshold = u16::try_from(operation.keys.len()).unwrap();
-        let signed_operation = preverified(
+        let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
             ChannelConfigOp {
                 configuration_threshold,
                 ..operation
             },
-            ChannelMultiSigProof::sample_with_signatures(0),
+            ChannelMultiSigProof::sample_with_signatures(1),
         );
 
-        assert!(
-            signed_operation
-                .verify(&ChannelConfigValidationContext {
-                    channels: &Channels::new(),
-                    tx_hash_view: &TxHashView::from(TxHash::from([9u8; 32])),
-                })
-                .is_ok()
-        );
+        assert_eq!(signed_operation.preverify(&()), Ok(()));
     }
 
     #[test]
