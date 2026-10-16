@@ -423,7 +423,7 @@ impl NodeHttpClient {
                 &self.base_url,
                 JoinBlendRequestBody {
                     locator,
-                    service_note_id,
+                    service_note_id: Some(service_note_id),
                 },
             )
             .await
