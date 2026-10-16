@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 use lb_binary_codec::bincode::{DeserializeOp, SerializeOp};
 use lb_blend_service::message::{DataPayload, NetworkInfo, ProxyServiceMessage, ServiceMessage};
+use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_network_service::backends::libp2p::PeerId;
 use overwatch::services::{AsServiceId, ServiceData};
 use tokio::sync::oneshot;
@@ -18,6 +19,26 @@ where
 
     relay
         .send(ServiceMessage::GetNetworkInfo { reply: sender }.into())
+        .await
+        .map_err(|error| overwatch::DynError::from(error.to_string()))?;
+
+    receiver
+        .await
+        .map_err(|e| Box::new(e) as overwatch::DynError)
+}
+
+pub async fn blend_zk_id<BlendService, RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+) -> Result<ZkPublicKey, overwatch::DynError>
+where
+    BlendService: ServiceData<Message = ProxyServiceMessage<ServiceMessage<PeerId>>>,
+    RuntimeServiceId: AsServiceId<BlendService> + Debug + Sync + Display + 'static,
+{
+    let relay = handle.relay::<BlendService>().await?;
+    let (sender, receiver) = oneshot::channel();
+
+    relay
+        .send(ProxyServiceMessage::GetZkId { reply: sender })
         .await
         .map_err(|error| overwatch::DynError::from(error.to_string()))?;
 

@@ -26,7 +26,7 @@ use lb_chain_service::{
 use lb_core::{
     header::HeaderId,
     mantle::{
-        Op, OpProof, SignedOps, TxHash,
+        NoteId, Op, OpProof, SignedOps, TxHash,
         channel::ChannelState,
         ledger::verification_mode::StandardMode,
         ops::channel::ChannelId,
@@ -675,10 +675,11 @@ where
     request_body = JoinBlendRequestBody,
     responses(
         (status = 200, description = "Join the blend network", body = lb_sdp_service::SdpSubmission),
+        (status = 404, description = "No note available on this node's blend ZK key", body = ErrorBody),
         (status = 500, description = "Internal server error", body = ErrorBody),
     )
 )]
-pub async fn blend_join_network<BlendService, RuntimeServiceId>(
+pub async fn blend_join_network<BlendService, WalletService, RuntimeServiceId>(
     State(handle): State<OverwatchHandle<RuntimeServiceId>>,
     Json(req): Json<JoinBlendRequestBody>,
 ) -> Response
@@ -686,13 +687,64 @@ where
     BlendService: ServiceData<
             Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
         > + 'static,
-    RuntimeServiceId: Debug + Sync + Display + 'static + AsServiceId<BlendService>,
+    WalletService: WalletServiceData + 'static,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<BlendService> + AsServiceId<WalletService>,
 {
+    let service_note_id = match blend_service_note::<BlendService, WalletService, RuntimeServiceId>(
+        &handle,
+        req.service_note_id,
+    )
+    .await
+    {
+        Ok(note_id) => note_id,
+        Err(error) => return error.into_response(),
+    };
+
     make_request_and_return_response!(blend::blend_join_network::<BlendService, RuntimeServiceId>(
         &handle,
         req.locator,
-        req.service_note_id
+        service_note_id
     ))
+}
+
+async fn blend_service_note<BlendService, WalletService, RuntimeServiceId>(
+    handle: &OverwatchHandle<RuntimeServiceId>,
+    requested: Option<NoteId>,
+) -> Result<NoteId, ApiError>
+where
+    BlendService: ServiceData<
+            Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
+        > + 'static,
+    WalletService: WalletServiceData + 'static,
+    RuntimeServiceId:
+        Debug + Sync + Display + 'static + AsServiceId<BlendService> + AsServiceId<WalletService>,
+{
+    if let Some(note_id) = requested {
+        return Ok(note_id);
+    }
+
+    let zk_id = blend::blend_zk_id::<BlendService, RuntimeServiceId>(handle)
+        .await
+        .map_err(ApiError::Internal)?;
+
+    let wallet_relay = get_relay::<WalletService, _>(handle).await?;
+    let wallet = WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay);
+    let balance = wallet
+        .get_balance(None, zk_id)
+        .await
+        .map_err(ApiError::internal)?
+        .response
+        .ok_or_else(|| {
+            ApiError::NotFound(format!("wallet does not hold blend ZK key {zk_id:?}"))
+        })?;
+
+    balance
+        .notes
+        .keys()
+        .next()
+        .copied()
+        .ok_or_else(|| ApiError::NotFound(format!("blend ZK key {zk_id:?} holds no notes")))
 }
 
 #[utoipa::path(
