@@ -688,8 +688,14 @@ where
             Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
         > + 'static,
     WalletService: WalletServiceData + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<BlendService> + AsServiceId<WalletService>,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<BlendService>
+        + AsServiceId<WalletService>
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     let service_note_id = match blend_service_note::<BlendService, WalletService, RuntimeServiceId>(
         &handle,
@@ -717,8 +723,14 @@ where
             Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
         > + 'static,
     WalletService: WalletServiceData + 'static,
-    RuntimeServiceId:
-        Debug + Sync + Display + 'static + AsServiceId<BlendService> + AsServiceId<WalletService>,
+    RuntimeServiceId: Debug
+        + Send
+        + Sync
+        + Display
+        + 'static
+        + AsServiceId<BlendService>
+        + AsServiceId<WalletService>
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     if let Some(note_id) = requested {
         return Ok(note_id);
@@ -730,21 +742,41 @@ where
 
     let wallet_relay = get_relay::<WalletService, _>(handle).await?;
     let wallet = WalletApi::<WalletService, RuntimeServiceId>::new(wallet_relay);
-    let balance = wallet
+    let lb_wallet_service::TipResponse { tip, response } = wallet
         .get_balance(None, zk_id)
         .await
+        .map_err(ApiError::internal)?;
+    let balance = response.ok_or_else(|| {
+        ApiError::NotFound(format!("wallet does not hold blend ZK key {zk_id:?}"))
+    })?;
+    if balance.notes.is_empty() {
+        return Err(ApiError::NotFound(format!(
+            "blend ZK key {zk_id:?} holds no notes"
+        )));
+    }
+
+    let chain =
+        CryptarchiaServiceApi::<Cryptarchia<RuntimeServiceId>>::from_overwatch_handle(handle).await;
+    let ledger = chain
+        .get_ledger_state(tip)
+        .await
         .map_err(ApiError::internal)?
-        .response
-        .ok_or_else(|| {
-            ApiError::NotFound(format!("wallet does not hold blend ZK key {zk_id:?}"))
-        })?;
+        .ok_or_else(|| ApiError::internal_message(format!("no ledger state at tip {tip:?}")))?;
+    let locked = ledger.mantle_ledger().service_notes();
 
     balance
         .notes
-        .keys()
-        .next()
-        .copied()
-        .ok_or_else(|| ApiError::NotFound(format!("blend ZK key {zk_id:?} holds no notes")))
+        .iter()
+        .filter(|(note_id, _)| {
+            !locked.is_used_for_service(note_id, &lb_core::sdp::ServiceType::BlendNetwork)
+        })
+        .max_by_key(|(_, value)| **value)
+        .map(|(note_id, _)| *note_id)
+        .ok_or_else(|| {
+            ApiError::NotFound(format!(
+                "every note on blend ZK key {zk_id:?} is already locked for blend"
+            ))
+        })
 }
 
 #[utoipa::path(
