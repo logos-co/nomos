@@ -49,14 +49,25 @@ impl ServiceConfig {
                             .backend
                             .swarm
                             .kademlia
-                            .periodic_bootstrap_interval_secs,
-                        query_timeout_secs: user.backend.swarm.kademlia.query_timeout_secs,
+                            .periodic_bootstrap_interval
+                            .map(|interval| interval.as_secs()),
+                        query_timeout_secs: user
+                            .backend
+                            .swarm
+                            .kademlia
+                            .query_timeout
+                            .map(|timeout| timeout.as_secs()),
                     },
                     identify_config: IdentifySettings {
                         agent_version: user.backend.swarm.identify.agent_version,
                         cache_size: user.backend.swarm.identify.cache_size,
                         hide_listen_addrs: user.backend.swarm.identify.hide_listen_addrs,
-                        interval_secs: user.backend.swarm.identify.interval_secs,
+                        interval_secs: user
+                            .backend
+                            .swarm
+                            .identify
+                            .interval
+                            .map(|interval| interval.as_secs()),
                         push_listen_addr_updates: user
                             .backend
                             .swarm
