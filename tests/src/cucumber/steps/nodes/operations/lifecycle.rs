@@ -3,10 +3,57 @@ use std::sync::Arc;
 use super::*;
 use crate::cucumber::{
     deployment::{LocalDeployment, runtime_info::NodeRuntimeInfo},
-    steps::nodes::diagnostics::log_blend_relay_event,
+    steps::{cluster::stop_active_manual_cluster, nodes::diagnostics::log_blend_relay_event},
+    wallet::snapshot::{prepare_all_wallets_snapshot, save_prepared_all_wallets_snapshot},
 };
 
 const NODE_RESTART_GRACE_PERIOD: Duration = Duration::from_secs(3);
+
+pub async fn stop_all_nodes(world: &mut CucumberWorld) -> StepResult {
+    let mut background_cleanup_errors = Vec::new();
+    if let Err(error) = world.stop_background_activity().await {
+        background_cleanup_errors.push(error.to_string());
+    }
+
+    let runtime_dir_by_node_name: Vec<(String, String)> = world
+        .nodes_info
+        .iter()
+        .map(|(node_name, info)| (node_name.clone(), info.runtime_name.clone()))
+        .collect();
+
+    if world.snapshots.save.extensions.is_some() {
+        prepare_all_wallets_snapshot(world).await?;
+    }
+
+    world.reset_wallet_scanner_after_current_iteration().await;
+    if let Err(error) = stop_active_manual_cluster(world).await {
+        background_cleanup_errors.push(error.to_string());
+    }
+
+    if let Some(snapshot_name) = world.snapshots.save.node_state.take() {
+        create_snapshots_all_nodes(world, &snapshot_name)?;
+    }
+
+    if let Some(snapshot_name) = world.snapshots.save.extensions.take() {
+        save_prepared_all_wallets_snapshot(&snapshot_name, world)?;
+    }
+
+    for (node_name, _) in &runtime_dir_by_node_name {
+        info!(target: TARGET, "Stopping node '{node_name}'");
+    }
+    world.nodes_info.clear();
+
+    if background_cleanup_errors.is_empty() {
+        Ok(())
+    } else {
+        Err(StepError::StepFail {
+            message: format!(
+                "scenario background cleanup reported: {}",
+                background_cleanup_errors.join("; ")
+            ),
+        })
+    }
+}
 
 // Sort nodes_to_start with empty peers first to ensure standalone nodes start
 // before connected nodes, then by dependency order to ensure all peers of a
@@ -14,12 +61,12 @@ const NODE_RESTART_GRACE_PERIOD: Duration = Duration::from_secs(3);
 // dependency, return an error.
 pub fn start_nodes_order_respecting_dependencies(
     nodes_to_start: NodesToStartUnordered,
-    already_started: HashSet<String>,
+    already_started: impl IntoIterator<Item = String>,
 ) -> Result<NodesToStartOrdered, StepError> {
     let mut remaining = nodes_to_start;
     // Peers that are already running (started by earlier steps) count as
     // satisfied dependencies, so a node in this batch may connect to them.
-    let mut started = already_started;
+    let mut started: HashSet<_> = already_started.into_iter().collect();
     let mut ordered = Vec::new();
 
     // Step 1: Find all nodes whose peer dependencies are already satisfied
