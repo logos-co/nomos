@@ -47,7 +47,7 @@ impl OperationStatus {
     };
 
     pub(crate) fn error(code: OperationStatusCode, message: impl Into<String>) -> Self {
-        let message = memory::error_message(message);
+        let message = memory::escaped_cstring(message);
         Self { code, message }
     }
 

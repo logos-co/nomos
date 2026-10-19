@@ -26,7 +26,7 @@ impl ConsumerStatus {
     fn error(code: u32, message: impl Into<String>) -> Self {
         Self {
             code,
-            message: memory::error_message(message),
+            message: memory::escaped_cstring(message),
         }
     }
 }
@@ -48,7 +48,7 @@ unsafe impl FfiError for ConsumerStatus {
     unsafe fn release(self) {
         RELEASED_ERRORS.fetch_add(1, Ordering::Relaxed);
 
-        // SAFETY: This status owns the string allocated by `error_message` above.
+        // SAFETY: This status owns the string allocated by `escaped_cstring` above.
         unsafe { memory::free_cstring(self.message) };
     }
 }

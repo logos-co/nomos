@@ -4,8 +4,8 @@ use std::ffi::{CString, c_char};
 ///
 /// The returned pointer is never null. The caller owns it and must release
 /// it with [`free_cstring`] from the same library.
-pub fn error_message(message: impl Into<String>) -> *mut c_char {
-    CString::new(message.into().replace('\0', "\\0"))
+pub fn escaped_cstring(value: impl Into<String>) -> *mut c_char {
+    CString::new(value.into().replace('\0', "\\0"))
         .unwrap_or_default()
         .into_raw()
 }
