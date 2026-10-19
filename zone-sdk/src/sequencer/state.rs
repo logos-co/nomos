@@ -643,6 +643,7 @@ impl TxState {
         let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         if self.is_tracked(&tx_hash) {
+            self.share_tracked_bytes(tx_hash, signed_tx);
             return;
         }
         let (pre_fund, funded_at) = self.take_landed(&HashSet::from([this_msg]));
@@ -735,6 +736,16 @@ impl TxState {
         self.pending.contains_key(tx_hash) || self.pending_other.contains_key(tx_hash)
     }
 
+    /// Point a tracked entry at the block store's copy of its tx, so a mined
+    /// publish is held once rather than alongside its publish-time copy.
+    fn share_tracked_bytes(&mut self, tx_hash: TxHash, signed_tx: SharedTx) {
+        if let Some(entry) = self.pending.get_mut(&tx_hash) {
+            entry.signed_tx = signed_tx;
+        } else if let Some(entry) = self.pending_other.get_mut(&tx_hash) {
+            entry.signed_tx = signed_tx;
+        }
+    }
+
     /// Tx hashes currently tracked in either pending map.
     #[must_use]
     pub fn tracked_tx_hashes(&self) -> HashSet<TxHash> {
@@ -777,6 +788,7 @@ impl TxState {
         let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         if self.is_tracked(&tx_hash) {
+            self.share_tracked_bytes(tx_hash, signed_tx);
             return;
         }
         let lineage = opaque_lineage(&signed_tx, channel_id);
@@ -2134,6 +2146,28 @@ mod tests {
             .submit_inscription(tx, parent, msg, [data].into())
             .unwrap();
         (hash, msg)
+    }
+
+    /// Observing a tracked tx keeps the entry but adopts the observed bytes:
+    /// an own publish seen mined shares the block store's copy.
+    #[test]
+    fn observing_a_tracked_tx_shares_its_stored_bytes() {
+        let mut state = TxState::new(header_id(0), MsgId::root());
+        let (hash, msg) = submit_own(&mut state, MsgId::root(), 1);
+        let stored: SharedTx = Arc::new(make_dummy_tx_on(MsgId::root(), 1));
+        assert_eq!(stored.hash(), hash);
+
+        state.observe_channel_inscription(
+            Arc::clone(&stored),
+            MsgId::root(),
+            msg,
+            [1].into(),
+            PendingBundle::Plain,
+        );
+
+        let entry = state.pending.get(&hash).expect("still tracked as own");
+        assert!(!entry.posted, "the own entry is kept, not replaced");
+        assert!(Arc::ptr_eq(&entry.signed_tx, &stored));
     }
 
     /// Expiry counts from the funding stamp of an entry not mined on the
