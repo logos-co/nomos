@@ -22,7 +22,7 @@ use lb_core::{
     },
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locators, Nonce,
-        ProviderId, ServiceType, WithdrawMessage, declaration_id,
+        ProviderId, ServiceType, WithdrawMessage,
     },
 };
 use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -75,7 +75,7 @@ pub struct DeclarationConfig {
 impl DeclarationConfig {
     #[must_use]
     pub fn id(&self) -> DeclarationId {
-        declaration_id(self.service_type, self.zk_id)
+        DeclarationId::derive(self.service_type, self.zk_id)
     }
 }
 

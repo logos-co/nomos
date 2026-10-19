@@ -160,6 +160,7 @@ impl<Mode: VerificationMode> ExecutableOperation
 
 #[cfg(test)]
 mod tests {
+    use lb_groth16::Fr;
     use lb_key_management_system_keys::keys::ZkKey;
     use num_bigint::BigUint;
 
@@ -364,6 +365,41 @@ mod tests {
                 })
                 .unwrap_err(),
             SdpError::NotAServiceNote(note_id)
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_service_note_different_from_the_declaration() {
+        let expected_note_id = DeclarationMessage::sample().service_note_id;
+        let declaration = declaration(expected_note_id);
+        let operation_note_id = NoteId(Fr::from(27u64));
+        assert_ne!(operation_note_id, expected_note_id);
+        let operation = SDPWithdrawOp {
+            service_note_id: operation_note_id,
+            ..operation_for(&declaration, Nonce::new(declaration.created, 29))
+        };
+        assert_eq!(operation.declaration_id, declaration.id());
+
+        let service_notes = locked_notes(&expected_note_id, operation.declaration_id);
+        assert!(service_notes.get(&expected_note_id).is_some());
+        assert!(service_notes.is_used_for_service(&expected_note_id, &declaration.service_type));
+        let declarations = declarations(&operation, declaration.clone());
+        let signed_view = TxHashView::from(TxHash::from([9u8; 32]));
+        let signed_operation = preverified(operation, &signed_view);
+
+        assert_eq!(
+            signed_operation
+                .verify(&SDPWithdrawValidationContext {
+                    declaration: only_declaration(&declarations),
+                    epoch: declaration.created,
+                    service_notes: &service_notes,
+                    tx_hash_view: &signed_view,
+                })
+                .unwrap_err(),
+            SdpError::InvalidServiceNote {
+                note_id: operation_note_id,
+                expected: expected_note_id,
+            }
         );
     }
 

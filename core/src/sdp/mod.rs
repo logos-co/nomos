@@ -28,7 +28,7 @@ use lb_key_management_system_keys::keys::Ed25519Key;
 use lb_key_management_system_keys::keys::{Ed25519PublicKey, Ed25519Signature, ZkPublicKey};
 use lb_utils::bounded::{BoundedVec, NonEmptyBoundedOrderedSet};
 use multiaddr::{Multiaddr, Protocol};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use strum::EnumIter;
 
 use crate::{
@@ -286,7 +286,7 @@ impl BinaryDecode for Locator {
 pub enum ServiceType {
     #[serde(rename = "BN")]
     BlendNetwork,
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     #[serde(rename = "TEST")]
     Test,
 }
@@ -295,7 +295,7 @@ impl AsRef<str> for ServiceType {
     fn as_ref(&self) -> &str {
         match self {
             Self::BlendNetwork => "BN",
-            #[cfg(any(test, feature = "test-utils"))]
+            #[cfg(test)]
             Self::Test => "TEST",
         }
     }
@@ -307,7 +307,7 @@ impl TryFrom<u8> for ServiceType {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::BlendNetwork),
-            #[cfg(any(test, feature = "test-utils"))]
+            #[cfg(test)]
             1 => Ok(Self::Test),
             _ => Err(()),
         }
@@ -318,7 +318,7 @@ impl AsRef<u8> for ServiceType {
     fn as_ref(&self) -> &u8 {
         match self {
             Self::BlendNetwork => &0,
-            #[cfg(any(test, feature = "test-utils"))]
+            #[cfg(test)]
             Self::Test => &1,
         }
     }
@@ -385,26 +385,70 @@ mod service_type_tests {
 /// epoch occupies the high 32 bits and the sequence occupies the low 32 bits.
 /// Since the nonce is encoded in the operation payload, it participates in the
 /// Mantle transaction hash covered by the operation's ZK authorization.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
-#[serde(transparent)]
-pub struct Nonce(u64);
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct Nonce {
+    lifecycle_epoch: Epoch,
+    sequence: u32,
+}
+
+impl Serialize for Nonce {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(self.packed_u64())
+    }
+}
+
+impl<'de> Deserialize<'de> for Nonce {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let packed = u64::deserialize(deserializer)?;
+        Ok(Self::from_packed_u64(packed))
+    }
+}
+
+impl BinaryEncode for Nonce {
+    fn encoded_length(&self) -> usize {
+        self.packed_u64().encoded_length()
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.packed_u64().encode_into(out);
+    }
+}
+
+impl BinaryDecode for Nonce {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, packed) = u64::decode(input, &())?;
+        Ok((rest, Self::from_packed_u64(packed)))
+    }
+}
 
 impl Nonce {
-    const SEQUENCE_BITS: u32 = 32;
-
     #[must_use]
     pub const fn new(lifecycle_epoch: Epoch, sequence: u32) -> Self {
-        Self(((lifecycle_epoch.into_inner() as u64) << Self::SEQUENCE_BITS) | sequence as u64)
+        Self {
+            lifecycle_epoch,
+            sequence,
+        }
     }
 
     #[must_use]
     pub const fn lifecycle_epoch(self) -> Epoch {
-        Epoch::new((self.0 >> Self::SEQUENCE_BITS) as u32)
+        self.lifecycle_epoch
     }
 
     #[must_use]
     pub const fn sequence(self) -> u32 {
-        self.0 as u32
+        self.sequence
     }
 
     /// Return the next sequence in this lifecycle, without wrapping into the
@@ -416,6 +460,17 @@ impl Nonce {
             None
         } else {
             Some(Self::new(self.lifecycle_epoch(), sequence + 1))
+        }
+    }
+
+    const fn packed_u64(self) -> u64 {
+        ((self.lifecycle_epoch.into_inner() as u64) << 32) | self.sequence as u64
+    }
+
+    const fn from_packed_u64(packed: u64) -> Self {
+        Self {
+            lifecycle_epoch: Epoch::new((packed >> 32) as u32),
+            sequence: packed as u32,
         }
     }
 }
@@ -482,12 +537,14 @@ fn declaration_id_preimage(service_type: ServiceType, zk_id: ZkPublicKey) -> [u8
     preimage
 }
 
-#[must_use]
-pub fn declaration_id(service_type: ServiceType, zk_id: ZkPublicKey) -> DeclarationId {
-    let mut hasher = Blake2b::new();
-    hasher.update(declaration_id_preimage(service_type, zk_id));
+impl DeclarationId {
+    #[must_use]
+    pub fn derive(service_type: ServiceType, zk_id: ZkPublicKey) -> Self {
+        let mut hasher = Blake2b::new();
+        hasher.update(declaration_id_preimage(service_type, zk_id));
 
-    DeclarationId(hasher.finalize().into())
+        Self(hasher.finalize().into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -523,7 +580,7 @@ pub const SNAPSHOT_FINALIZATION_DELAY: Epoch = Epoch::new(2);
 impl Declaration {
     #[must_use]
     pub fn id(&self) -> DeclarationId {
-        declaration_id(self.service_type, self.zk_id)
+        DeclarationId::derive(self.service_type, self.zk_id)
     }
 
     #[must_use]
@@ -606,7 +663,7 @@ pub struct DeclarationMessage {
 impl DeclarationMessage {
     #[must_use]
     pub fn id(&self) -> DeclarationId {
-        declaration_id(self.service_type, self.zk_id)
+        DeclarationId::derive(self.service_type, self.zk_id)
     }
 
     pub(crate) fn preverify(
@@ -844,15 +901,17 @@ mod tests {
         assert_eq!(preimage.len(), 33);
         assert_eq!(preimage, expected_preimage);
 
+        let expected_id = DeclarationId([
+            0x67, 0xfa, 0x7d, 0x1f, 0xe7, 0xf1, 0x39, 0x11, 0x95, 0xfd, 0xd4, 0x79, 0xbb, 0xa3,
+            0x0d, 0xd9, 0x7c, 0x9e, 0x6d, 0x2e, 0x15, 0x25, 0x43, 0x6a, 0xc2, 0x42, 0x7f, 0x2b,
+            0xf8, 0x56, 0x7a, 0x0d,
+        ]);
         assert_eq!(
-            message.id().0,
-            [
-                0x67, 0xfa, 0x7d, 0x1f, 0xe7, 0xf1, 0x39, 0x11, 0x95, 0xfd, 0xd4, 0x79, 0xbb, 0xa3,
-                0x0d, 0xd9, 0x7c, 0x9e, 0x6d, 0x2e, 0x15, 0x25, 0x43, 0x6a, 0xc2, 0x42, 0x7f, 0x2b,
-                0xf8, 0x56, 0x7a, 0x0d,
-            ]
+            DeclarationId::derive(message.service_type, message.zk_id),
+            expected_id
         );
-        assert_eq!(Declaration::new(Epoch::new(0), &message).id(), message.id());
+        assert_eq!(message.id(), expected_id);
+        assert_eq!(Declaration::new(Epoch::new(0), &message).id(), expected_id);
     }
 
     /// Declaration identity depends only on its service and `zk_id`.
@@ -922,7 +981,7 @@ mod nonce_tests {
     use crate::sdp::Nonce;
 
     #[test]
-    fn pack_unpack_roundtrips_boundary_values() {
+    fn fields_roundtrip_boundary_values() {
         for (epoch, sequence) in [(0, 0), (0, 1), (1, 0), (u32::MAX, u32::MAX)] {
             let nonce = Nonce::new(Epoch::new(epoch), sequence);
             assert_eq!(nonce.lifecycle_epoch(), Epoch::new(epoch));
@@ -933,10 +992,21 @@ mod nonce_tests {
     #[test]
     fn canonical_encoding_is_the_same_little_endian_u64() {
         let nonce = Nonce::new(Epoch::new(0x0102_0304), 0x0506_0708);
+        let original_packed_u64 = 0x0102_0304_0506_0708u64;
+        let original_bytes = original_packed_u64.to_le_bytes();
 
         assert_eq!(nonce.encoded_length(), 8);
-        assert_eq!(nonce.encode_to_vec(), [8, 7, 6, 5, 4, 3, 2, 1]);
-        assert_eq!(Nonce::decode_all(&nonce.encode_to_vec()).unwrap(), nonce);
+        assert_eq!(nonce.encode_to_vec(), original_bytes);
+        let decoded = Nonce::decode_all(&original_bytes).unwrap();
+        assert_eq!(decoded, nonce);
+        assert_eq!(decoded.encode_to_vec(), original_bytes);
+
+        let maximum = Nonce::new(Epoch::new(u32::MAX), u32::MAX);
+        assert_eq!(maximum.encode_to_vec(), u64::MAX.to_le_bytes());
+        assert_eq!(
+            Nonce::decode_all(&maximum.encode_to_vec()).unwrap(),
+            maximum
+        );
     }
 
     #[test]
@@ -946,12 +1016,21 @@ mod nonce_tests {
 
         assert_eq!(json, "4294967298");
         assert_eq!(serde_json::from_str::<Nonce>(&json).unwrap(), nonce);
+
+        let maximum = Nonce::new(Epoch::new(u32::MAX), u32::MAX);
+        let json = serde_json::to_string(&maximum).unwrap();
+        assert_eq!(json, u64::MAX.to_string());
+        assert_eq!(serde_json::from_str::<Nonce>(&json).unwrap(), maximum);
     }
 
     #[test]
     fn checked_next_does_not_wrap_sequence_overflow() {
-        let last = Nonce::new(Epoch::new(10), u32::MAX);
+        let last = Nonce::new(Epoch::new(u32::MAX), u32::MAX);
         assert_eq!(last.checked_next(), None);
+        assert_eq!(
+            Nonce::new(Epoch::new(u32::MAX), u32::MAX - 1).checked_next(),
+            Some(last)
+        );
 
         let next = Nonce::new(Epoch::new(10), 4).checked_next().unwrap();
         assert_eq!(next.lifecycle_epoch(), Epoch::new(10));

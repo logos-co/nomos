@@ -14,6 +14,7 @@ use crate::{
             channel::{ChannelId, ChannelKeyIndex},
             leader_claim::{RewardsRoot, VoucherNullifier},
             pow::{PowNullifier, PowReward, PowTarget},
+            sdp::SdpError,
         },
     },
     sdp::{Declaration, DeclarationId, MinStake, ServiceType, service_notes::ServiceNotes},
@@ -40,7 +41,7 @@ pub trait OperationVerificationHelper {
         self.get_declarations_by_id(id)?
             .get(id)
             .ok_or(VerificationError::SDPVerificationError(
-                crate::mantle::ops::sdp::SdpError::DeclarationNotFound(*id),
+                SdpError::DeclarationNotFound(*id),
             ))
     }
 
