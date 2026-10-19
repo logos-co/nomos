@@ -714,17 +714,17 @@ fn apply_finalized_blocks(
         result.our_tx_hashes.extend(block.our_txs.iter().copied());
         result.items.extend(block.items);
 
+        // Finalized history: each block becomes LIB as it is applied, so
+        // the finalized tips and notes, and a checkpoint taken between
+        // batches, cover what has been read.
         state.process_block(
             block.block_id,
             block.parent_id,
-            state.lib(),
+            block.block_id,
             block.our_txs,
             block.channel_txs,
             block.note_ops,
         );
-        // Immutable blocks are inserted without moving LIB; their notes are
-        // finalized all the same.
-        state.set_finalized_notes_at(block.block_id);
     }
 
     result

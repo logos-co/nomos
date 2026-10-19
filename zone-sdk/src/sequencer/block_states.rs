@@ -45,7 +45,9 @@ pub struct BlockStates {
     block_states: BTreeMap<HeaderId, BlockState>,
     /// Block parent relationships for pruning.
     parent_map: HashMap<HeaderId, HeaderId>,
-    /// Current LIB for pruning.
+    /// Current LIB for pruning. On a cold start this is the node's LIB until
+    /// the replay of the history below it reaches a block, from then on the
+    /// newest finalized block processed.
     current_lib: HeaderId,
     /// Per L1 block channel content (unfinalized window), canonical or not.
     block_txs: HashMap<HeaderId, StoredBlock>,
@@ -63,11 +65,9 @@ pub struct BlockStates {
     /// `TxState::shed_stale_pending_configs` so a pending config chaining on
     /// the finalized config tip is not falsely orphaned.
     finalized_config: MsgId,
-    /// The note set at the newest finalized block: the LIB block's set once
-    /// LIB moves there, or a backfilled finalized block's set (see
-    /// [`Self::set_finalized_notes_at`]). Splits a branch's notes into
-    /// finalized and unfinalized, seeds a parentless block and is exported
-    /// for checkpointing.
+    /// The note set at the LIB block. Splits a branch's notes into finalized
+    /// and unfinalized, seeds a parentless block and is exported for
+    /// checkpointing.
     finalized_notes: NoteSet,
 }
 
@@ -317,32 +317,6 @@ impl BlockStates {
 
         self.prune_orphans(lib);
         self.current_lib = lib;
-    }
-
-    /// Make `block`'s note set the finalized one. Backfilled finalized blocks
-    /// are inserted without moving LIB, so they mark it explicitly. A block
-    /// that does not chain from LIB is stale (its ancestors were pruned by a
-    /// LIB move) and leaves the set alone.
-    pub fn set_finalized_notes_at(&mut self, block: HeaderId) {
-        if !self.descends_from_lib(block) {
-            return;
-        }
-        if let Some(state) = self.block_states.get(&block) {
-            self.finalized_notes = state.notes.clone();
-        }
-    }
-
-    fn descends_from_lib(&self, block: HeaderId) -> bool {
-        let mut current = block;
-        loop {
-            if current == self.current_lib {
-                return true;
-            }
-            match self.parent_map.get(&current) {
-                Some(&parent) => current = parent,
-                None => return false,
-            }
-        }
     }
 
     /// The channel's note set at `tip`, split into the notes also in the
@@ -664,24 +638,6 @@ mod tests {
         let view = blocks.notes_at(Some(a2));
         assert_eq!(view.finalized, []);
         assert_eq!(view.unfinalized, []);
-    }
-
-    #[test]
-    fn stale_backfilled_block_does_not_refinalize_a_spent_note() {
-        // G <- a1 (adds n1) <- a2 (spends n1); LIB moves to a2. A late
-        // backfill batch re-inserts a1 under the pruned G.
-        let genesis = header_id(0);
-        let a1 = header_id(1);
-        let a2 = header_id(2);
-        let mut blocks = BlockStates::new(genesis, MsgId::root());
-        blocks.insert(a1, genesis, [], Vec::new(), vec![add(1, 10)]);
-        blocks.insert(a2, a1, [], Vec::new(), vec![NoteOp::Remove(note_id(1))]);
-        blocks.advance_lib(a2, |_| false);
-        assert_eq!(blocks.finalized_notes(), []);
-
-        blocks.insert(a1, genesis, [], Vec::new(), vec![add(1, 10)]);
-        blocks.set_finalized_notes_at(a1);
-        assert_eq!(blocks.finalized_notes(), []);
     }
 
     #[test]

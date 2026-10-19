@@ -1553,12 +1553,6 @@ impl TxState {
         }
     }
 
-    /// Make a backfilled finalized block's note set the finalized one (see
-    /// [`BlockStates::set_finalized_notes_at`]).
-    pub fn set_finalized_notes_at(&mut self, block: HeaderId) {
-        self.blocks.set_finalized_notes_at(block);
-    }
-
     /// The channel's note set at `tip` (or the finalized set only when no
     /// tip is known yet).
     #[must_use]
