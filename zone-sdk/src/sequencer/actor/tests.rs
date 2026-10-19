@@ -1727,10 +1727,11 @@ async fn update_variant_follows_orphaned() {
         lib,
         lib,
         std::iter::empty(),
-        vec![BlockChannelTx {
-            tx: Arc::new(mined_tx),
-            kind: ChannelTxKind::Inscription(info_of(&mined)),
-        }],
+        vec![BlockChannelTx::new(
+            Arc::new(mined_tx.clone()),
+            mined_tx.hash(),
+            ChannelTxKind::Inscription(info_of(&mined)),
+        )],
         Vec::new(),
         vec![],
     );

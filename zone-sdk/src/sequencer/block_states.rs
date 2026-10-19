@@ -14,7 +14,6 @@ use lb_core::{
         SignedOps,
         ledger::{NoteId, verification_mode::StandardMode},
         ops::channel::MsgId,
-        traits::Hashable as _,
         transactions::{hash::TxHash, states::Unverified},
     },
 };
@@ -165,6 +164,7 @@ pub struct BlockStates {
 #[derive(Debug, Clone)]
 pub struct BlockChannelTx {
     pub tx: SharedTx,
+    tx_hash: TxHash,
     pub kind: ChannelTxKind,
 }
 
@@ -195,6 +195,11 @@ pub enum ChannelTxKind {
 }
 
 impl BlockChannelTx {
+    #[must_use]
+    pub const fn new(tx: SharedTx, tx_hash: TxHash, kind: ChannelTxKind) -> Self {
+        Self { tx, tx_hash, kind }
+    }
+
     /// The tip-advancing entries of this tx, in op order.
     pub fn infos(&self) -> &[InscriptionInfo] {
         match &self.kind {
@@ -225,8 +230,8 @@ impl BlockChannelTx {
     }
 
     #[must_use]
-    pub fn tx_hash(&self) -> TxHash {
-        self.tx.hash()
+    pub const fn tx_hash(&self) -> TxHash {
+        self.tx_hash
     }
 }
 
@@ -595,7 +600,7 @@ impl BlockStates {
 #[cfg(test)]
 mod tests {
     use lb_common_http_client::Slot;
-    use lb_core::mantle::{Op, ops::channel::ChannelId};
+    use lb_core::mantle::{Op, ops::channel::ChannelId, traits::Hashable as _};
     use lb_groth16::Fr;
 
     use super::*;
@@ -643,10 +648,8 @@ mod tests {
 
     fn stored(kind: ChannelTxKind) -> BlockChannelTx {
         let op = inscribe_op(ChannelId::from([0; 32]), MsgId::root(), b"");
-        BlockChannelTx {
-            tx: Arc::new(unverified_tx_with_ops(vec![Op::ChannelInscribe(op)])),
-            kind,
-        }
+        let tx = unverified_tx_with_ops(vec![Op::ChannelInscribe(op)]);
+        BlockChannelTx::new(Arc::new(tx.clone()), tx.hash(), kind)
     }
 
     fn inscription(parent: u8, this: u8) -> BlockChannelTx {

@@ -1157,10 +1157,7 @@ pub(super) fn classify_channel_tx(
             config_entries,
         }
     };
-    Some(BlockChannelTx {
-        tx: Arc::clone(tx),
-        kind,
-    })
+    Some(BlockChannelTx::new(Arc::clone(tx), tx_hash, kind))
 }
 
 /// Whether `tx` is a clean single-config tx for `channel_id` — the same

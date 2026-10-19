@@ -1708,10 +1708,7 @@ mod tests {
 
     /// A mined channel tx as the block store holds it.
     fn stored(tx: &SignedOps<Unverified, StandardMode>, kind: ChannelTxKind) -> BlockChannelTx {
-        BlockChannelTx {
-            tx: Arc::new(tx.clone()),
-            kind,
-        }
+        BlockChannelTx::new(Arc::new(tx.clone()), tx.hash(), kind)
     }
 
     fn make_dummy_tx(data: u8) -> SignedOps<Unverified, StandardMode> {
