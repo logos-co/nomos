@@ -1,12 +1,37 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use lb_key_management_system_service::{backend::preload::KeyId, keys::Key};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// Keystore the node identity and the `backend.keys` not listed here are
+    /// read from. Relative to the user config file.
+    pub keystore: PathBuf,
     pub backend: PreloadKmsBackendSettings,
+}
+
+impl Config {
+    #[must_use]
+    pub fn keystore_path(&self, config_path: &Path) -> PathBuf {
+        config_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(&self.keystore)
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            keystore: "keystore.yaml".into(),
+            backend: PreloadKmsBackendSettings::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

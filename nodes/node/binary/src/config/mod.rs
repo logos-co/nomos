@@ -1,11 +1,11 @@
 use std::{
     net::{IpAddr, SocketAddr, ToSocketAddrs as _},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 
 use clap::{Parser, ValueEnum, builder::OsStr};
-use color_eyre::eyre::{Result, eyre};
+use color_eyre::eyre::{Result, WrapErr as _, eyre};
 use lb_core::sdp::ProviderId;
 use lb_groth16::fr_from_bytes;
 use lb_key_management_system_service::{
@@ -16,12 +16,13 @@ use lb_libp2p::{Multiaddr, ed25519::SecretKey};
 use lb_tracing::{
     filter::envfilter::{default_envfilter_config, parse_filter_directives},
     logging::local::{
-        AppenderType, CompressionType, LogFormat, RetentionType, RollingConfig, RotationType,
-        TextKind,
+        AppenderType, CompressionType, LogFormat, RetentionType, RollingConfig, TextKind,
     },
 };
+use lb_utils::yaml::{OnUnknownKeys, deserialize_from_value, deserialize_value_at_path, merge};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 
 pub use crate::config::{
     api::serde::Config as ApiConfig, blend::serde::Config as BlendConfig,
@@ -33,6 +34,7 @@ pub use crate::config::{
     tracing::serde::Config as TracingConfig, wallet::serde::Config as WalletConfig,
 };
 use crate::config::{
+    keystore::Keystore,
     network::serde::nat,
     tracing::serde::{
         filter::{EnvConfig, Layer},
@@ -44,6 +46,7 @@ pub mod api;
 pub mod blend;
 pub mod cryptarchia;
 pub mod deployment;
+pub mod keystore;
 pub mod kms;
 pub mod mempool;
 pub mod network;
@@ -60,7 +63,6 @@ mod tests;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct UserConfig {
-    #[serde(default)]
     pub network: NetworkConfig,
     pub blend: BlendConfig,
     pub cryptarchia: CryptarchiaConfig,
@@ -77,7 +79,8 @@ pub struct UserConfig {
     pub mempool: MempoolConfig,
     pub wallet: WalletConfig,
     /// Optional: an omitted section leaves mining on its defaults and
-    /// auto-claim off.
+    /// auto-claim paying the keystore's `PoWClaim` key, or off without a
+    /// keystore.
     #[serde(default)]
     pub pow: PoWConfig,
     #[serde(default)]
@@ -94,6 +97,35 @@ pub struct RequiredValues {
 }
 
 impl UserConfig {
+    /// Loads the user config at `path`. The file only needs to hold the values
+    /// that differ from the defaults: the node identity and keys come from the
+    /// keystore it names (`keystore.yaml` next to it by default), when present.
+    pub fn load(path: &Path) -> Result<Self> {
+        let overrides = match deserialize_value_at_path(path, OnUnknownKeys::Fail)? {
+            Value::Null => Value::Mapping(serde_yaml::Mapping::new()),
+            overrides => overrides,
+        };
+        let kms = overrides
+            .get("kms")
+            .cloned()
+            .map_or_else(|| Ok(KmsConfig::default()), serde_yaml::from_value)?;
+        let keystore_path = kms.keystore_path(path);
+
+        let has_keystore = keystore_path.is_file();
+        let mut config = if has_keystore {
+            Keystore::load(&keystore_path)?.config_values()?
+        } else {
+            Value::Mapping(serde_yaml::Mapping::new())
+        };
+        merge(&mut config, overrides);
+        let config = deserialize_from_value(config, OnUnknownKeys::Fail);
+        if has_keystore {
+            Ok(config?)
+        } else {
+            config.wrap_err_with(|| format!("no keystore at {}", keystore_path.display()))
+        }
+    }
+
     #[must_use]
     pub fn with_required_values(required_values: RequiredValues) -> Self {
         Self {
@@ -374,26 +406,24 @@ pub fn update_tracing(tracing: &mut TracingConfig, tracing_args: LogArgs) -> Res
                 let appender_type = match file_appender {
                     Some(LogFileAppenderType::Simple) | None => AppenderType::Simple,
                     Some(LogFileAppenderType::Rolling) => AppenderType::Rolling(RollingConfig {
-                        rotation: RotationType::Hourly,
                         retention: RetentionType::None,
-                        compression: CompressionType::None,
+                        ..RollingConfig::default()
                     }),
                     Some(LogFileAppenderType::RollingCompressed) => {
                         AppenderType::Rolling(RollingConfig {
-                            rotation: RotationType::Hourly,
                             retention: RetentionType::None,
                             compression: CompressionType::Gzip {
                                 compression_threshold: Duration::from_hours(2),
                             },
+                            ..RollingConfig::default()
                         })
                     }
                     Some(LogFileAppenderType::RollingMaxFiles) => {
                         AppenderType::Rolling(RollingConfig {
-                            rotation: RotationType::Hourly,
                             retention: RetentionType::MaxFiles {
                                 max_files: max_files.expect("Max files should be set"),
                             },
-                            compression: CompressionType::None,
+                            ..RollingConfig::default()
                         })
                     }
                 };
@@ -437,8 +467,6 @@ pub fn update_tracing_level_and_filter(
 
     if let Some(filter) = filter {
         tracing.filter = parse_log_filter_layer(filter)?;
-    } else {
-        apply_default_log_filter(tracing);
     }
 
     Ok(())
@@ -453,7 +481,7 @@ fn parse_log_filter_layer(raw: &str) -> Result<Layer> {
 
 /// Applies the built-in verbose filter policy only when no explicit filter was
 /// configured.
-fn apply_default_log_filter(tracing: &mut TracingConfig) {
+pub fn apply_default_log_filter(tracing: &mut TracingConfig) {
     if !matches!(tracing.filter, Layer::None) {
         return;
     }
