@@ -3,6 +3,7 @@
 
 use std::{
     env, fs,
+    io::Write as _,
     path::{Path, PathBuf},
     process::{Output, Stdio},
     time::Duration,
@@ -34,7 +35,7 @@ async fn run_session(
     seconds: u64,
 ) -> StepResult {
     let session = Session::from_step(step)?;
-    let directory = world.lifecycle.scenario_base_dir.join("password_manager");
+    let directory = app_directory(world);
     fs::create_dir_all(&directory)?;
 
     let child = start_password_manager(world, &sequencer, &directory)?;
@@ -44,6 +45,22 @@ async fn run_session(
     fs::write(directory.join("stderr.log"), &output.stderr)?;
 
     session.check_output(&output)
+}
+
+fn app_directory(world: &CucumberWorld) -> PathBuf {
+    // Keep restarts in one scenario together, but never reuse an earlier run's
+    // database.
+    let run = world
+        .lifecycle
+        .test_context
+        .as_ref()
+        .expect("scenario has a test context");
+
+    world
+        .lifecycle
+        .scenario_base_dir
+        .join("password_manager")
+        .join(run)
 }
 
 /// The terminal commands and expected responses from the scenario table.
@@ -147,8 +164,22 @@ fn start_password_manager(
         .clone()
         .into_unsecured();
     let channel = world.zone.sequencer_channel_id(sequencer)?;
+    let key_path = directory.join("encryption.key");
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
+        options.mode(0o600)
+    };
+
+    // A fixed test key lets subsequent sessions read the same credentials.
+    options.open(&key_path)?.write_all(&[42; 32])?;
 
     Ok(Command::new(binary)
+        .env("LOGOS_SQL_ENCRYPTION_KEY_FILE", key_path)
         .env("LOGOS_SQL_CHANNEL_ID", hex::encode(channel.as_ref()))
         .env("LOGOS_SQL_SIGNING_KEY", hex::encode(signing_key.as_bytes()))
         .env(
