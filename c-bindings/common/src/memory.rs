@@ -27,7 +27,7 @@ pub unsafe fn free_cstring(pointer: *mut c_char) {
 /// The pointer must come from `Box::into_raw` for this type in the calling
 /// library. It must be non-null, unused by other calls, and not already
 /// released.
-pub unsafe fn free<Value>(pointer: *mut Value) {
+pub unsafe fn free<Type>(pointer: *mut Type) {
     // SAFETY: The caller returns ownership of the allocation to Rust.
     drop(unsafe { Box::from_raw(pointer) });
 }
