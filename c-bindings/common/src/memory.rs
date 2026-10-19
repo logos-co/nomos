@@ -1,8 +1,9 @@
 use std::ffi::{CString, c_char};
 
-/// A C string cannot hold a NUL byte, but an error message is free to
-/// carry one: many of them echo input the caller or a file supplied.
-/// Escaping keeps the message readable and this function infallible.
+/// Allocates a C string, escaping embedded NUL bytes as `\0`.
+///
+/// The returned pointer is never null. The caller owns it and must release
+/// it with [`free_cstring`] from the same library.
 pub fn error_message(message: impl Into<String>) -> *mut c_char {
     CString::new(message.into().replace('\0', "\\0"))
         .unwrap_or_default()
