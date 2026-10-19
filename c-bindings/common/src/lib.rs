@@ -1,8 +1,8 @@
-//! Shared support for C bindings, without node or SQL dependencies.
+//! Shared result types, error-handling helpers, and memory utilities for C
+//! bindings.
 //!
-//! Each library defines its own status codes and exports its own cleanup
-//! functions. This crate exports no C symbols. Returned allocations must be
-//! released through the library that created them.
+//! This crate exports no C symbols. Allocations must be released through
+//! the library that created them.
 
 mod macros;
 pub mod memory;
