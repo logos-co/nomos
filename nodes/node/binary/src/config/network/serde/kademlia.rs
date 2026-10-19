@@ -69,3 +69,17 @@ impl From<CachingSettings> for lb_libp2p::config::CachingSettings {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn durations_keep_precision_and_zero_disables_bootstrap() {
+        let config: Config =
+            serde_yaml::from_str("query_timeout: 1500ms\nperiodic_bootstrap_interval: 0s").unwrap();
+        assert_eq!(config.query_timeout, Some(Duration::from_millis(1500)));
+        assert_eq!(config.periodic_bootstrap_interval, Some(Duration::ZERO));
+        assert!(serde_yaml::from_str::<Config>("query_timeout: 250ms").is_err());
+    }
+}
