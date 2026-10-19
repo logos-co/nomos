@@ -1072,6 +1072,7 @@ where
 
         let transfer_op = self.build_deposit_transfer(&consumed_notes)?;
         let consumed_inputs = transfer_op.inputs.clone();
+        let outputs = transfer_op.outputs.clone();
 
         let (ops, parent, msg_id) =
             self.wrap_bundle_ops(&inscribe, vec![Op::ChannelTransfer(transfer_op)]);
@@ -1098,6 +1099,7 @@ where
             inscribe,
             PreparedBundleKind::PinDeposit {
                 consumed_notes: consumed_inputs,
+                outputs,
             },
         ))
     }
@@ -1282,12 +1284,16 @@ where
                     withdraws.clone(),
                     outputs.clone(),
                 )?,
-            PreparedBundleKind::PinDeposit { consumed_notes } => state.submit_pin_deposit(
+            PreparedBundleKind::PinDeposit {
+                consumed_notes,
+                outputs,
+            } => state.submit_pin_deposit(
                 signed_tx.clone(),
                 parent,
                 msg_id,
                 inscribe.clone(),
                 consumed_notes.clone(),
+                outputs.clone(),
             )?,
         }
         // Only a bundle this sequencer signs alone can be re-funded on
@@ -1322,13 +1328,15 @@ where
                     outputs,
                 })
             }
-            PreparedBundleKind::PinDeposit { consumed_notes } => {
-                PendingTx::PinDeposit(PinDepositInfo {
-                    tx_hash,
-                    inscription,
-                    consumed_notes,
-                })
-            }
+            PreparedBundleKind::PinDeposit {
+                consumed_notes,
+                outputs,
+            } => PendingTx::PinDeposit(PinDepositInfo {
+                tx_hash,
+                inscription,
+                consumed_notes,
+                outputs,
+            }),
         };
 
         Ok((PublishResult { tx }, checkpoint))
@@ -1827,6 +1835,7 @@ pub(super) fn track_pending_tx(
                 this_msg,
                 ad.inscription.payload,
                 ad.consumed_notes,
+                ad.outputs,
             )?;
             Ok(Some(this_msg))
         }

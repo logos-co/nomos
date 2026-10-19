@@ -4,7 +4,7 @@
 //! note set the branch reads fall back to.
 
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -21,7 +21,8 @@ use lb_core::{
 use rpds::{HashTrieMapSync, HashTrieSetSync, ListSync};
 
 use super::types::{
-    AtomicWithdrawInfo, ChannelNote, ChannelWalletView, InscriptionInfo, PinDepositInfo,
+    AtomicWithdrawInfo, ChannelNote, ChannelWalletView, DepositInfo, InscriptionInfo,
+    PinDepositInfo,
 };
 
 type NoteSet = HashTrieMapSync<NoteId, ChannelNote>;
@@ -47,6 +48,8 @@ struct BlockState {
     notes: NoteSet,
     /// The channel lineage on the branch through this block.
     lineage: Lineage,
+    /// Channel deposits mined in this block, in op order.
+    deposits: Vec<DepositInfo>,
 }
 
 /// A message-lineage position: an entry's id and its lineage-parent.
@@ -304,6 +307,7 @@ impl BlockStates {
         our_txs: impl IntoIterator<Item = TxHash>,
         channel_txs: Vec<BlockChannelTx>,
         note_ops: Vec<NoteOp>,
+        deposits: Vec<DepositInfo>,
     ) {
         // Store parent relationship for pruning
         self.parent_map.insert(block_id, parent_id);
@@ -339,6 +343,7 @@ impl BlockStates {
                 safe_set,
                 notes,
                 lineage,
+                deposits,
             },
         );
 
@@ -437,18 +442,6 @@ impl BlockStates {
         }
     }
 
-    /// A tracked note by id, in the finalized set or at any stored block. A
-    /// `NoteId` is a content commitment, so `id → (value, pk)` is a function
-    /// and any tracked copy is authoritative regardless of branch — enough
-    /// to recover a consumed note's value/key.
-    pub fn find_note(&self, id: &NoteId) -> Option<&ChannelNote> {
-        self.finalized.notes.get(id).or_else(|| {
-            self.block_states
-                .values()
-                .find_map(|state| state.notes.get(id))
-        })
-    }
-
     /// The finalized note set, for checkpointing.
     pub fn finalized_notes(&self) -> Vec<ChannelNote> {
         self.finalized.notes.values().cloned().collect()
@@ -514,6 +507,28 @@ impl BlockStates {
         }
         blocks.reverse();
         blocks
+    }
+
+    /// The deposits of the blocks above LIB that `tip`'s branch holds and
+    /// `old_tip`'s did not, oldest block first: what turned canonical with
+    /// this tip move. A branch that wins the tip back reports its deposits
+    /// again, as `adopted` does its inscriptions.
+    pub fn deposits_newly_canonical(
+        &self,
+        old_tip: Option<HeaderId>,
+        tip: HeaderId,
+    ) -> Vec<DepositInfo> {
+        let old: HashSet<HeaderId> = old_tip
+            .map(|old| self.branch_blocks_above_lib(old))
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        self.branch_blocks_above_lib(tip)
+            .into_iter()
+            .filter(|block| !old.contains(block))
+            .filter_map(|block| self.block_states.get(&block))
+            .flat_map(|state| state.deposits.iter().cloned())
+            .collect()
     }
 
     fn lineage_at(&self, block_id: HeaderId) -> Option<&Lineage> {
@@ -587,7 +602,7 @@ mod tests {
     use crate::test_support::{header_id, inscribe_op, unverified_tx_with_ops};
 
     fn process(blocks: &mut BlockStates, block: HeaderId, parent: HeaderId, lib: HeaderId) {
-        blocks.insert(block, parent, [], Vec::new(), Vec::new());
+        blocks.insert(block, parent, [], Vec::new(), Vec::new(), vec![]);
         if lib != blocks.lib() {
             blocks.advance_lib(lib, |_| false);
         }
@@ -653,10 +668,10 @@ mod tests {
         let genesis = header_id(0);
         let (a1, a2, a3, b1) = (header_id(1), header_id(2), header_id(3), header_id(10));
         let mut blocks = BlockStates::new(genesis, MsgId::root());
-        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new());
-        blocks.insert(a2, a1, [], vec![config(0, 11)], Vec::new());
-        blocks.insert(a3, a2, [], Vec::new(), Vec::new());
-        blocks.insert(b1, a1, [], vec![inscription(1, 2)], Vec::new());
+        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new(), vec![]);
+        blocks.insert(a2, a1, [], vec![config(0, 11)], Vec::new(), vec![]);
+        blocks.insert(a3, a2, [], Vec::new(), Vec::new(), vec![]);
+        blocks.insert(b1, a1, [], vec![inscription(1, 2)], Vec::new(), vec![]);
 
         assert_eq!(blocks.channel_tip_at(a3), msg_id(1));
         assert_eq!(blocks.config_tip_at(a3), msg_id(11));
@@ -673,9 +688,9 @@ mod tests {
         let genesis = header_id(0);
         let (a1, a2, a3) = (header_id(1), header_id(2), header_id(3));
         let mut blocks = BlockStates::new(genesis, MsgId::root());
-        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new());
-        blocks.insert(a2, a1, [], vec![config(0, 11)], Vec::new());
-        blocks.insert(a3, a2, [], vec![inscription(1, 2)], Vec::new());
+        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new(), vec![]);
+        blocks.insert(a2, a1, [], vec![config(0, 11)], Vec::new(), vec![]);
+        blocks.insert(a3, a2, [], vec![inscription(1, 2)], Vec::new(), vec![]);
         blocks.advance_lib(a2, |_| false);
 
         assert_eq!(blocks.finalized_msg(), msg_id(1));
@@ -701,9 +716,9 @@ mod tests {
         let (a1, x, y) = (header_id(1), header_id(2), header_id(3));
         let unknown = header_id(99);
         let mut blocks = BlockStates::new(genesis, MsgId::root());
-        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new());
-        blocks.insert(x, unknown, [], vec![inscription(1, 2)], Vec::new());
-        blocks.insert(y, unknown, [], Vec::new(), Vec::new());
+        blocks.insert(a1, genesis, [], vec![inscription(0, 1)], Vec::new(), vec![]);
+        blocks.insert(x, unknown, [], vec![inscription(1, 2)], Vec::new(), vec![]);
+        blocks.insert(y, unknown, [], Vec::new(), Vec::new(), vec![]);
 
         assert_eq!(blocks.channel_tip_at(x), msg_id(2));
         assert_eq!(ids(blocks.infos_on_branch(x)), [msg_id(2)]);
@@ -726,8 +741,9 @@ mod tests {
             [],
             Vec::new(),
             vec![NoteOp::Remove(note_id(1)), add(2, 20)],
+            vec![],
         );
-        blocks.insert(b1, genesis, [], Vec::new(), vec![add(3, 30)]);
+        blocks.insert(b1, genesis, [], Vec::new(), vec![add(3, 30)], vec![]);
 
         let at_a = blocks.notes_at(Some(a1));
         assert!(
@@ -750,8 +766,15 @@ mod tests {
         let a1 = header_id(1);
         let a2 = header_id(2);
         let mut blocks = BlockStates::new(genesis, MsgId::root());
-        blocks.insert(a1, genesis, [], Vec::new(), vec![add(1, 10)]);
-        blocks.insert(a2, a1, [], Vec::new(), vec![NoteOp::Remove(note_id(1))]);
+        blocks.insert(a1, genesis, [], Vec::new(), vec![add(1, 10)], vec![]);
+        blocks.insert(
+            a2,
+            a1,
+            [],
+            Vec::new(),
+            vec![NoteOp::Remove(note_id(1))],
+            vec![],
+        );
 
         let view = blocks.notes_at(Some(a2));
         assert_eq!(view.finalized, []);

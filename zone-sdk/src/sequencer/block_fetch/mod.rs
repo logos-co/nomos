@@ -50,10 +50,11 @@ pub(super) struct BlockEventResult {
     pub(super) channel_update: Option<ChannelUpdateInfo>,
     /// What the view held before this event, for [`common_prefix`].
     pub(super) view_before: ViewBefore,
-    /// Channel deposits observed in the blocks this event covers (canonical
-    /// backfill first, then the live block), in block and op order. Surfaced
-    /// non-finalized on `Event::BlocksProcessed` so a consumer can pin a
-    /// deposit without waiting for finalization.
+    /// Channel deposits that turned canonical with this event: those of the
+    /// blocks above LIB on the new tip's branch that the old tip's branch did
+    /// not hold, in block and op order. Surfaced non-finalized on
+    /// `Event::BlocksProcessed` so a consumer can pin a deposit without
+    /// waiting for finalization.
     pub(super) deposits: Vec<DepositInfo>,
 }
 
@@ -111,15 +112,24 @@ struct PreparedBlockEvent<'a> {
     lib_slot: Slot,
     lib_advanced: bool,
     finalized: Vec<PreparedFinalizedBlock>,
-    /// Each canonical-backfill block paired with its (pre-computed, pure)
-    /// channel-note ops so the apply phase stays free of node fetches.
-    canonical_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
-    /// The reported tip's unknown branch, oldest first, prepared like
-    /// `canonical_backfill` and applied after the event block.
-    tip_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
+    /// The unknown blocks between the known chain and the live block,
+    /// oldest first.
+    canonical_backfill: Vec<BackfillBlock>,
+    /// The reported tip's unknown branch, oldest first, applied after the
+    /// event block.
+    tip_backfill: Vec<BackfillBlock>,
     our_txs: Vec<TxHash>,
     channel_txs: Vec<BlockChannelTx>,
     /// Channel-note ops of the live block, computed in the prepare phase.
+    note_ops: Vec<NoteOp>,
+    /// Channel deposits of the live block.
+    deposits: Vec<DepositInfo>,
+}
+
+/// A fetched block with what the apply phase needs from the node, so it
+/// runs without a fetch.
+struct BackfillBlock {
+    block: ApiBlock,
     note_ops: Vec<NoteOp>,
     deposits: Vec<DepositInfo>,
 }
@@ -169,7 +179,7 @@ where
         let from: u64 = lib_slot.into();
         let to: u64 = event.lib_slot.into();
         if from < to {
-            prepare_finalized_blocks(from + 1, to, channel_id, node, state).await?
+            prepare_finalized_blocks(from + 1, to, channel_id, node).await?
         } else {
             Vec::new()
         }
@@ -181,8 +191,8 @@ where
         finalized.iter().map(|block| block.block_id).collect();
     let parent_id = event.block.header.parent_block;
     let parent_known = block_is_known(state, &finalized_block_ids, state_lib, parent_id);
-    let (canonical_backfill, mut deposits) = if parent_known {
-        (Vec::new(), Vec::new())
+    let canonical_backfill = if parent_known {
+        Vec::new()
     } else {
         let blocks =
             walk_back_to_known(state, &finalized_block_ids, state_lib, parent_id, node).await?;
@@ -213,12 +223,12 @@ where
         &deposit_events,
         event.block.header.slot,
     );
-    deposits.extend(block_channel_deposits(
+    let deposits = block_channel_deposits(
         &event.block.transactions,
         channel_id,
         event.block.header.slot,
         &deposit_events,
-    ));
+    );
 
     // The reported tip can be a block whose own event never reached us: the
     // node's stream drops events for a lagging subscriber, and the next one
@@ -230,16 +240,13 @@ where
         Vec::new()
     } else {
         let mut known = finalized_block_ids;
-        known.extend(canonical_backfill.iter().map(|(block, _)| block.header.id));
+        known.extend(canonical_backfill.iter().map(|b| b.block.header.id));
         known.insert(event.block.header.id);
         if block_is_known(state, &known, state_lib, event.tip) {
             Vec::new()
         } else {
             let blocks = walk_back_to_known(state, &known, state_lib, event.tip, node).await?;
-            let (prepared, tip_deposits) =
-                prepare_backfill_blocks(blocks, channel_id, node).await?;
-            deposits.extend(tip_deposits);
-            prepared
+            prepare_backfill_blocks(blocks, channel_id, node).await?
         }
     };
 
@@ -295,7 +302,7 @@ fn apply_prepared_block_event(
         canonical_backfill,
         tip_backfill,
         our_txs,
-        mut channel_txs,
+        channel_txs,
         note_ops,
         deposits,
     } = prepared;
@@ -327,13 +334,9 @@ fn apply_prepared_block_event(
     let old_lineage = old_tip.map(|old| s.channel_lineage(old));
 
     let current_lib = s.lib();
-    for (block, note_ops) in canonical_backfill {
-        apply_backfilled_block(s, &block, channel_id, current_lib, note_ops);
+    for backfill in canonical_backfill {
+        apply_backfilled_block(s, backfill, channel_id, current_lib);
     }
-
-    // Re-type unsound pin-deposits to `Custom` before they are stored
-    // or mirrored, so both the `adopted` surface and the pending set agree.
-    demote_non_identity_pin_deposits(&mut channel_txs, channel_id, s);
 
     // Pending = canonical channel txs above LIB + our own unmined publishes:
     // mirror only the canonical tip; a fork's content joins from the store if
@@ -350,13 +353,14 @@ fn apply_prepared_block_event(
         our_txs,
         channel_txs,
         note_ops,
+        deposits,
     );
 
     // Then the reported tip's branch, which may build on the event block.
     // Like canonical backfill it is mirrored from the store below.
     let tip_lib = s.lib();
-    for (block, note_ops) in tip_backfill {
-        apply_backfilled_block(s, &block, channel_id, tip_lib, note_ops);
+    for backfill in tip_backfill {
+        apply_backfilled_block(s, backfill, channel_id, tip_lib);
     }
 
     // Remove our pending txs that were finalized in the backfilled LIB blocks,
@@ -371,6 +375,10 @@ fn apply_prepared_block_event(
     *current_tip = Some(tip);
 
     mirror_branch_from_store(s, tip, channel_id);
+
+    // A fork block's deposits wait for its branch to win the tip, like its
+    // inscriptions do.
+    let deposits = s.deposits_newly_canonical(old_tip, tip);
 
     // Detect channel changes by diffing the channel view on every block. On
     // the first event there is no old tip: what restored pending chains on
@@ -431,7 +439,10 @@ fn mirror_channel_txs<'a>(
             ),
             ChannelTxKind::PinDeposit(a) => (
                 &a.inscription,
-                PendingBundle::PinDeposit(a.consumed_notes.clone()),
+                PendingBundle::PinDeposit {
+                    consumed_notes: a.consumed_notes.clone(),
+                    outputs: a.outputs.clone(),
+                },
             ),
             ChannelTxKind::Config(_) | ChannelTxKind::Custom { .. } => {
                 state.observe_other_tx(Arc::clone(&block_tx.tx), channel_id);
@@ -446,60 +457,6 @@ fn mirror_channel_txs<'a>(
             bundle,
         );
     }
-}
-
-/// Re-type any [`ChannelTxKind::PinDeposit`] whose transfer is
-/// not a 1:1 identity re-creation of its consumed notes as `Custom` — a split,
-/// merge, re-value or re-key would make `consumed_notes` misdescribe the
-/// deposit. Runs before the classification is stored or mirrored.
-fn demote_non_identity_pin_deposits(
-    channel_txs: &mut [BlockChannelTx],
-    channel_id: ChannelId,
-    state: &TxState,
-) {
-    for block_tx in channel_txs.iter_mut() {
-        let ChannelTxKind::PinDeposit(a) = &block_tx.kind else {
-            continue;
-        };
-        if !is_identity_deposit_transfer(state, &block_tx.tx, channel_id) {
-            block_tx.kind = ChannelTxKind::Custom {
-                message_entries: vec![a.inscription.clone()],
-                config_entries: Vec::new(),
-            };
-        }
-    }
-}
-
-/// Whether the bundle's `ChannelTransfer` re-creates its inputs unchanged —
-/// same count and `(value, key)` multiset. An input note we do not track (so
-/// cannot compare) is treated as non-identity.
-fn is_identity_deposit_transfer(
-    state: &TxState,
-    tx: &SignedOps<Unverified, StandardMode>,
-    channel_id: ChannelId,
-) -> bool {
-    let Some(transfer) = channel_transfers(tx, channel_id).next() else {
-        return false;
-    };
-    let mut outputs: Vec<_> = transfer
-        .utxos()
-        .map(|u| (u.note.value, u.note.pk))
-        .collect();
-    if transfer.inputs.len() != outputs.len() {
-        return false;
-    }
-    for id in transfer.inputs.iter() {
-        let Some(note) = state.find_channel_note(id) else {
-            return false;
-        };
-        match outputs.iter().position(|out| *out == (note.value, note.pk)) {
-            Some(pos) => {
-                outputs.swap_remove(pos);
-            }
-            None => return false,
-        }
-    }
-    outputs.is_empty()
 }
 
 /// A tx's `ChannelTransfer` ops for `channel_id`, in op order.
@@ -626,7 +583,6 @@ async fn prepare_finalized_blocks<Node>(
     to_slot: u64,
     channel_id: ChannelId,
     node: &Node,
-    state: Option<&TxState>,
 ) -> Result<Vec<PreparedFinalizedBlock>, Error>
 where
     Node: adapter::Node + Sync,
@@ -650,14 +606,7 @@ where
             .map(|tx| tx.op_refs().hash())
             .collect();
 
-        let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
-        // Below-LIB blocks feed the lineage walk too, so on first sync (empty
-        // old lineage) they surface as `adopted` — demote here as well. A
-        // same-batch deposit isn't applied yet, so its inscription can only
-        // under-label to `Custom`, which is safe.
-        if let Some(state) = state {
-            demote_non_identity_pin_deposits(&mut channel_txs, channel_id, state);
-        }
+        let channel_txs = classify_channel_txs(&block.transactions, channel_id);
 
         // Fetch + validate deposit events for this block BEFORE mutating
         // state — on error we leave state untouched so the caller can retry.
@@ -705,7 +654,8 @@ fn apply_finalized_blocks(
 
         // Finalized history: each block becomes LIB as it is applied, so
         // the finalized tips and notes, and a checkpoint taken between
-        // batches, cover what has been read.
+        // batches, cover what has been read. Its deposits reach the consumer
+        // through `items`.
         state.process_block(
             block.block_id,
             block.parent_id,
@@ -713,6 +663,7 @@ fn apply_finalized_blocks(
             block.our_txs,
             block.channel_txs,
             block.note_ops,
+            Vec::new(),
         );
     }
 
@@ -745,8 +696,7 @@ pub(super) async fn fetch_and_process_blocks<Node>(
 where
     Node: adapter::Node + Sync,
 {
-    let prepared =
-        prepare_finalized_blocks(from_slot, to_slot, channel_id, node, Some(state)).await?;
+    let prepared = prepare_finalized_blocks(from_slot, to_slot, channel_id, node).await?;
 
     Ok(apply_finalized_blocks(state, prepared))
 }
@@ -980,12 +930,11 @@ async fn prepare_backfill_blocks<Node>(
     blocks: Vec<ApiBlock>,
     channel_id: ChannelId,
     node: &Node,
-) -> Result<(Vec<(ApiBlock, Vec<NoteOp>)>, Vec<DepositInfo>), Error>
+) -> Result<Vec<BackfillBlock>, Error>
 where
     Node: adapter::Node + Sync,
 {
     let mut prepared = Vec::with_capacity(blocks.len());
-    let mut deposits = Vec::new();
     for block in blocks {
         let deposit_events =
             fetch_block_deposit_events(node, block.header.id, &block.transactions, channel_id)
@@ -996,15 +945,19 @@ where
             &deposit_events,
             block.header.slot,
         );
-        deposits.extend(block_channel_deposits(
+        let deposits = block_channel_deposits(
             &block.transactions,
             channel_id,
             block.header.slot,
             &deposit_events,
-        ));
-        prepared.push((block, note_ops));
+        );
+        prepared.push(BackfillBlock {
+            block,
+            note_ops,
+            deposits,
+        });
     }
-    Ok((prepared, deposits))
+    Ok(prepared)
 }
 
 async fn fetch_backfill_block<Node>(node: &Node, block_id: HeaderId) -> Result<ApiBlock, Error>
@@ -1030,11 +983,15 @@ where
 
 fn apply_backfilled_block(
     state: &mut TxState,
-    block: &ApiBlock,
+    backfill: BackfillBlock,
     channel_id: ChannelId,
     lib: HeaderId,
-    note_ops: Vec<NoteOp>,
 ) {
+    let BackfillBlock {
+        block,
+        note_ops,
+        deposits,
+    } = backfill;
     let block_id = block.header.id;
     let parent_id = block.header.parent_block;
 
@@ -1045,11 +1002,18 @@ fn apply_backfilled_block(
         .map(|tx| tx.op_refs().hash())
         .collect();
 
-    let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
-    demote_non_identity_pin_deposits(&mut channel_txs, channel_id, state);
+    let channel_txs = classify_channel_txs(&block.transactions, channel_id);
 
     // Use current state lib to avoid premature finalization
-    state.process_block(block_id, parent_id, lib, our_txs, channel_txs, note_ops);
+    state.process_block(
+        block_id,
+        parent_id,
+        lib,
+        our_txs,
+        channel_txs,
+        note_ops,
+        deposits,
+    );
 }
 
 /// Classify a block's channel-touching txs in tx-then-op order: a `publish`
@@ -1093,7 +1057,7 @@ pub(super) fn classify_channel_tx(
     let mut withdraws: Vec<WithdrawInfo> = Vec::new();
     let mut transfers = 0usize;
     let mut channel_transfers = 0usize;
-    let mut channel_transfer_inputs: Option<Inputs> = None;
+    let mut channel_transfer: Option<(Inputs, Outputs)> = None;
     let mut foreign_ops = false;
 
     for op in tx.op_refs() {
@@ -1141,7 +1105,7 @@ pub(super) fn classify_channel_tx(
             }
             OpRef::ChannelTransfer(transfer) if transfer.channel_id == channel_id => {
                 channel_transfers += 1;
-                channel_transfer_inputs = Some(transfer.inputs.clone());
+                channel_transfer = Some((transfer.inputs.clone(), transfer.outputs.clone()));
             }
             OpRef::Transfer(_) => transfers += 1,
             _ => foreign_ops = true,
@@ -1166,12 +1130,16 @@ pub(super) fn classify_channel_tx(
                 outputs: Outputs::empty(),
             }),
             // `[inscribe, channel_transfer]` — transfer consumes the deposited note.
-            (true, 1) => ChannelTxKind::PinDeposit(PinDepositInfo {
-                tx_hash,
-                inscription,
-                consumed_notes: channel_transfer_inputs
-                    .expect("channel_transfers == 1 implies a captured transfer"),
-            }),
+            (true, 1) => {
+                let (consumed_notes, outputs) =
+                    channel_transfer.expect("channel_transfers == 1 implies a captured transfer");
+                ChannelTxKind::PinDeposit(PinDepositInfo {
+                    tx_hash,
+                    inscription,
+                    consumed_notes,
+                    outputs,
+                })
+            }
             (true, _) => ChannelTxKind::Inscription(inscription),
         }
     } else if clean

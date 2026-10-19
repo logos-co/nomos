@@ -236,6 +236,7 @@ fn deposit_plus_inscription_is_adopted_as_custom() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -263,7 +264,7 @@ fn deposit_plus_inscription_is_adopted_as_custom() {
 }
 
 /// An `[inscribe, channel_transfer]` whose transfer re-creates its inputs
-/// unchanged is a sound `PinDeposit`.
+/// unchanged is a `PinDeposit` carrying both sides of the transfer.
 #[test]
 fn inscribe_plus_identity_transfer_is_pin_deposit() {
     use crate::sequencer::types::ChannelNote;
@@ -296,8 +297,7 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
     }]);
     let old_lineage = state.channel_lineage(genesis);
 
-    let mut classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
-    demote_non_identity_pin_deposits(&mut classified, channel_id, &state);
+    let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
     assert!(matches!(&classified[0].kind, ChannelTxKind::PinDeposit(_)));
 
     mirror_channel_txs(&mut state, &classified, channel_id);
@@ -308,6 +308,7 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     let update = state
@@ -318,16 +319,18 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
     match &update.adopted[0] {
         ChannelUpdateTx::PinDeposit(a) => {
             assert_eq!(a.consumed_notes, BoundedInputs::from(input_id).into());
+            assert_eq!(a.outputs, Outputs::new([Note::new(50, pk)]));
         }
         other => panic!("expected PinDeposit, got {other:?}"),
     }
 }
 
 /// A re-keying transfer (balance-preserving, but not an identity
-/// re-creation) falls to `Custom` — its payload still reaches the consumer
-/// via `adopted`, and it is not mirrored for retry.
+/// re-creation) is still a `PinDeposit`: the shape is what classifies, and
+/// the report carries the transfer's real outputs. It is mirrored for retry
+/// like any pin deposit.
 #[test]
-fn inscribe_plus_non_identity_transfer_is_custom() {
+fn inscribe_plus_non_identity_transfer_is_pin_deposit_with_its_outputs() {
     use crate::sequencer::types::ChannelNote;
 
     let channel_id = ChannelId::from([0; 32]);
@@ -359,11 +362,8 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
     }]);
     let old_lineage = state.channel_lineage(genesis);
 
-    let mut classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
-    demote_non_identity_pin_deposits(&mut classified, channel_id, &state);
-    assert!(
-        matches!(&classified[0].kind, ChannelTxKind::Custom { message_entries, .. } if message_entries.len() == 1)
-    );
+    let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
+    assert!(matches!(&classified[0].kind, ChannelTxKind::PinDeposit(_)));
 
     mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
@@ -373,6 +373,7 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -385,10 +386,12 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
     assert_eq!(update.new_channel_tip, msg_id);
     assert_eq!(update.adopted.len(), 1);
     match &update.adopted[0] {
-        ChannelUpdateTx::Custom(adopted_tx) => {
-            assert_eq!(adopted_tx.hash(), tx_hash);
+        ChannelUpdateTx::PinDeposit(a) => {
+            assert_eq!(a.tx_hash, tx_hash);
+            assert_eq!(a.consumed_notes, BoundedInputs::from(input_id).into());
+            assert_eq!(a.outputs, Outputs::new([Note::new(50, rekeyed)]));
         }
-        other => panic!("expected Custom, got {other:?}"),
+        other => panic!("expected PinDeposit, got {other:?}"),
     }
 }
 
@@ -468,6 +471,7 @@ fn mixed_config_tx_is_custom_but_advances_the_config_tip() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
     assert_eq!(state.config_tip_at(block), config_id);
 }
@@ -507,6 +511,7 @@ fn multi_inscribe_tx_advances_tip_and_delivers_adopted_entries() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -572,6 +577,7 @@ fn adopted_bundle_carries_its_withdraws() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     let update = state
@@ -739,6 +745,7 @@ fn config_in_block_does_not_advance_channel_tip() {
         vec![tx_hash],
         extracted,
         Vec::new(),
+        vec![],
     );
 
     assert_eq!(
@@ -1205,56 +1212,34 @@ async fn fork_block_inscription_is_adopted_on_the_switch() {
     );
 }
 
-/// A fork block's tx is re-mirrored as it was classified when the block was
-/// stored, so the pending set and the view agree. The pin-deposit shape was
-/// demoted to `Custom` because its note was unknown when the block arrived;
-/// the deposit landing later does not re-type it on the switch.
+/// A fork block's pin deposit is adopted as one when its branch wins and
+/// shed as one when the branch loses: the kind stored at block scan serves
+/// the view, the pending set and the shed alike.
 #[tokio::test]
 async fn fork_switch_mirrors_the_stored_classification() {
-    // G <- B1(a) <- B2(deposit n, y) canonical; B1 <- F(pin of n) fork;
-    // F <- E: F wins; B2 <- B3: F loses, y takes the pin's parent and the
-    // pin is shed as stored.
+    // G <- B1(a) <- B2(y) canonical; B1 <- F(pin) fork; F <- E: F wins;
+    // B2 <- B3: F loses, y takes the pin's parent and the pin is shed.
     let ch = ChannelId::from([0u8; 32]);
     let pk = lb_key_management_system_service::keys::ZkPublicKey::from(Fr::from(7u64));
-    let n = NoteId::from(Fr::from(1010u64));
     let (a_id, a_tx) = ins(ch, MsgId::root(), b"a");
     let (_, y_tx) = ins(ch, a_id, b"y");
     let pin = unverified_tx_with_ops(vec![
         Op::ChannelInscribe(inscribe_op(ch, a_id, b"pin")),
         Op::ChannelTransfer(ChannelTransferOp {
             channel_id: ch,
-            inputs: BoundedInputs::from(n).into(),
+            inputs: BoundedInputs::from(NoteId::from(Fr::from(1010u64))).into(),
             outputs: Outputs::new([Note::new(50, pk)]),
         }),
     ]);
     let pin_hash = pin.hash();
-    let dep = deposit_op(ch, 1, Metadata::try_from(b"d".to_vec()).unwrap());
-    let dep_tx = unverified_tx_with_ops(vec![Op::ChannelDeposit(dep.clone())]);
     let b1 = api_block(1, 0, 1, vec![a_tx]);
     let f = api_block(2, 1, 2, vec![pin]);
-    let b2 = api_block(3, 1, 3, vec![dep_tx.clone(), y_tx]);
+    let b2 = api_block(3, 1, 3, vec![y_tx]);
     let e = api_block(4, 2, 4, Vec::new());
     let b3 = api_block(5, 3, 5, Vec::new());
-    let node = MockNode {
-        events: HashMap::from([(
-            header_id(3),
-            deposit_event(
-                &dep_tx,
-                &dep,
-                50,
-                vec![DepositNote {
-                    note_id: n,
-                    value: 50,
-                    pk,
-                }],
-            ),
-        )]),
-        ..MockNode::default()
-    };
 
     let mut state = None;
-    let r = drive_with(
-        &node,
+    let r = drive(
         &mut state,
         ch,
         &[
@@ -1273,20 +1258,66 @@ async fn fork_switch_mirrors_the_stored_classification() {
         .as_ref()
         .expect("F's branch wins");
     assert!(
-        matches!(switched.adopted.as_slice(), [ChannelUpdateTx::Custom(tx)] if tx.hash() == pin_hash),
-        "stored as Custom: the note was unknown when F arrived"
+        matches!(switched.adopted.as_slice(), [ChannelUpdateTx::PinDeposit(pin)] if pin.tx_hash == pin_hash)
     );
     assert!(
-        r[4].shed.is_empty(),
-        "not re-typed to a pin deposit on the switch"
-    );
-    assert_eq!(
-        r[4].shed_other
-            .iter()
-            .map(|tx| tx.hash())
-            .collect::<Vec<_>>(),
-        vec![pin_hash],
+        matches!(r[4].shed.as_slice(), [PendingTx::PinDeposit(pin)] if pin.tx_hash == pin_hash),
         "shed the way it was mirrored"
+    );
+    assert_eq!(r[4].shed_other.len(), 0, "nothing shed as custom");
+}
+
+/// A fork block's deposit is reported when its branch wins the tip, not
+/// when the block arrives, and again each time the branch wins it back.
+#[tokio::test]
+async fn fork_block_deposit_is_reported_when_its_branch_turns_canonical() {
+    // G <- B1 canonical; B1 <- F(deposit d) fork; B1 <- B2 canonical;
+    // F <- E: F wins; B2 <- B3: F loses; E <- E2: F wins again.
+    let ch = ChannelId::from([0u8; 32]);
+    let pk = lb_key_management_system_service::keys::ZkPublicKey::from(Fr::from(7u64));
+    let dep = deposit_op(ch, 1, Metadata::try_from(b"d".to_vec()).unwrap());
+    let d = dep.op_id();
+    let dep_tx = unverified_tx_with_ops(vec![Op::ChannelDeposit(dep.clone())]);
+    let note = DepositNote {
+        note_id: NoteId::from(Fr::from(1010u64)),
+        value: 50,
+        pk,
+    };
+    let b1 = api_block(1, 0, 1, Vec::new());
+    let f = api_block(2, 1, 2, vec![dep_tx.clone()]);
+    let b2 = api_block(3, 1, 3, Vec::new());
+    let e = api_block(4, 2, 4, Vec::new());
+    let b3 = api_block(5, 3, 5, Vec::new());
+    let e2 = api_block(6, 4, 6, Vec::new());
+    let node = MockNode {
+        events: HashMap::from([(header_id(2), deposit_event(&dep_tx, &dep, 50, vec![note]))]),
+        ..MockNode::default()
+    };
+
+    let mut state = None;
+    let r = drive_with(
+        &node,
+        &mut state,
+        ch,
+        &[
+            live_event(&b1),
+            fork_event(&f, &b1),
+            live_event(&b2),
+            live_event(&e),
+            live_event(&b3),
+            live_event(&e2),
+        ],
+    )
+    .await;
+
+    let reported: Vec<Vec<_>> = r
+        .iter()
+        .map(|driven| driven.result.deposits.iter().map(|d| d.op_id).collect())
+        .collect();
+    assert_eq!(
+        reported,
+        vec![vec![], vec![], vec![], vec![d], vec![], vec![d]],
+        "reported on each switch to F's branch, never on F's arrival"
     );
 }
 
@@ -1457,6 +1488,7 @@ fn pin_fixture(ch: ChannelId) -> PinFixture {
             pin_id,
             pin_op.inscription,
             BoundedInputs::from(recreated).into(),
+            Outputs::new([Note::new(50, pk)]),
         )
         .unwrap();
     PinFixture {
