@@ -95,7 +95,7 @@ mod tests {
                 ZkAndEd25519Proof,
                 channel::{
                     ChannelId, MsgId,
-                    config::{ChannelConfigOp, ChannelConfigOpFields},
+                    config::ChannelConfigOp,
                     inscribe::{self, Inscription, InscriptionOp},
                     withdraw::ChannelWithdrawOp,
                 },
@@ -197,15 +197,15 @@ mod tests {
                 signer: signing_key.public_key().into_unverified(),
             }),
             Op::ChannelConfig(
-                ChannelConfigOp::new(ChannelConfigOpFields {
-                    channel: ChannelId::from([0x22; 32]),
-                    parent: MsgId::from([0x33; 32]),
-                    keys: signing_key.public_key().into(),
-                    posting_timeframe: 1.into(),
-                    posting_timeout: 2.into(),
-                    configuration_threshold: NonZero::<u16>::MIN,
-                    transfer_threshold: NonZero::new(4).unwrap(),
-                })
+                ChannelConfigOp::new(
+                    ChannelId::from([0x22; 32]),
+                    MsgId::from([0x33; 32]),
+                    signing_key.public_key().into(),
+                    1.into(),
+                    2.into(),
+                    NonZero::<u16>::MIN,
+                    NonZero::new(4).unwrap(),
+                )
                 .unwrap(),
             ),
         ]);
@@ -368,20 +368,20 @@ mod tests {
         let signing_key2 = Ed25519Key::from_bytes(&[2; 32]);
         let signing_key3 = Ed25519Key::from_bytes(&[3; 32]);
 
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: ChannelId::from([0xFF; 32]),
-            parent: MsgId::from([0xAA; 32]),
-            keys: [
+        let config_op = ChannelConfigOp::new(
+            ChannelId::from([0xFF; 32]),
+            MsgId::from([0xAA; 32]),
+            [
                 signing_key1.public_key(),
                 signing_key2.public_key(),
                 signing_key3.public_key(),
             ]
             .into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
 
         let mantle_tx = Ops::new_unchecked(vec![Op::ChannelConfig(config_op)]);
@@ -526,15 +526,15 @@ mod tests {
             signer: signing_key.public_key().into_unverified(),
         };
 
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: ChannelId::from([0xCC; 32]),
-            parent: MsgId::from([0xDD; 32]),
-            keys: signing_key.public_key().into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            ChannelId::from([0xCC; 32]),
+            MsgId::from([0xDD; 32]),
+            signing_key.public_key().into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
 
         let blend_proof = ActivityProof {
@@ -625,15 +625,15 @@ mod tests {
             signer: signing_key1.public_key().into_unverified(),
         };
 
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: ChannelId::from([0x33; 32]),
-            parent: MsgId::from([0x44; 32]),
-            keys: [signing_key1.public_key(), signing_key2.public_key()].into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            ChannelId::from([0x33; 32]),
+            MsgId::from([0x44; 32]),
+            [signing_key1.public_key(), signing_key2.public_key()].into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
 
         let service_note_sk = ZkKey::from(BigUint::from(1u64));
@@ -791,15 +791,15 @@ mod tests {
     fn test_encode_reject_excessive_op_count() {
         let ops = vec![
             Op::ChannelConfig(
-                ChannelConfigOp::new(ChannelConfigOpFields {
-                    channel: ChannelId::from([0x22; 32]),
-                    parent: MsgId::from([0x33; 32]),
-                    keys: Ed25519Key::from_bytes(&[1; 32]).public_key().into(),
-                    posting_timeframe: 0.into(),
-                    posting_timeout: 0.into(),
-                    configuration_threshold: NonZero::<u16>::MIN,
-                    transfer_threshold: NonZero::<u16>::MIN,
-                })
+                ChannelConfigOp::new(
+                    ChannelId::from([0x22; 32]),
+                    MsgId::from([0x33; 32]),
+                    Ed25519Key::from_bytes(&[1; 32]).public_key().into(),
+                    0.into(),
+                    0.into(),
+                    NonZero::<u16>::MIN,
+                    NonZero::<u16>::MIN,
+                )
                 .unwrap()
             );
             u8::MAX as usize + 1

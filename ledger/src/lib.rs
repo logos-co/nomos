@@ -995,7 +995,7 @@ mod tests {
                 channel::{
                     ChannelId, MsgId,
                     channel_transfer::ChannelTransferOp,
-                    config::{ChannelConfigOp, ChannelConfigOpFields},
+                    config::ChannelConfigOp,
                     deposit::{DepositOp, Metadata},
                     inscribe::InscriptionOp,
                     withdraw::ChannelWithdrawOp,
@@ -1351,15 +1351,15 @@ mod tests {
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([3; 32]);
 
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel_id,
+            MsgId::root(),
+            verifying_key.into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
 
         let tx = create_genesis_config_tx(config_op);
@@ -1397,18 +1397,22 @@ mod tests {
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
+        let config_with_parent = |parent| {
+            ChannelConfigOp::new(
+                channel_id,
+                parent,
+                verifying_key.into(),
+                0.into(),
+                0.into(),
+                NonZero::<u16>::MIN,
+                NonZero::<u16>::MIN,
+            )
+            .unwrap()
+        };
+
         // The channel doesn't exist yet, so any parent but ZERO is dangling
-        let dangling_config = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::from([1; 32]),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
-        .unwrap();
-        let dangling_tx = create_genesis_config_tx(dangling_config.clone());
+        let dangling_config = config_with_parent(MsgId::from([1; 32]));
+        let dangling_tx = create_genesis_config_tx(dangling_config);
         let result = state
             .clone()
             .try_apply_tx_operations::<_, HeaderId, MainnetGasProfile>(&test_config, dangling_tx);
@@ -1422,11 +1426,7 @@ mod tests {
         ));
 
         // The same configuration rooted at ZERO creates the channel
-        let rooted_config = ChannelConfigOp::new(ChannelConfigOpFields {
-            parent: MsgId::root(),
-            ..dangling_config.into()
-        })
-        .unwrap();
+        let rooted_config = config_with_parent(MsgId::root());
         let rooted_tx = create_genesis_config_tx(rooted_config.clone());
         let new_state = state
             .try_apply_tx_operations::<_, HeaderId, MainnetGasProfile>(&test_config, rooted_tx)
@@ -1467,15 +1467,15 @@ mod tests {
             .0;
 
         // Sign a configuration against the current config tip
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel_id,
+            MsgId::root(),
+            verifying_key.into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let config_tx = create_config_tx(config_op.clone(), &signing_key);
 
@@ -1520,17 +1520,21 @@ mod tests {
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
+        let config_with = |parent, posting_timeframe: u32| {
+            ChannelConfigOp::new(
+                channel_id,
+                parent,
+                verifying_key.into(),
+                posting_timeframe.into(),
+                0.into(),
+                NonZero::<u16>::MIN,
+                NonZero::<u16>::MIN,
+            )
+            .unwrap()
+        };
+
         // C1 creates the channel, C2 supersedes it
-        let config1 = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
-        .unwrap();
+        let config1 = config_with(MsgId::root(), 0);
         let config1_tx = create_genesis_config_tx(config1.clone());
         state = state
             .try_apply_tx_operations::<_, HeaderId, MainnetGasProfile>(
@@ -1539,11 +1543,7 @@ mod tests {
             )
             .unwrap()
             .0;
-        let config2 = ChannelConfigOp::new(ChannelConfigOpFields {
-            parent: config1.id(),
-            ..config1.clone().into()
-        })
-        .unwrap();
+        let config2 = config_with(config1.id(), 0);
         let config2_tx = create_config_tx(config2, &signing_key);
         state = state
             .try_apply_tx_operations::<_, HeaderId, MainnetGasProfile>(&test_config, config2_tx)
@@ -1565,12 +1565,7 @@ mod tests {
         ));
 
         // Neither can a sibling extending the same superseded parent
-        let sibling = ChannelConfigOp::new(ChannelConfigOpFields {
-            parent: config1.id(),
-            posting_timeframe: 1.into(),
-            ..config1.into()
-        })
-        .unwrap();
+        let sibling = config_with(config1.id(), 1);
         let sibling_tx = create_config_tx(sibling, &signing_key);
         let result = state
             .try_apply_tx_operations::<_, HeaderId, MainnetGasProfile>(&test_config, sibling_tx);
@@ -1608,15 +1603,15 @@ mod tests {
             .0;
 
         // A configuration keeping the signer accredited executes
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel_id,
+            MsgId::root(),
+            verifying_key.into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let config_tx = create_config_tx(config_op.clone(), &signing_key);
         state = state
@@ -1831,15 +1826,15 @@ mod tests {
 
         // The channel doesn't exist yet, so this configuration carries an empty
         // proof and accredits the key the withdraw is signed with.
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel_id,
+            MsgId::root(),
+            verifying_key.into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let deposit = DepositOp {
             channel_id,
@@ -1906,15 +1901,15 @@ mod tests {
             parent: MsgId::root(),
             signer: verifying_key.into_unverified(),
         };
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel_id,
-            parent: MsgId::root(),
-            keys: verifying_key.into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel_id,
+            MsgId::root(),
+            verifying_key.into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let ops = vec![
             Op::ChannelInscribe(inscribe_op),
@@ -2372,15 +2367,15 @@ mod tests {
             signer: vk2.into_unverified(),
         };
 
-        let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: channel1,
-            parent: MsgId::root(),
-            keys: [vk3, vk4].into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config_op = ChannelConfigOp::new(
+            channel1,
+            MsgId::root(),
+            [vk3, vk4].into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
 
         let inscribe_op3 = InscriptionOp {

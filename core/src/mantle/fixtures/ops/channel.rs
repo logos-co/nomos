@@ -17,7 +17,7 @@ use crate::{
         ops::channel::{
             ChannelId, MsgId,
             channel_transfer::ChannelTransferOp,
-            config::{ChannelConfigOp, ChannelConfigOpFields},
+            config::ChannelConfigOp,
             deposit::{DepositOp, Metadata},
             inscribe::InscriptionOp,
             withdraw::ChannelWithdrawOp,
@@ -30,15 +30,15 @@ codec_fixtures!(ChannelId, Self::from([0u8; 32]) => "000000000000000000000000000
 codec_fixtures!(MsgId, Self::from([0u8; 32]) => "0000000000000000000000000000000000000000000000000000000000000000");
 codec_fixtures!(
     ChannelConfigOp,
-    Self::new(ChannelConfigOpFields {
-        channel: ChannelId::from([0u8; 32]),
-        parent: MsgId::from([0u8; 32]),
-        keys: [Ed25519PublicKey::from_bytes(&[1u8; _]).unwrap()].into(),
-        posting_timeframe: SlotTimeframe::from(0u32),
-        posting_timeout: SlotTimeout::from(0u32),
-        configuration_threshold: NonZero::<u16>::MIN,
-        transfer_threshold: NonZero::<u16>::MIN,
-    })
+    Self::new(
+        ChannelId::from([0u8; 32]),
+        MsgId::from([0u8; 32]),
+        [Ed25519PublicKey::from_bytes(&[1u8; _]).unwrap()].into(),
+        SlotTimeframe::from(0u32),
+        SlotTimeout::from(0u32),
+        NonZero::<u16>::MIN,
+        NonZero::<u16>::MIN,
+    )
     .unwrap() => "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000101010101010101010101010101010101010101010101010101010101010101000000000000000001000100",
     CHANNEL_CONFIG.clone() => CHANNEL_CONFIG_PAYLOAD_HEX,
 );

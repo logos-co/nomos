@@ -505,11 +505,8 @@ mod tests {
         ledger::{BoundedInputs, Outputs, OutputsError, verification_mode::StandardMode},
         ops::{
             channel::{
-                ChannelId, MsgId,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
-                deposit::DepositOp,
-                inscribe::InscriptionOp,
-                withdraw::ChannelWithdrawOp,
+                ChannelId, MsgId, config::ChannelConfigOp, deposit::DepositOp,
+                inscribe::InscriptionOp, withdraw::ChannelWithdrawOp,
             },
             transfer::{TransferError, TransferOp},
         },
@@ -544,15 +541,15 @@ mod tests {
     }
 
     fn create_config_op(channel: ChannelId, signing_key: &Ed25519Key) -> ChannelConfigOp {
-        ChannelConfigOp::new(ChannelConfigOpFields {
+        ChannelConfigOp::new(
             channel,
-            parent: MsgId::root(),
-            keys: signing_key.public_key().into(),
-            posting_timeframe: 0.into(),
-            posting_timeout: 0.into(),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+            MsgId::root(),
+            signing_key.public_key().into(),
+            0.into(),
+            0.into(),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap()
     }
 

@@ -1922,10 +1922,7 @@ mod tests {
 
         use lb_core::mantle::{
             channel::{SlotTimeframe, SlotTimeout},
-            ops::channel::{
-                VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
-            },
+            ops::channel::{VerifiedChannelKeys, config::ChannelConfigOp},
         };
         let inscribe = InscriptionOp {
             channel_id: [0u8; 32].into(),
@@ -1933,18 +1930,16 @@ mod tests {
             parent,
             signer: UnverifiedEd25519PublicKey::from_bytes(&[0u8; 32]).unwrap(),
         };
-        let config = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: [0u8; 32].into(),
-            parent: config_parent,
-            keys: VerifiedChannelKeys::try_from(vec![
-                Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap(),
-            ])
-            .unwrap(),
-            posting_timeframe: SlotTimeframe::from(0u32),
-            posting_timeout: SlotTimeout::from(0u32),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config = ChannelConfigOp::new(
+            [0u8; 32].into(),
+            config_parent,
+            VerifiedChannelKeys::try_from(vec![Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap()])
+                .unwrap(),
+            SlotTimeframe::from(0u32),
+            SlotTimeout::from(0u32),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let inscribe_msg = inscribe.id();
         let config_msg = config.id();
@@ -2110,10 +2105,7 @@ mod tests {
 
         use lb_core::mantle::{
             channel::{SlotTimeframe, SlotTimeout},
-            ops::channel::{
-                VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
-            },
+            ops::channel::{VerifiedChannelKeys, config::ChannelConfigOp},
         };
         let genesis = header_id(0);
         let tip = header_id(1);
@@ -2125,18 +2117,16 @@ mod tests {
             .submit_inscription(make_dummy_tx(1), MsgId::root(), msg_id(10), [1].into())
             .unwrap();
 
-        let config = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: [0u8; 32].into(),
-            parent: MsgId::root(),
-            keys: VerifiedChannelKeys::try_from(vec![
-                Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap(),
-            ])
-            .unwrap(),
-            posting_timeframe: SlotTimeframe::from(0u32),
-            posting_timeout: SlotTimeout::from(0u32),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+        let config = ChannelConfigOp::new(
+            [0u8; 32].into(),
+            MsgId::root(),
+            VerifiedChannelKeys::try_from(vec![Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap()])
+                .unwrap(),
+            SlotTimeframe::from(0u32),
+            SlotTimeout::from(0u32),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let ops = Ops::from([Op::ChannelConfig(config)]);
         let config_tx = SignedOps::from_ops_with_sample_proofs(ops);
@@ -2441,24 +2431,21 @@ mod tests {
 
         use lb_core::mantle::{
             channel::{SlotTimeframe, SlotTimeout},
-            ops::channel::{
-                VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
-            },
+            ops::channel::{VerifiedChannelKeys, config::ChannelConfigOp},
         };
-        ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: [0u8; 32].into(),
-            parent: config_parent,
-            keys: VerifiedChannelKeys::try_from(vec![
+        ChannelConfigOp::new(
+            [0u8; 32].into(),
+            config_parent,
+            VerifiedChannelKeys::try_from(vec![
                 lb_key_management_system_service::keys::Ed25519Key::from_bytes(&[seed; 32])
                     .public_key(),
             ])
             .unwrap(),
-            posting_timeframe: SlotTimeframe::from(0u32),
-            posting_timeout: SlotTimeout::from(0u32),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+            SlotTimeframe::from(0u32),
+            SlotTimeout::from(0u32),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap()
     }
 
@@ -2658,23 +2645,18 @@ mod tests {
 
         use lb_core::mantle::{
             channel::{SlotTimeframe, SlotTimeout},
-            ops::channel::{
-                VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
-            },
+            ops::channel::{VerifiedChannelKeys, config::ChannelConfigOp},
         };
-        let config = ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: [0u8; 32].into(),
+        let config = ChannelConfigOp::new(
+            [0u8; 32].into(),
             parent,
-            keys: VerifiedChannelKeys::try_from(vec![
-                Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap(),
-            ])
-            .unwrap(),
-            posting_timeframe: SlotTimeframe::from(data),
-            posting_timeout: SlotTimeout::from(0u32),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::<u16>::MIN,
-        })
+            VerifiedChannelKeys::try_from(vec![Ed25519PublicKey::from_bytes(&[1u8; 32]).unwrap()])
+                .unwrap(),
+            SlotTimeframe::from(data),
+            SlotTimeout::from(0u32),
+            NonZero::<u16>::MIN,
+            NonZero::<u16>::MIN,
+        )
         .unwrap();
         let config_msg = config.id();
         let tx = SignedOps::from_ops_with_sample_proofs(Ops::from([Op::ChannelConfig(config)]));

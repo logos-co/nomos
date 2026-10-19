@@ -881,8 +881,7 @@ mod tests {
         channel::{SlotTimeframe, SlotTimeout},
         ledger::{BoundedInputs, NoteId},
         ops::channel::{
-            ChannelId, MsgId, VerifiedChannelKeys,
-            config::{ChannelConfigOp, ChannelConfigOpFields},
+            ChannelId, MsgId, VerifiedChannelKeys, config::ChannelConfigOp,
             withdraw::ChannelWithdrawOp,
         },
         traits::Hashable as _,
@@ -899,15 +898,15 @@ mod tests {
     }
 
     fn config_op(keys: Vec<Ed25519PublicKey>) -> ChannelConfigOp {
-        ChannelConfigOp::new(ChannelConfigOpFields {
-            channel: ChannelId::from([7; 32]),
-            parent: MsgId::root(),
-            keys: VerifiedChannelKeys::new_unchecked(keys),
-            posting_timeframe: SlotTimeframe::from(15),
-            posting_timeout: SlotTimeout::from(3),
-            configuration_threshold: NonZero::<u16>::MIN,
-            transfer_threshold: NonZero::new(2).unwrap(),
-        })
+        ChannelConfigOp::new(
+            ChannelId::from([7; 32]),
+            MsgId::root(),
+            VerifiedChannelKeys::new_unchecked(keys),
+            SlotTimeframe::from(15),
+            SlotTimeout::from(3),
+            NonZero::<u16>::MIN,
+            NonZero::new(2).unwrap(),
+        )
         .unwrap()
     }
 

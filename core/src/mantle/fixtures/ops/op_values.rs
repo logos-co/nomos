@@ -14,7 +14,7 @@ use crate::{
             channel::{
                 ChannelId, MsgId,
                 channel_transfer::ChannelTransferOp,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
+                config::ChannelConfigOp,
                 deposit::{DepositOp, Metadata},
                 inscribe::InscriptionOp,
                 withdraw::ChannelWithdrawOp,
@@ -36,19 +36,19 @@ pub static TRANSFER: LazyLock<TransferOp> = LazyLock::new(|| TransferOp {
 });
 
 pub static CHANNEL_CONFIG: LazyLock<ChannelConfigOp> = LazyLock::new(|| {
-    ChannelConfigOp::new(ChannelConfigOpFields {
-        channel: ChannelId::from([0x10u8; 32]),
-        parent: MsgId::root(),
-        keys: [
+    ChannelConfigOp::new(
+        ChannelId::from([0x10u8; 32]),
+        MsgId::root(),
+        [
             Ed25519Key::from_bytes(&[0x11u8; 32]).public_key(),
             Ed25519Key::from_bytes(&[0x12u8; 32]).public_key(),
         ]
         .into(),
-        posting_timeframe: SlotTimeframe::from(0x13u32),
-        posting_timeout: SlotTimeout::from(0x14u32),
-        configuration_threshold: NonZero::new(0x02).unwrap(),
-        transfer_threshold: NonZero::new(0x16).unwrap(),
-    })
+        SlotTimeframe::from(0x13u32),
+        SlotTimeout::from(0x14u32),
+        NonZero::new(0x02).unwrap(),
+        NonZero::new(0x16).unwrap(),
+    )
     .unwrap()
 });
 

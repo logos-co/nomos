@@ -10,7 +10,7 @@ use lb_core::{
             OpProof, OpProofRef, OpRef,
             channel::{
                 MsgId, UnverifiedChannelKeys, VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
+                config::ChannelConfigOp,
                 deposit::DepositOp,
                 inscribe::{Inscription, InscriptionOp},
                 withdraw::ChannelWithdrawOp,
@@ -979,15 +979,15 @@ async fn publish_after_bundle_chains_on_the_bundle_inscription_tip() {
         parent: MsgId::root(),
         signer: sequencer_key.public_key().into_unverified(),
     };
-    let config = ChannelConfigOp::new(ChannelConfigOpFields {
-        channel: channel_id,
-        parent: MsgId::root(),
-        keys: VerifiedChannelKeys::try_from(vec![sequencer_key.public_key()]).unwrap(),
-        posting_timeframe: SlotTimeframe::from(0u32),
-        posting_timeout: SlotTimeout::from(0u32),
-        configuration_threshold: NonZero::<u16>::MIN,
-        transfer_threshold: NonZero::<u16>::MIN,
-    })
+    let config = ChannelConfigOp::new(
+        channel_id,
+        MsgId::root(),
+        VerifiedChannelKeys::try_from(vec![sequencer_key.public_key()]).unwrap(),
+        SlotTimeframe::from(0u32),
+        SlotTimeout::from(0u32),
+        NonZero::<u16>::MIN,
+        NonZero::<u16>::MIN,
+    )
     .unwrap();
     let inscribe_msg = inscribe.id();
     let bundle = unverified_tx_with_ops(vec![
@@ -1022,16 +1022,15 @@ async fn config_only_block_orphans_pending_inscription_but_keeps_message_tip() {
     let channel_id = ChannelId::from([0; 32]);
     let sequencer_key = Ed25519Key::from_bytes(&[0; 32]);
 
-    let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-        channel: channel_id,
-        parent: MsgId::root(),
-        keys: VerifiedChannelKeys::try_from(vec![Ed25519Key::from_bytes(&[0; 32]).public_key()])
-            .unwrap(),
-        posting_timeframe: SlotTimeframe::from(0u32),
-        posting_timeout: SlotTimeout::from(0u32),
-        configuration_threshold: NonZero::<u16>::MIN,
-        transfer_threshold: NonZero::<u16>::MIN,
-    })
+    let config_op = ChannelConfigOp::new(
+        channel_id,
+        MsgId::root(),
+        VerifiedChannelKeys::try_from(vec![Ed25519Key::from_bytes(&[0; 32]).public_key()]).unwrap(),
+        SlotTimeframe::from(0u32),
+        SlotTimeout::from(0u32),
+        NonZero::<u16>::MIN,
+        NonZero::<u16>::MIN,
+    )
     .unwrap();
     let config_tx = unverified_tx_with_ops(vec![Op::ChannelConfig(config_op)]);
     let config_hash = config_tx.hash();
@@ -1378,16 +1377,15 @@ async fn resume_backfill_refines_finalized_config_from_a_replayed_config() {
     let sequencer_key = Ed25519Key::from_bytes(&[0; 32]);
 
     // A pure config sits in the finalized history the backfill replays.
-    let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-        channel: channel_id,
-        parent: MsgId::root(),
-        keys: VerifiedChannelKeys::try_from(vec![Ed25519Key::from_bytes(&[0; 32]).public_key()])
-            .unwrap(),
-        posting_timeframe: SlotTimeframe::from(0u32),
-        posting_timeout: SlotTimeout::from(0u32),
-        configuration_threshold: NonZero::<u16>::MIN,
-        transfer_threshold: NonZero::<u16>::MIN,
-    })
+    let config_op = ChannelConfigOp::new(
+        channel_id,
+        MsgId::root(),
+        VerifiedChannelKeys::try_from(vec![Ed25519Key::from_bytes(&[0; 32]).public_key()]).unwrap(),
+        SlotTimeframe::from(0u32),
+        SlotTimeout::from(0u32),
+        NonZero::<u16>::MIN,
+        NonZero::<u16>::MIN,
+    )
     .unwrap();
     let config_id = config_op.id();
     let config_tx = unverified_tx_with_ops(vec![Op::ChannelConfig(config_op)]);

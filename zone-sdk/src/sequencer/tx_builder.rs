@@ -9,7 +9,7 @@ use lb_core::{
             Op, OpProof, OpRef,
             channel::{
                 ChannelId, ChannelKeyIndex, MsgId, VerifiedChannelKeys,
-                config::{ChannelConfigOp, ChannelConfigOpFields},
+                config::ChannelConfigOp,
                 inscribe::{Inscription, InscriptionOp},
             },
         },
@@ -372,15 +372,15 @@ where
     let non_zero = |threshold: u16, name: &str| {
         NonZero::new(threshold).ok_or_else(|| Error::Network(format!("{name} must be at least 1")))
     };
-    let config_op = ChannelConfigOp::new(ChannelConfigOpFields {
-        channel: channel_id,
+    let config_op = ChannelConfigOp::new(
+        channel_id,
         parent,
         keys,
         posting_timeframe,
         posting_timeout,
-        configuration_threshold: non_zero(configuration_threshold, "configuration_threshold")?,
-        transfer_threshold: non_zero(transfer_threshold, "transfer_threshold")?,
-    })
+        non_zero(configuration_threshold, "configuration_threshold")?,
+        non_zero(transfer_threshold, "transfer_threshold")?,
+    )
     .map_err(|_| {
         Error::Network(format!(
             "configuration_threshold {configuration_threshold} exceeds the {key_count} accredited keys"
