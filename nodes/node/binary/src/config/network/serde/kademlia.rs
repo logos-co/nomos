@@ -33,7 +33,8 @@ pub struct Config {
     /// The interval for periodic bootstrap
     /// If enabled the periodic bootstrap will run at this interval in addition
     /// to the automatic bootstrap that is triggered when a new peer is added
-    #[serde_as(as = "Option<MinimalBoundedDuration<1, SECOND>>")]
+    /// `0s` disables periodic bootstrap
+    #[serde_as(as = "Option<MinimalBoundedDuration<0, SECOND>>")]
     pub periodic_bootstrap_interval: Option<Duration>,
 }
 

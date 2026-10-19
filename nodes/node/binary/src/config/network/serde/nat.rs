@@ -26,10 +26,7 @@ impl From<Config> for lb_libp2p::NatSettings {
             Config::Traversal(traversal_config) => Self::Traversal(lb_libp2p::TraversalSettings {
                 autonat: lb_libp2p::AutonatClientSettings {
                     max_candidates: traversal_config.autonat.max_candidates,
-                    probe_interval_millisecs: traversal_config
-                        .autonat
-                        .probe_interval
-                        .map(|interval| u64::try_from(interval.as_millis()).unwrap_or(u64::MAX)),
+                    probe_interval: traversal_config.autonat.probe_interval,
                     retest_successful_external_addresses_interval: traversal_config
                         .autonat
                         .retest_successful_external_addresses_interval,
