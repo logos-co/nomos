@@ -14,12 +14,12 @@ const NODE_RESTART_GRACE_PERIOD: Duration = Duration::from_secs(3);
 // dependency, return an error.
 pub fn start_nodes_order_respecting_dependencies(
     nodes_to_start: NodesToStartUnordered,
-    already_started: HashSet<String>,
+    already_started: impl IntoIterator<Item = String>,
 ) -> Result<NodesToStartOrdered, StepError> {
     let mut remaining = nodes_to_start;
     // Peers that are already running (started by earlier steps) count as
     // satisfied dependencies, so a node in this batch may connect to them.
-    let mut started = already_started;
+    let mut started: HashSet<_> = already_started.into_iter().collect();
     let mut ordered = Vec::new();
 
     // Step 1: Find all nodes whose peer dependencies are already satisfied

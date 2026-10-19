@@ -31,6 +31,8 @@ c-bindings/logos_blockchain.h
 node_modules
 *.database
 /tests/cucumber_tests/temp/
+/tests/clients/*/cucumber_tests/temp/
+/tests/clients/*/.e2e_artefacts
 /tests/.e2e_artefacts
 
 # Nix
