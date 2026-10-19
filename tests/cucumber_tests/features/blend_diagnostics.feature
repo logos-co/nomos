@@ -231,7 +231,7 @@ Feature: Blend diagnostics
     When I perform 1 coin split transactions for each user wallet with 100 outputs of 1000000 LGO each
     And I verify each wallet has minimum 100 outputs "available" in 300 seconds
 
-    And I start continuous next-wallet transaction load with 50 transactions of 1 LGO and 1 epoch headroom
+    And I start continuous next-wallet transaction load with 50 transactions of 1 LGO and 1 epochs headroom
 
     # Match the observation cadence of the unstable-provider scenario while
     # keeping every Blend provider reachable.
@@ -300,7 +300,7 @@ Feature: Blend diagnostics
     When I perform 1 coin split transactions for each user wallet with 100 outputs of 1000000 LGO each
     And I verify each wallet has minimum 100 outputs "available" in 300 seconds
 
-    And I start continuous next-wallet transaction load with 50 transactions of 1 LGO and 1 epoch headroom
+    And I start continuous next-wallet transaction load with 50 transactions of 1 LGO and 1 epochs headroom
     When I observe 1 epoch transitions on node "NODE_9"
 
     And I start epoch-driven Blend provider churn:

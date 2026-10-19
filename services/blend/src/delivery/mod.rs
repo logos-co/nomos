@@ -45,7 +45,7 @@ pub async fn broadcast_undelivered_messages<Dispatcher, UndeliveredPayloads, Run
     );
     join_all(undelivered.into_iter().map(|payload| {
         if let DataPayload::BlockProposal(encoded_proposal) = &payload {
-            tracing::warn!(
+            tracing::debug!(
                 target: LOG_TARGET,
                 event = "blend_proposal_fallback_broadcast",
                 timestamp_unix_ms = crate::message::proposal_diagnostic_timestamp_unix_ms(),
