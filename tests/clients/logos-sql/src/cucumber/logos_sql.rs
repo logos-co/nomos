@@ -95,19 +95,25 @@ impl LogosSqlState {
         Ok(displaced)
     }
 
-    pub async fn shutdown_all(&mut self) -> StepResult {
+    pub async fn shutdown_all(&mut self) -> Result<(), StepError> {
         let instances = std::mem::take(&mut self.instances);
+        let mut errors = Vec::new();
 
         for (alias, instance) in instances {
-            instance
-                .shutdown()
-                .await
-                .map_err(|error| StepError::StepFail {
-                    message: format!("failed to stop Logos SQL instance '{alias}': {error}"),
-                })?;
+            if let Err(error) = instance.shutdown().await {
+                errors.push(format!(
+                    "failed to stop Logos SQL instance '{alias}': {error}"
+                ));
+            }
         }
 
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(StepError::StepFail {
+                message: errors.join("; "),
+            })
+        }
     }
 
     pub fn clear(&mut self) {

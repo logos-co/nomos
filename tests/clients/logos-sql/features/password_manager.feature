@@ -31,6 +31,3 @@ Feature: Password manager
       | list                                        | email (andrus@example.org)         |
       | remove email                                | committed locally as              |
       | show email                                  | credential not found              |
-    Then I stop all Logos SQL clients
-    And I stop all ZoneSDK clients
-    And I stop all nodes

@@ -40,6 +40,3 @@ Feature: Logos SQL settlement benchmark
       """
     Then Logos SQL instance "SQL_B" has 0 rows in table "benchmark_writes" in its finalized database in 300 seconds
     When I benchmark Logos SQL writer "SQL_A" and replica "SQL_B" on sequencer "SEQ_A" for 180 seconds with 256 byte rows
-    Then I stop all Logos SQL clients
-    And I stop all ZoneSDK clients
-    And I stop all nodes

@@ -446,49 +446,7 @@ async fn step_query_cryptarchia_info_all_nodes(world: &mut CucumberWorld, step: 
 
 #[then(expr = "I stop all nodes")]
 async fn step_stop_all_nodes(world: &mut CucumberWorld) -> StepResult {
-    let mut background_cleanup_errors = Vec::new();
-    if let Err(error) = world.stop_background_activity().await {
-        background_cleanup_errors.push(error.to_string());
-    }
-
-    let runtime_dir_by_node_name: Vec<(String, String)> = world
-        .nodes_info
-        .iter()
-        .map(|(node_name, info)| (node_name.clone(), info.runtime_name.clone()))
-        .collect();
-
-    if world.snapshots.save.extensions.is_some() {
-        prepare_all_wallets_snapshot(world).await?;
-    }
-
-    world.reset_wallet_scanner_after_current_iteration().await;
-    if let Err(error) = stop_active_manual_cluster(world).await {
-        background_cleanup_errors.push(error.to_string());
-    }
-
-    if let Some(snapshot_name) = world.snapshots.save.node_state.take() {
-        create_snapshots_all_nodes(world, &snapshot_name)?;
-    }
-
-    if let Some(snapshot_name) = world.snapshots.save.extensions.take() {
-        save_prepared_all_wallets_snapshot(&snapshot_name, world)?;
-    }
-
-    for (node_name, _) in &runtime_dir_by_node_name {
-        info!(target: TARGET, "Stopping node '{node_name}'");
-    }
-    world.nodes_info.clear();
-
-    if background_cleanup_errors.is_empty() {
-        Ok(())
-    } else {
-        Err(StepError::StepFail {
-            message: format!(
-                "scenario background cleanup reported: {}",
-                background_cleanup_errors.join("; ")
-            ),
-        })
-    }
+    stop_all_nodes(world).await
 }
 
 #[when(

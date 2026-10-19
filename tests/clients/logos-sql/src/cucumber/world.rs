@@ -1,5 +1,7 @@
 use cucumber::World;
-use logos_blockchain_tests::cucumber::world::CucumberWorld;
+use logos_blockchain_tests::cucumber::{
+    error::StepResult, runner::ScenarioCleanup, world::CucumberWorld,
+};
 use logos_blockchain_zone_tests::cucumber::world::ZoneWorld;
 
 use super::logos_sql::LogosSqlState;
@@ -23,6 +25,16 @@ impl SqlWorld {
 impl AsMut<CucumberWorld> for SqlWorld {
     fn as_mut(&mut self) -> &mut CucumberWorld {
         &mut self.sdk.node
+    }
+}
+
+impl ScenarioCleanup for SqlWorld {
+    async fn cleanup(&mut self) -> StepResult {
+        let sql = self.logos_sql.shutdown_all().await;
+        let sdk = self.sdk.cleanup().await;
+
+        // Always clean up the SDK and nodes, even if a SQL shutdown failed.
+        sql.and(sdk)
     }
 }
 

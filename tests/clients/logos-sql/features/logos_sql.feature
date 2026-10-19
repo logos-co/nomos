@@ -89,9 +89,6 @@ Feature: Logos SQL
         FROM messages
         ORDER BY id
         """
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes
 
     @logos_sql_ci
     Scenario: Backfill a new database from channel history
@@ -134,9 +131,6 @@ Feature: Logos SQL
         FROM messages
         ORDER BY id
         """
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes
 
     @logos_sql_ci
     Scenario: Read-only replica catches up and follows new writes
@@ -185,9 +179,6 @@ Feature: Logos SQL
         """
         SELECT body FROM messages WHERE id = 1
         """
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes
 
     @logos_sql_ci
     Scenario: Concurrent writes converge on accepted channel history
@@ -230,9 +221,6 @@ Feature: Logos SQL
         SELECT name, owner FROM claims ORDER BY name
         """
       And exactly one of Logos SQL writes "CLAIM_A" and "CLAIM_B" is displaced in 180 seconds
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes
 
     @logos_sql_ci
     Scenario: A disconnected database catches up from its checkpoint
@@ -277,9 +265,6 @@ Feature: Logos SQL
         FROM messages
         ORDER BY id
         """
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes
 
   Rule: Only valid canonical history changes replicated state
 
@@ -376,6 +361,3 @@ Feature: Logos SQL
         """
       And Logos SQL write "BRANCH_A_WRITE" is displaced in 180 seconds
       And exactly one of Logos SQL writes "BRANCH_A_WRITE" and "BRANCH_B_WRITE" is displaced in 180 seconds
-      Then I stop all Logos SQL clients
-      And I stop all ZoneSDK clients
-      And I stop all nodes

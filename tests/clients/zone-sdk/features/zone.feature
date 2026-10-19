@@ -32,8 +32,6 @@ Feature: Zone SDK
     Then zone transaction "CHANNEL_CONFIG_1" is included in 180 seconds
     And zone transaction "CHANNEL_CONFIG_1" is finalized in 180 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_sequencer_checkpoint_resume
@@ -68,8 +66,6 @@ Feature: Zone SDK
       | MSG_3 |
       | MSG_4 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_sequencer_stale_checkpoint_resume
@@ -112,8 +108,6 @@ Feature: Zone SDK
       | MSG_4 |
       | MSG_5 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Publishes issued while the node is down fail fast and succeed after reconnect
@@ -150,8 +144,6 @@ Feature: Zone SDK
       | MSG_2 |
       | MSG_3 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_sequential_multi_sequencer
@@ -214,8 +206,6 @@ Feature: Zone SDK
       | MSG_8 |
       | MSG_9 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_concurrent_multi_sequencer
@@ -243,8 +233,6 @@ Feature: Zone SDK
       | SEQ_C     | c           |
     Then the zone indexer returns all zone messages exactly once in any order in 1200 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_sorted_conflict_resolution
@@ -279,8 +267,6 @@ Feature: Zone SDK
       | SEQ_B     | MSG_10 | jj   |
     Then the zone indexer preserves per-sequencer order and converges without duplicates in 600 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # End-to-end multi-sig driven by the sequencers' own drive loops: three
@@ -336,8 +322,6 @@ Feature: Zone SDK
     And the channel wallet of "SEQ_A" has exactly 1 finalized and 0 unfinalized notes in 120 seconds
     And the channel wallet of "SEQ_A" contains a finalized note of value 2 in 120 seconds
     And the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Round-robin waits for turn and submits pending messages
@@ -392,8 +376,6 @@ Feature: Zone SDK
       | MSG_B1 |
       | MSG_B2 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Round-robin submits all pending messages with no active depth limit
@@ -447,8 +429,6 @@ Feature: Zone SDK
       | MSG_C3 |
     Then sequencer "SEQ_B" has 0 pending publish txs in 180 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # A config landing changes the channel view without moving the message tip, so
@@ -503,8 +483,6 @@ Feature: Zone SDK
       | MSG_B2 |
       | MSG_B3 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Round-robin publishes immediately when it is our turn
@@ -533,8 +511,6 @@ Feature: Zone SDK
       | alias  |
       | MSG_A1 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Round-robin with multiple sequencers dynamically added
@@ -582,8 +558,6 @@ Feature: Zone SDK
     # Final check: all messages on chain, exactly once (catches duplicate republishes).
     Then the zone indexer returns all zone messages exactly once in any order in 120 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_balance_conditioned_republish
@@ -622,8 +596,6 @@ Feature: Zone SDK
       | SEQ_C     | c-charlie | charlie | -1    |
     Then zone balance updates keep all accounts non-negative after 60 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_concurrent_identical_payloads
@@ -651,8 +623,6 @@ Feature: Zone SDK
       | SEQ_C     |
     Then the zone indexer returns 30 copies of zone message "shared-message" in 600 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [zone-sdk channel wallet] a multi-input deposit's recreated notes surface in
@@ -690,8 +660,6 @@ Feature: Zone SDK
     When I restart zone sequencer "SEQ_A" fresh
     Then the channel wallet of "SEQ_A" has exactly 2 finalized and 0 unfinalized notes in 120 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   # [tests/src/tests/zone_sdk/e2e.rs] test_subscribe_to_finalized_deposit
   Scenario: Finalized deposits are returned by the zone indexer
@@ -716,8 +684,6 @@ Feature: Zone SDK
     And zone transaction "DEPOSIT_1" is finalized in 120 seconds
     And the zone indexer returns finalized deposit "DEPOSIT_1" in 120 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_atomic_deposit_inscription
@@ -746,8 +712,6 @@ Feature: Zone SDK
       | MSG_1 |
       | MSG_2 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # [tests/src/tests/zone_sdk/e2e.rs] test_subscribe_to_finalized_withdraw
@@ -783,8 +747,6 @@ Feature: Zone SDK
       | MSG_1 |
       | MSG_2 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # Deposit 5 → withdraw "1,1,2" leaves a value-1 change note that can only exist
@@ -824,8 +786,6 @@ Feature: Zone SDK
       | MSG_A1   |
       | MSG_A2   |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # A 10000 withdraw against a channel holding 255 dust notes (value 1) plus a
@@ -865,8 +825,6 @@ Feature: Zone SDK
     When I submit zone deposit transaction "DEPOSIT_BIG" into channel of "SEQ_A" of 10000 with metadata "Big note"
     Then the zone indexer returns a finalized channel transfer consuming 255 inputs in 300 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Concurrent custom multi-inscription transactions recover from conflicts
@@ -892,8 +850,6 @@ Feature: Zone SDK
       | SEQ_B     | 5            | 5            |
     Then the zone indexer returns all custom payloads in 600 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   # Config signatures must claim the signer's index in the current accredited
@@ -937,8 +893,6 @@ Feature: Zone SDK
     Then zone transaction "CONFIG_BA" is included in 180 seconds
     And the zone indexer returns all zone messages exactly once in any order in 600 seconds
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
 
   @zone_ci
   Scenario: Zone sequencer re-funds a double-handed inscription after node restart
@@ -991,5 +945,3 @@ Feature: Zone SDK
       | MSG_1 |
       | MSG_2 |
     Then the channel view contract holds for all zone sequencers
-    Then I stop all ZoneSDK clients
-    And I stop all nodes
