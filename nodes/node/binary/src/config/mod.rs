@@ -5,7 +5,7 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum, builder::OsStr};
-use color_eyre::eyre::{Result, WrapErr as _, eyre};
+use color_eyre::eyre::{Result, eyre};
 use lb_core::sdp::ProviderId;
 use lb_groth16::fr_from_bytes;
 use lb_key_management_system_service::{
@@ -118,12 +118,13 @@ impl UserConfig {
             Value::Mapping(serde_yaml::Mapping::new())
         };
         merge(&mut config, overrides);
-        let config = deserialize_from_value(config, OnUnknownKeys::Fail);
-        if has_keystore {
-            Ok(config?)
-        } else {
-            config.wrap_err_with(|| format!("no keystore at {}", keystore_path.display()))
-        }
+        deserialize_from_value(config, OnUnknownKeys::Fail).map_err(|error| {
+            if has_keystore {
+                eyre!("{error}")
+            } else {
+                eyre!("{error} (no keystore at {})", keystore_path.display())
+            }
+        })
     }
 
     #[must_use]
