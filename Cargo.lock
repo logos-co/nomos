@@ -5391,6 +5391,7 @@ dependencies = [
  "logos-blockchain-storage-service",
  "logos-blockchain-time-service",
  "logos-blockchain-utils",
+ "logos-blockchain-wallet",
  "logos-blockchain-wallet-service",
  "logos-blockchain-zktransfer",
  "overwatch",

@@ -38,6 +38,7 @@ lb-zktransfer = { workspace = true }
 overwatch     = { workspace = true }
 
 [dev-dependencies]
+lb-wallet  = { workspace = true }
 serde_json = { workspace = true }
 tokio      = { features = ["macros", "rt"], workspace = true }
 

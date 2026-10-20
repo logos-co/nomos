@@ -1,3 +1,4 @@
+use lb_chain_service::Epoch;
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -11,7 +12,6 @@ use lb_core::{
         },
     },
 };
-use lb_chain_service::Epoch;
 use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey, secured_key::SecuredKey};
 use lb_utils::bounded::BoundedError;
 use lb_wallet::{KnownNote, OwnedNote, WalletBalance};
@@ -230,7 +230,7 @@ where
         &self,
         note: Note,
         note_set: NoteSetIndex,
-    ) -> Result<(), WalletApiError> {
+    ) -> Result<KnownNote, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
         self.relay
             .send(WalletMsg::ImportNote {

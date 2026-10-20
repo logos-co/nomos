@@ -26,24 +26,25 @@ use lb_core::{
         Note, Op, OpProof, SignedOps, Value,
         gas::MainnetGasProfile,
         ledger::verification_mode::StandardMode,
-        note_set::{CommitmentMmr, LEDGER_SET},
-        notes::{NoteNullifier, derive_note_nonce, derive_note_nullifier},
+        note_set::LEDGER_SET,
+        notes::{NoteNullifier, derive_note_nonce},
         ops::{
             NoOpProof, OpId as _, ZkTransferProof,
             pow::{ClaimPowRewardOp, PowNullifier},
-            transfer::{TransferOp, prove_transfer},
+            transfer::TransferOp,
         },
         traits::Hashable as _,
         transactions::{
             GasPrices, MAX_OPS_PER_TX, MantleTxBuilder, OpProofs, TxBuilderError,
+            builder::ZkTransferOpening,
             hash::TxHash,
-            states::Unverified,
+            states::Preverified,
             tx_list::ops::{OpsContext, OpsGasContext},
         },
     },
 };
 use lb_groth16::{AdditiveGroup as _, COMPRESSED_PROOF_SIZE, Fr, fr_from_mod_bytes};
-use lb_key_management_system_keys::keys::{UnsecuredZkKey, ZkPublicKey};
+use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_ledger::LedgerState;
 use lb_log_targets::pow;
 use lb_services_utils::{
@@ -64,10 +65,7 @@ use overwatch::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::oneshot::{self, error::RecvError},
-    task::JoinError,
-};
+use tokio::sync::oneshot::{self, error::RecvError};
 use tokio_stream::wrappers::{BroadcastStream, IntervalStream, errors::BroadcastStreamRecvError};
 use tracing::{
     error,
@@ -94,8 +92,6 @@ pub enum PoWError {
     TxBuilder(#[from] TxBuilderError),
     #[error("too many operation proofs: {0}")]
     OpProofs(#[from] BoundedError),
-    #[error("signing task failed: {0}")]
-    SignTask(#[from] JoinError),
     #[error("failed to encode transaction: {0}")]
     Encode(#[from] CodecError),
     #[error("transaction cannot be carried by the blend network: {0}")]
@@ -121,6 +117,11 @@ pub enum PoWError {
     UntrackedClaimTargets(Vec<ZkPublicKey>),
     #[error("no claim address given and no auto-claim target is below its threshold")]
     NoClaimTarget,
+    #[error(
+        "the claim address {0:?} is not a key of the wallet, which alone can recover the rewards \
+         a claim returns"
+    )]
+    ClaimAddressNotInWallet(ZkPublicKey),
     #[error("failed to build signed transaction: {0}")]
     SignedOps(#[from] lb_core::mantle::transactions::tx_list::signed_ops::Error),
 }
@@ -174,8 +175,9 @@ pub enum PoWServiceMessage {
     /// Stop the auto-claim ticker. Manual claims keep working.
     StopAutoClaim,
     Claim {
-        /// Key the claimed rewards are paid to. `None` falls back to the key
-        /// auto-claim would pick right now (see [`select_claim_target`]).
+        /// Key of the wallet the claimed rewards are paid to. `None` falls back
+        /// to the key auto-claim would pick right now (see
+        /// [`select_claim_target`]).
         claim_address: Option<ZkPublicKey>,
         response: oneshot::Sender<Result<Option<TxHash>, PoWError>>,
     },
@@ -574,10 +576,18 @@ where
                 Some(message) = inbound_relay.recv() => {
                     match message {
                         PoWServiceMessage::StartMining => {
+                            // Every mining run pays a fresh reward key of the
+                            // wallet, which the tickets bind as the key paid.
                             if !is_mining {
-                                info!(target: LOG_TARGET, "PoW mining started");
+                                match wallet_api.generate_reward_key().await {
+                                    Ok(reward_key) => {
+                                        winning_tickets.set_reward_key(reward_key);
+                                        info!(target: LOG_TARGET, "PoW mining started");
+                                        is_mining = true;
+                                    }
+                                    Err(e) => error!(target: LOG_TARGET, "PoW mining not started, no reward key: {e}"),
+                                }
                             }
-                            is_mining = true;
                         }
                         PoWServiceMessage::StopMining => {
                             if is_mining {
@@ -933,6 +943,7 @@ where
     drain_ready_rewards(
         cryptarchia_api,
         blend_api,
+        wallet_api,
         claim_address,
         state,
         state_updater,
@@ -954,9 +965,10 @@ where
 /// emitting a burst of transactions the chain then rejects. Drawing down a
 /// local balance stops the loop when the funds are spoken for; the next tick
 /// starts again from whatever the chain actually reports.
-async fn drain_ready_rewards<CryptarchiaService, BlendService, RuntimeServiceId>(
+async fn drain_ready_rewards<CryptarchiaService, BlendService, WalletService, RuntimeServiceId>(
     cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService>,
     blend_api: &BlendServiceApi<BlendService, RuntimeServiceId>,
+    wallet_api: &WalletApi<WalletService, RuntimeServiceId>,
     claim_address: ZkPublicKey,
     state: &mut PoWServiceState,
     state_updater: &StateUpdater<Option<PoWServiceState>>,
@@ -965,7 +977,8 @@ async fn drain_ready_rewards<CryptarchiaService, BlendService, RuntimeServiceId>
     CryptarchiaService: CryptarchiaServiceData<Tx: Send>,
     BlendService: BlendServiceData,
     BlendService::NodeId: Send,
-    RuntimeServiceId: Sync,
+    WalletService: WalletServiceData,
+    RuntimeServiceId: AsServiceId<WalletService> + Debug + Display + Sync,
 {
     // The running balance every claim in this drain spends against, opened at
     // whatever the chain currently reports.
@@ -980,6 +993,7 @@ async fn drain_ready_rewards<CryptarchiaService, BlendService, RuntimeServiceId>
         match claim_ready_rewards(
             cryptarchia_api,
             blend_api,
+            wallet_api,
             claim_address,
             state,
             slot_window,
@@ -988,7 +1002,8 @@ async fn drain_ready_rewards<CryptarchiaService, BlendService, RuntimeServiceId>
         .await
         {
             // Nothing left that can be claimed right now: the ready set is
-            // empty, or what remains is anchored to non-canonical blocks.
+            // empty, or what remains is anchored to non-canonical blocks or
+            // pays a key the wallet lacks.
             Ok(None) => break,
             // A published claim always consumes at least one ready ticket, so
             // the loop is guaranteed to terminate.
@@ -1045,12 +1060,14 @@ where
             .await?
             .ok_or(PoWError::NoClaimTarget)?,
     };
+    wallet_holds_claim_address(&wallet_api.get_known_addresses().await?, claim_address)?;
     // A one-off claim has no run to accumulate over, so its balance is simply
     // the pool the chain reports right now, and the leftover is discarded.
     let available_pool = current_reward_pool(cryptarchia_api).await?;
     Ok(claim_ready_rewards(
         cryptarchia_api,
         blend_api,
+        wallet_api,
         claim_address,
         state,
         slot_window,
@@ -1058,6 +1075,20 @@ where
     )
     .await?
     .map(|claim| claim.tx_hash))
+}
+
+/// A claim returns its rewards to `claim_address` as a change note whose
+/// opening only the wallet learns, so the address must be one of
+/// `known_addresses`, the wallet's keys.
+fn wallet_holds_claim_address(
+    known_addresses: &[ZkPublicKey],
+    claim_address: ZkPublicKey,
+) -> Result<(), PoWError> {
+    if known_addresses.contains(&claim_address) {
+        Ok(())
+    } else {
+        Err(PoWError::ClaimAddressNotInWallet(claim_address))
+    }
 }
 
 /// The reward pool at the current tip: the opening balance for a run of claims.
@@ -1095,9 +1126,10 @@ struct PublishedClaim {
 ///
 /// On any failure the ready set is left untouched so the tickets can be
 /// retried.
-async fn claim_ready_rewards<CryptarchiaService, BlendService, RuntimeServiceId>(
+async fn claim_ready_rewards<CryptarchiaService, BlendService, WalletService, RuntimeServiceId>(
     cryptarchia_api: &CryptarchiaServiceApi<CryptarchiaService>,
     blend_api: &BlendServiceApi<BlendService, RuntimeServiceId>,
+    wallet_api: &WalletApi<WalletService, RuntimeServiceId>,
     claim_address: ZkPublicKey,
     state: &mut PoWServiceState,
     slot_window: NonZeroU64,
@@ -1107,7 +1139,8 @@ where
     CryptarchiaService: CryptarchiaServiceData<Tx: Send>,
     BlendService: BlendServiceData,
     BlendService::NodeId: Send,
-    RuntimeServiceId: Sync,
+    WalletService: WalletServiceData,
+    RuntimeServiceId: AsServiceId<WalletService> + Debug + Display + Sync,
 {
     // Size the batch against the current tip — the state the tx applies
     // against.
@@ -1133,11 +1166,13 @@ where
     // their block); only the window check in `prune_expired_tickets` discards
     // tickets for good.
     let known_blocks = ledger_state.mantle_ledger().pow.block_slots();
-    let tickets: Vec<(UnsecuredZkKey, ClaimPowRewardOp)> = state
+    let known_block = |hash: &[u8; 32]| known_blocks.contains_key(hash);
+    let known_keys = wallet_api.get_known_addresses().await?;
+    let tickets: Vec<ClaimPowRewardOp> = state
         .ready_to_claim
         .iter()
-        .filter(|ticket| known_blocks.contains_key(&ticket.claim.block_hash))
-        .map(|ticket| (ticket.secret_key.clone(), ticket.claim.clone()))
+        .filter(|ticket| is_claimable(ticket, known_block, &known_keys))
+        .map(|ticket| ticket.claim.clone())
         .collect();
     if tickets.is_empty() {
         return Ok(None);
@@ -1146,10 +1181,17 @@ where
     // Only mutate the ready set once the tx is built and published, so a
     // failure leaves every ticket in place for a later retry. The builder
     // caps the batch (op limit / reward pool) and claims a prefix of
-    // `tickets` (the canonical ones, in ready order); move exactly those to
+    // `tickets` (the claimable ones, in ready order); move exactly those to
     // the pending set.
-    let (signed_tx, claimed_count) =
-        build_reward_claim_tx(claim_address, &ledger_state, available_pool, &tickets).await?;
+    let (signed_tx, claimed_count) = build_reward_claim_tx(
+        wallet_api,
+        claim_address,
+        info.tip,
+        &ledger_state,
+        available_pool,
+        &tickets,
+    )
+    .await?;
     // Capture the tx id before publishing consumes the signed tx, so it can be
     // reported back to the caller.
     let tx_hash = signed_tx.hash();
@@ -1158,9 +1200,9 @@ where
     let mut remaining = Vec::with_capacity(state.ready_to_claim.len());
     let mut claimed = Vec::with_capacity(claimed_count);
     for ticket in state.ready_to_claim.drain(..) {
-        // Take the first `claimed_count` canonical tickets — the exact prefix
-        // the builder consumed — and keep everything else ready.
-        if claimed.len() < claimed_count && known_blocks.contains_key(&ticket.claim.block_hash) {
+        // Take the first `claimed_count` claimable tickets, the exact prefix
+        // the builder consumed, and keep everything else ready.
+        if claimed.len() < claimed_count && is_claimable(&ticket, known_block, &known_keys) {
             claimed.push(ticket);
         } else {
             remaining.push(ticket);
@@ -1185,6 +1227,17 @@ where
         tx_hash,
         remaining_pool,
     }))
+}
+
+/// Whether `ticket` can be claimed now: its anchor block is known to this
+/// branch, and its reward key is one of the wallet's `known_keys`, which the
+/// claim's transfer spends the reward note with. Other tickets stay ready.
+fn is_claimable(
+    ticket: &WinningTicket,
+    known_block: impl Fn(&[u8; 32]) -> bool,
+    known_keys: &[ZkPublicKey],
+) -> bool {
+    known_block(&ticket.claim.block_hash) && known_keys.contains(&ticket.claim.public_key)
 }
 
 /// Whether a ticket anchored to a block at `block_slot` is still within its
@@ -1338,7 +1391,8 @@ where
 /// Callers prune expired tickets first (see [`prune_expired_tickets`]), so
 /// every ticket here is assumed to still be within the window: a ticket
 /// anchored to a block at `block_slot` has `block_slot + slot_window -
-/// current_slot` slots of remaining lifetime.
+/// current_slot` slots of remaining lifetime. It counts every ready ticket,
+/// also those a claim skips for now (see [`is_claimable`]).
 fn claimable_rewards_info(
     ready_to_claim: &[WinningTicket],
     current_slot: Slot,
@@ -1414,7 +1468,12 @@ fn claim_tx_size(claims: usize) -> Result<u64, PoWError> {
         &vec![0; groups],
     )?;
 
-    let ops = push_reward_claim_ops(MantleTxBuilder::new(), &probe_claims, transfers)?.build()?;
+    let ops = push_reward_claim_ops(
+        MantleTxBuilder::new(),
+        &probe_claims,
+        without_openings(transfers),
+    )?
+    .build()?;
     let ops_proofs = claim_ops_proofs(claims, std::iter::repeat_n(proof, groups))?;
 
     Ok(SerializeOp::bytes_size(
@@ -1442,15 +1501,17 @@ static MAX_CLAIMS_BY_PAYLOAD_SIZE: LazyLock<usize> = LazyLock::new(|| {
         .expect("a single-claim tx fits a Blend payload")
 });
 
-/// Builds and proves a single self-funding reward-claim transaction from a
+/// Builds and signs a single self-funding reward-claim transaction from a
 /// batch of winning tickets.
 ///
 /// For every group of up to 4 claims (4 being the `ZkTransfer` input limit)
 /// a `Transfer` op spends the reward notes those claims mint, so the tx
 /// interleaves as `[claims 1..4], transfer, [claims 5..8], transfer, ...`.
 /// Each group's claims precede its transfer, so the transfer can spend the
-/// freshly minted notes, reconstructed here from the same data the ledger uses,
-/// and is proven with those notes' owning keys.
+/// freshly minted notes, reconstructed here from the same data the ledger uses.
+/// The notes are paid to a reward key of the wallet, which derives their
+/// nullifiers and proves the transfers; each transfer pays its share of the
+/// fee and returns the rest to `claim_address`, a key of the wallet too.
 ///
 /// Only as many claims are taken as `reward_pool` can fund, the per-tx op
 /// limit allows, and a Blend payload can carry. Returns the signed tx together
@@ -1459,88 +1520,105 @@ static MAX_CLAIMS_BY_PAYLOAD_SIZE: LazyLock<usize> = LazyLock::new(|| {
 /// `reward_pool` is passed in rather than read from `ledger_state` so a caller
 /// publishing several transactions back to back can draw down its own running
 /// balance; see [`drain_ready_rewards`].
-async fn build_reward_claim_tx(
+async fn build_reward_claim_tx<WalletService, RuntimeServiceId>(
+    wallet_api: &WalletApi<WalletService, RuntimeServiceId>,
     claim_address: ZkPublicKey,
+    tip: HeaderId,
     ledger_state: &LedgerState,
     reward_pool: Value,
-    tickets: &[(UnsecuredZkKey, ClaimPowRewardOp)],
-) -> Result<(SignedOps<Unverified, StandardMode>, usize), PoWError> {
+    tickets: &[ClaimPowRewardOp],
+) -> Result<(SignedOps<Preverified, StandardMode>, usize), PoWError>
+where
+    WalletService: WalletServiceData,
+    RuntimeServiceId: AsServiceId<WalletService> + Debug + Display + Sync,
+{
     // The reward value, gas prices and ledger set are read at `ledger_state`;
     // they must match the state the tx applies against, or the reconstructed
     // notes / fee / paths will be off.
-    let ledger_mmr = ledger_state
-        .latest_note_sets()
-        .get(LEDGER_SET)
-        .expect("the ledger note set always exists")
-        .commitments();
+    let reward_value = ledger_state.mantle_ledger().pow.epoch_reward();
+    let claims = &tickets[..reward_claim_count(tickets.len(), reward_value, reward_pool)?];
+    let mut nullifiers = Vec::with_capacity(claims.len());
+    for claim in claims {
+        let known = wallet_api
+            .import_note(reward_note(claim, reward_value), LEDGER_SET)
+            .await?;
+        nullifiers.push(known.nullifier);
+    }
     // One fresh nonce for the change note of each transfer group.
     let change_nonces: Vec<Fr> =
         std::iter::repeat_with(|| fr_from_mod_bytes(&rand::random::<[u8; 32]>()))
-            .take(tickets.len().div_ceil(MAX_TRANSFER_INPUTS))
+            .take(claims.len().div_ceil(MAX_TRANSFER_INPUTS))
             .collect();
-    build_reward_claim_tx_inner(
+    let ledger_root = ledger_state
+        .latest_note_sets()
+        .get(LEDGER_SET)
+        .expect("the ledger note set always exists")
+        .commitments()
+        .frontier_root();
+    let (tx_builder, change_notes) = build_reward_claim_tx_inner(
         claim_address,
         &change_nonces,
-        ledger_state.mantle_ledger().pow.epoch_reward(),
-        reward_pool,
+        reward_value,
         ledger_state.get_gas_prices(),
-        ledger_mmr,
-        tickets,
-    )
-    .await
+        ledger_root,
+        claims,
+        &nullifiers,
+    )?;
+    let signed_tx = wallet_api.sign_tx(Some(tip), tx_builder).await?.response;
+    // The wallet adopts the change once its commitment is appended; a signing
+    // failure leaves no opening of a note that never lands.
+    for change in change_notes {
+        wallet_api.import_note(change, LEDGER_SET).await?;
+    }
+    Ok((signed_tx, claims.len()))
 }
 
-/// Inner builder over plain reward/gas values, so it can be exercised without a
-/// full [`LedgerState`]. See [`build_reward_claim_tx`].
-///
-/// `change_nonces` holds one nonce per transfer group of `tickets`. The
-/// transfers spend the buffered reward notes against `ledger_mmr` (the tip
-/// ledger set) extended with every earlier claim.
-async fn build_reward_claim_tx_inner(
-    claim_address: ZkPublicKey,
-    change_nonces: &[Fr],
+/// How many of `tickets` claims a transaction takes: as many as `reward_pool`
+/// can fund at `reward_value` each, the op budget allows, and a Blend payload
+/// can carry.
+fn reward_claim_count(
+    tickets: usize,
     reward_value: Value,
     reward_pool: Value,
-    gas_prices: GasPrices,
-    ledger_mmr: &CommitmentMmr,
-    tickets: &[(UnsecuredZkKey, ClaimPowRewardOp)],
-) -> Result<(SignedOps<Unverified, StandardMode>, usize), PoWError> {
+) -> Result<usize, PoWError> {
     if reward_value == 0 {
         return Err(PoWError::RewardsDisabled);
     }
-    let context = OpsContext {
-        gas_context: OpsGasContext::new(HashMap::new(), gas_prices),
-    };
-
-    // Take as many claims as the pool can fund, the op budget allows, and a
-    // Blend payload can carry.
     let claim_count = tickets
-        .len()
         .min((reward_pool / reward_value) as usize)
         .min(max_claims_by_ops())
         .min(*MAX_CLAIMS_BY_PAYLOAD_SIZE);
     if claim_count == 0 {
         return Err(PoWError::RewardPoolExhausted);
     }
-    let tickets = &tickets[..claim_count];
-    let claims: Vec<ClaimPowRewardOp> = tickets.iter().map(|(_, claim)| claim.clone()).collect();
+    Ok(claim_count)
+}
 
-    // Reconstruct the note each claim mints and the nullifier its key spends
-    // it with, so the transfers can spend them.
-    let reward_notes: Vec<Note> = claims
-        .iter()
-        .map(|claim| reward_note(claim, reward_value))
-        .collect();
-    let nullifiers: Vec<NoteNullifier> = reward_notes
-        .iter()
-        .zip(tickets)
-        .map(|(note, (sk, _))| derive_note_nullifier(&note.commitment(), sk.as_fr()))
-        .collect();
+/// Inner builder over plain reward/gas values, so it can be exercised without a
+/// full [`LedgerState`]. See [`build_reward_claim_tx`].
+///
+/// `change_nonces` holds one nonce per transfer group of `claims`, and
+/// `nullifiers` the nullifier of each claim's reward note. The transfers spend
+/// the buffered reward notes against `ledger_root`, the tip ledger set the
+/// buffer extends. Returns the unsigned builder, carrying the opening of every
+/// transfer, and the change notes.
+fn build_reward_claim_tx_inner(
+    claim_address: ZkPublicKey,
+    change_nonces: &[Fr],
+    reward_value: Value,
+    gas_prices: GasPrices,
+    ledger_root: Fr,
+    claims: &[ClaimPowRewardOp],
+    nullifiers: &[NoteNullifier],
+) -> Result<(MantleTxBuilder, Vec<Note>), PoWError> {
+    let context = OpsContext {
+        gas_context: OpsGasContext::new(HashMap::new(), gas_prices),
+    };
 
     // Size the change against the final tx shape, then spread the fee across
     // the transfer outputs. Each transfer's excess is its group's fee share.
-    let fee = estimate_reward_claim_fee(&claims, &nullifiers, claim_address, &context)?;
-    let change_values = change_outputs(&nullifiers, reward_value, fee)?;
+    let fee = estimate_reward_claim_fee(claims, nullifiers, claim_address, &context)?;
+    let change_values = change_outputs(nullifiers, reward_value, fee)?;
     let change_notes: Vec<Note> = change_values
         .iter()
         .enumerate()
@@ -1551,62 +1629,23 @@ async fn build_reward_claim_tx_inner(
         .zip(&change_values)
         .map(|(group, &change)| group.len() as Value * reward_value - change)
         .collect();
-    let transfers = transfer_ops(
-        &nullifiers,
-        &change_notes,
-        ledger_mmr.frontier_root(),
-        &fee_shares,
-    )?;
+    let transfers = transfer_ops(nullifiers, &change_notes, ledger_root, &fee_shares)?
+        .into_iter()
+        .zip(claims.chunks(MAX_TRANSFER_INPUTS).zip(&change_notes))
+        .map(|(transfer, (group, change))| {
+            let opening = ZkTransferOpening {
+                inputs: group
+                    .iter()
+                    .map(|claim| reward_note(claim, reward_value))
+                    .collect(),
+                outputs: vec![*change],
+            };
+            (transfer, opening)
+        })
+        .collect();
 
-    let mantle_tx = push_reward_claim_ops(MantleTxBuilder::new(), &claims, transfers)?.build()?;
-
-    // Walk the groups in tx order over one MMR: the tip ledger set extended
-    // with what the tx buffers before each transfer (every earlier group's
-    // reward notes and change, then its own reward notes).
-    let msg = mantle_tx.hash().to_fr();
-    let mut mmr = ledger_mmr.clone();
-    let mut witnesses = Vec::with_capacity(change_notes.len());
-    for ((group, notes), change) in tickets
-        .chunks(MAX_TRANSFER_INPUTS)
-        .zip(reward_notes.chunks(MAX_TRANSFER_INPUTS))
-        .zip(&change_notes)
-    {
-        let mut paths = Vec::with_capacity(notes.len());
-        for note in notes {
-            let (next, path) = mmr
-                .push_with_paths(note.commitment(), &mut paths)
-                .expect("the commitment MMR has room for the reward notes");
-            mmr = next;
-            paths.push(path);
-        }
-        let inputs: Vec<_> = notes
-            .iter()
-            .zip(group)
-            .zip(paths)
-            .map(|((note, (sk, _)), path)| (*note, *sk.as_fr(), path))
-            .collect();
-        witnesses.push((inputs, *change, mmr.frontier_root()));
-        mmr = mmr
-            .push(change.commitment())
-            .expect("the commitment MMR has room for the change note");
-    }
-
-    // Prove each transfer with the keys owning its input notes, over the
-    // whole tx hash. Proving is CPU-heavy, so run it off the async runtime.
-    let zk_transfers = tokio::task::spawn_blocking(move || {
-        witnesses
-            .iter()
-            .map(|(inputs, change, tx_commitment_root)| {
-                ZkTransferProof::new(prove_transfer(inputs, &[*change], *tx_commitment_root, msg))
-            })
-            .collect::<Vec<_>>()
-    })
-    .await?;
-
-    let ops_proofs = claim_ops_proofs(claim_count, zk_transfers)?;
-    let tx = SignedOps::from_parts(mantle_tx, ops_proofs)?;
-
-    Ok((tx, claim_count))
+    let tx_builder = push_reward_claim_ops(MantleTxBuilder::new(), claims, transfers)?;
+    Ok((tx_builder, change_notes))
 }
 
 /// The reward note a claim mints, as the ledger derives it: the epoch reward
@@ -1645,18 +1684,34 @@ fn transfer_ops(
 
 /// Pushes the interleaved reward-claim ops onto `builder`: for every group of
 /// up to [`MAX_TRANSFER_INPUTS`] claims, the claim ops followed by that group's
-/// transfer. This is where the leaf ops are wrapped into their [`Op`] variants.
+/// transfer with its opening. This is where the leaf ops are wrapped into their
+/// [`Op`] variants.
 fn push_reward_claim_ops(
     mut builder: MantleTxBuilder,
     claims: &[ClaimPowRewardOp],
-    transfers: Vec<TransferOp>,
+    transfers: Vec<(TransferOp, ZkTransferOpening)>,
 ) -> Result<MantleTxBuilder, PoWError> {
-    for (claim_group, transfer) in claims.chunks(MAX_TRANSFER_INPUTS).zip(transfers) {
+    for (claim_group, (transfer, opening)) in claims.chunks(MAX_TRANSFER_INPUTS).zip(transfers) {
         builder = builder
             .extend_ops(claim_group.iter().cloned().map(Op::ClaimPowReward))?
-            .push_op(Op::Transfer(transfer))?;
+            .push_op_with_opening(Op::Transfer(transfer), opening)?;
     }
     Ok(builder)
+}
+
+/// The transfers of a probe transaction, whose openings play no part in its
+/// encoding or gas.
+fn without_openings(transfers: Vec<TransferOp>) -> Vec<(TransferOp, ZkTransferOpening)> {
+    transfers
+        .into_iter()
+        .map(|transfer| {
+            let opening = ZkTransferOpening {
+                inputs: Vec::new(),
+                outputs: Vec::new(),
+            };
+            (transfer, opening)
+        })
+        .collect()
 }
 
 /// The proof list a claim transaction carries, in op order: a `None` proof per
@@ -1715,7 +1770,7 @@ fn change_outputs(
 /// whichever node exits the blend network decodes what it expects.
 async fn publish_reward_claim<BlendService, RuntimeServiceId>(
     blend_api: &BlendServiceApi<BlendService, RuntimeServiceId>,
-    signed_tx: SignedOps<Unverified, StandardMode>,
+    signed_tx: SignedOps<Preverified, StandardMode>,
 ) -> Result<(), PoWError>
 where
     BlendService: BlendServiceData,
@@ -1747,7 +1802,7 @@ fn estimate_reward_claim_fee(
         Fr::ZERO,
         &vec![0; num_groups],
     )?;
-    let fee = push_reward_claim_ops(MantleTxBuilder::new(), claims, transfers)?
+    let fee = push_reward_claim_ops(MantleTxBuilder::new(), claims, without_openings(transfers))?
         .minimum_gas_cost::<MainnetGasProfile>(context)?
         .into_inner();
     Ok(fee)
@@ -1755,21 +1810,25 @@ fn estimate_reward_claim_fee(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, num::NonZeroU64};
+    use std::{
+        collections::{BTreeMap, HashMap},
+        num::NonZeroU64,
+    };
 
     use lb_binary_codec::bincode::SerializeOp as _;
-    use lb_chain_service::Slot;
+    use lb_chain_service::{Epoch, Slot};
     use lb_core::{
         header::HeaderId,
         mantle::{
-            Note, OpProofRef, OpRef, SignedOps, Value,
+            Note, Op, OpProof, OpProofRef, OpRef, SignedOps, Value,
             ledger::verification_mode::StandardMode,
-            note_set::CommitmentMmr,
-            notes::{NoteCommitment, NoteNullifier, derive_note_nonce, derive_note_nullifier},
-            ops::{OpId as _, pow::ClaimPowRewardOp},
+            note_set::{CommitmentMmr, LEDGER_SET},
+            notes::{NoteNullifier, derive_note_nullifier},
+            ops::{NoOpProof, ZkTransferProof, pow::ClaimPowRewardOp},
             traits::{Hashable as _, MantleTx as _},
             transactions::{
-                GasPrices, MAX_OPS_PER_TX, MantleTxBuilder,
+                GasPrices, MAX_OPS_PER_TX, MantleTxBuilder, OpProofs, Ops,
+                builder::ZkTransferOpening,
                 states::Unverified,
                 tx_list::ops::{OpsContext, OpsGasContext},
             },
@@ -1777,14 +1836,19 @@ mod tests {
     };
     use lb_groth16::Fr;
     use lb_key_management_system_keys::keys::{UnsecuredZkKey, ZkPublicKey};
+    use lb_wallet::{
+        KnownNote, KnownNotes, WalletError, WalletState,
+        transaction::{OpWitness, WitnessContext, op_witnesses},
+    };
     use lb_zktransfer::ZkTransferVerifierInput;
 
     use super::{
         AutoClaimSettings, AutoClaimTick, ClaimTarget, MAX_CLAIMS_BY_PAYLOAD_SIZE,
         MAX_PAYLOAD_BODY_SIZE, MAX_TRANSFER_INPUTS, PoWError, PoWServiceState,
         build_reward_claim_tx_inner, change_outputs, claim_tx_size, claimable_rewards_info,
-        estimate_reward_claim_fee, max_claims_by_ops, neediest_target, prune_expired_tickets,
-        push_reward_claim_ops, slot_period_elapsed, transfer_ops,
+        estimate_reward_claim_fee, is_claimable, max_claims_by_ops, neediest_target,
+        prune_expired_tickets, push_reward_claim_ops, reward_claim_count, reward_note,
+        slot_period_elapsed, transfer_ops, wallet_holds_claim_address, without_openings,
     };
     use crate::tickets::WinningTicket;
 
@@ -1804,16 +1868,133 @@ mod tests {
             .collect()
     }
 
-    /// A ticket whose claim is owned by the ticket's own key.
-    fn ticket() -> (UnsecuredZkKey, ClaimPowRewardOp) {
-        let secret_key = UnsecuredZkKey::from_rng(&mut rand::thread_rng());
-        let claim = ClaimPowRewardOp {
+    /// The wallet reward key of mining run `run`.
+    fn reward_key(run: u64) -> UnsecuredZkKey {
+        UnsecuredZkKey::new(Fr::from(7 + run))
+    }
+
+    /// The secret key of the reward key `public_key` of one of the runs.
+    fn secret_key_of(public_key: &ZkPublicKey) -> UnsecuredZkKey {
+        (0..2)
+            .map(reward_key)
+            .find(|key| key.to_public_key() == *public_key)
+            .expect("the key of a mining run")
+    }
+
+    /// A ticket paying the reward key of the first mining run.
+    fn ticket() -> ClaimPowRewardOp {
+        ticket_of_run(0)
+    }
+
+    /// A ticket paying the reward key of mining run `run`.
+    fn ticket_of_run(run: u64) -> ClaimPowRewardOp {
+        ClaimPowRewardOp {
             epoch_nonce: *ZkPublicKey::zero().as_fr(),
             block_hash: [0u8; 32],
-            public_key: secret_key.to_public_key(),
+            public_key: reward_key(run).to_public_key(),
             nonce: Fr::from(rand::random::<u64>()),
+        }
+    }
+
+    /// The opening the wallet holds for `note` of a reward key.
+    fn known_note(note: Note) -> KnownNote {
+        KnownNote {
+            note,
+            note_set: LEDGER_SET,
+            nullifier: derive_note_nullifier(
+                &note.commitment(),
+                secret_key_of(&note.public_key).as_fr(),
+            ),
+        }
+    }
+
+    /// The nullifiers the wallet derives for the reward notes of `claims`.
+    fn nullifiers(claims: &[ClaimPowRewardOp], reward_value: Value) -> Vec<NoteNullifier> {
+        claims
+            .iter()
+            .map(|claim| known_note(reward_note(claim, reward_value)).nullifier)
+            .collect()
+    }
+
+    /// The ledger set of a wallet started from the `genesis` notes.
+    fn ledger_mmr(genesis: &[Note]) -> CommitmentMmr {
+        genesis.iter().fold(CommitmentMmr::new(), |mmr, note| {
+            mmr.push(note.commitment()).unwrap()
+        })
+    }
+
+    /// Builds the claim transaction of `claims` the way
+    /// [`super::build_reward_claim_tx`] does, with the reward notes the wallet
+    /// would import, against the ledger set of a wallet started from `genesis`.
+    fn build(
+        claim_address: ZkPublicKey,
+        reward_value: Value,
+        gas_prices: GasPrices,
+        genesis: &[Note],
+        claims: &[ClaimPowRewardOp],
+    ) -> Result<(MantleTxBuilder, Vec<Note>), PoWError> {
+        build_reward_claim_tx_inner(
+            claim_address,
+            &change_nonces(claims.len()),
+            reward_value,
+            gas_prices,
+            ledger_mmr(genesis).frontier_root(),
+            claims,
+            &nullifiers(claims, reward_value),
+        )
+    }
+
+    /// The witnesses the wallet derives for the transfers of `ops`, from a
+    /// wallet started from `genesis` that imported the reward notes.
+    fn wallet_witnesses(
+        ops: &Ops,
+        openings: &BTreeMap<usize, ZkTransferOpening>,
+        reward_value: Value,
+        genesis: &[Note],
+    ) -> Result<Vec<OpWitness>, WalletError> {
+        let known: KnownNotes = openings
+            .values()
+            .flat_map(|opening| opening.inputs.iter())
+            .map(|note| (note.commitment(), known_note(*note)))
+            .collect();
+        let state = WalletState::from_genesis(&known, genesis, &[], Epoch::new(0))?;
+        let context = WitnessContext {
+            channel_note_sets: HashMap::new(),
+            pow_epoch_reward: reward_value,
         };
-        (secret_key, claim)
+        op_witnesses(&state, &known, ops, openings, &context, ops.hash().to_fr())
+    }
+
+    /// Signs `tx_builder` as the wallet does: the witnesses its transfers get
+    /// from the wallet, proven with the reward keys of their signers.
+    fn sign_locally(
+        tx_builder: MantleTxBuilder,
+        reward_value: Value,
+        genesis: &[Note],
+    ) -> SignedOps<Unverified, StandardMode> {
+        let openings = tx_builder.openings();
+        let ops = tx_builder.build().unwrap();
+        let mut zk_proofs: HashMap<usize, ZkTransferProof> =
+            wallet_witnesses(&ops, &openings, reward_value, genesis)
+                .unwrap()
+                .into_iter()
+                .map(|witness| {
+                    let keys: Vec<UnsecuredZkKey> =
+                        witness.signers.iter().map(secret_key_of).collect();
+                    let proof = UnsecuredZkKey::prove_transfer(&keys, witness.witness).unwrap();
+                    (witness.op_index, ZkTransferProof::new(proof))
+                })
+                .collect();
+        let mut proofs = OpProofs::empty();
+        for (op_index, op) in ops.iter().enumerate() {
+            let proof = match op {
+                Op::ClaimPowReward(_) => OpProof::None(NoOpProof),
+                Op::Transfer(_) => OpProof::ZkTransfer(zk_proofs.remove(&op_index).unwrap()),
+                _ => panic!("a claim tx only holds claims and transfers"),
+            };
+            proofs.try_push(proof).unwrap();
+        }
+        SignedOps::from_parts(ops, proofs).unwrap()
     }
 
     fn context() -> OpsContext {
@@ -2034,7 +2215,7 @@ mod tests {
 
     #[test]
     fn push_reward_claim_ops_interleaves_claims_and_transfers() {
-        let claims: Vec<_> = std::iter::repeat_with(|| ticket().1).take(6).collect();
+        let claims: Vec<_> = std::iter::repeat_with(ticket).take(6).collect();
         let notes: Vec<NoteNullifier> = (0u8..6).map(nullifier).collect();
         let changes: Vec<Note> = change_outputs(&notes, 100, 0)
             .unwrap()
@@ -2043,10 +2224,11 @@ mod tests {
             .collect();
         let transfers = transfer_ops(&notes, &changes, Fr::from(2u64), &[0, 0]).unwrap();
 
-        let tx = push_reward_claim_ops(MantleTxBuilder::new(), &claims, transfers)
-            .unwrap()
-            .build()
-            .unwrap();
+        let tx =
+            push_reward_claim_ops(MantleTxBuilder::new(), &claims, without_openings(transfers))
+                .unwrap()
+                .build()
+                .unwrap();
         let ops = tx.op_refs();
 
         assert_eq!(ops.len(), 8); // 6 claims + 2 transfers
@@ -2066,37 +2248,33 @@ mod tests {
 
     #[test]
     fn estimate_reward_claim_fee_is_positive_with_nonzero_gas_prices() {
-        let claims = vec![ticket().1];
+        let claims = vec![ticket()];
         let notes = vec![nullifier(0)];
         let fee =
             estimate_reward_claim_fee(&claims, &notes, ZkPublicKey::zero(), &context()).unwrap();
         assert!(fee > 0);
     }
 
-    #[tokio::test]
-    async fn build_reward_claim_tx_produces_a_claim_and_signed_transfer() {
-        let (secret_key, claim) = ticket();
-        let reward_note = Note::new(
-            REWARD,
-            derive_note_nonce(&claim.op_id(), 0, REWARD, &claim.public_key),
-            claim.public_key,
-        );
-        let expected_nullifier =
-            derive_note_nullifier(&reward_note.commitment(), secret_key.as_fr());
+    #[test]
+    fn build_reward_claim_tx_produces_a_claim_and_signed_transfer() {
+        let claim = ticket();
+        let claim_address = ZkPublicKey::new(Fr::from(3u64));
 
-        let (tx, claimed) = build_reward_claim_tx_inner(
-            ZkPublicKey::zero(),
-            &change_nonces(1),
+        let (tx_builder, change_notes) = build(
+            claim_address,
             REWARD,
-            POOL,
             GasPrices::new(1, 1),
-            &CommitmentMmr::new(),
-            &[(secret_key, claim)],
+            &[],
+            core::slice::from_ref(&claim),
         )
-        .await
         .unwrap();
+        // The transfer spends the reward note to the change of the claim address.
+        let opening = &tx_builder.openings()[&1];
+        assert_eq!(opening.inputs, vec![reward_note(&claim, REWARD)]);
+        assert_eq!(opening.outputs, change_notes);
+        assert_eq!(change_notes[0].public_key, claim_address);
+        let tx = sign_locally(tx_builder, REWARD, &[]);
 
-        assert_eq!(claimed, 1);
         assert_within_tx_limits(&tx);
         let ops = tx.op_refs();
         assert_eq!(ops.len(), 2);
@@ -2104,7 +2282,7 @@ mod tests {
         let OpRef::Transfer(transfer) = &ops[1] else {
             panic!("second op should be a transfer");
         };
-        assert_eq!(transfer.inputs.to_vec(), vec![expected_nullifier]);
+        assert_eq!(transfer.inputs.to_vec(), nullifiers(&[claim], REWARD));
 
         // A `None` proof for the claim, a `ZkTransfer` for the transfer.
         let proofs = tx.op_proof_refs();
@@ -2113,117 +2291,156 @@ mod tests {
         assert!(matches!(proofs[1], OpProofRef::ZkTransfer(_)));
     }
 
-    #[tokio::test]
-    async fn reward_claim_transfer_spends_the_buffered_reward_notes() {
+    #[test]
+    fn the_wallet_proves_the_reward_claim_transfers_of_two_mining_runs() {
         const REWARD: Value = 1_000_000_000_000_000;
-        let tickets = vec![ticket(), ticket()];
-        let ledger_mmr = CommitmentMmr::new()
-            .push(NoteCommitment(Fr::from(9u64)))
-            .unwrap();
+        // Tickets of two mining runs, keys A, A, B, B | B across the two groups.
+        let claims = vec![
+            ticket_of_run(0),
+            ticket_of_run(0),
+            ticket_of_run(1),
+            ticket_of_run(1),
+            ticket_of_run(1),
+        ];
+        let genesis = [Note::new(
+            5,
+            Fr::from(9u64),
+            ZkPublicKey::new(Fr::from(4u64)),
+        )];
         let claim_address = ZkPublicKey::new(Fr::from(3u64));
 
-        let (tx, claimed) = build_reward_claim_tx_inner(
+        let (tx_builder, change_notes) = build(
             claim_address,
-            &[Fr::from(11u64)],
             REWARD,
-            10 * REWARD,
             GasPrices::default(),
-            &ledger_mmr,
-            &tickets,
+            &genesis,
+            &claims,
         )
-        .await
         .unwrap();
-        assert_eq!(claimed, 2);
+        let tx = sign_locally(tx_builder, REWARD, &genesis);
 
+        // The spec's tx_cm_root of each transfer: the ledger set extended with
+        // the buffer before it, the reward notes of its claims and the earlier
+        // changes.
+        let reward = |claim: &ClaimPowRewardOp| reward_note(claim, REWARD).commitment();
+        let first_root = claims[..4].iter().fold(ledger_mmr(&genesis), |mmr, claim| {
+            mmr.push(reward(claim)).unwrap()
+        });
+        let second_root = first_root
+            .push(change_notes[0].commitment())
+            .unwrap()
+            .push(reward(&claims[4]))
+            .unwrap();
         let ops = tx.op_refs();
-        assert_eq!(ops.len(), 3);
-        let OpRef::Transfer(transfer) = &ops[2] else {
-            panic!("the claims are followed by their transfer")
-        };
-        assert_eq!(transfer.commitment_merkle_root, ledger_mmr.frontier_root());
-        let reward_note = |(sk, claim): &(UnsecuredZkKey, ClaimPowRewardOp)| {
-            Note::new(
-                REWARD,
-                derive_note_nonce(&claim.op_id(), 0, REWARD, &sk.to_public_key()),
-                sk.to_public_key(),
+        let proofs = tx.op_proof_refs();
+        for (op_index, root) in [(4, &first_root), (6, &second_root)] {
+            let OpRef::Transfer(transfer) = &ops[op_index] else {
+                panic!("the claims of a group are followed by their transfer")
+            };
+            assert_eq!(
+                transfer.commitment_merkle_root,
+                ledger_mmr(&genesis).frontier_root()
+            );
+            let public = ZkTransferVerifierInput::new(
+                &transfer
+                    .inputs
+                    .iter()
+                    .map(|nullifier| nullifier.0)
+                    .collect::<Vec<_>>(),
+                &transfer
+                    .outputs
+                    .iter()
+                    .map(|commitment| commitment.0)
+                    .collect::<Vec<_>>(),
+                transfer.excess_value,
+                root.frontier_root(),
+                tx.hash().to_fr(),
             )
-        };
-        let tx_commitment_root = ledger_mmr
-            .push(reward_note(&tickets[0]).commitment())
-            .unwrap()
-            .push(reward_note(&tickets[1]).commitment())
-            .unwrap()
-            .frontier_root();
-        let public = ZkTransferVerifierInput::new(
-            &transfer
-                .inputs
-                .iter()
-                .map(|nullifier| nullifier.0)
-                .collect::<Vec<_>>(),
-            &transfer
-                .outputs
-                .iter()
-                .map(|commitment| commitment.0)
-                .collect::<Vec<_>>(),
-            transfer.excess_value,
-            tx_commitment_root,
-            tx.hash().to_fr(),
-        )
-        .unwrap();
-        let OpProofRef::ZkTransfer(proof) = &tx.op_proof_refs()[2] else {
-            panic!("the transfer carries a ZkTransfer")
-        };
-        assert!(lb_zktransfer::verify(proof.as_proof(), &public).unwrap());
+            .unwrap();
+            let OpProofRef::ZkTransfer(proof) = &proofs[op_index] else {
+                panic!("the transfer carries a ZkTransfer")
+            };
+            assert!(lb_zktransfer::verify(proof.as_proof(), &public).unwrap());
+        }
     }
 
-    #[tokio::test]
-    async fn build_reward_claim_tx_errors_when_rewards_disabled() {
-        let result = build_reward_claim_tx_inner(
+    #[test]
+    fn only_tickets_of_known_blocks_and_wallet_keys_are_claimable() {
+        let ticket = winning_ticket(10);
+        let known_block = |hash: &[u8; 32]| *hash == ticket.claim.block_hash;
+        let reward_key = ticket.claim.public_key;
+        assert!(is_claimable(&ticket, known_block, &[reward_key]));
+        // A reward key the wallet lost cannot spend the reward note.
+        assert!(!is_claimable(&ticket, known_block, &[]));
+        // An anchor block off this branch makes the claim invalid.
+        assert!(!is_claimable(&ticket, |_| false, &[reward_key]));
+    }
+
+    #[test]
+    fn a_claim_only_pays_a_key_of_the_wallet() {
+        let held = ZkPublicKey::new(Fr::from(3u64));
+        let foreign = ZkPublicKey::new(Fr::from(4u64));
+        assert!(wallet_holds_claim_address(&[held], held).is_ok());
+        assert!(matches!(
+            wallet_holds_claim_address(&[held], foreign),
+            Err(PoWError::ClaimAddressNotInWallet(key)) if key == foreign
+        ));
+    }
+
+    #[test]
+    fn the_wallet_refuses_a_reward_claim_built_on_another_ledger_root() {
+        let claims = vec![ticket()];
+        let genesis = [Note::new(
+            5,
+            Fr::from(9u64),
+            ZkPublicKey::new(Fr::from(4u64)),
+        )];
+        // Built against an empty ledger set, while the wallet holds `genesis`.
+        let (tx_builder, _) = build(
             ZkPublicKey::zero(),
-            &change_nonces(1),
-            0,
-            POOL,
+            REWARD,
             GasPrices::new(1, 1),
-            &CommitmentMmr::new(),
-            &[ticket()],
+            &[],
+            &claims,
         )
-        .await;
+        .unwrap();
+        let openings = tx_builder.openings();
+        let ops = tx_builder.build().unwrap();
+        assert!(matches!(
+            wallet_witnesses(&ops, &openings, REWARD, &genesis),
+            Err(WalletError::UnknownRoot { op_index: 1 })
+        ));
+    }
+
+    #[test]
+    fn reward_claim_count_errors_when_rewards_disabled() {
+        let result = reward_claim_count(1, 0, POOL);
         assert!(matches!(result, Err(PoWError::RewardsDisabled)));
     }
 
-    #[tokio::test]
-    async fn build_reward_claim_tx_errors_when_pool_cannot_fund_a_claim() {
+    #[test]
+    fn reward_claim_count_errors_when_pool_cannot_fund_a_claim() {
         // Pool below a single reward -> nothing fundable.
-        let result = build_reward_claim_tx_inner(
-            ZkPublicKey::zero(),
-            &change_nonces(1),
-            REWARD,
-            REWARD - 1,
-            GasPrices::new(1, 1),
-            &CommitmentMmr::new(),
-            &[ticket()],
-        )
-        .await;
+        let result = reward_claim_count(1, REWARD, REWARD - 1);
         assert!(matches!(result, Err(PoWError::RewardPoolExhausted)));
     }
 
-    #[tokio::test]
-    async fn build_reward_claim_tx_caps_claims_to_the_reward_pool() {
+    #[test]
+    fn build_reward_claim_tx_caps_claims_to_the_reward_pool() {
         // Pool funds only two claims, but five tickets are offered.
         let tickets: Vec<_> = std::iter::repeat_with(ticket).take(5).collect();
-        let (tx, claimed) = build_reward_claim_tx_inner(
-            ZkPublicKey::zero(),
-            &change_nonces(tickets.len()),
-            REWARD,
-            2 * REWARD,
-            GasPrices::new(1, 1),
-            &CommitmentMmr::new(),
-            &tickets,
-        )
-        .await
-        .unwrap();
-
+        let claimed = reward_claim_count(tickets.len(), REWARD, 2 * REWARD).unwrap();
         assert_eq!(claimed, 2); // only two of the five tickets fit the pool
+        let (tx_builder, _) = build(
+            ZkPublicKey::zero(),
+            REWARD,
+            GasPrices::new(1, 1),
+            &[],
+            &tickets[..claimed],
+        )
+        .unwrap();
+        let tx = sign_locally(tx_builder, REWARD, &[]);
+
         assert_within_tx_limits(&tx);
         let ops = tx.op_refs();
         let claims = ops
@@ -2238,26 +2455,15 @@ mod tests {
     /// pool, which cannot fall until earlier claims settle. Walking the same
     /// arithmetic the loop performs shows it converging instead of
     /// re-authorising the same funds every round.
-    #[tokio::test]
-    async fn successive_claims_draw_the_pool_down_to_exhaustion() {
+    #[test]
+    fn successive_claims_draw_the_pool_down_to_exhaustion() {
         // Pool funds three claims in total; each round is capped at one because
         // only one ticket is offered at a time.
         let mut available_pool = 3 * REWARD;
         let mut rounds = 0;
         loop {
-            let tickets = vec![ticket()];
-            match build_reward_claim_tx_inner(
-                ZkPublicKey::zero(),
-                &change_nonces(tickets.len()),
-                REWARD,
-                available_pool,
-                GasPrices::new(1, 1),
-                &CommitmentMmr::new(),
-                &tickets,
-            )
-            .await
-            {
-                Ok((_, claimed)) => {
+            match reward_claim_count(1, REWARD, available_pool) {
+                Ok(claimed) => {
                     assert_eq!(claimed, 1);
                     available_pool -= claimed as u64 * REWARD;
                     rounds += 1;
@@ -2275,28 +2481,18 @@ mod tests {
     /// Re-reading the tip each round — what the loop did before — never
     /// converges, because a published claim cannot change the tip until it
     /// settles. This pins the behaviour the drawdown exists to prevent.
-    #[tokio::test]
-    async fn a_pool_that_never_falls_would_authorise_claims_forever() {
+    #[test]
+    fn a_pool_that_never_falls_would_authorise_claims_forever() {
         let stale_pool = 3 * REWARD;
         for _ in 0..10 {
-            let tickets = vec![ticket()];
-            let (_, claimed) = build_reward_claim_tx_inner(
-                ZkPublicKey::zero(),
-                &change_nonces(tickets.len()),
-                REWARD,
-                stale_pool,
-                GasPrices::new(1, 1),
-                &CommitmentMmr::new(),
-                &tickets,
-            )
-            .await
-            .expect("a stale pool keeps funding claims");
+            let claimed = reward_claim_count(1, REWARD, stale_pool)
+                .expect("a stale pool keeps funding claims");
             assert_eq!(claimed, 1);
         }
     }
 
-    #[tokio::test]
-    async fn build_reward_claim_tx_caps_claims_to_what_a_blend_payload_carries() {
+    #[test]
+    fn build_reward_claim_tx_caps_claims_to_what_a_blend_payload_carries() {
         // More tickets and pool room than any cap allows. The payload budget
         // is the tightest of the three, so it is the one that binds, and the
         // resulting tx must fit the payload a claim is published in.
@@ -2306,19 +2502,19 @@ mod tests {
             "the payload budget is expected to bind before the op budget"
         );
         let tickets: Vec<_> = std::iter::repeat_with(ticket).take(cap + 50).collect();
-        let (tx, claimed) = build_reward_claim_tx_inner(
-            ZkPublicKey::zero(),
-            &change_nonces(tickets.len()),
-            REWARD,
-            POOL, // POOL / REWARD = 1000 > cap, so the pool does not bind
-            GasPrices::new(1, 1),
-            &CommitmentMmr::new(),
-            &tickets,
-        )
-        .await
-        .unwrap();
-
+        // POOL / REWARD = 1000 > cap, so the pool does not bind
+        let claimed = reward_claim_count(tickets.len(), REWARD, POOL).unwrap();
         assert_eq!(claimed, cap);
+        let (tx_builder, _) = build(
+            ZkPublicKey::zero(),
+            REWARD,
+            GasPrices::new(1, 1),
+            &[],
+            &tickets[..claimed],
+        )
+        .unwrap();
+        let tx = sign_locally(tx_builder, REWARD, &[]);
+
         assert_within_tx_limits(&tx);
         let ops = tx.op_refs();
         let claims = ops
@@ -2344,21 +2540,19 @@ mod tests {
     /// and do not relax this test. A probe that over-estimates needlessly
     /// shrinks every batch, and one that under-estimates puts the node back to
     /// building claims Blend refuses to carry.
-    #[tokio::test]
-    async fn claim_tx_size_matches_a_signed_transaction() {
+    #[test]
+    fn claim_tx_size_matches_a_signed_transaction() {
         for claims in [1, 2, MAX_TRANSFER_INPUTS, MAX_TRANSFER_INPUTS + 1] {
             let tickets: Vec<_> = std::iter::repeat_with(ticket).take(claims).collect();
-            let (tx, _) = build_reward_claim_tx_inner(
+            let (tx_builder, _) = build(
                 ZkPublicKey::zero(),
-                &change_nonces(tickets.len()),
                 REWARD,
-                POOL,
                 GasPrices::new(1, 1),
-                &CommitmentMmr::new(),
+                &[],
                 &tickets,
             )
-            .await
             .unwrap();
+            let tx = sign_locally(tx_builder, REWARD, &[]);
             assert_eq!(
                 tx.to_bytes().unwrap().len() as u64,
                 claim_tx_size(claims).unwrap(),
@@ -2376,12 +2570,10 @@ mod tests {
 
     /// A winning ticket anchored to a block at `block_slot`.
     fn winning_ticket(block_slot: u64) -> WinningTicket {
-        let (secret_key, claim) = ticket();
         WinningTicket {
             tip: HeaderId::from([0u8; 32]),
             block_slot: Slot::new(block_slot),
-            secret_key,
-            claim,
+            claim: ticket(),
         }
     }
 

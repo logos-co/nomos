@@ -203,7 +203,7 @@ pub enum WalletMsg {
     ImportNote {
         note: Note,
         note_set: NoteSetIndex,
-        resp_tx: Sender<Result<(), WalletServiceError>>,
+        resp_tx: Sender<Result<KnownNote, WalletServiceError>>,
     },
     GetKnownAddresses {
         resp_tx: Sender<Result<Vec<ZkPublicKey>, WalletServiceError>>,
@@ -1114,10 +1114,7 @@ where
         wallet: &Wallet,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     ) -> Result<TipResponse<Vec<AgedNote>>, WalletServiceError> {
-        Self::leader_notes_with(tip, wallet, cryptarchia, |state| {
-            state.aged_notes_at(epoch)
-        })
-        .await
+        Self::leader_notes_with(tip, wallet, cryptarchia, |state| state.aged_notes_at(epoch)).await
     }
 
     async fn leader_notes_with(
@@ -1208,7 +1205,7 @@ where
         note_set: NoteSetIndex,
         state: &mut ServiceState<'_>,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<(), WalletServiceError> {
+    ) -> Result<KnownNote, WalletServiceError> {
         let key_id = state
             .wallet()
             .known_keys()
@@ -1217,7 +1214,7 @@ where
             .ok_or(WalletServiceError::UnknownKey(note.public_key))?;
         let known_note = Self::known_note(kms, key_id, note, note_set).await?;
         state.add_known_notes([known_note]);
-        Ok(())
+        Ok(known_note)
     }
 
     // Registers the change note `funded` returns to a key of the wallet.
