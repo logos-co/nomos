@@ -8,6 +8,7 @@ use hex::ToHex as _;
 use tokio::time::interval;
 
 use super::*;
+use crate::cucumber::utils::lgo_to_units;
 
 const BLEND_CHURN_TASK: &str = "epoch-driven Blend provider churn";
 const BLEND_CHURN_POLL_INTERVAL: Duration = Duration::from_millis(250);
@@ -505,6 +506,7 @@ async fn step_send_multiple_transactions_to_blend_core_zk_key(
     sender_wallet_name: String,
     receiver_node_name: String,
 ) -> StepResult {
+    let output_value = lgo_to_units(output_value);
     let receiver_blend_zk_pk = blend_zk_pk_for_node(world, &receiver_node_name)?;
     let sender_node_name = world.resolve_wallet(&sender_wallet_name)?.node_name;
     let sender_node_client = world

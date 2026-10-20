@@ -312,7 +312,7 @@ async fn step_record_wallet_balance(
 
     info!(
         target: TARGET,
-        "Recorded balance of wallet `{wallet_name}` as `{baseline_label}` = {value} LGO"
+        "Recorded balance of wallet `{wallet_name}` as `{baseline_label}` = {value} units"
     );
     Ok(())
 }
@@ -492,8 +492,8 @@ async fn step_wallet_balance_increased_by_claim_reward(
         if latest == expected {
             info!(
                 target: TARGET,
-                "Wallet `{wallet_name}` grew from {baseline} to {latest} LGO, exactly the \
-                {reward} LGO credited by claim `{claim_alias}`"
+                "Wallet `{wallet_name}` grew from {baseline} to {latest} units, exactly the \
+                {reward} units credited by claim `{claim_alias}`"
             );
             return Ok(());
         }

@@ -2,6 +2,7 @@ use std::{collections::HashSet, num::NonZero, path::PathBuf, time::Duration};
 
 use futures::StreamExt as _;
 use lb_common_http_client::ProcessedBlockEvent;
+use lb_core::mantle::transactions::UNITS_PER_LGO;
 use lb_groth16::fr_to_bytes;
 use lb_http_api_common::bodies::wallet::balance::WalletBalanceResponseBody;
 use lb_key_management_system_service::keys::ZkPublicKey;
@@ -156,7 +157,7 @@ async fn setup_test_nodes(
 }
 
 fn leader_funding_wallet_config() -> (WalletConfig, ZkPublicKey) {
-    let account = WalletAccount::deterministic(42, 100_000, false)
+    let account = WalletAccount::deterministic(42, 100_000 * UNITS_PER_LGO, false)
         .expect("leader funding account should be valid");
     let funding_pk = account.public_key();
     let accounts = (0..3)
@@ -164,7 +165,7 @@ fn leader_funding_wallet_config() -> (WalletConfig, ZkPublicKey) {
             WalletAccount::new(
                 format!("leader-funding-{idx}"),
                 account.secret_key.clone(),
-                100_000,
+                100_000 * UNITS_PER_LGO,
                 false,
             )
             .expect("leader funding account should be valid")

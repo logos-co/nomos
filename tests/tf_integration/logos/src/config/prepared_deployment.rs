@@ -89,6 +89,7 @@ mod tests {
         notes::derive_note_nullifier,
         ops::OpRef,
         traits::{GenesisTx as _, MantleTx as _},
+        transactions::UNITS_PER_LGO,
     };
     use lb_key_management_system_service::keys::Key;
     use lb_libp2p::identity::ed25519;
@@ -105,7 +106,7 @@ mod tests {
 
     #[test]
     fn prepared_network_survives_native_rendering() {
-        let wallet = WalletAccount::deterministic(0, 500_000, false).unwrap();
+        let wallet = WalletAccount::deterministic(0, 500_000 * UNITS_PER_LGO, false).unwrap();
         let prepared = DeploymentBuilder::new(TopologyConfig::with_node_numbers(2))
             .with_wallet_config(WalletConfig::new(vec![wallet.clone()]))
             .prepare()
@@ -129,7 +130,7 @@ mod tests {
                     .find(|note| note.public_key == key.to_public_key())
                     .unwrap()
                     .value,
-                2_500_000
+                2_500_000 * UNITS_PER_LGO
             );
         }
         let declarations = network

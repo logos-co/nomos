@@ -455,7 +455,7 @@ fn log_available_utxos(available_utxos: &WalletUtxos, wallet_name: &str) {
     if let Some(wallet_available) = available_utxos.get(wallet_name) {
         info!(
             target: TARGET,
-            "Wallet `{wallet_name}` has {} available UTXOs with total value of {} LGO",
+            "Wallet `{wallet_name}` has {} available UTXOs with total value of {} units",
             wallet_available.len(), wallet_available.iter()
                 .map(|utxo| utxo.note.value)
                 .sum::<u64>()

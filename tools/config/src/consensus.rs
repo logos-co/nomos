@@ -11,7 +11,7 @@ use lb_core::{
             ChannelId, MsgId,
             inscribe::{ChannelSteps, Inscription, InscriptionOp},
         },
-        transactions::{Distribution, GenesisAllocation},
+        transactions::{Distribution, GenesisAllocation, UNITS_PER_LGO},
     },
     sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
 };
@@ -33,11 +33,11 @@ const BLEND_KEY_PREFIX: &[u8] = b"bn";
 const SDP_KEY_PREFIX: &[u8] = b"sdp";
 const KEY_MATERIAL_LEN: usize = 16;
 
-const REGULAR_NOTE_VALUE: u64 = 100_000;
+const REGULAR_NOTE_VALUE: u64 = 100_000 * UNITS_PER_LGO;
 const BLEND_NOTE_VALUE: u64 = 1;
 /// Funds SDP declare/activity transaction fees at non-zero gas prices; an
-/// activity transaction costs roughly 400-1000 at genesis prices.
-const DEFAULT_SDP_FUNDING_VALUE_PER_NODE: u64 = 10_000;
+/// activity transaction costs roughly 400-1000 LGO at genesis prices.
+const DEFAULT_SDP_FUNDING_VALUE_PER_NODE: u64 = 10_000 * UNITS_PER_LGO;
 const DEFAULT_SDP_FUNDING_NOTES_PER_NODE: usize = 1;
 
 /// Test-tool mirror of the genesis transfer-output bound.
@@ -524,10 +524,13 @@ mod tests {
         let material = create_base_consensus_material_with_additional_wallet_outputs(&ids, 0);
 
         let outputs = sdp_outputs(&material);
-        assert_eq!(SdpFundingConfig::default().total_value_per_node, 10_000);
+        assert_eq!(
+            SdpFundingConfig::default().total_value_per_node,
+            10_000 * UNITS_PER_LGO
+        );
         assert_eq!(SdpFundingConfig::default().target_notes_per_node, 1);
         assert_eq!(outputs.len(), ids.len());
-        assert!(outputs.iter().all(|note| note.value == 10_000));
+        assert!(outputs.iter().all(|note| note.value == 10_000 * UNITS_PER_LGO));
     }
 
     #[test]

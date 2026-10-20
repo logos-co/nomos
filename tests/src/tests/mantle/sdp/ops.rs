@@ -12,7 +12,7 @@ use std::{
 use lb_chain_service::Epoch;
 use lb_common_http_client::Error;
 use lb_core::{
-    mantle::Value,
+    mantle::{Value, transactions::UNITS_PER_LGO},
     sdp::{Declaration, DeclarationId, Locator, ServiceType},
 };
 use lb_node::config::{
@@ -265,7 +265,8 @@ async fn start_sdp_manual_cluster(
     let slots_per_epoch = Arc::new(AtomicU64::new(0));
     let min_stake = Arc::new(AtomicU64::new(0));
     let funding_wallet =
-        WalletAccount::deterministic(0, 2_000_000, false).expect("funding wallet should build");
+        WalletAccount::deterministic(0, 2_000_000 * UNITS_PER_LGO, false)
+            .expect("funding wallet should build");
 
     let spare_wallet = WalletAccount::deterministic(1, 100, false)
         .expect("spare service-note wallet should build");

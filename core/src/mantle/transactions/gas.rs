@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::mantle::gas::GasPrice;
 
+/// Units of `TokenValue` in 1 LGO
+pub const UNITS_PER_LGO: u64 = 1_000_000_000;
+
 /// Initial storage gas price at genesis
 ///
 /// [Spec](https://lip.logos.co/blockchain/raw/storage-markets.html):

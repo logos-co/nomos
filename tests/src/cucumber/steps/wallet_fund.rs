@@ -32,6 +32,7 @@ use crate::{
     cucumber::{
         error::{StepError, StepResult},
         steps::TARGET,
+        utils::lgo_to_units,
         world::CucumberWorld,
     },
 };
@@ -76,7 +77,7 @@ async fn fund_and_submit_payment(
     let client = world.resolve_node_http_client(node_name)?;
 
     // The receiving test wallet adopts the note from its recorded opening.
-    let receiver_note = Note::new(amount, random_nonce(), receiver_pk);
+    let receiver_note = Note::new(lgo_to_units(amount), random_nonce(), receiver_pk);
     record_note_openings([receiver_note]);
     let tx_builder = MantleTxBuilder::new()
         .add_ledger_output(receiver_note)

@@ -372,9 +372,9 @@ pub async fn wait_for_wallet_output_state(
 
         if start.elapsed() >= time_out {
             let msg = format!(
-                "Step `{step}` error: wallet '{wallet_name}/{}' has `outputs/LGO` = `{coin_count}/ \
-                {value}`, expected `outputs/LGO` >= `{min_coin_count:?}/{min_token_value:?}` \
-                or `outputs/LGO` <= `{max_coin_count:?}/{max_token_value:?}`",
+                "Step `{step}` error: wallet '{wallet_name}/{}' has `outputs/units` = `{coin_count}/ \
+                {value}`, expected `outputs/units` >= `{min_coin_count:?}/{min_token_value:?}` \
+                or `outputs/units` <=`{max_coin_count:?}/{max_token_value:?}`",
                 wallet.node_name,
                 coin_count = balance.output_count,
                 value = balance.value,

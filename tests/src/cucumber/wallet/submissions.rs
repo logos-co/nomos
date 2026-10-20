@@ -1122,7 +1122,7 @@ pub async fn create_and_submit_transaction_hashes_with_utxo_cache(
             if is_truthy_env(CUCUMBER_VERBOSE_CONSOLE) {
                 info!(
                     target: TARGET,
-                    "Wallet `{sender_wallet_name}` submitted transaction {} total value {} LGO successfully",
+                    "Wallet `{sender_wallet_name}` submitted transaction {} total value {} units successfully",
                      tx_hash_to_hex(&tx_hash),
                     receivers.iter().map(|(_, value)| value).sum::<u64>()
                 );
@@ -1148,7 +1148,7 @@ pub async fn create_and_submit_transaction_hashes_with_utxo_cache(
                 if is_truthy_env(CUCUMBER_VERBOSE_CONSOLE) {
                     info!(
                         target: TARGET,
-                        "Wallet `{sender_wallet_name}` submitted transaction {} total value {} LGO successfully",
+                        "Wallet `{sender_wallet_name}` submitted transaction {} total value {} units successfully",
                          tx_hash_to_hex(&tx_hash),
                         receivers.iter().map(|(_, value)| value).sum::<u64>(),
                     );
@@ -1936,6 +1936,12 @@ mod cache_removal_tests {
         );
     }
 
+    // The workload amounts below are calibrated for 1 unit per gas, not the
+    // genesis price of 1 LGO per gas.
+    fn unit_gas_prices() -> GasPrices {
+        GasPrices::new(1, 1)
+    }
+
     fn workload_account() -> WalletAccount {
         WalletAccount::deterministic(100, 1_000_000, false)
             .expect("workload test account should build")
@@ -1986,7 +1992,7 @@ mod cache_removal_tests {
             .expect("fee sponsor test account should build");
         let fee_sponsor = WalletFundingSource::new(fee_sponsor_account, fee_sponsor_utxos.to_vec());
         let intent = WalletTransactionIntent::transfer(&[(ZkPublicKey::zero(), output_value)])?
-            .with_gas_prices(GasPrices::default());
+            .with_gas_prices(unit_gas_prices());
 
         prepare_wallet_transaction_work_item(
             intent,
@@ -2041,7 +2047,7 @@ mod cache_removal_tests {
                 .collect::<Vec<_>>(),
             vec![10_000]
         );
-        let work_item = prepare_all_provided(&inputs, 8_000, GasPrices::default(), 0)
+        let work_item = prepare_all_provided(&inputs, 8_000, unit_gas_prices(), 0)
             .expect("primary should fund the transfer");
         assert_eq!(input_values(&work_item), vec![10_000]);
     }
@@ -2061,7 +2067,7 @@ mod cache_removal_tests {
                 prepare_all_provided(
                     &primary_candidates[..*count],
                     8_000,
-                    GasPrices::default(),
+                    unit_gas_prices(),
                     0,
                 )
                 .is_ok()
@@ -2089,7 +2095,7 @@ mod cache_removal_tests {
                 prepare_all_provided(
                     &two_input_candidates[..*count],
                     13_000,
-                    GasPrices::default(),
+                    unit_gas_prices(),
                     0,
                 )
                 .is_ok()
@@ -2112,7 +2118,7 @@ mod cache_removal_tests {
                 if prepare_all_provided(
                     &three_input_candidates[..2],
                     output_value,
-                    GasPrices::default(),
+                    unit_gas_prices(),
                     0,
                 )
                 .is_ok()
@@ -2129,7 +2135,7 @@ mod cache_removal_tests {
             prepare_all_provided(
                 &three_input_candidates[..2],
                 output_value,
-                GasPrices::default(),
+                unit_gas_prices(),
                 0,
             )
             .is_err()
@@ -2138,7 +2144,7 @@ mod cache_removal_tests {
             prepare_all_provided(
                 &three_input_candidates[..3],
                 output_value,
-                GasPrices::default(),
+                unit_gas_prices(),
                 0,
             )
             .is_ok()
@@ -2148,7 +2154,7 @@ mod cache_removal_tests {
                 prepare_all_provided(
                     &three_input_candidates[..*count],
                     output_value,
-                    GasPrices::default(),
+                    unit_gas_prices(),
                     0,
                 )
                 .is_ok()
@@ -2215,7 +2221,7 @@ mod cache_removal_tests {
                 .collect::<Vec<_>>(),
             vec![10_000, 1, 10, 100, 500]
         );
-        let work_item = prepare_all_provided(&inputs, 8_000, GasPrices::default(), 0)
+        let work_item = prepare_all_provided(&inputs, 8_000, unit_gas_prices(), 0)
             .expect("bounded primary and dust set should fund the transfer");
         assert_eq!(input_values(&work_item), vec![10_000, 1, 10, 100, 500]);
     }
@@ -2243,7 +2249,7 @@ mod cache_removal_tests {
         assert_eq!(primary_candidates.len(), MAX_TRANSACTION_INPUTS);
         assert_eq!(pool.len(), 300);
         assert!(
-            prepare_all_provided(&primary_candidates, 1_000, GasPrices::default(), 0,).is_err()
+            prepare_all_provided(&primary_candidates, 1_000, unit_gas_prices(), 0,).is_err()
         );
     }
 
@@ -2386,7 +2392,7 @@ mod cache_removal_tests {
                 prepare_all_provided(
                     &candidates.inputs(dust_count),
                     15_000,
-                    GasPrices::default(),
+                    unit_gas_prices(),
                     0,
                 )
                 .is_err()
@@ -2425,7 +2431,7 @@ mod cache_removal_tests {
                 .expect("primary should exist");
             let inputs = candidates.inputs(candidates.dust.len());
             assert_eq!(inputs[0].note.value, expected_primary);
-            let work_item = prepare_all_provided(&inputs, 8_000, GasPrices::default(), 0)
+            let work_item = prepare_all_provided(&inputs, 8_000, unit_gas_prices(), 0)
                 .expect("large primary should fund the workload transaction");
             let reserved = work_item.reserved_inputs();
             let (sender_inputs, fee_sponsor_inputs) = reserved.into_sender_and_fee_sponsor_inputs();
@@ -2498,7 +2504,7 @@ mod cache_removal_tests {
         let primary = pool.primary().expect("primary should exist");
         let intent = WalletTransactionIntent::transfer(&[(ZkPublicKey::zero(), 1)])
             .expect("one-LGO workload transfer intent")
-            .with_gas_prices(GasPrices::default());
+            .with_gas_prices(unit_gas_prices());
         let (_, base_tx_fee) = estimate_workload_fee_requirements(&intent, &[primary], 0)
             .expect("base transaction fee should be estimable");
         let primary_candidates = pool.primary_candidates();
@@ -2510,7 +2516,7 @@ mod cache_removal_tests {
         assert_eq!(candidates.dust_threshold, base_tx_fee);
         assert_eq!(candidates.dust.len(), MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS);
         assert!(candidates.dust.iter().all(|utxo| utxo.note.value == 1));
-        let work_item = prepare_all_provided(&inputs, 1, GasPrices::default(), 0)
+        let work_item = prepare_all_provided(&inputs, 1, unit_gas_prices(), 0)
             .expect("large primary plus bounded dust should fund the transfer");
         assert_eq!(
             input_values(&work_item).len(),
@@ -2528,7 +2534,7 @@ mod cache_removal_tests {
         let mut pool = WorkloadUtxoPool::new(&utxos);
         let intent = WalletTransactionIntent::transfer(&[(ZkPublicKey::zero(), 1)])
             .expect("one-LGO workload transfer intent")
-            .with_gas_prices(GasPrices::default());
+            .with_gas_prices(unit_gas_prices());
         let largest = pool.primary().expect("a sender output should be available");
         let (_, base_tx_fee) = estimate_workload_fee_requirements(&intent, &[largest], 0)
             .expect("base transaction fee should be estimable");

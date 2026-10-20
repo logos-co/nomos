@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use lb_core::mantle::transactions::{Distribution, GenesisAllocation};
+use lb_core::mantle::transactions::{Distribution, GenesisAllocation, UNITS_PER_LGO};
 use lb_key_management_system_service::keys::{ZkKey, ZkPublicKey};
 
 use crate::consensus::{GENESIS_TRANSFER_OUTPUT_LIMIT, SdpFundingConfig, ServiceNote};
@@ -59,7 +59,7 @@ pub fn refresh_service_note(note: &mut ServiceNote, transfer: &Distribution) {
 #[must_use]
 pub fn leader_stake_amount(total_wallet_funds: u64, n_participants: usize) -> u64 {
     if total_wallet_funds == 0 {
-        return 100_000;
+        return 100_000 * UNITS_PER_LGO;
     }
 
     let n = n_participants.max(1) as u64;
@@ -67,7 +67,7 @@ pub fn leader_stake_amount(total_wallet_funds: u64, n_participants: usize) -> u6
         .saturating_mul(10)
         .saturating_div(n)
         .max(1);
-    scaled.max(100_000)
+    scaled.max(100_000 * UNITS_PER_LGO)
 }
 
 fn fit_sdp_funding_outputs_to_genesis_capacity(

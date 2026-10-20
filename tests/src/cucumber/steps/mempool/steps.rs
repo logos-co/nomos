@@ -23,6 +23,7 @@ use crate::cucumber::{
         },
         nodes::diagnostics::BlendDiagnosticEventLogger,
     },
+    utils::lgo_to_units,
     world::CucumberWorld,
 };
 
@@ -485,7 +486,7 @@ async fn step_prepare_transfer_transaction(
         world,
         &step.value,
         transaction_alias,
-        amount,
+        lgo_to_units(amount),
         sender_wallet_name,
         receiver_wallet_name,
     )

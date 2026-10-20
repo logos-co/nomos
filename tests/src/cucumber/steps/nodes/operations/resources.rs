@@ -1,4 +1,5 @@
 use super::{CucumberWorld, HashSet, StepError, StepResult, Table, WalletStartInfo};
+use crate::cucumber::utils::lgo_to_units;
 
 #[must_use]
 pub fn genesis_block_utxos(
@@ -70,7 +71,7 @@ pub fn parse_genesis_wallet_tokens_row(
             .map_err(|_| StepError::InvalidArgument {
                 message: format!("Step `{step}` error: {TOKEN_AMOUNT} must be a valid number"),
             })?;
-    Ok((account_index, token_count, token_amount))
+    Ok((account_index, token_count, lgo_to_units(token_amount)))
 }
 
 const NODE_NAME: &str = "node_name";

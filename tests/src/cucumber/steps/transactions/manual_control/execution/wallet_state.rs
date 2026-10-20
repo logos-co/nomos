@@ -79,7 +79,7 @@ async fn log_node_wallet_balance(world: &CucumberWorld, wallet: &WalletInfo) -> 
         Ok(balance) => {
             info!(
                 target: TARGET,
-                "Wallet `{}` [On-chain] {}/{} LGO, {}",
+                "Wallet `{}` [On-chain] {}/{} units, {}",
                 wallet.wallet_name,
                 balance.notes.len(),
                 balance.balance,
@@ -115,8 +115,8 @@ fn log_wallet_state_balance(wallet_name: &str, public_key_hex: &str, state: &Wal
 
     info!(
         target: TARGET,
-        "Wallet `{wallet_name}` [Available] {}/{} LGO, [Encumbered] {}/{} LGO, \
-        [On-chain] {}/{} LGO, {}",
+        "Wallet `{wallet_name}` [Available] {}/{} units, [Encumbered] {}/{} units, \
+        [On-chain] {}/{} units, {}",
         available.output_count,
         available.value,
         reserved.output_count,

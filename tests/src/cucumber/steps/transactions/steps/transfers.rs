@@ -3,6 +3,7 @@ use super::{
     create_and_submit_transaction, create_and_submit_transaction_hashes_with_utxo_cache, info,
     wait_wallet_send_ready, warn, when,
 };
+use crate::cucumber::utils::lgo_to_units;
 
 #[when(expr = "I do a coin split for {string} of {int} UTXOs valued at {int} LGO tokens each")]
 async fn step_do_coin_split(
@@ -12,7 +13,8 @@ async fn step_do_coin_split(
     number_of_outputs: usize,
     output_value: u64,
 ) -> StepResult {
-    let wallet = world.resolve_wallet(&wallet_name).inspect_err(|e| {
+    let output_value = lgo_to_units(output_value);
+    let wallet =world.resolve_wallet(&wallet_name).inspect_err(|e| {
         warn!(target: TARGET, "Step `{}` error: {e}", step.value);
     })?;
 
@@ -77,7 +79,8 @@ async fn step_topup_node_funding_wallet(
     node_name: String,
     transaction_alias: String,
 ) -> StepResult {
-    let funding_wallet = world.funding_wallet(&node_name).inspect_err(|e| {
+    let note_units = lgo_to_units(note_value);
+    let funding_wallet =world.funding_wallet(&node_name).inspect_err(|e| {
         warn!(target: TARGET, "Step `{}` error: {e}", step.value);
     })?;
     let funding_pk = funding_wallet.public_key().inspect_err(|e| {
@@ -90,14 +93,14 @@ async fn step_topup_node_funding_wallet(
         &step.value,
         &wallet_name,
         180,
-        note_count as u64 * note_value,
+        note_count as u64 * note_units,
         WalletSendReadiness::TotalValueOnly,
         &mut available_utxos,
         &HashSet::new(),
     )
     .await?;
 
-    let receivers = vec![(funding_pk, note_value); note_count];
+    let receivers = vec![(funding_pk, note_units); note_count];
     let tx_hashes = create_and_submit_transaction_hashes_with_utxo_cache(
         world,
         &step.value,

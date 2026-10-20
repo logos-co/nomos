@@ -11,6 +11,7 @@ use super::{
     verify_mining_node_wallet_resources_table_indexes, verify_node_wallet_resources_table_indexes,
     warn, when,
 };
+use crate::cucumber::utils::lgo_to_units;
 
 #[given(expr = "I have a cluster with capacity of {int} nodes")]
 #[when(expr = "I have a cluster with capacity of {int} nodes")]
@@ -90,7 +91,7 @@ fn step_sponsored_genesis_fee_account(
     ensure_fee_sponsorship_and_fork_groups_are_not_mixed(world, step.value.as_str())?;
 
     let token_count = non_zero!("genesis fee token count", token_count)?;
-    let token_value = non_zero!("genesis fee token value", token_value)?;
+    let token_value = non_zero!("genesis fee token value", lgo_to_units(token_value))?;
 
     world
         .wallet_registry
@@ -220,7 +221,7 @@ fn step_configure_pow_auto_claim(
     let value = serde_yaml::to_value(AutoClaimSettings {
         targets: vec![ClaimTarget {
             public_key: account.public_key(),
-            threshold,
+            threshold: lgo_to_units(threshold),
         }],
         tick: AutoClaimTick::Slots(
             NonZeroU64::new(tick_slots).expect("tick_slots checked to be non-zero above"),

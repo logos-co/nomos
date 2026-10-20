@@ -9,7 +9,7 @@ use lb_core::{
         gas::GasCost,
         ops::channel::{ChannelId, deposit::Metadata},
         traits::Hashable as _,
-        transactions::hash::TxHash,
+        transactions::{UNITS_PER_LGO, hash::TxHash},
     },
 };
 use lb_http_api_common::bodies::channel::{ChannelDepositRequestBody, ChannelDepositResponseBody};
@@ -33,11 +33,11 @@ use tokio::time::{sleep, timeout};
 
 /// Generous cap on channel transaction fees at genesis gas prices; actual fees
 /// are a few hundred gas units for these small transactions.
-const MAX_CHANNEL_TX_FEE: u64 = 10_000;
+const MAX_CHANNEL_TX_FEE: u64 = 10_000 * UNITS_PER_LGO;
 /// Covers all channel transaction fees in these tests with wide margin while
 /// staying small relative to leader notes: genesis total stake is the sum of
 /// all note values, so large fee notes dilute leader election.
-const FEE_NOTE_AMOUNT: u64 = 50_000;
+const FEE_NOTE_AMOUNT: u64 = 50_000 * UNITS_PER_LGO;
 
 /// End-to-end test for the channel deposit flow:
 ///

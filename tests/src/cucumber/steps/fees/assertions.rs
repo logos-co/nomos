@@ -110,7 +110,7 @@ pub async fn wallet_debited_exactly_fee(
             Ok(response) if response.balance == expected => {
                 info!(
                     target: TARGET,
-                    "Wallet '{wallet_name}' was debited exactly the {burned} LGO fee of \
+                    "Wallet '{wallet_name}' was debited exactly the {burned} units fee of \
                      `{transaction_alias}` (balance {expected})",
                 );
                 return Ok(());

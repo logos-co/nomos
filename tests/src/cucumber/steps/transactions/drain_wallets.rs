@@ -284,7 +284,7 @@ pub async fn drain_node_wallet(
         return Ok(());
     };
     info!(
-        target: TARGET, "Drain wallet: `{}`, has {}/{} LGO",
+        target: TARGET, "Drain wallet: `{}`, has {}/{} units",
         sender.wallet_name, balance.notes.len(), balance.balance
     );
     let mut remaining_tranches = balance
