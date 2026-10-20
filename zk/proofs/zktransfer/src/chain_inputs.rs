@@ -7,7 +7,7 @@ use crate::{MAX_INPUTS, MAX_OUTPUTS};
 pub struct ZkTransferChainInputs {
     inputs_active: [Groth16Input; MAX_INPUTS],
     outputs_active: [Groth16Input; MAX_OUTPUTS],
-    tx_cm_root: Groth16Input,
+    tx_commitment_root: Groth16Input,
     msg: Groth16Input,
 }
 
@@ -15,7 +15,7 @@ pub struct ZkTransferChainInputs {
 pub struct ZkTransferChainInputsData {
     pub inputs_active: [bool; MAX_INPUTS],
     pub outputs_active: [bool; MAX_OUTPUTS],
-    pub tx_cm_root: Fr,
+    pub tx_commitment_root: Fr,
     pub msg: Fr,
 }
 
@@ -23,7 +23,8 @@ pub struct ZkTransferChainInputsData {
 pub struct ZkTransferChainInputsJson {
     inputs_active: [Groth16InputDeser; MAX_INPUTS],
     outputs_active: [Groth16InputDeser; MAX_OUTPUTS],
-    tx_cm_root: Groth16InputDeser,
+    #[serde(rename = "tx_cm_root")]
+    tx_commitment_root: Groth16InputDeser,
     msg: Groth16InputDeser,
 }
 
@@ -32,14 +33,14 @@ impl From<&ZkTransferChainInputs> for ZkTransferChainInputsJson {
         ZkTransferChainInputs {
             inputs_active,
             outputs_active,
-            tx_cm_root,
+            tx_commitment_root,
             msg,
         }: &ZkTransferChainInputs,
     ) -> Self {
         Self {
             inputs_active: inputs_active.map(|active| (&active).into()),
             outputs_active: outputs_active.map(|active| (&active).into()),
-            tx_cm_root: tx_cm_root.into(),
+            tx_commitment_root: tx_commitment_root.into(),
             msg: msg.into(),
         }
     }
@@ -50,14 +51,14 @@ impl From<ZkTransferChainInputsData> for ZkTransferChainInputs {
         ZkTransferChainInputsData {
             inputs_active,
             outputs_active,
-            tx_cm_root,
+            tx_commitment_root,
             msg,
         }: ZkTransferChainInputsData,
     ) -> Self {
         Self {
             inputs_active: inputs_active.map(|active| Fr::from(active).into()),
             outputs_active: outputs_active.map(|active| Fr::from(active).into()),
-            tx_cm_root: tx_cm_root.into(),
+            tx_commitment_root: tx_commitment_root.into(),
             msg: msg.into(),
         }
     }

@@ -1,5 +1,5 @@
 use lb_groth16::{AdditiveGroup as _, Fr, Groth16Input, Groth16InputDeser};
-use lb_zktransfer::{InputPathAndSelectors, TX_CM_TREE_DEPTH};
+use lb_zktransfer::{InputPathAndSelectors, TX_COMMITMENT_TREE_DEPTH};
 use serde::Serialize;
 
 use crate::{MAX_INPUTS, MAX_OUTPUTS};
@@ -10,7 +10,8 @@ pub struct ZkProgramSpendWalletInputs {
     inputs_nonce: [Groth16Input; MAX_INPUTS],
     inputs_value: [Groth16Input; MAX_INPUTS],
     inputs_data: [Groth16Input; MAX_INPUTS],
-    inputs_path_and_selectors: [[(Groth16Input, Groth16Input); TX_CM_TREE_DEPTH]; MAX_INPUTS],
+    inputs_path_and_selectors:
+        [[(Groth16Input, Groth16Input); TX_COMMITMENT_TREE_DEPTH]; MAX_INPUTS],
     outputs_pk: [Groth16Input; MAX_OUTPUTS],
     outputs_nonce: [Groth16Input; MAX_OUTPUTS],
     outputs_value: [Groth16Input; MAX_OUTPUTS],
@@ -35,7 +36,7 @@ impl ZkProgramSpendInputNoteData {
             nonce: Fr::ZERO,
             value: 0,
             data: Fr::ZERO,
-            path_and_selectors: [(Fr::ZERO, false); TX_CM_TREE_DEPTH],
+            path_and_selectors: [(Fr::ZERO, false); TX_COMMITMENT_TREE_DEPTH],
         }
     }
 }

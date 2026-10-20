@@ -6,7 +6,7 @@ use lb_core::{
     mantle::{
         Note, SignedOps, TxHash,
         note_set::{LEDGER_SET, NoteSetIndex, SDP_SET},
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         traits::Hashable as _,
     },
 };
@@ -219,7 +219,7 @@ impl ScannerAccounting {
             KnownNote {
                 note,
                 note_set,
-                nullifier: derive_note_nf(&commitment, secret_key.as_fr()),
+                nullifier: derive_note_nullifier(&commitment, secret_key.as_fr()),
             },
         );
     }

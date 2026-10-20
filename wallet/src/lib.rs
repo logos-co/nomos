@@ -17,7 +17,7 @@ use lb_core::{
         gas::GasOverflow,
         ledger::verification_mode::StandardMode,
         note_set::{CommitmentMmr, LEDGER_SET, NoteSetIndex, NoteSetUpdate, SDP_SET},
-        notes::{InputNfs, NoteCm, NoteNf, OutputCms},
+        notes::{InputNullifiers, NoteCommitment, NoteNullifier, OutputCommitments},
         ops::{OpRef, transfer::TransferOp},
         traits::{MantleTx, SignedMantleTx},
         transactions::{
@@ -42,7 +42,7 @@ const LOG_TARGET: &str = wallet::CORE;
 pub struct OwnedNote {
     pub note: Note,
     pub note_set: NoteSetIndex,
-    pub nullifier: NoteNf,
+    pub nullifier: NoteNullifier,
     // path to the current root of its set
     pub path: MerklePath,
 }
@@ -52,10 +52,10 @@ pub struct OwnedNote {
 pub struct KnownNote {
     pub note: Note,
     pub note_set: NoteSetIndex,
-    pub nullifier: NoteNf,
+    pub nullifier: NoteNullifier,
 }
 
-pub type KnownNotes = HashMap<NoteCm, KnownNote>;
+pub type KnownNotes = HashMap<NoteCommitment, KnownNote>;
 
 /// A lightweight projection of a `Block<Tx>` carrying only what the wallet
 /// needs to follow the note sets the block changed.
@@ -119,11 +119,11 @@ pub fn revealed_notes<'a>(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletState {
     pub commitments: rpds::HashTrieMapSync<NoteSetIndex, CommitmentMmr>,
-    pub notes: rpds::HashTrieMapSync<NoteCm, OwnedNote>,
+    pub notes: rpds::HashTrieMapSync<NoteCommitment, OwnedNote>,
     // C_LEAD snapshot of the current epoch
-    pub aged_paths: rpds::HashTrieMapSync<NoteCm, MerklePath>,
+    pub aged_paths: rpds::HashTrieMapSync<NoteCommitment, MerklePath>,
     // snapshot the next epoch will use
-    pub next_aged_paths: rpds::HashTrieMapSync<NoteCm, MerklePath>,
+    pub next_aged_paths: rpds::HashTrieMapSync<NoteCommitment, MerklePath>,
     pub epoch: Epoch,
 }
 
@@ -164,7 +164,10 @@ impl WalletState {
         &self,
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
     ) -> Vec<OwnedNote> {
-        let pks = pks.into_iter().map(|pk| *pk.borrow()).collect::<HashSet<_>>();
+        let pks = pks
+            .into_iter()
+            .map(|pk| *pk.borrow())
+            .collect::<HashSet<_>>();
         self.notes
             .values()
             .filter(|owned| owned.note_set == LEDGER_SET && pks.contains(&owned.note.public_key))
@@ -194,15 +197,19 @@ impl WalletState {
     pub fn aged_notes(&self) -> Vec<(OwnedNote, MerklePath)> {
         self.notes
             .iter()
-            .filter_map(|(cm, owned)| {
+            .filter_map(|(commitment, owned)| {
                 self.aged_paths
-                    .get(cm)
+                    .get(commitment)
                     .map(|path| (owned.clone(), path.clone()))
             })
             .collect()
     }
 
-    pub fn apply_block(&self, known: &KnownNotes, block: &WalletBlock) -> Result<Self, WalletError> {
+    pub fn apply_block(
+        &self,
+        known: &KnownNotes,
+        block: &WalletBlock,
+    ) -> Result<Self, WalletError> {
         // The ledger snapshots the sets of the parent, before any update of
         // the block.
         let (aged_paths, next_aged_paths) = match block
@@ -245,7 +252,7 @@ impl WalletState {
         change_nonce: Fr,
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
         context: &OpsContext,
-        excluded: &HashSet<NoteNf>,
+        excluded: &HashSet<NoteNullifier>,
         priority_fee_percent: u64,
     ) -> Result<MantleTxBuilder, WalletError> {
         // Get the ledger notes owned by the provided PKs, excluding the ones
@@ -340,7 +347,7 @@ impl WalletState {
         change_pk: ZkPublicKey,
         change_nonce: Fr,
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
-        excluded: &HashSet<NoteNf>,
+        excluded: &HashSet<NoteNullifier>,
     ) -> Result<(TransferOp, ZkTransferOpening), WalletError> {
         let candidates = self.funding_candidates(pks, excluded);
         let mut inputs = Vec::new();
@@ -361,8 +368,8 @@ impl WalletState {
             outputs.push(Note::new(rest, change_nonce, change_pk));
         }
         let op = TransferOp::new(
-            InputNfs::try_from_iter(inputs.iter().map(|owned| owned.nullifier))?,
-            OutputCms::try_from_iter(outputs.iter().map(Note::commitment))?,
+            InputNullifiers::try_from_iter(inputs.iter().map(|owned| owned.nullifier))?,
+            OutputCommitments::try_from_iter(outputs.iter().map(Note::commitment))?,
             self.ledger_root(),
             0,
         );
@@ -377,7 +384,7 @@ impl WalletState {
     fn funding_candidates(
         &self,
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
-        excluded: &HashSet<NoteNf>,
+        excluded: &HashSet<NoteNullifier>,
     ) -> Vec<OwnedNote> {
         let mut notes = self
             .notes_owned_by_pks(pks)
@@ -405,11 +412,11 @@ fn total_value(notes: &[OwnedNote]) -> Result<Value, WalletError> {
 }
 
 fn current_paths(
-    notes: &rpds::HashTrieMapSync<NoteCm, OwnedNote>,
-) -> rpds::HashTrieMapSync<NoteCm, MerklePath> {
+    notes: &rpds::HashTrieMapSync<NoteCommitment, OwnedNote>,
+) -> rpds::HashTrieMapSync<NoteCommitment, MerklePath> {
     notes
         .iter()
-        .map(|(cm, owned)| (*cm, owned.path.clone()))
+        .map(|(commitment, owned)| (*commitment, owned.path.clone()))
         .collect()
 }
 
@@ -418,7 +425,7 @@ fn current_paths(
 // owned notes whose nullifier it inserted.
 fn apply_update(
     commitments: &mut rpds::HashTrieMapSync<NoteSetIndex, CommitmentMmr>,
-    notes: &mut rpds::HashTrieMapSync<NoteCm, OwnedNote>,
+    notes: &mut rpds::HashTrieMapSync<NoteCommitment, OwnedNote>,
     known: &KnownNotes,
     update: &NoteSetUpdate,
 ) -> Result<(), WalletError> {
@@ -439,15 +446,18 @@ fn apply_update(
         })
         .unzip();
 
-    for cm in &update.commitments {
-        let (next, path) = mmr
-            .push_with_paths(*cm, &mut paths)
-            .map_err(|error| match error {
-                PushWithPathsError::MmrFull(_) => WalletError::MmrFull(note_set),
-                PushWithPathsError::InvalidTrackedPath(error) => error.into(),
-            })?;
+    for commitment in &update.commitments {
+        let (next, path) =
+            mmr.push_with_paths(*commitment, &mut paths)
+                .map_err(|error| match error {
+                    PushWithPathsError::MmrFull(_) => WalletError::MmrFull(note_set),
+                    PushWithPathsError::InvalidTrackedPath(error) => error.into(),
+                })?;
         mmr = next;
-        if let Some(known_note) = known.get(cm).filter(|known| known.note_set == note_set) {
+        if let Some(known_note) = known
+            .get(commitment)
+            .filter(|known| known.note_set == note_set)
+        {
             owned.push(*known_note);
             paths.push(path);
         }
@@ -456,10 +466,10 @@ fn apply_update(
 
     let mut by_nullifier = HashMap::new();
     for (known_note, path) in owned.into_iter().zip(paths) {
-        let cm = known_note.note.commitment();
-        by_nullifier.insert(known_note.nullifier, cm);
+        let commitment = known_note.note.commitment();
+        by_nullifier.insert(known_note.nullifier, commitment);
         notes.insert_mut(
-            cm,
+            commitment,
             OwnedNote {
                 note: known_note.note,
                 note_set,
@@ -469,8 +479,8 @@ fn apply_update(
         );
     }
     for nullifier in &update.nullifiers {
-        if let Some(cm) = by_nullifier.get(nullifier) {
-            notes.remove_mut(cm);
+        if let Some(commitment) = by_nullifier.get(nullifier) {
+            notes.remove_mut(commitment);
         }
     }
     Ok(())
@@ -607,7 +617,7 @@ impl<KeyId> Wallet<KeyId> {
         change_nonce: Fr,
         funding_pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
         context: &OpsContext,
-        excluded: &HashSet<NoteNf>,
+        excluded: &HashSet<NoteNullifier>,
         priority_fee_percent: u64,
     ) -> Result<MantleTxBuilder, WalletError> {
         self.wallet_state_at(tip)?.fund_tx::<G>(
@@ -656,7 +666,7 @@ impl<KeyId> Wallet<KeyId> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletBalance {
     pub balance: Value,
-    pub notes: HashMap<NoteCm, Value>,
+    pub notes: HashMap<NoteCommitment, Value>,
 }
 
 #[cfg(test)]
@@ -667,11 +677,11 @@ pub(crate) mod test_utils {
         ZkPublicKey::new(Fr::from(v))
     }
 
-    pub fn nf(v: u64) -> NoteNf {
-        NoteNf(Fr::from(v))
+    pub fn nullifier(v: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(v))
     }
 
-    pub fn known(entries: &[(Note, NoteSetIndex, NoteNf)]) -> KnownNotes {
+    pub fn known(entries: &[(Note, NoteSetIndex, NoteNullifier)]) -> KnownNotes {
         entries
             .iter()
             .map(|&(note, note_set, nullifier)| {
@@ -697,10 +707,10 @@ mod tests {
     use lb_groth16::{AdditiveGroup as _, Field as _};
 
     use super::*;
-    use crate::test_utils::{known, nf, pk};
+    use crate::test_utils::{known, nullifier, pk};
 
-    fn cm(v: u64) -> NoteCm {
-        NoteCm(Fr::from(v))
+    fn commitment(v: u64) -> NoteCommitment {
+        NoteCommitment(Fr::from(v))
     }
 
     fn block(id: u8, parent: u8, epoch: u32, updates: Vec<NoteSetUpdate>) -> WalletBlock {
@@ -713,7 +723,7 @@ mod tests {
         }
     }
 
-    fn appended(note_set: NoteSetIndex, commitments: Vec<NoteCm>) -> NoteSetUpdate {
+    fn appended(note_set: NoteSetIndex, commitments: Vec<NoteCommitment>) -> NoteSetUpdate {
         NoteSetUpdate {
             note_set,
             nullifiers: vec![],
@@ -725,7 +735,7 @@ mod tests {
     fn apply_block_keeps_the_paths_of_owned_notes_valid() {
         let genesis = Note::new(5, Fr::ZERO, pk(9));
         let owned = Note::new(100, Fr::from(1u64), pk(1));
-        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        let known = known(&[(owned, LEDGER_SET, nullifier(1))]);
         let state = WalletState::from_genesis(&known, &[genesis], &[], Epoch::new(0)).unwrap();
         let state = state
             .apply_block(
@@ -734,7 +744,10 @@ mod tests {
                     1,
                     0,
                     0,
-                    vec![appended(LEDGER_SET, vec![owned.commitment(), cm(7), cm(8)])],
+                    vec![appended(
+                        LEDGER_SET,
+                        vec![owned.commitment(), commitment(7), commitment(8)],
+                    )],
                 ),
             )
             .unwrap();
@@ -743,9 +756,9 @@ mod tests {
             .unwrap()
             .push(owned.commitment())
             .unwrap()
-            .push(cm(7))
+            .push(commitment(7))
             .unwrap()
-            .push(cm(8))
+            .push(commitment(8))
             .unwrap()
             .frontier_root();
         assert_eq!(state.commitments[&LEDGER_SET].frontier_root(), root);
@@ -766,14 +779,16 @@ mod tests {
     #[test]
     fn apply_block_drops_a_note_whose_nullifier_is_inserted() {
         let owned = Note::new(100, Fr::from(1u64), pk(1));
-        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        let known = known(&[(owned, LEDGER_SET, nullifier(1))]);
         let state = WalletState::from_genesis(&known, &[owned], &[], Epoch::new(0)).unwrap();
         let spend = NoteSetUpdate {
             note_set: LEDGER_SET,
-            nullifiers: vec![nf(1)],
-            commitments: vec![cm(7)],
+            nullifiers: vec![nullifier(1)],
+            commitments: vec![commitment(7)],
         };
-        let state = state.apply_block(&known, &block(1, 0, 0, vec![spend])).unwrap();
+        let state = state
+            .apply_block(&known, &block(1, 0, 0, vec![spend]))
+            .unwrap();
         assert!(state.notes.is_empty());
         assert_eq!(state.balance(pk(1)), None);
     }
@@ -781,13 +796,13 @@ mod tests {
     #[test]
     fn epoch_change_rotates_the_aged_paths() {
         let owned = Note::new(100, Fr::from(1u64), pk(1));
-        let known = known(&[(owned, LEDGER_SET, nf(1))]);
-        // root of the ledger set holding `owned` then cm(1)..=cm(n)
+        let known = known(&[(owned, LEDGER_SET, nullifier(1))]);
+        // root of the ledger set holding `owned` then commitment(1)..=commitment(n)
         let root_at = |n: u64| {
             (1..=n)
                 .fold(
                     CommitmentMmr::new().push(owned.commitment()).unwrap(),
-                    |mmr, v| mmr.push(cm(v)).unwrap(),
+                    |mmr, v| mmr.push(commitment(v)).unwrap(),
                 )
                 .frontier_root()
         };
@@ -799,7 +814,12 @@ mod tests {
             state
                 .apply_block(
                     &known,
-                    &block(id, id - 1, epoch, vec![appended(LEDGER_SET, vec![cm(v)])]),
+                    &block(
+                        id,
+                        id - 1,
+                        epoch,
+                        vec![appended(LEDGER_SET, vec![commitment(v)])],
+                    ),
                 )
                 .unwrap()
         };
@@ -819,7 +839,7 @@ mod tests {
     #[test]
     fn notes_of_a_new_channel_set_start_from_an_empty_mmr() {
         let channel_note = Note::new(50, Fr::from(2u64), pk(1));
-        let known = known(&[(channel_note, 2, nf(2))]);
+        let known = known(&[(channel_note, 2, nullifier(2))]);
         let state = WalletState::from_genesis(&known, &[], &[], Epoch::new(0)).unwrap();
         let state = state
             .apply_block(
@@ -828,12 +848,12 @@ mod tests {
                     1,
                     0,
                     0,
-                    vec![appended(2, vec![cm(4), channel_note.commitment()])],
+                    vec![appended(2, vec![commitment(4), channel_note.commitment()])],
                 ),
             )
             .unwrap();
         let root = CommitmentMmr::new()
-            .push(cm(4))
+            .push(commitment(4))
             .unwrap()
             .push(channel_note.commitment())
             .unwrap()

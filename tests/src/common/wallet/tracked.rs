@@ -426,7 +426,7 @@ pub struct WalletUtxoSnapshotDiagnostics {
 
 #[cfg(test)]
 mod tests {
-    use lb_core::mantle::{Note, note_set::LEDGER_SET, notes::NoteNf};
+    use lb_core::mantle::{Note, note_set::LEDGER_SET, notes::NoteNullifier};
     use lb_groth16::Fr;
     use lb_key_management_system_service::keys::ZkPublicKey;
     use lb_mmr::MerklePath;
@@ -437,7 +437,7 @@ mod tests {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::zero()),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(output_index)),
+            nullifier: NoteNullifier(Fr::from(output_index)),
             path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
         }
     }

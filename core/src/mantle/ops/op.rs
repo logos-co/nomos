@@ -407,7 +407,8 @@ mod tests {
             (Op::ClaimPowReward(ClaimPowRewardOp::sample()), 0),
         ] {
             assert_eq!(
-                op.by_ref().execution_gas::<MainnetGasProfile>(&FixedThresholds(2)),
+                op.by_ref()
+                    .execution_gas::<MainnetGasProfile>(&FixedThresholds(2)),
                 Ok(Gas::new(gas)),
                 "{}",
                 op.as_str()
@@ -460,7 +461,10 @@ mod tests {
         let bytes = op.encode();
         assert_eq!((bytes[0], bytes.len()), (0x01, 1 + 352));
         assert_eq!(Op::decode(&bytes, &()).unwrap(), (&[][..], op.clone()));
-        assert_eq!(op.sample_proof(), OpProof::None(crate::mantle::ops::NoOpProof));
+        assert_eq!(
+            op.sample_proof(),
+            OpProof::None(crate::mantle::ops::NoOpProof)
+        );
     }
 
     #[test]
@@ -469,7 +473,12 @@ mod tests {
 
         // TRANSFER with one input, no output, a zero root and a zero excess.
         let transfer = |nullifier: &str| {
-            hex::decode(format!("0001{nullifier}00{}{}", "00".repeat(32), "00".repeat(8))).unwrap()
+            hex::decode(format!(
+                "0001{nullifier}00{}{}",
+                "00".repeat(32),
+                "00".repeat(8)
+            ))
+            .unwrap()
         };
         let modulus = "010000f093f5e1439170b97948e833285d588181b64550b829a031e1724e6430";
         let below = "000000f093f5e1439170b97948e833285d588181b64550b829a031e1724e6430";

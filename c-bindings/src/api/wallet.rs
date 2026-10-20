@@ -8,7 +8,7 @@ use lb_core::{
     mantle::{
         Note, Op, SignedOps,
         ledger::verification_mode::StandardMode,
-        notes::NoteCm as CoreNoteCm,
+        notes::NoteCommitment as CoreNoteCommitment,
         ops::channel::{
             ChannelId,
             deposit::{DepositOp, Metadata},
@@ -52,7 +52,7 @@ use crate::{
 type WalletService = NodeWalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>;
 
 /// Resolved tip plus the `(note commitment, value)` pairs for a wallet address.
-type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteCm, Value)>);
+type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteCommitment, Value)>);
 
 /// Gets the known wallet addresses from the wallet service.
 ///
@@ -989,7 +989,7 @@ pub(crate) fn channel_deposit_sync(
                     format!("Failed to split the deposit note: {error}"),
                 )
             })?;
-        let cm_merkle_root = split_root(&split_builder).map_err(|error| {
+        let commitment_merkle_root = split_root(&split_builder).map_err(|error| {
             OperationStatus::error(
                 OperationStatusCode::RuntimeError,
                 format!("Failed to read the split root: {error}"),
@@ -1033,7 +1033,7 @@ pub(crate) fn channel_deposit_sync(
                 Op::ChannelDeposit(DepositOp {
                     channel_id,
                     inputs: [exact.nullifier].into(),
-                    cm_merkle_root,
+                    commitment_merkle_root,
                     outputs: [holder_note.commitment()].into(),
                     excess_value: 0,
                     metadata,

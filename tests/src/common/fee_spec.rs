@@ -22,13 +22,11 @@ use lb_common_http_client::ApiBlock;
 use lb_core::{
     crypto::ZkHasher,
     mantle::{
-        Note,
-        OpProof,
-        SignedOps,
+        Note, OpProof, SignedOps,
         gas::{MainnetGasProfile, TxGasCalculator as _},
         ledger::verification_mode::{StandardMode, VerificationMode},
         note_set::LEDGER_SET,
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         ops::{OpRef, ZkTransferProof, transfer::prove_transfer},
         traits::Hashable as _,
         transactions::{
@@ -165,7 +163,7 @@ pub fn self_transfer_paying_fee_at(
         .find(|note| note.public_key == account.public_key())
         .copied()
         .expect("account should own a genesis note");
-    let nullifier = derive_note_nf(&note.commitment(), &secret_key);
+    let nullifier = derive_note_nullifier(&note.commitment(), &secret_key);
     let known = KnownNotes::from([(
         note.commitment(),
         KnownNote {

@@ -446,10 +446,7 @@ impl NodeHttpClient {
         amount: Option<Value>,
     ) -> Result<SdpSubmission, Error> {
         self.http_client
-            .join_blend_network(
-                &self.base_url,
-                JoinBlendRequestBody { locator, amount },
-            )
+            .join_blend_network(&self.base_url, JoinBlendRequestBody { locator, amount })
             .await
     }
 }

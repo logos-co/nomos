@@ -19,7 +19,7 @@ use crate::{
     crypto::ZkHasher,
     mantle::{
         note_set::{NoteSetIndex, NoteSets},
-        notes::{self, NoteNf},
+        notes::{self, NoteNullifier},
     },
 };
 
@@ -282,11 +282,7 @@ pub struct LeaderPrivate {
 
 impl LeaderPrivate {
     #[must_use]
-    pub const fn new(
-        public: LeaderPublic,
-        wallet: lb_pol::PolWalletInputsData,
-        msg: Fr,
-    ) -> Self {
+    pub const fn new(public: LeaderPublic, wallet: lb_pol::PolWalletInputsData, msg: Fr) -> Self {
         let chain = lb_pol::PolChainInputsData {
             slot_number: public.slot,
             epoch_nonce: public.epoch_nonce,
@@ -338,8 +334,8 @@ fn nodes_and_selectors(
 pub fn pol_wallet_inputs(
     note: &notes::Note,
     note_set: NoteSetIndex,
-    nullifier: &NoteNf,
-    cm_aged_path: &lb_mmr::MerklePath,
+    nullifier: &NoteNullifier,
+    commitment_aged_path: &lb_mmr::MerklePath,
     aged: &NoteSets,
     latest: &NoteSets,
 ) -> Result<lb_pol::PolWalletInputsData, LeaderWitnessError> {
@@ -348,12 +344,15 @@ pub fn pol_wallet_inputs(
     let latest_set = latest.get(note_set).ok_or(unknown)?;
 
     let mismatch = LeaderWitnessError::AgedPathMismatch(note_set);
-    if !cm_aged_path.verify::<ZkHasher>(note.commitment().0, aged_set.cm_root()) {
+    if !commitment_aged_path.verify::<ZkHasher>(note.commitment().0, aged_set.commitment_root()) {
         return Err(mismatch);
     }
-    let cm_aged_selectors =
-        core::array::from_fn(|level| (cm_aged_path.leaf_index() >> level) & 1 == 1);
-    let cm_aged_path = cm_aged_path.siblings().try_into().map_err(|_| mismatch)?;
+    let commitment_aged_selectors =
+        core::array::from_fn(|level| (commitment_aged_path.leaf_index() >> level) & 1 == 1);
+    let commitment_aged_path = commitment_aged_path
+        .siblings()
+        .try_into()
+        .map_err(|_| mismatch)?;
 
     let (low_index, low) = latest_set
         .nullifiers()
@@ -374,16 +373,16 @@ pub fn pol_wallet_inputs(
         note_value: note.value,
         note_nonce: note.nonce,
         set_selectors,
-        cm_aged_path,
-        cm_aged_selectors,
-        nf_root_aged: aged_set.nf_root(),
+        commitment_aged_path,
+        commitment_aged_selectors,
+        nullifier_root_aged: aged_set.nullifier_root(),
         set_aged_path,
-        low_leaf_nf: low.nf,
-        low_leaf_next_nf: low.next_nf,
+        low_leaf_nullifier: low.nullifier,
+        low_leaf_next_nullifier: low.next_nullifier,
         low_leaf_next_index: low.next_index,
         low_leaf_path,
         low_leaf_selectors,
-        cm_root_latest: latest_set.cm_root(),
+        commitment_root_latest: latest_set.commitment_root(),
         set_latest_path,
         secret_key: Fr::ZERO,
     })
@@ -421,7 +420,7 @@ pub mod test_utils {
     use super::*;
     use crate::mantle::{
         note_set::{CommitmentMmr, LEDGER_SET},
-        notes::{Note, derive_note_nf},
+        notes::{Note, derive_note_nullifier},
     };
 
     #[must_use]
@@ -433,10 +432,10 @@ pub mod test_utils {
     ) -> (LeaderPublic, LeaderPrivate) {
         let public_key = UnsecuredZkKey::new(secret_key).to_public_key();
         let note = Note::new(value, nonce, public_key);
-        let cm = note.commitment();
+        let commitment = note.commitment();
 
-        let (mmr, cm_path) = CommitmentMmr::new()
-            .push_with_paths(cm, &mut [])
+        let (mmr, commitment_path) = CommitmentMmr::new()
+            .push_with_paths(commitment, &mut [])
             .expect("the commitment MMR is empty");
 
         let sets = NoteSets::new();
@@ -444,13 +443,13 @@ pub mod test_utils {
             .get(LEDGER_SET)
             .expect("the ledger set exists")
             .clone()
-            .execute_adding(&[cm])
+            .execute_adding(&[commitment])
             .expect("the commitment MMR is not full");
         let sets = sets.update(LEDGER_SET, ledger).end_block(1);
         let set = sets.get(LEDGER_SET).expect("the ledger set exists");
-        assert_eq!(set.cm_root(), mmr.frontier_root());
+        assert_eq!(set.commitment_root(), mmr.frontier_root());
 
-        let nf = derive_note_nf(&cm, &secret_key);
+        let nullifier = derive_note_nullifier(&commitment, &secret_key);
 
         let eligible = sets.eligible_root();
         let (lottery_0, lottery_1) =
@@ -467,13 +466,20 @@ pub mod test_utils {
                     lottery_1,
                 )
             })
-            .find(|public| public.check_winning(value, cm.0, secret_key))
+            .find(|public| public.check_winning(value, commitment.0, secret_key))
             .expect("a winning epoch nonce below 10000");
 
         let wallet = lb_pol::PolWalletInputsData {
             secret_key,
-            ..pol_wallet_inputs(&note, LEDGER_SET, &nf, &cm_path, &sets, &sets)
-                .expect("the note is in the ledger set and unspent")
+            ..pol_wallet_inputs(
+                &note,
+                LEDGER_SET,
+                &nullifier,
+                &commitment_path,
+                &sets,
+                &sets,
+            )
+            .expect("the note is in the ledger set and unspent")
         };
         (public, LeaderPrivate::new(public, wallet, msg))
     }
@@ -492,7 +498,7 @@ mod tests {
     use super::*;
     use crate::mantle::{
         note_set::{CommitmentMmr, LEDGER_SET, NoteSet},
-        notes::{NoteCm, derive_note_nf},
+        notes::{NoteCommitment, derive_note_nullifier},
     };
 
     /// Compute the Hoeffding sample size:
@@ -616,12 +622,17 @@ mod tests {
             Fr::from(11u64),
             UnsecuredZkKey::new(secret_key).to_public_key(),
         );
-        let cm = note.commitment();
-        let (_, path) = CommitmentMmr::new().push_with_paths(cm, &mut []).unwrap();
+        let commitment = note.commitment();
+        let (_, path) = CommitmentMmr::new()
+            .push_with_paths(commitment, &mut [])
+            .unwrap();
         let sets = NoteSets::new()
-            .update(LEDGER_SET, NoteSet::empty().execute_adding(&[cm]).unwrap())
+            .update(
+                LEDGER_SET,
+                NoteSet::empty().execute_adding(&[commitment]).unwrap(),
+            )
             .end_block(1);
-        let nullifier = derive_note_nf(&cm, &secret_key);
+        let nullifier = derive_note_nullifier(&commitment, &secret_key);
 
         let wallet = pol_wallet_inputs(&note, LEDGER_SET, &nullifier, &path, &sets, &sets).unwrap();
         assert_eq!(wallet.secret_key, Fr::ZERO);
@@ -630,14 +641,17 @@ mod tests {
             (1000, Fr::from(11u64))
         );
         assert_eq!(
-            wallet.cm_root_latest,
-            sets.get(LEDGER_SET).unwrap().cm_root()
+            wallet.commitment_root_latest,
+            sets.get(LEDGER_SET).unwrap().commitment_root()
         );
-        assert_eq!(wallet.nf_root_aged, sets.get(LEDGER_SET).unwrap().nf_root());
+        assert_eq!(
+            wallet.nullifier_root_aged,
+            sets.get(LEDGER_SET).unwrap().nullifier_root()
+        );
         assert_eq!(
             (
-                wallet.low_leaf_nf,
-                wallet.low_leaf_next_nf,
+                wallet.low_leaf_nullifier,
+                wallet.low_leaf_next_nullifier,
                 wallet.low_leaf_next_index
             ),
             (Fr::ZERO, Fr::ZERO, 0)
@@ -657,9 +671,9 @@ mod tests {
         );
 
         let (_, foreign) = CommitmentMmr::new()
-            .push(NoteCm(Fr::from(5u64)))
+            .push(NoteCommitment(Fr::from(5u64)))
             .unwrap()
-            .push_with_paths(cm, &mut [])
+            .push_with_paths(commitment, &mut [])
             .unwrap();
         assert_eq!(
             pol_wallet_inputs(&note, LEDGER_SET, &nullifier, &foreign, &sets, &sets).unwrap_err(),

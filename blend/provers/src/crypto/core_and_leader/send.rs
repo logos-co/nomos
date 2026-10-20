@@ -351,8 +351,8 @@ mod test {
             slot: 2,
             note_value: 2,
             note_nonce: ZkHash::ONE,
-            cm_aged_path_and_selectors: [(ZkHash::ONE, true); _],
-            nf_root_aged: ZkHash::ONE,
+            commitment_aged_path_and_selectors: [(ZkHash::ONE, true); _],
+            nullifier_root_aged: ZkHash::ONE,
             set_aged_path_and_selectors: [(ZkHash::ONE, true); _],
             secret_key: ZkHash::ONE,
         };

@@ -183,7 +183,7 @@ mod tests {
             gas::MainnetGasProfile,
             ledger::verification_mode::StandardMode,
             note_set::{LEDGER_SET, NoteSets},
-            notes::{NoteNf, OutputCms},
+            notes::{NoteNullifier, OutputCommitments},
             ops::{
                 ChannelInscribeProof, ZkTransferProof,
                 channel::{
@@ -225,9 +225,9 @@ mod tests {
         SignedOperation::<_, Unverified, StandardMode>::new(
             ChannelWithdrawOp {
                 channel_id: channel_id(),
-                inputs: [NoteNf(Fr::from(28u64))].into(),
-                cm_merkle_root: Fr::ZERO,
-                outputs: OutputCms::default(),
+                inputs: [NoteNullifier(Fr::from(28u64))].into(),
+                commitment_merkle_root: Fr::ZERO,
+                outputs: OutputCommitments::default(),
             },
             ZkTransferProof::sample(),
         )
@@ -327,11 +327,11 @@ mod tests {
         let root = note_sets
             .get(LEDGER_SET)
             .expect("the ledger note set always exists")
-            .cm_root();
+            .commitment_root();
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
             TransferOp::new(
-                [NoteNf(Fr::from(2u64))].into(),
-                OutputCms::default(),
+                [NoteNullifier(Fr::from(2u64))].into(),
+                OutputCommitments::default(),
                 root,
                 0,
             ),

@@ -31,7 +31,7 @@ use lb_core::{
         gas::MainnetGasProfile,
         ledger::verification_mode::StandardMode,
         note_set::{CommitmentMmr, LEDGER_SET},
-        notes::{self, derive_note_nf},
+        notes::{self, derive_note_nullifier},
         ops::{
             ZkTransferProof,
             transfer::{TransferOp, test_utils::prove_transfer},
@@ -210,7 +210,7 @@ static TX_POOL: LazyLock<TxPool> = LazyLock::new(|| {
             .latest_note_sets()
             .get(LEDGER_SET)
             .expect("the ledger set exists")
-            .cm_root(),
+            .commitment_root(),
         root
     );
 
@@ -286,7 +286,7 @@ fn build_tx(
 ) -> SignedOps<Preverified, StandardMode> {
     let output = notes::Note::new(1, output_nonce, note.public_key);
     let transfer_op = TransferOp::new(
-        [derive_note_nf(&note.commitment(), &secret_key)].into(),
+        [derive_note_nullifier(&note.commitment(), &secret_key)].into(),
         [output.commitment()].into(),
         root,
         // Most of the tx's value goes as a tip, to withstand gas cost increases.

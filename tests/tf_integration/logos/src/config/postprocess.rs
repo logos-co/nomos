@@ -100,7 +100,7 @@ pub fn apply_wallet_genesis_overrides(
 #[cfg(test)]
 mod tests {
     use lb_core::mantle::{
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         ops::OpRef,
         traits::{GenesisTx as _, MantleTx as _},
     };
@@ -157,7 +157,7 @@ mod tests {
             assert_eq!(blend_allocation.public_key, consensus.blend_note.pk);
             assert_eq!(
                 declarations[i].inputs.as_slice(),
-                [derive_note_nf(
+                [derive_note_nullifier(
                     &blend_allocation
                         .note(consensus.blend_note.output_index)
                         .commitment(),

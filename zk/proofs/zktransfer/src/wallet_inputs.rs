@@ -3,15 +3,16 @@ use serde::Serialize;
 
 use crate::{MAX_INPUTS, MAX_OUTPUTS};
 
-pub const TX_CM_TREE_DEPTH: usize = 40;
-pub type InputPathAndSelectors = [(Fr, bool); TX_CM_TREE_DEPTH];
+pub const TX_COMMITMENT_TREE_DEPTH: usize = 40;
+pub type InputPathAndSelectors = [(Fr, bool); TX_COMMITMENT_TREE_DEPTH];
 
 #[derive(Clone)]
 pub struct ZkTransferWalletInputs {
     inputs_sk: [Groth16Input; MAX_INPUTS],
     inputs_nonce: [Groth16Input; MAX_INPUTS],
     inputs_value: [Groth16Input; MAX_INPUTS],
-    inputs_path_and_selectors: [[(Groth16Input, Groth16Input); TX_CM_TREE_DEPTH]; MAX_INPUTS],
+    inputs_path_and_selectors:
+        [[(Groth16Input, Groth16Input); TX_COMMITMENT_TREE_DEPTH]; MAX_INPUTS],
     outputs_pk: [Groth16Input; MAX_OUTPUTS],
     outputs_nonce: [Groth16Input; MAX_OUTPUTS],
     outputs_value: [Groth16Input; MAX_OUTPUTS],
@@ -32,7 +33,7 @@ impl ZkTransferInputNoteData {
             secret_key: Fr::ZERO,
             nonce: Fr::ZERO,
             value: 0,
-            path_and_selectors: [(Fr::ZERO, false); TX_CM_TREE_DEPTH],
+            path_and_selectors: [(Fr::ZERO, false); TX_COMMITMENT_TREE_DEPTH],
         }
     }
 }

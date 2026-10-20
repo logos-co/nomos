@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use lb_core::mantle::{
     Op,
-    notes::NoteNf,
+    notes::NoteNullifier,
     ops::OpRef,
     traits::{Hashable as _, MantleTx},
     transactions::{
@@ -158,7 +158,7 @@ fn transfer_signers_for_funding(resources: &WalletFundingResources) -> WalletTra
     transfer_signers
 }
 
-fn input_utxos_by_note_id(resources: &WalletFundingResources) -> HashMap<NoteNf, OwnedNote> {
+fn input_utxos_by_note_id(resources: &WalletFundingResources) -> HashMap<NoteNullifier, OwnedNote> {
     resources
         .sender()
         .available_utxos()
@@ -195,7 +195,7 @@ fn wallet_reserved_inputs_from_inputs(
 
 fn funding_inputs_from_transfers(
     mantle_tx: &impl MantleTx,
-    input_utxos_by_note_id: &HashMap<NoteNf, OwnedNote>,
+    input_utxos_by_note_id: &HashMap<NoteNullifier, OwnedNote>,
 ) -> Result<Vec<OwnedNote>, WalletTransactionError> {
     mantle_tx
         .op_refs()

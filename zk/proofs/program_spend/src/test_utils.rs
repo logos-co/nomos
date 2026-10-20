@@ -56,7 +56,7 @@ pub fn sample_witness_data() -> ZkProgramSpendWitnessInputsData {
         inputs_active: array::from_fn(|i| flag(&json["inputs_active"][i])),
         outputs_active: array::from_fn(|i| flag(&json["outputs_active"][i])),
         outputs_of_program: array::from_fn(|i| flag(&json["outputs_of_program"][i])),
-        tx_cm_root: fr(&json["tx_cm_root"]),
+        tx_commitment_root: fr(&json["tx_cm_root"]),
         program_id: fr(&json["program_id"]),
         paid_value: u64_value(&json["paid_value"]),
         msg: fr(&json["msg"]),

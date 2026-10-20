@@ -355,7 +355,7 @@ fn op_to_zone_message(
 mod tests {
     use lb_core::mantle::{
         Op,
-        notes::{NoteCm, NoteNf, OutputCms},
+        notes::{NoteCommitment, NoteNullifier, OutputCommitments},
         ops::channel::deposit::Metadata,
     };
     use lb_groth16::Fr;
@@ -366,9 +366,9 @@ mod tests {
     fn deposit_op(channel_id: ChannelId, input_seed: u32, metadata: Metadata) -> DepositOp {
         DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::from(input_seed))].into(),
-            cm_merkle_root: Fr::from(0u64),
-            outputs: [NoteCm(Fr::from(input_seed))].into(),
+            inputs: [NoteNullifier(Fr::from(input_seed))].into(),
+            commitment_merkle_root: Fr::from(0u64),
+            outputs: [NoteCommitment(Fr::from(input_seed))].into(),
             excess_value: 0,
             metadata,
         }
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn deposit_message_carries_the_commitments_of_the_event() {
         let deposit = DepositOp::sample();
-        let outputs: OutputCms = deposit.outputs.clone();
+        let outputs: OutputCommitments = deposit.outputs.clone();
         let message = deposit_message(
             TxHash::from([1; 32]),
             &deposit,

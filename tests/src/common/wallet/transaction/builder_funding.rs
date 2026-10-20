@@ -17,8 +17,8 @@ use lb_zktransfer::MAX_INPUTS;
 
 use super::{error::WalletTransactionError, intent::WalletTransactionIntent};
 use crate::common::wallet::{
-    WalletFundingOutcome, WalletFundingPlan, WalletFundingResources,
-    WalletFundingUtxos, WalletInputSelectionStrategy, WalletSelectedInputs,
+    WalletFundingOutcome, WalletFundingPlan, WalletFundingResources, WalletFundingUtxos,
+    WalletInputSelectionStrategy, WalletSelectedInputs,
 };
 
 // The nonce of a note the test wallet creates, drawn at random so that no two
@@ -299,7 +299,7 @@ mod tests {
     use lb_core::mantle::{
         Op,
         note_set::LEDGER_SET,
-        notes::NoteNf,
+        notes::NoteNullifier,
         ops::channel::{
             ChannelId, MsgId,
             inscribe::{ChannelSteps, Inscription, InscriptionOp},
@@ -339,7 +339,7 @@ mod tests {
         let funding_utxo = OwnedNote {
             note: Note::new(2_000_000, Fr::from(7u64), account.public_key()),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(7u64)),
+            nullifier: NoteNullifier(Fr::from(7u64)),
             path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
         };
         let funding_source = WalletFundingSource::new(account, vec![funding_utxo.clone()]);

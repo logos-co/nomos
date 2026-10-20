@@ -15,20 +15,20 @@ static NULLIFIER_IMT_LEAF_V1: LazyLock<Fr> = LazyLock::new(|| {
 });
 
 /// A leaf of the tree, pointing to the leaf of the next greater nullifier
-/// (`next_nf` and `next_index` are 0 if there is none).
+/// (`next_nullifier` and `next_index` are 0 if there is none).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
 pub struct NullifierLeaf {
     #[serde(with = "serde_fr")]
-    pub nf: Fr,
+    pub nullifier: Fr,
     #[serde(with = "serde_fr")]
-    pub next_nf: Fr,
+    pub next_nullifier: Fr,
     pub next_index: u64,
 }
 
 impl NullifierLeaf {
     const SENTINEL: Self = Self {
-        nf: Fr::ZERO,
-        next_nf: Fr::ZERO,
+        nullifier: Fr::ZERO,
+        next_nullifier: Fr::ZERO,
         next_index: 0,
     };
 
@@ -36,8 +36,8 @@ impl NullifierLeaf {
     pub fn hash<Hash: Digest>(&self) -> Fr {
         Hash::digest(&[
             *NULLIFIER_IMT_LEAF_V1,
-            self.nf,
-            self.next_nf,
+            self.nullifier,
+            self.next_nullifier,
             Fr::from(self.next_index),
         ])
     }
@@ -116,27 +116,29 @@ impl<Hash: Digest, const HEIGHT: usize> IndexedMerkleTree<Hash, HEIGHT> {
     }
 
     #[must_use]
-    pub fn contains(&self, nf: &Fr) -> bool {
-        self.sorted.contains_key(nf)
+    pub fn contains(&self, nullifier: &Fr) -> bool {
+        self.sorted.contains_key(nullifier)
     }
 
-    pub fn insert(&self, nf: Fr) -> Result<Self, ImtError> {
-        if nf == Fr::ZERO {
+    pub fn insert(&self, nullifier: Fr) -> Result<Self, ImtError> {
+        if nullifier == Fr::ZERO {
             return Err(ImtError::ZeroNullifier);
         }
-        let (low_index, low) = self.low_leaf(&nf).ok_or(ImtError::AlreadyPresent(nf))?;
+        let (low_index, low) = self
+            .low_leaf(&nullifier)
+            .ok_or(ImtError::AlreadyPresent(nullifier))?;
         let n = self.leaves.len();
         if n == 1 << HEIGHT {
             return Err(ImtError::Full);
         }
 
         let new_leaf = NullifierLeaf {
-            nf,
-            next_nf: low.next_nf,
+            nullifier,
+            next_nullifier: low.next_nullifier,
             next_index: low.next_index,
         };
         let low = NullifierLeaf {
-            next_nf: nf,
+            next_nullifier: nullifier,
             next_index: n as u64,
             ..*low
         };
@@ -151,7 +153,7 @@ impl<Hash: Digest, const HEIGHT: usize> IndexedMerkleTree<Hash, HEIGHT> {
                 .set(low_index as usize, low)
                 .expect("low leaf is in the tree")
                 .push_back(new_leaf),
-            sorted: self.sorted.insert(nf, n as u64),
+            sorted: self.sorted.insert(nullifier, n as u64),
         })
     }
 
@@ -170,14 +172,14 @@ impl<Hash: Digest, const HEIGHT: usize> IndexedMerkleTree<Hash, HEIGHT> {
         self.leaves.get(usize::try_from(index).ok()?)
     }
 
-    /// Returns the leaf of the greatest nullifier lower than `nf`, or `None` if
-    /// `nf` is in the tree.
+    /// Returns the leaf of the greatest nullifier lower than `nullifier`, or
+    /// `None` if `nullifier` is in the tree.
     #[must_use]
-    pub fn low_leaf(&self, nf: &Fr) -> Option<(u64, &NullifierLeaf)> {
-        if self.contains(nf) {
+    pub fn low_leaf(&self, nullifier: &Fr) -> Option<(u64, &NullifierLeaf)> {
+        if self.contains(nullifier) {
             return None;
         }
-        let (_, index) = self.sorted.range(..*nf).next_back()?;
+        let (_, index) = self.sorted.range(..*nullifier).next_back()?;
         Some((*index, self.leaf(*index)?))
     }
 
@@ -190,25 +192,25 @@ impl<Hash: Digest, const HEIGHT: usize> IndexedMerkleTree<Hash, HEIGHT> {
         if leaves.len() > 1 << HEIGHT {
             return Err("more leaves than the tree capacity");
         }
-        if leaves.first().map(|sentinel| sentinel.nf) != Some(Fr::ZERO) {
+        if leaves.first().map(|sentinel| sentinel.nullifier) != Some(Fr::ZERO) {
             return Err("first leaf is not the sentinel");
         }
         let mut sorted = RedBlackTreeMapSync::new_sync();
         for (index, leaf) in leaves.iter().enumerate() {
-            if sorted.contains_key(&leaf.nf) {
+            if sorted.contains_key(&leaf.nullifier) {
                 return Err("duplicate nullifier");
             }
-            sorted.insert_mut(leaf.nf, index as u64);
+            sorted.insert_mut(leaf.nullifier, index as u64);
         }
         let mut entries = sorted.iter().peekable();
         while let Some((_, index)) = entries.next() {
-            let (next_nf, next_index) = entries
+            let (next_nullifier, next_index) = entries
                 .peek()
-                .map_or((Fr::ZERO, 0), |(next_nf, next_index)| {
-                    (**next_nf, **next_index)
+                .map_or((Fr::ZERO, 0), |(next_nullifier, next_index)| {
+                    (**next_nullifier, **next_index)
                 });
             let leaf = &leaves[*index as usize];
-            if leaf.next_nf != next_nf || leaf.next_index != next_index {
+            if leaf.next_nullifier != next_nullifier || leaf.next_index != next_index {
                 return Err("leaves do not form the sorted linked list");
             }
         }
@@ -278,10 +280,10 @@ mod tests {
         Fr::from(n)
     }
 
-    fn leaf(nf: u64, next_nf: u64, next_index: u64) -> NullifierLeaf {
+    fn leaf(nullifier: u64, next_nullifier: u64, next_index: u64) -> NullifierLeaf {
         NullifierLeaf {
-            nf: fr(nf),
-            next_nf: fr(next_nf),
+            nullifier: fr(nullifier),
+            next_nullifier: fr(next_nullifier),
             next_index,
         }
     }
@@ -311,13 +313,13 @@ mod tests {
 
     // Nullifiers in linked list order, starting after the sentinel.
     fn walk_sorted(imt: &Imt) -> Vec<Fr> {
-        let mut nfs = Vec::new();
+        let mut nullifiers = Vec::new();
         let mut current = imt.leaf(0).unwrap();
-        while current.next_nf != Fr::ZERO {
+        while current.next_nullifier != Fr::ZERO {
             current = imt.leaf(current.next_index).unwrap();
-            nfs.push(current.nf);
+            nullifiers.push(current.nullifier);
         }
-        nfs
+        nullifiers
     }
 
     fn path_root(leaf: Fr, path: &MerklePath<Fr, 40>) -> Fr {
@@ -339,8 +341,8 @@ mod tests {
     fn test_empty_root_is_sentinel_only() {
         let imt = Imt::new();
         let sentinel = NullifierLeaf {
-            nf: Fr::ZERO,
-            next_nf: Fr::ZERO,
+            nullifier: Fr::ZERO,
+            next_nullifier: Fr::ZERO,
             next_index: 0,
         };
         assert_eq!(imt.root(), naive_root(&[sentinel.hash::<ZkHasher>()]));
@@ -367,10 +369,13 @@ mod tests {
     fn test_low_leaf_proves_non_membership() {
         let imt = Imt::new().insert(fr(10)).unwrap().insert(fr(30)).unwrap();
         let (index, low) = imt.low_leaf(&fr(20)).unwrap();
-        assert_eq!((index, low.nf, low.next_nf), (1, fr(10), fr(30)));
+        assert_eq!(
+            (index, low.nullifier, low.next_nullifier),
+            (1, fr(10), fr(30))
+        );
         assert!(imt.low_leaf(&fr(30)).is_none());
         let (_, top) = imt.low_leaf(&fr(99)).unwrap();
-        assert_eq!((top.nf, top.next_nf), (fr(30), Fr::ZERO));
+        assert_eq!((top.nullifier, top.next_nullifier), (fr(30), Fr::ZERO));
     }
 
     #[test]
@@ -406,11 +411,11 @@ mod tests {
     }
 
     #[property_test]
-    fn test_path_verifies_every_leaf(nfs: Vec<u64>) {
+    fn test_path_verifies_every_leaf(nullifiers: Vec<u64>) {
         let mut imt = Imt::new();
-        for nf in nfs.into_iter().filter(|nf| *nf != 0) {
-            if !imt.contains(&fr(nf)) {
-                imt = imt.insert(fr(nf)).unwrap();
+        for nullifier in nullifiers.into_iter().filter(|nullifier| *nullifier != 0) {
+            if !imt.contains(&fr(nullifier)) {
+                imt = imt.insert(fr(nullifier)).unwrap();
             }
         }
         for (index, hash) in imt_leaf_hashes(&imt).into_iter().enumerate() {

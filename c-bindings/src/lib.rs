@@ -1,4 +1,7 @@
-#![allow(unsafe_code, reason = "The C API is built on raw pointers and `extern \"C\"` exports.")]
+#![allow(
+    unsafe_code,
+    reason = "The C API is built on raw pointers and `extern \"C\"` exports."
+)]
 
 pub mod api;
 mod callbacks;

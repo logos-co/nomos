@@ -7,7 +7,7 @@ use lb_core::{
     header::HeaderId,
     mantle::{
         GasProfile, Note, Value,
-        notes::NoteNf,
+        notes::NoteNullifier,
         ops::transfer::TransferOp,
         transactions::{MantleTxBuilder, builder::ZkTransferOpening, tx_list::ops::OpsContext},
     },
@@ -36,11 +36,11 @@ pub type Wallet = lb_wallet::Wallet<KeyId>;
 /// having no reservation at all.
 #[derive(Debug, Default)]
 struct PendingNotes {
-    notes: HashMap<NoteNf, u64>,
+    notes: HashMap<NoteNullifier, u64>,
 }
 
 impl PendingNotes {
-    fn reserve(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+    fn reserve(&mut self, nullifiers: impl IntoIterator<Item = NoteNullifier>) {
         for nullifier in nullifiers {
             debug!(
                 target: wallet::SERVICE,
@@ -51,7 +51,7 @@ impl PendingNotes {
         }
     }
 
-    fn release(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+    fn release(&mut self, nullifiers: impl IntoIterator<Item = NoteNullifier>) {
         for nullifier in nullifiers {
             if self.notes.remove(&nullifier).is_some() {
                 debug!(
@@ -63,7 +63,7 @@ impl PendingNotes {
         }
     }
 
-    fn nullifiers(&self) -> HashSet<NoteNf> {
+    fn nullifiers(&self) -> HashSet<NoteNullifier> {
         self.notes.keys().copied().collect()
     }
 
@@ -345,11 +345,11 @@ impl<'u> ServiceState<'u> {
         )
     }
 
-    pub fn reserve_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+    pub fn reserve_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNullifier>) {
         self.pending_notes.reserve(nullifiers);
     }
 
-    pub fn release_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+    pub fn release_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNullifier>) {
         self.pending_notes.release(nullifiers);
     }
 
@@ -388,7 +388,7 @@ mod tests {
         let note = KnownNote {
             note: Note::new(10, Fr::ONE, ZkPublicKey::new(Fr::from(2u64))),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(3u64)),
+            nullifier: NoteNullifier(Fr::from(3u64)),
         };
         let state = RecoveryState {
             lib_wallet_state: None,
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn pending_note_does_not_expire_without_lib_progress() {
-        let nullifier = NoteNf(Fr::ONE);
+        let nullifier = NoteNullifier(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
         pending_notes.reserve([nullifier]);
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn pending_note_expires_after_enough_lib_progress() {
-        let nullifier = NoteNf(Fr::ONE);
+        let nullifier = NoteNullifier(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
         pending_notes.reserve([nullifier]);
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn released_pending_note_becomes_available() {
-        let nullifier = NoteNf(Fr::ONE);
+        let nullifier = NoteNullifier(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
         pending_notes.reserve([nullifier]);

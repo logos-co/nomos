@@ -11,7 +11,7 @@ use std::{
 use async_trait::async_trait;
 use common_http_client::ApiBlock;
 use lb_core::mantle::{
-    notes::{NoteNf, derive_note_nf},
+    notes::{NoteNullifier, derive_note_nullifier},
     ops::OpRef,
     traits::GenesisTx as _,
 };
@@ -195,7 +195,7 @@ async fn wait_for_required_inclusions(
 fn build_capture_plan(
     expectation: &TxInclusionExpectation,
     ctx: &RunContext<AppHostEnv>,
-) -> Result<(SubmissionPlan, HashSet<NoteNf>), DynError> {
+) -> Result<(SubmissionPlan, HashSet<NoteNullifier>), DynError> {
     let wallet_accounts = ctx
         .lbc_deployment()?
         .config()
@@ -229,7 +229,7 @@ fn build_capture_plan(
         .enumerate()
         .filter_map(|(index, allocation)| {
             wallet_keys.get(&allocation.public_key).map(|secret_key| {
-                derive_note_nf(&allocation.note(index).commitment(), secret_key.as_fr())
+                derive_note_nullifier(&allocation.note(index).commitment(), secret_key.as_fr())
             })
         })
         .collect::<HashSet<_>>();
@@ -245,7 +245,7 @@ const fn catchup_wait_budget(_ctx: &RunContext<AppHostEnv>) -> Duration {
 
 fn capture_tx_outputs(
     block: &ApiBlock,
-    tracked_accounts: &HashSet<NoteNf>,
+    tracked_accounts: &HashSet<NoteNullifier>,
     observed: &AtomicU64,
 ) {
     for tx in &block.transactions {

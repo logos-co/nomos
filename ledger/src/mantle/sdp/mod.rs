@@ -12,7 +12,7 @@ use lb_core::{
         Value,
         ledger::verification_mode::{GenesisMode, StandardMode},
         note_set::NoteSets,
-        notes::{Note, NoteCm, OutputCms},
+        notes::{Note, NoteCommitment, OutputCommitments},
         ops::{
             SignedOperation,
             sdp::{
@@ -41,7 +41,7 @@ use crate::{EpochState, mantle::sdp::rewards::blend};
 const LOG_TARGET: &str = ledger::mantle::SDP;
 
 type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
-type Released = Vec<(DeclarationId, OutputCms)>;
+type Released = Vec<(DeclarationId, OutputCommitments)>;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Service {
@@ -729,7 +729,7 @@ pub struct HeaderEffect {
     // income the epoch transition settled
     pub settled_rewards: Value,
     // ascending declaration id order
-    pub released_outputs: Vec<NoteCm>,
+    pub released_outputs: Vec<NoteCommitment>,
     pub events: Vec<HeaderEvent>,
 }
 
@@ -740,7 +740,7 @@ mod tests {
     use lb_core::{
         mantle::{
             note_set::NoteSet,
-            notes::{NoteNf, derive_note_nf},
+            notes::{NoteNullifier, derive_note_nullifier},
             ops::{ZkAndEd25519Proof, ZkTransferProof, op_proof::samples::SampleProof as _},
         },
         sdp::{Locator, SNAPSHOT_FINALIZATION_DELAY},
@@ -795,8 +795,8 @@ mod tests {
             locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
             provider_id: ProviderId(signing_key.public_key()),
             zk_id: zk_key.to_public_key(),
-            inputs: [derive_note_nf(&input.commitment(), input_sk)].into(),
-            cm_merkle_root: NoteSet::empty().cm_root(),
+            inputs: [derive_note_nullifier(&input.commitment(), input_sk)].into(),
+            commitment_merkle_root: NoteSet::empty().commitment_root(),
             amount: input.value,
         }
     }
@@ -805,8 +805,8 @@ mod tests {
         SDPWithdrawOp {
             declaration_id,
             nonce,
-            service_note_nf: NoteNf(fr_from_bytes_unchecked(&declaration_id.0)),
-            outputs: [NoteCm(Fr::from(output))].into(),
+            service_note_nullifier: NoteNullifier(fr_from_bytes_unchecked(&declaration_id.0)),
+            outputs: [NoteCommitment(Fr::from(output))].into(),
             excess_value: 0,
         }
     }
@@ -1495,7 +1495,7 @@ mod tests {
             .try_apply_header(&config, &last_epoch_state, &new_epoch_state)
             .unwrap();
         assert_eq!(count_release_events(events, declaration_id), 1);
-        assert_eq!(released_outputs, vec![NoteCm(Fr::from(100u64))]);
+        assert_eq!(released_outputs, vec![NoteCommitment(Fr::from(100u64))]);
         assert!(
             sdp_ledger.get_declaration(&declaration_id).is_none(),
             "declaration must be removed the epoch after `withdraw_at`"
@@ -1637,7 +1637,10 @@ mod tests {
             Some(HeaderEvent::SdpWithdrawalReleased { .. })
         ));
         assert_eq!(count_release_events(effect.events, declaration_id), 1);
-        assert_eq!(effect.released_outputs, vec![NoteCm(Fr::from(100u64))]);
+        assert_eq!(
+            effect.released_outputs,
+            vec![NoteCommitment(Fr::from(100u64))]
+        );
         assert!(
             ledger.get_declaration(&declaration_id).is_none(),
             "declaration must be removed the epoch after `withdraw_at`"
@@ -1689,7 +1692,8 @@ mod tests {
                 .unwrap();
         }
 
-        // Withdrawn at epoch 0: `withdraw_at = 2`, released in the first block of epoch 3.
+        // Withdrawn at epoch 0: `withdraw_at = 2`, released in the first block of epoch
+        // 3.
         let mut released = Vec::new();
         for epoch in 1..=3u32 {
             let epoch_state = next_epoch_state(epoch.into(), &ledger, &config);
@@ -1705,7 +1709,10 @@ mod tests {
             vec![
                 vec![],
                 vec![],
-                vec![NoteCm(Fr::from(101u64)), NoteCm(Fr::from(100u64))]
+                vec![
+                    NoteCommitment(Fr::from(101u64)),
+                    NoteCommitment(Fr::from(100u64))
+                ]
             ]
         );
         assert!(

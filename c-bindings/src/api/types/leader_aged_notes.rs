@@ -1,7 +1,7 @@
 use std::ptr;
 
 use crate::api::{
-    cryptarchia::{HeaderId, NoteCm},
+    cryptarchia::{HeaderId, NoteCommitment},
     types::value::Value,
 };
 
@@ -9,7 +9,7 @@ use crate::api::{
 #[repr(C)]
 pub struct LeaderAgedNote {
     /// The note commitment, as 32 little-endian bytes.
-    pub commitment: NoteCm,
+    pub commitment: NoteCommitment,
     /// The note set holding the note.
     pub note_set: u64,
     /// The value staked by the note.

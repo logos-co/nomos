@@ -4,7 +4,7 @@ use lb_core::{
         Note, OpProof, SignedOps, Value,
         ledger::verification_mode::StandardMode,
         note_set::{LEDGER_SET, NoteSetIndex},
-        notes::NoteCm,
+        notes::NoteCommitment,
         transactions::{
             MantleTxBuilder, Ops, TxBuilderError, hash::TxHash, states::Preverified,
             tx_list::ops::OpsContext,
@@ -202,7 +202,7 @@ where
     pub async fn owned_note(
         &self,
         tip: Option<HeaderId>,
-        commitment: NoteCm,
+        commitment: NoteCommitment,
     ) -> Result<TipResponse<Option<OwnedNote>>, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
 

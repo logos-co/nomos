@@ -131,11 +131,7 @@ impl Cryptarchia {
             .state(&uncle.parent())
             .expect("ledger state of a block on the chain must exist");
         parent_state
-            .verify_proof_of_leadership::<_, HeaderId>(
-                uncle.slot(),
-                uncle,
-                self.ledger.config(),
-            )
+            .verify_proof_of_leadership::<_, HeaderId>(uncle.slot(), uncle, self.ledger.config())
             .map_err(|_| UncleError::InvalidProof)
     }
 }

@@ -36,15 +36,15 @@ mod tests {
     use super::*;
     use crate::mantle::{
         Op,
-        notes::{InputNfs, NoteCm},
+        notes::{InputNullifiers, NoteCommitment},
         ops::transfer::TransferOp,
         transactions::tx_list::Ops,
     };
 
     fn create_random_tx(seed: u32) -> Ops {
         Ops::from([Op::Transfer(TransferOp::new(
-            InputNfs::default(),
-            [NoteCm(Fr::from(u64::from(seed)))].into(),
+            InputNullifiers::default(),
+            [NoteCommitment(Fr::from(u64::from(seed)))].into(),
             Fr::ZERO,
             0,
         ))])

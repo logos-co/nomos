@@ -81,9 +81,9 @@ pub fn leadership_quota_inputs(leader_private: &LeaderPrivate) -> ProofOfLeaders
                 note_value,
                 note_nonce,
                 set_selectors,
-                cm_aged_path,
-                cm_aged_selectors,
-                nf_root_aged,
+                commitment_aged_path,
+                commitment_aged_selectors,
+                nullifier_root_aged,
                 set_aged_path,
                 secret_key,
                 ..
@@ -95,10 +95,10 @@ pub fn leadership_quota_inputs(leader_private: &LeaderPrivate) -> ProofOfLeaders
         slot: *slot_number,
         note_value: *note_value,
         note_nonce: *note_nonce,
-        cm_aged_path_and_selectors: core::array::from_fn(|i| {
-            (cm_aged_path[i], cm_aged_selectors[i])
+        commitment_aged_path_and_selectors: core::array::from_fn(|i| {
+            (commitment_aged_path[i], commitment_aged_selectors[i])
         }),
-        nf_root_aged: *nf_root_aged,
+        nullifier_root_aged: *nullifier_root_aged,
         set_aged_path_and_selectors: core::array::from_fn(|i| (set_aged_path[i], set_selectors[i])),
         secret_key: *secret_key,
     }
@@ -129,10 +129,13 @@ mod tests {
             ),
             (chain.slot_number, 1000, Fr::from(11u64), Fr::from(7u64))
         );
-        assert_eq!(inputs.nf_root_aged, wallet.nf_root_aged);
+        assert_eq!(inputs.nullifier_root_aged, wallet.nullifier_root_aged);
         assert_eq!(
-            inputs.cm_aged_path_and_selectors[0],
-            (wallet.cm_aged_path[0], wallet.cm_aged_selectors[0])
+            inputs.commitment_aged_path_and_selectors[0],
+            (
+                wallet.commitment_aged_path[0],
+                wallet.commitment_aged_selectors[0]
+            )
         );
         assert_eq!(
             inputs.set_aged_path_and_selectors[0],

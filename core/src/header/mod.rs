@@ -727,7 +727,7 @@ mod body_root_test_vectors {
         let slot = Slot::from(42u64);
         let proof = Groth16LeaderProof::from_parts(
             lb_pol::PoLProof::from_bytes(&[0x22u8; 128]),
-            Fr::from(0x5555u64), // entropy_contribution
+            Fr::from(0x5555u64),                   // entropy_contribution
             ZkPublicKey::new(Fr::from(0x4444u64)), // reward_key
         );
         let header = Header::new(parent_block, body_root, slot, proof);

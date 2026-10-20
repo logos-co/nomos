@@ -3,7 +3,7 @@ use std::{
     num::NonZero,
 };
 
-use lb_core::mantle::{notes::NoteNf, transactions::GENESIS_STORAGE_GAS_PRICE};
+use lb_core::mantle::{notes::NoteNullifier, transactions::GENESIS_STORAGE_GAS_PRICE};
 use lb_testing_framework::configs::wallet::WalletAccount;
 use lb_wallet::OwnedNote;
 use thiserror::Error;
@@ -189,7 +189,7 @@ impl ScenarioFeeReservations {
             .collect()
     }
 
-    fn reserved_note_ids_for_group(&self, group_key: &str) -> HashSet<NoteNf> {
+    fn reserved_note_ids_for_group(&self, group_key: &str) -> HashSet<NoteNullifier> {
         self.reserved_by_wallet
             .values()
             .filter(|reservation| reservation.group_key == group_key)

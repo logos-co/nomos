@@ -14,7 +14,7 @@ use crate::{
     mantle::{
         GasProfile, Note, Op, Value,
         gas::{GasCost, GasOverflow, TxGasCalculator as _},
-        notes::{InputNfs, NoteNf, OutputCms},
+        notes::{InputNullifiers, NoteNullifier, OutputCommitments},
         ops::transfer::TransferOp,
         transactions::{
             Ops,
@@ -68,7 +68,7 @@ pub struct ZkTransferOpening {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FundingNote {
     pub note: Note,
-    pub nullifier: NoteNf,
+    pub nullifier: NoteNullifier,
 }
 
 pub type FundingInputs = UpperBoundedVec<FundingNote, MAX_INPUTS>;
@@ -298,15 +298,17 @@ impl MantleTxBuilder {
 
     /// Returns all nullifiers spent by this transaction, plus the funding
     /// inputs that will be appended as a transfer during build.
-    pub fn nullifiers_consumed(&self) -> impl Iterator<Item = NoteNf> {
+    pub fn nullifiers_consumed(&self) -> impl Iterator<Item = NoteNullifier> {
         self.ops
             .iter()
             .flat_map(|op| {
-                let inputs: &[NoteNf] = match op {
+                let inputs: &[NoteNullifier] = match op {
                     Op::Transfer(transfer) => &transfer.inputs,
                     Op::ChannelDeposit(deposit) => &deposit.inputs,
                     Op::SDPDeclare(declare) => &declare.inputs,
-                    Op::SDPWithdraw(withdraw) => core::slice::from_ref(&withdraw.service_note_nf),
+                    Op::SDPWithdraw(withdraw) => {
+                        core::slice::from_ref(&withdraw.service_note_nullifier)
+                    }
                     _ => &[],
                 };
                 inputs.iter().copied()
@@ -366,12 +368,12 @@ impl MantleTxBuilder {
     fn ops_with_funding(&self, excess_value: Value) -> Result<Ops, TxBuilderError> {
         let mut ops = self.ops.clone();
         if self.funds() {
-            let inputs = InputNfs::try_from_iter(
+            let inputs = InputNullifiers::try_from_iter(
                 self.funding_inputs.iter().map(|funding| funding.nullifier),
             )
             .map_err(|err| TxBuilderError::from((err, BoundedTag::Inputs)))?;
             let outputs =
-                OutputCms::try_from_iter(self.funding_outputs.iter().map(Note::commitment))
+                OutputCommitments::try_from_iter(self.funding_outputs.iter().map(Note::commitment))
                     .map_err(|err| TxBuilderError::from((err, BoundedTag::Outputs)))?;
             ops.0
                 .try_push(Op::Transfer(TransferOp::new(
@@ -392,23 +394,21 @@ mod tests {
     use lb_key_management_system_keys::keys::Ed25519Key;
 
     use super::*;
-    use crate::{
-        mantle::{
-            gas::MainnetGasProfile,
-            ops::channel::{
-                ChannelId,
-                deposit::DepositOp,
-                inscribe::{ChannelSteps, InscriptionOp},
-                withdraw::ChannelWithdrawOp,
-            },
-            transactions::{GasPrices, tx_list::ops::OpsGasContext},
+    use crate::mantle::{
+        gas::MainnetGasProfile,
+        ops::channel::{
+            ChannelId,
+            deposit::DepositOp,
+            inscribe::{ChannelSteps, InscriptionOp},
+            withdraw::ChannelWithdrawOp,
         },
+        transactions::{GasPrices, tx_list::ops::OpsGasContext},
     };
 
     fn funding_note(value: Value, nonce: u64, nullifier: u64) -> FundingNote {
         FundingNote {
             note: Note::new(value, Fr::from(nonce), ZkPublicKey::new(Fr::from(9u64))),
-            nullifier: NoteNf(Fr::from(nullifier)),
+            nullifier: NoteNullifier(Fr::from(nullifier)),
         }
     }
 
@@ -479,9 +479,9 @@ mod tests {
         // Build an operation
         let op = DepositOp {
             channel_id: [0; 32].into(),
-            inputs: [NoteNf(Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
+            outputs: OutputCommitments::default(),
             excess_value: 0,
             metadata: b"Mint 1 to Alice in Zone".into(),
         };
@@ -509,9 +509,9 @@ mod tests {
         // Build an operation
         let op = ChannelWithdrawOp {
             channel_id: [0; 32].into(),
-            inputs: [NoteNf(Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
+            outputs: OutputCommitments::default(),
         };
 
         // Init a tx builder
@@ -552,18 +552,18 @@ mod tests {
             .unwrap()
             .push_op(Op::ChannelDeposit(DepositOp {
                 channel_id,
-                inputs: [NoteNf(Fr::ZERO)].into(),
-                cm_merkle_root: Fr::ZERO,
-                outputs: OutputCms::default(),
+                inputs: [NoteNullifier(Fr::ZERO)].into(),
+                commitment_merkle_root: Fr::ZERO,
+                outputs: OutputCommitments::default(),
                 excess_value: 0,
                 metadata: b"Mint 10 to Alice in Zone".into(),
             }))
             .unwrap()
             .push_op(Op::ChannelWithdraw(ChannelWithdrawOp {
                 channel_id,
-                inputs: [NoteNf(Fr::ZERO)].into(),
-                cm_merkle_root: Fr::ZERO,
-                outputs: OutputCms::default(),
+                inputs: [NoteNullifier(Fr::ZERO)].into(),
+                commitment_merkle_root: Fr::ZERO,
+                outputs: OutputCommitments::default(),
             }))
             .unwrap()
             .add_ledger_output(Note::new(40, Fr::from(2u64), ZkPublicKey::zero()))
@@ -607,7 +607,7 @@ mod tests {
         assert_eq!(builder.net_balance(), 600);
         assert_eq!(
             builder.nullifiers_consumed().collect::<Vec<_>>(),
-            vec![NoteNf(Fr::from(3u64))]
+            vec![NoteNullifier(Fr::from(3u64))]
         );
         let openings = builder.openings();
 
@@ -616,7 +616,7 @@ mod tests {
         assert_eq!(
             ops[1],
             Op::Transfer(TransferOp::new(
-                [NoteNf(Fr::from(3u64))].into(),
+                [NoteNullifier(Fr::from(3u64))].into(),
                 [output.commitment()].into(),
                 Fr::from(5u64),
                 600

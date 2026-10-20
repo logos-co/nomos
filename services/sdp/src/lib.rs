@@ -17,7 +17,7 @@ use lb_core::{
     mantle::{
         SignedOps, Value,
         ledger::verification_mode::StandardMode,
-        notes::NoteCm,
+        notes::NoteCommitment,
         traits::Hashable as _,
         transactions::{MantleTxBuilder, TxHash, states::Preverified},
     },
@@ -148,7 +148,7 @@ impl StorageRecoverySettings for SdpSettings {
 pub struct RuntimeDeclaration {
     pub id: DeclarationId,
     pub zk_id: ZkPublicKey,
-    pub service_note: NoteCm,
+    pub service_note: NoteCommitment,
     pub nonce: u64,
     pub tip: HeaderId,
 }

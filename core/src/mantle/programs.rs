@@ -311,7 +311,7 @@ mod tests {
     use lb_groth16::test_utils::{three_input_prove, three_input_setup};
 
     use super::*;
-    use crate::mantle::notes::derive_note_nf;
+    use crate::mantle::notes::derive_note_nullifier;
 
     fn placeholder_key() -> ProgramVerificationKey {
         ProgramVerificationKey {
@@ -422,7 +422,7 @@ mod tests {
                 };
                 assert_eq!(
                     public.inputs[i].into_inner(),
-                    derive_note_nf(&note.commitment(), &input.secret_key).0
+                    derive_note_nullifier(&note.commitment(), &input.secret_key).0
                 );
             }
             SpendInputFields {

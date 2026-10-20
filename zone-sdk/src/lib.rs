@@ -95,7 +95,7 @@ pub mod node_types {
         mantle::{
             SignedOps, TxHash, Value,
             channel::ChannelState,
-            notes::{InputNfs, OutputCms},
+            notes::{InputNullifiers, OutputCommitments},
             ops::channel::{ChannelId, MsgId, deposit::Metadata, inscribe::Inscription},
             transactions::states::Unverified,
         },
@@ -110,7 +110,7 @@ use lb_core::{
     crypto::Hash,
     mantle::{
         TxHash,
-        notes::{InputNfs, OutputCms},
+        notes::{InputNullifiers, OutputCommitments},
         ops::channel::{MsgId, deposit::Metadata, inscribe::Inscription},
     },
 };
@@ -145,10 +145,10 @@ pub struct Deposit {
     /// matching `DepositInfo::op_id` on the sequencer side.
     pub op_id: Hash,
     /// Nullifiers of the ledger notes the deposit consumed.
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     /// Commitments of the notes the deposit created in the channel's note
     /// set, sourced from the block's events.
-    pub outputs: OutputCms,
+    pub outputs: OutputCommitments,
     /// Opaque metadata associated with this deposit
     pub metadata: Metadata,
 }

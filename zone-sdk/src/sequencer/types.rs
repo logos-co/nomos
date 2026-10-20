@@ -9,7 +9,7 @@ use lb_core::{
         channel::ChannelState,
         gas::GasCost,
         ledger::verification_mode::StandardMode,
-        notes::{InputNfs, OutputCms},
+        notes::{InputNullifiers, OutputCommitments},
         ops::{
             Op, OpProof,
             channel::{
@@ -557,10 +557,10 @@ pub struct DepositInfo {
     /// Target channel.
     pub channel_id: ChannelId,
     /// Nullifiers of the ledger notes the deposit consumed.
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     /// Commitments of the notes the deposit created in the channel's note
     /// set, sourced from the block's events.
-    pub outputs: OutputCms,
+    pub outputs: OutputCommitments,
     /// Opaque metadata associated with this deposit.
     pub metadata: Metadata,
 }
@@ -634,7 +634,7 @@ mod tests {
     use lb_core::mantle::{
         Op,
         channel::{SlotTimeframe, SlotTimeout},
-        notes::{NoteNf, OutputCms},
+        notes::{NoteNullifier, OutputCommitments},
         ops::channel::{
             ChannelId, MsgId, VerifiedChannelKeys, config::ChannelConfigOp,
             withdraw::ChannelWithdrawOp,
@@ -723,9 +723,9 @@ mod tests {
         // signature over the tx hash would authorize both.
         let smuggled = Op::ChannelWithdraw(ChannelWithdrawOp {
             channel_id: ChannelId::from([7; 32]),
-            inputs: [NoteNf(Fr::from(1u64))].into(),
-            cm_merkle_root: Fr::from(0u64),
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::from(1u64))].into(),
+            commitment_merkle_root: Fr::from(0u64),
+            outputs: OutputCommitments::default(),
         });
         let tx = Ops::new_unchecked(vec![config.clone(), smuggled.clone()]);
         let prepared = PreparedChannelConfig {

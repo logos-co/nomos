@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 
-use lb_core::mantle::notes::NoteNf;
+use lb_core::mantle::notes::NoteNullifier;
 use lb_key_management_system_service::keys::{ZkKey, ZkPublicKey};
 use lb_testing_framework::configs::wallet::WalletAccount;
 use lb_wallet::{OwnedNote, WalletError};
@@ -192,7 +192,10 @@ pub struct WalletSelectedInputs {
 
 impl WalletSelectedInputs {
     /// Select largest UTXOs first until `target` is covered.
-    pub fn largest_first_covering(mut utxos: Vec<OwnedNote>, target: u64) -> Result<Self, WalletError> {
+    pub fn largest_first_covering(
+        mut utxos: Vec<OwnedNote>,
+        target: u64,
+    ) -> Result<Self, WalletError> {
         if target == 0 {
             return Ok(Self {
                 inputs: Vec::new(),
@@ -344,7 +347,7 @@ impl WalletReservedInputs {
     }
 
     #[must_use]
-    pub fn input_note_ids_list(&self) -> Vec<NoteNf> {
+    pub fn input_note_ids_list(&self) -> Vec<NoteNullifier> {
         self.sender
             .iter()
             .chain(&self.fee_sponsor)
@@ -365,7 +368,7 @@ mod tests {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::new(1u8.into())),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(output_index)),
+            nullifier: NoteNullifier(Fr::from(output_index)),
             path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
         }
     }

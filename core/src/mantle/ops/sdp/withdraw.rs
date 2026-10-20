@@ -85,7 +85,8 @@ impl VerifiableOperation<StandardMode>
             });
         }
 
-        // Ensure the `provider_id` attached to this declaration authorized this Operation.
+        // Ensure the `provider_id` attached to this declaration authorized this
+        // Operation.
         declaration
             .provider_id
             .0
@@ -105,25 +106,29 @@ impl VerifiableOperation<StandardMode>
             .note_sets
             .get(SDP_SET)
             .expect("the SDP note set always exists")
-            .contains_nullifier(&operation.service_note_nf)
+            .contains_nullifier(&operation.service_note_nullifier)
         {
-            return Err(NoteSetError::AlreadySpent(operation.service_note_nf).into());
+            return Err(NoteSetError::AlreadySpent(operation.service_note_nullifier).into());
         }
 
         // The root of an empty MMR to which only the service note of the declaration is
         // appended.
-        let tx_cm_root = CommitmentMmr::new()
+        let tx_commitment_root = CommitmentMmr::new()
             .push(declaration.service_note)
             .expect("one commitment fits in an empty MMR")
             .frontier_root();
 
         // Defer the proof verification so that the caller can batch it.
-        let cms: Vec<Fr> = operation.outputs.iter().map(|cm| cm.0).collect();
+        let commitments: Vec<Fr> = operation
+            .outputs
+            .iter()
+            .map(|commitment| commitment.0)
+            .collect();
         let public = ZkTransferVerifierInput::new(
-            &[operation.service_note_nf.0],
-            &cms,
+            &[operation.service_note_nullifier.0],
+            &commitments,
             operation.excess_value,
-            tx_cm_root,
+            tx_commitment_root,
             *context.tx_hash_view.as_fr(),
         )?;
         Ok(DeferredZkTransfer::new(
@@ -151,7 +156,7 @@ impl<Mode: VerificationMode> ExecutableOperation
             .get(SDP_SET)
             .expect("the SDP note set always exists")
             .clone()
-            .execute_spending(&[operation.service_note_nf])?;
+            .execute_spending(&[operation.service_note_nullifier])?;
         context.note_sets = context.note_sets.update(SDP_SET, sdp);
 
         let declaration = context
@@ -194,7 +199,9 @@ mod tests {
             TxHash,
             gas::test_utils::FixedThresholds,
             note_set::{LEDGER_SET, NoteSet},
-            notes::{self, NoteCm, NoteNf, OutputCms, derive_note_nf},
+            notes::{
+                self, NoteCommitment, NoteNullifier, OutputCommitments, derive_note_nullifier,
+            },
             ops::{
                 ZkTransferProof, op_proof::samples::SampleProof as _,
                 transfer::test_utils::prove_transfer,
@@ -337,9 +344,10 @@ mod tests {
     fn verify_defers_the_zk_transfer_against_the_service_note_root() {
         let operation = SDPWithdrawOp::sample();
         let declarations = declarations(&operation, declaration());
-        // Other notes of the SDP set do not change the root the withdrawal is proven against.
+        // Other notes of the SDP set do not change the root the withdrawal is proven
+        // against.
         let sdp = NoteSet::empty()
-            .execute_adding(&[NoteCm(Fr::from(1u64))])
+            .execute_adding(&[NoteCommitment(Fr::from(1u64))])
             .unwrap();
         let sets = NoteSets::new().update(SDP_SET, sdp).end_block(0);
         let deferred = verify_withdrawal(
@@ -362,7 +370,7 @@ mod tests {
         assert_eq!(public.outputs[1].into_inner(), Fr::ZERO);
         assert_eq!(public.excess_value.into_inner(), Fr::from(47u64));
         assert_eq!(
-            public.tx_cm_root.into_inner(),
+            public.tx_commitment_root.into_inner(),
             service_note_root(&DeclarationMessage::sample())
         );
         assert_eq!(public.msg.into_inner(), *tx_hash_view().as_fr());
@@ -393,7 +401,7 @@ mod tests {
         let operation = SDPWithdrawOp::sample();
         let declarations = declarations(&operation, declaration());
         let spent = NoteSet::empty()
-            .execute_spending(&[NoteNf(Fr::from(28u64))])
+            .execute_spending(&[NoteNullifier(Fr::from(28u64))])
             .unwrap();
         let sets = NoteSets::new().update(SDP_SET, spent);
         assert_eq!(
@@ -408,14 +416,17 @@ mod tests {
                 &sets,
             )
             .unwrap_err(),
-            SdpError::NoteSet(NoteSetError::AlreadySpent(NoteNf(Fr::from(28u64))))
+            SdpError::NoteSet(NoteSetError::AlreadySpent(NoteNullifier(Fr::from(28u64))))
         );
     }
 
     #[test]
     fn verify_rejects_more_than_eight_outputs() {
         let operation = SDPWithdrawOp {
-            outputs: OutputCms::try_from_iter((1..=9u64).map(|n| NoteCm(Fr::from(n)))).unwrap(),
+            outputs: OutputCommitments::try_from_iter(
+                (1..=9u64).map(|n| NoteCommitment(Fr::from(n))),
+            )
+            .unwrap(),
             ..SDPWithdrawOp::sample()
         };
         let declarations = declarations(&operation, declaration());
@@ -440,7 +451,7 @@ mod tests {
         let withdrawal = |excess_value| SDPWithdrawOp {
             declaration_id: message.id(),
             nonce: 1,
-            service_note_nf: derive_note_nf(&service_note.commitment(), &secret_key),
+            service_note_nullifier: derive_note_nullifier(&service_note.commitment(), &secret_key),
             outputs: [output.commitment()].into(),
             excess_value,
         };
@@ -509,18 +520,21 @@ mod tests {
             Some(Epoch::from(4).strict_add(sdp::SNAPSHOT_FINALIZATION_DELAY))
         );
         assert_eq!(updated.nonce, 29);
-        assert_eq!(updated.withdraw_outputs, [NoteCm(Fr::from(46u64))].into());
+        assert_eq!(
+            updated.withdraw_outputs,
+            [NoteCommitment(Fr::from(46u64))].into()
+        );
         assert!(
             context
                 .note_sets
                 .get(SDP_SET)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(28u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(28u64)))
         );
         // The outputs wait for the removal of the declaration.
         assert_eq!(
-            context.note_sets.get(LEDGER_SET).unwrap().cm_root(),
-            NoteSet::empty().cm_root()
+            context.note_sets.get(LEDGER_SET).unwrap().commitment_root(),
+            NoteSet::empty().commitment_root()
         );
         assert_eq!(events, []);
     }

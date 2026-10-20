@@ -14,8 +14,8 @@ pub struct PoQWalletInputs {
     pol_secret_key: Groth16Input,
     pol_note_value: Groth16Input,
     pol_note_nonce: Groth16Input,
-    pol_cm_aged_path_and_selectors: [(Groth16Input, Groth16Input); NOTE_SET_TREE_DEPTH],
-    pol_nf_root_aged: Groth16Input,
+    pol_commitment_aged_path_and_selectors: [(Groth16Input, Groth16Input); NOTE_SET_TREE_DEPTH],
+    pol_nullifier_root_aged: Groth16Input,
     pol_set_aged_path_and_selectors: [(Groth16Input, Groth16Input); NOTE_SET_TREE_DEPTH],
 }
 
@@ -23,8 +23,8 @@ pub struct PoQWalletInputsData {
     pub slot: u64,
     pub note_value: u64,
     pub note_nonce: Fr,
-    pub cm_aged_path_and_selectors: AgedNotePathAndSelectors,
-    pub nf_root_aged: Fr,
+    pub commitment_aged_path_and_selectors: AgedNotePathAndSelectors,
+    pub nullifier_root_aged: Fr,
     pub set_aged_path_and_selectors: AgedSetPathAndSelectors,
     pub pol_secret_key: Fr,
 }
@@ -39,11 +39,11 @@ pub struct PoQWalletInputsJson {
     #[serde(rename = "pol_note_nonce")]
     note_nonce: Groth16InputDeser,
     #[serde(rename = "pol_cm_aged_path")]
-    cm_aged_path: Vec<Groth16InputDeser>,
+    commitment_aged_path: Vec<Groth16InputDeser>,
     #[serde(rename = "pol_cm_aged_selectors")]
-    cm_aged_selectors: Vec<Groth16InputDeser>,
+    commitment_aged_selectors: Vec<Groth16InputDeser>,
     #[serde(rename = "pol_nf_root_aged")]
-    nf_root_aged: Groth16InputDeser,
+    nullifier_root_aged: Groth16InputDeser,
     #[serde(rename = "pol_set_aged_path")]
     set_aged_path: Vec<Groth16InputDeser>,
     #[serde(rename = "pol_set_selectors")]
@@ -58,8 +58,8 @@ impl From<PoQWalletInputs> for PoQWalletInputsJson {
             pol_secret_key,
             pol_note_value,
             pol_note_nonce,
-            pol_cm_aged_path_and_selectors,
-            pol_nf_root_aged,
+            pol_commitment_aged_path_and_selectors,
+            pol_nullifier_root_aged,
             pol_set_aged_path_and_selectors,
         }: PoQWalletInputs,
     ) -> Self {
@@ -67,15 +67,15 @@ impl From<PoQWalletInputs> for PoQWalletInputsJson {
             pol_slot: (&pol_slot).into(),
             note_value: (&pol_note_value).into(),
             note_nonce: (&pol_note_nonce).into(),
-            cm_aged_path: pol_cm_aged_path_and_selectors
+            commitment_aged_path: pol_commitment_aged_path_and_selectors
                 .iter()
                 .map(|(path, _)| path.into())
                 .collect(),
-            cm_aged_selectors: pol_cm_aged_path_and_selectors
+            commitment_aged_selectors: pol_commitment_aged_path_and_selectors
                 .iter()
                 .map(|(_, selector)| selector.into())
                 .collect(),
-            nf_root_aged: (&pol_nf_root_aged).into(),
+            nullifier_root_aged: (&pol_nullifier_root_aged).into(),
             set_aged_path: pol_set_aged_path_and_selectors
                 .iter()
                 .map(|(path, _)| path.into())
@@ -95,8 +95,8 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
             slot,
             note_value,
             note_nonce,
-            cm_aged_path_and_selectors,
-            nf_root_aged,
+            commitment_aged_path_and_selectors,
+            nullifier_root_aged,
             set_aged_path_and_selectors,
             pol_secret_key,
         }: PoQWalletInputsData,
@@ -106,13 +106,15 @@ impl From<PoQWalletInputsData> for PoQWalletInputs {
             pol_secret_key: pol_secret_key.into(),
             pol_note_value: Groth16Input::new(Fr::from(BigUint::from(note_value))),
             pol_note_nonce: note_nonce.into(),
-            pol_cm_aged_path_and_selectors: cm_aged_path_and_selectors.map(|(hash, selector)| {
-                (
-                    hash.into(),
-                    Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO }),
-                )
-            }),
-            pol_nf_root_aged: nf_root_aged.into(),
+            pol_commitment_aged_path_and_selectors: commitment_aged_path_and_selectors.map(
+                |(hash, selector)| {
+                    (
+                        hash.into(),
+                        Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO }),
+                    )
+                },
+            ),
+            pol_nullifier_root_aged: nullifier_root_aged.into(),
             pol_set_aged_path_and_selectors: set_aged_path_and_selectors.map(|(hash, selector)| {
                 (
                     hash.into(),

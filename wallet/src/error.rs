@@ -1,9 +1,7 @@
 use lb_core::{
     header::HeaderId,
     mantle::{
-        gas::GasOverflow,
-        note_set::NoteSetIndex,
-        ops::channel::ChannelId,
+        gas::GasOverflow, note_set::NoteSetIndex, ops::channel::ChannelId,
         transactions::builder::TxBuilderError,
     },
 };

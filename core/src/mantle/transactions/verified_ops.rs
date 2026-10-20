@@ -94,13 +94,12 @@ mod tests {
     use lb_key_management_system_keys::keys::Ed25519Key;
 
     use crate::mantle::{
-        Op,
-        OpProof,
+        Op, OpProof,
         batch::DeferredProofs,
         channel::Channels,
         ledger::verification_mode::StandardMode,
         note_set::NoteSets,
-        notes::{NoteNf, OutputCms},
+        notes::{NoteNullifier, OutputCommitments},
         ops::{
             ZkTransferProof,
             channel::{ChannelId, withdraw::ChannelWithdrawOp},
@@ -125,16 +124,16 @@ mod tests {
         let (channels, note_sets) =
             Channels::new().create_channel(channel_id, Slot::from(0u64), keys, NoteSets::new());
         let note_sets = note_sets.end_block(0);
-        let cm_merkle_root = note_sets
+        let commitment_merkle_root = note_sets
             .get(2)
             .expect("the channel holds note set 2")
-            .cm_root();
+            .commitment_root();
 
         let ops = Ops::from([Op::ChannelWithdraw(ChannelWithdrawOp {
             channel_id,
-            inputs: [NoteNf(Fr::from(1u64))].into(),
-            cm_merkle_root,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::from(1u64))].into(),
+            commitment_merkle_root,
+            outputs: OutputCommitments::default(),
         })]);
         let signed_tx = SignedOps::from_parts(
             ops,

@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use lb_core::mantle::{
     Op, OpProof, OpRef, SignedOps, TxHash,
     gas::{MainnetGasProfile, TxGasCalculator as _},
-    notes::NoteNf,
+    notes::NoteNullifier,
     ops::{ChannelInscribeProof, ZkTransferProof, transfer::prove_transfer},
     traits::Hashable as _,
     transactions::{
@@ -21,7 +21,7 @@ use lb_wallet::{
 use super::{error::WalletTransactionError, signed::SignedWalletTransaction};
 use crate::common::wallet::WalletReservedInputs;
 
-pub(super) type WalletTransferSigners = HashMap<NoteNf, (OwnedNote, ZkKey)>;
+pub(super) type WalletTransferSigners = HashMap<NoteNullifier, (OwnedNote, ZkKey)>;
 
 pub(super) fn sign_prepared_wallet_transaction(
     funded_builder: MantleTxBuilder,
@@ -117,35 +117,37 @@ pub(super) fn build_transfer_proofs(
             Op::Transfer(transfer_op) => Some((op_index, transfer_op)),
             _ => None,
         })
-        .map(|(op_index, transfer_op)| -> Result<OpProof, WalletTransactionError> {
-            let opening = openings
-                .get(&op_index)
-                .ok_or(lb_wallet::WalletError::MissingOpening { op_index })?;
-            // Each input is proven with the path of its funding note, to the
-            // root the funding Transfer names; no earlier Operation of a test
-            // wallet transaction appends to the ledger set.
-            let inputs = transfer_op
-                .inputs
-                .iter()
-                .map(|nullifier| {
-                    transfer_signers
-                        .get(nullifier)
-                        .map(|(owned, signing_key)| {
-                            (owned.note, *signing_key.as_fr(), owned.path.clone())
-                        })
-                        .ok_or(WalletTransactionError::MissingFundingInput {
-                            nullifier: *nullifier,
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+        .map(
+            |(op_index, transfer_op)| -> Result<OpProof, WalletTransactionError> {
+                let opening = openings
+                    .get(&op_index)
+                    .ok_or(lb_wallet::WalletError::MissingOpening { op_index })?;
+                // Each input is proven with the path of its funding note, to the
+                // root the funding Transfer names; no earlier Operation of a test
+                // wallet transaction appends to the ledger set.
+                let inputs = transfer_op
+                    .inputs
+                    .iter()
+                    .map(|nullifier| {
+                        transfer_signers
+                            .get(nullifier)
+                            .map(|(owned, signing_key)| {
+                                (owned.note, *signing_key.as_fr(), owned.path.clone())
+                            })
+                            .ok_or(WalletTransactionError::MissingFundingInput {
+                                nullifier: *nullifier,
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
-            Ok(OpProof::ZkTransfer(ZkTransferProof::new(prove_transfer(
-                &inputs,
-                &opening.outputs,
-                transfer_op.cm_merkle_root,
-                tx_hash.to_fr(),
-            ))))
-        })
+                Ok(OpProof::ZkTransfer(ZkTransferProof::new(prove_transfer(
+                    &inputs,
+                    &opening.outputs,
+                    transfer_op.commitment_merkle_root,
+                    tx_hash.to_fr(),
+                ))))
+            },
+        )
         .collect::<Result<Vec<_>, _>>()?;
     Ok(OpProofs::try_from(proofs).expect("transaction proofs are bounded"))
 }

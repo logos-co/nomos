@@ -13,8 +13,8 @@ mod update;
 use std::hash::Hash;
 
 pub use config::{Config, ConsensusExcludedKeys};
-use cryptarchia::LedgerState as CryptarchiaLedger;
 pub use cryptarchia::EpochState;
+use cryptarchia::LedgerState as CryptarchiaLedger;
 #[cfg(test)]
 use gas_and_fees::EXECUTION_GAS_LIMIT;
 pub use gas_and_fees::GasAndFees;
@@ -102,7 +102,7 @@ pub enum LedgerError<Id> {
     #[error("Mantle error: {0}")]
     Mantle(#[from] mantle::Error),
     #[error("Input note in genesis block: {0:?}")]
-    InputInGenesis(notes::NoteNf),
+    InputInGenesis(notes::NoteNullifier),
     #[error("The first Transfer Operation is missing in genesis tx")]
     MissingTransferGenesis(),
     #[error("Fees don't cover the minimal execution base fee cost")]
@@ -314,8 +314,8 @@ impl LedgerState {
         cryptarchia_ledger = cryptarchia_ledger
             .pay_service_rewards::<Id>(&effect.reward_notes, effect.settled_rewards)?;
 
-        // SDP Epoch Finalization: the outputs of the removed withdrawals enter the ledger note
-        // set.
+        // SDP Epoch Finalization: the outputs of the removed withdrawals enter the
+        // ledger note set.
         if !effect.released_outputs.is_empty() {
             let ledger_set = cryptarchia_ledger
                 .note_sets
@@ -965,7 +965,10 @@ mod tests {
             channel::Channels,
             gas::{MainnetGasProfile, TxGasCalculator as _},
             note_set::{CommitmentMmr, LEDGER_SET, NoteSet, NoteSetUpdate, SDP_SET},
-            notes::{InputNfs, NoteCm, NoteNf, OutputCms, derive_note_nf, derive_note_nonce},
+            notes::{
+                InputNullifiers, NoteCommitment, NoteNullifier, OutputCommitments,
+                derive_note_nonce, derive_note_nullifier,
+            },
             ops::{
                 ChannelInscribeProof, OpId as _, SignedOperation, StepProof, ZkAndEd25519Proof,
                 ZkTransferProof,
@@ -1020,15 +1023,15 @@ mod tests {
     type HeaderId = [u8; 32];
 
     fn create_tx(
-        inputs: Vec<NoteNf>,
-        outputs: Vec<NoteCm>,
-        cm_merkle_root: Fr,
+        inputs: Vec<NoteNullifier>,
+        outputs: Vec<NoteCommitment>,
+        commitment_merkle_root: Fr,
         excess_value: Value,
     ) -> SignedOps<Unverified, StandardMode> {
         let transfer_op = TransferOp::new(
-            InputNfs::try_from(inputs).expect("Invalid inputs size"),
-            OutputCms::try_from(outputs).expect("Invalid outputs size"),
-            cm_merkle_root,
+            InputNullifiers::try_from(inputs).expect("Invalid inputs size"),
+            OutputCommitments::try_from(outputs).expect("Invalid outputs size"),
+            commitment_merkle_root,
             excess_value,
         );
         let mantle_tx = Ops::from([Op::Transfer(transfer_op)]);
@@ -1039,7 +1042,11 @@ mod tests {
     }
 
     fn ledger_root(state: &LedgerState) -> Fr {
-        state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root()
+        state
+            .latest_note_sets()
+            .get(LEDGER_SET)
+            .unwrap()
+            .commitment_root()
     }
 
     pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, (Fr, notes::Note)) {
@@ -1058,8 +1065,12 @@ mod tests {
             notes::Note::new(10_000, Fr::from(1u64), ZkPublicKey::new(Fr::from(2u64)));
         let mut state = LedgerState::from_notes([genesis_note], &test_config);
         state.block_number = 5;
-        let old_root = state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root();
-        let added = NoteCm(Fr::from(77u64));
+        let old_root = state
+            .latest_note_sets()
+            .get(LEDGER_SET)
+            .unwrap()
+            .commitment_root();
+        let added = NoteCommitment(Fr::from(77u64));
         let ledger_set = state
             .latest_note_sets()
             .get(LEDGER_SET)
@@ -1081,7 +1092,7 @@ mod tests {
             .unwrap();
 
         let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
-        let spent = [NoteNf(Fr::from(9u64))];
+        let spent = [NoteNullifier(Fr::from(9u64))];
         assert!(ledger_set.assert_spendable(&spent, &old_root, 1028).is_ok());
         assert_eq!(
             ledger_set.assert_spendable(&spent, &old_root, 1029),
@@ -1089,7 +1100,7 @@ mod tests {
         );
         assert!(
             ledger_set
-                .assert_spendable(&spent, &ledger_set.cm_root(), 5000)
+                .assert_spendable(&spent, &ledger_set.commitment_root(), 5000)
                 .is_ok()
         );
         let expected = NoteSets::new()
@@ -1136,11 +1147,11 @@ mod tests {
             .unwrap()
             .frontier_root();
         let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
-        assert_eq!(ledger_set.cm_root(), expected);
+        assert_eq!(ledger_set.commitment_root(), expected);
         // The recorded root of block 1 includes the leader note.
         assert!(
             ledger_set
-                .assert_spendable(&[NoteNf(Fr::from(9u64))], &expected, 2)
+                .assert_spendable(&[NoteNullifier(Fr::from(9u64))], &expected, 2)
                 .is_ok()
         );
         assert_eq!(events, []);
@@ -1213,13 +1224,17 @@ mod tests {
     fn each_transaction_starts_with_empty_buffers() {
         let test_config = config();
         let mut state = LedgerState::from_notes([note()], &test_config);
-        let root = state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root();
+        let root = state
+            .latest_note_sets()
+            .get(LEDGER_SET)
+            .unwrap()
+            .commitment_root();
         let buffered = state
             .latest_note_sets()
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .buffer_outputs(&[NoteCm(Fr::from(5u64))]);
+            .buffer_outputs(&[NoteCommitment(Fr::from(5u64))]);
         state.cryptarchia_ledger.note_sets = state
             .cryptarchia_ledger
             .note_sets
@@ -1235,7 +1250,7 @@ mod tests {
         );
 
         let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
-        assert_eq!(ledger_set.tx_cm_root(&root, 0), Ok(root));
+        assert_eq!(ledger_set.tx_commitment_root(&root, 0), Ok(root));
     }
 
     fn transfer_tx(transfers: Vec<TransferOp>) -> SignedOps<Preverified, StandardMode> {
@@ -1256,10 +1271,10 @@ mod tests {
         .unwrap()
     }
 
-    fn spend(nf: u64, cm: u64, root: Fr, excess_value: Value) -> TransferOp {
+    fn spend(nullifier: u64, commitment: u64, root: Fr, excess_value: Value) -> TransferOp {
         TransferOp::new(
-            [NoteNf(Fr::from(nf))].into(),
-            [NoteCm(Fr::from(cm))].into(),
+            [NoteNullifier(Fr::from(nullifier))].into(),
+            [NoteCommitment(Fr::from(commitment))].into(),
             root,
             excess_value,
         )
@@ -1282,15 +1297,15 @@ mod tests {
         let extended = CommitmentMmr::new()
             .push(genesis_note.commitment())
             .unwrap()
-            .push(NoteCm(Fr::from(10u64)))
+            .push(NoteCommitment(Fr::from(10u64)))
             .unwrap()
             .frontier_root();
-        let tx_cm_roots: Vec<Fr> = deferred
+        let tx_commitment_roots: Vec<Fr> = deferred
             .zk_transfers()
             .iter()
-            .map(|deferred| deferred.inputs().tx_cm_root.into_inner())
+            .map(|deferred| deferred.inputs().tx_commitment_root.into_inner())
             .collect();
-        assert_eq!(tx_cm_roots, vec![root, extended]);
+        assert_eq!(tx_commitment_roots, vec![root, extended]);
     }
 
     #[test]
@@ -1314,7 +1329,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            deferred.zk_transfers()[0].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers()[0]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             root
         );
 
@@ -1428,7 +1446,7 @@ mod tests {
         let state = LedgerState::from_notes([note()], &test_config);
         let root = ledger_root(&state);
         let declare = SDPDeclareOp {
-            cm_merkle_root: root,
+            commitment_merkle_root: root,
             ..SDPDeclareOp::sample()
         };
 
@@ -1442,15 +1460,15 @@ mod tests {
         assert_eq!(balance, 0);
         let public = deferred.zk_transfers()[0].inputs();
         assert_eq!(public.excess_value.into_inner(), Fr::from(45u64));
-        assert_eq!(public.tx_cm_root.into_inner(), root);
+        assert_eq!(public.tx_commitment_root.into_inner(), root);
         let sets = state.latest_note_sets();
         assert!(
             sets.get(LEDGER_SET)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(26u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(26u64)))
         );
         assert_eq!(
-            sets.get(SDP_SET).unwrap().cm_root(),
+            sets.get(SDP_SET).unwrap().commitment_root(),
             service_note_root(&declare)
         );
         assert!(
@@ -1494,7 +1512,10 @@ mod tests {
 
         assert_eq!(balance, 47);
         assert_eq!(
-            deferred.zk_transfers()[0].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers()[0]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             service_note_root(&declare)
         );
         assert!(
@@ -1502,7 +1523,7 @@ mod tests {
                 .latest_note_sets()
                 .get(SDP_SET)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(28u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(28u64)))
         );
         assert_eq!(ledger_root(&state), root_before);
         assert_eq!(
@@ -1512,7 +1533,7 @@ mod tests {
                 .get_declaration(&declare.id())
                 .unwrap()
                 .withdraw_outputs,
-            [NoteCm(Fr::from(46u64))].into()
+            [NoteCommitment(Fr::from(46u64))].into()
         );
     }
 
@@ -1544,8 +1565,8 @@ mod tests {
         let (mut ledger, genesis) = ledger(&[leader_utxo], config.clone());
         let h_1 = update_ledger(&mut ledger, genesis, epoch_length, leader_utxo).unwrap();
 
-        // Declared and withdrawn in epoch 1: `withdraw_at = 3`, released in the first block
-        // of epoch 4.
+        // Declared and withdrawn in epoch 1: `withdraw_at = 3`, released in the first
+        // block of epoch 4.
         let declare = SDPDeclareOp::sample();
         let withdraw = SDPWithdrawOp {
             declaration_id: declare.id(),
@@ -1585,7 +1606,7 @@ mod tests {
                 .clone()
                 .execute_adding(&[leader_note, leader_note])
                 .unwrap()
-                .cm_root()
+                .commitment_root()
         );
         let h_4 = update_ledger(&mut ledger, h_3, 4 * epoch_length, leader_utxo).unwrap();
         assert_eq!(
@@ -1594,11 +1615,11 @@ mod tests {
                 .execute_adding(&[
                     leader_note,
                     leader_note,
-                    NoteCm(Fr::from(46u64)),
+                    NoteCommitment(Fr::from(46u64)),
                     leader_note
                 ])
                 .unwrap()
-                .cm_root()
+                .commitment_root()
         );
         assert!(
             ledger.states[&h_4]
@@ -1665,12 +1686,12 @@ mod tests {
             },
         });
         let declaration = SDPDeclareOp {
-            inputs: [derive_note_nf(
+            inputs: [derive_note_nullifier(
                 &allocations[0].note(0).commitment(),
                 stake_key.as_fr(),
             )]
             .into(),
-            cm_merkle_root: CommitmentMmr::new().frontier_root(),
+            commitment_merkle_root: CommitmentMmr::new().frontier_root(),
             amount: 1_000,
             ..SDPDeclareOp::sample()
         };
@@ -1697,12 +1718,19 @@ mod tests {
                 mmr.push(allocation.note(index).commitment()).unwrap()
             })
             .frontier_root();
-        assert_eq!(ledger_set.cm_root(), ledger_root);
+        assert_eq!(ledger_set.commitment_root(), ledger_root);
         assert!(ledger_set.contains_nullifier(&declaration.inputs.as_slice()[0]));
         // The buffer is closed: a block 1 transaction sees the recorded root alone.
-        assert_eq!(ledger_set.tx_cm_root(&ledger_root, 1), Ok(ledger_root));
         assert_eq!(
-            state.latest_note_sets().get(SDP_SET).unwrap().cm_root(),
+            ledger_set.tx_commitment_root(&ledger_root, 1),
+            Ok(ledger_root)
+        );
+        assert_eq!(
+            state
+                .latest_note_sets()
+                .get(SDP_SET)
+                .unwrap()
+                .commitment_root(),
             CommitmentMmr::new()
                 .push(declaration.service_note().commitment())
                 .unwrap()
@@ -1731,8 +1759,8 @@ mod tests {
         assert_eq!(state.epoch_state().eligible_root(), eligible_root);
         assert_eq!(state.next_epoch_state().eligible_root(), eligible_root);
 
-        // The Blend leader inputs were taken from that epoch state, not from the sets before the
-        // declarations.
+        // The Blend leader inputs were taken from that epoch state, not from the sets
+        // before the declarations.
         let rewards_params = &config.sdp_config.service_rewards_params;
         let sdp = state.mantle_ledger().sdp_ledger().clone();
         assert_eq!(
@@ -1983,13 +2011,13 @@ mod tests {
             .push_with_paths(genesis_note.commitment(), &mut [])
             .unwrap();
         assert_eq!(mmr.frontier_root(), root);
-        let nullifier = derive_note_nf(&genesis_note.commitment(), &secret_key);
+        let nullifier = derive_note_nullifier(&genesis_note.commitment(), &secret_key);
 
         // The fee depends on the encoded size only, so a draft with placeholder values
         // prices it.
         let draft = Ops::from([Op::Transfer(TransferOp::new(
             [nullifier].into(),
-            [NoteCm(Fr::ZERO)].into(),
+            [NoteCommitment(Fr::ZERO)].into(),
             root,
             0,
         ))]);
@@ -2048,7 +2076,7 @@ mod tests {
             .unwrap();
         assert!(ledger_set.contains_nullifier(&nullifier));
         assert_eq!(
-            ledger_set.cm_root(),
+            ledger_set.commitment_root(),
             mmr.push(output.commitment())
                 .unwrap()
                 .push(notes::Note::new(38_051_750_380, Fr::ZERO, ZkPublicKey::zero()).commitment())
@@ -2426,9 +2454,9 @@ mod tests {
         let root = ledger_root(&state);
         let deposit = DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::ONE)].into(),
-            cm_merkle_root: root,
-            outputs: [NoteCm(Fr::from(10u64))].into(),
+            inputs: [NoteNullifier(Fr::ONE)].into(),
+            commitment_merkle_root: root,
+            outputs: [NoteCommitment(Fr::from(10u64))].into(),
             excess_value: 6,
             metadata: [5, 6, 7, 8].into(),
         };
@@ -2447,12 +2475,12 @@ mod tests {
                 .latest_note_sets()
                 .get(LEDGER_SET)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::ONE))
+                .contains_nullifier(&NoteNullifier(Fr::ONE))
         );
         assert_eq!(
-            state.latest_note_sets().get(2).unwrap().cm_root(),
+            state.latest_note_sets().get(2).unwrap().commitment_root(),
             CommitmentMmr::new()
-                .push(NoteCm(Fr::from(10u64)))
+                .push(NoteCommitment(Fr::from(10u64)))
                 .unwrap()
                 .frontier_root()
         );
@@ -2487,11 +2515,16 @@ mod tests {
             .unwrap()
     }
 
-    fn one_step(input: u64, output: u64, cm_merkle_root: Fr, buffered: u16) -> ChannelSteps {
+    fn one_step(
+        input: u64,
+        output: u64,
+        commitment_merkle_root: Fr,
+        buffered: u16,
+    ) -> ChannelSteps {
         [Step::User(ChannelStep {
-            inputs: [NoteNf(Fr::from(input))].into(),
-            outputs: [NoteCm(Fr::from(output))].into(),
-            cm_merkle_root,
+            inputs: [NoteNullifier(Fr::from(input))].into(),
+            outputs: [NoteCommitment(Fr::from(output))].into(),
+            commitment_merkle_root,
             buffered,
         })]
         .into()
@@ -2516,12 +2549,12 @@ mod tests {
             .channel_state(&channel_id)
             .unwrap()
             .clone();
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let deposit = DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::ONE)].into(),
-            cm_merkle_root: ledger_root(&state),
-            outputs: [NoteCm(Fr::from(10u64))].into(),
+            inputs: [NoteNullifier(Fr::ONE)].into(),
+            commitment_merkle_root: ledger_root(&state),
+            outputs: [NoteCommitment(Fr::from(10u64))].into(),
             excess_value: 0,
             metadata: Metadata::empty(),
         };
@@ -2545,11 +2578,14 @@ mod tests {
             .unwrap();
 
         let covered = CommitmentMmr::new()
-            .push(NoteCm(Fr::from(10u64)))
+            .push(NoteCommitment(Fr::from(10u64)))
             .unwrap()
             .frontier_root();
         assert_eq!(
-            deferred.zk_transfers()[1].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers()[1]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             covered
         );
         assert!(
@@ -2557,7 +2593,7 @@ mod tests {
                 .latest_note_sets()
                 .get(2)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(11u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(11u64)))
         );
     }
 
@@ -2580,7 +2616,7 @@ mod tests {
             .channel_state(&channel_id)
             .unwrap()
             .clone();
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let first = InscriptionOp {
             channel_id,
             inscription: [1].into(),
@@ -2608,7 +2644,7 @@ mod tests {
                 .err(),
             Some(LedgerError::VerificationError(
                 VerificationError::ChannelVerificationError(mantle::channel::Error::NoteSet(
-                    NoteSetError::AlreadySpent(NoteNf(Fr::from(11u64)))
+                    NoteSetError::AlreadySpent(NoteNullifier(Fr::from(11u64)))
                 ))
             ))
         );
@@ -2655,26 +2691,26 @@ mod tests {
     // preverification.
     fn program_steps(
         program_id: Fr,
-        nf: u64,
+        nullifier: u64,
         output: u64,
-        cm_merkle_root: Fr,
+        commitment_merkle_root: Fr,
         buffered: u16,
     ) -> ChannelSteps {
         [Step::Program(ProgramStep {
             program_id,
             payments: [Payment {
-                inputs: [NoteNf(Fr::from(nf))].into(),
-                outputs: OutputCms::default(),
-                cm_merkle_root,
+                inputs: [NoteNullifier(Fr::from(nullifier))].into(),
+                outputs: OutputCommitments::default(),
+                commitment_merkle_root,
                 buffered,
                 paid_value: 5,
                 intent: Fr::ONE,
             }]
             .into(),
-            inputs: InputNfs::default(),
-            outputs: [NoteCm(Fr::from(output))].into(),
+            inputs: InputNullifiers::default(),
+            outputs: [NoteCommitment(Fr::from(output))].into(),
             program_outputs: ProgramOutputs(0),
-            cm_merkle_root,
+            commitment_merkle_root,
             spend_notes_hash: Fr::ZERO,
         })]
         .into()
@@ -2699,7 +2735,7 @@ mod tests {
             .channel_state(&channel_id)
             .unwrap()
             .clone();
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let key = test_program_key();
         let inscribe = InscriptionOp {
             channel_id,
@@ -2733,11 +2769,11 @@ mod tests {
             Fr::from(5u64)
         );
         let set = state.latest_note_sets().get(2).unwrap();
-        assert!(set.contains_nullifier(&NoteNf(Fr::from(11u64))));
+        assert!(set.contains_nullifier(&NoteNullifier(Fr::from(11u64))));
         assert_eq!(
-            set.cm_root(),
+            set.commitment_root(),
             CommitmentMmr::new()
-                .push(NoteCm(Fr::from(12u64)))
+                .push(NoteCommitment(Fr::from(12u64)))
                 .unwrap()
                 .frontier_root()
         );
@@ -2763,7 +2799,7 @@ mod tests {
             .channel_state(&channel_id)
             .unwrap()
             .clone();
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let inscribe = InscriptionOp {
             channel_id,
             inscription: [1].into(),
@@ -2812,13 +2848,13 @@ mod tests {
             .channel_state(&channel_id)
             .unwrap()
             .clone();
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let key = test_program_key();
         let deposit = DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::ONE)].into(),
-            cm_merkle_root: ledger_root(&state),
-            outputs: [NoteCm(Fr::from(10u64))].into(),
+            inputs: [NoteNullifier(Fr::ONE)].into(),
+            commitment_merkle_root: ledger_root(&state),
+            outputs: [NoteCommitment(Fr::from(10u64))].into(),
             excess_value: 0,
             metadata: Metadata::empty(),
         };
@@ -2847,17 +2883,20 @@ mod tests {
             .unwrap();
 
         let covered = CommitmentMmr::new()
-            .push(NoteCm(Fr::from(10u64)))
+            .push(NoteCommitment(Fr::from(10u64)))
             .unwrap()
             .frontier_root();
         assert_eq!(
-            deferred.zk_transfers()[1].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers()[1]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             covered
         ); // [0] is the deposit
         assert_eq!(
             deferred.program_spends()[0]
                 .inputs()
-                .tx_cm_root
+                .tx_commitment_root
                 .into_inner(),
             covered
         );
@@ -2876,13 +2915,13 @@ mod tests {
             &signing_key,
             verifying_key.into_unverified(),
         );
-        let channel_root = state.latest_note_sets().get(2).unwrap().cm_root();
+        let channel_root = state.latest_note_sets().get(2).unwrap().commitment_root();
         let ledger_before = ledger_root(&state);
         let withdraw = ChannelWithdrawOp {
             channel_id,
-            inputs: [NoteNf(Fr::from(5u64))].into(),
-            cm_merkle_root: channel_root,
-            outputs: [NoteCm(Fr::from(50u64))].into(),
+            inputs: [NoteNullifier(Fr::from(5u64))].into(),
+            commitment_merkle_root: channel_root,
+            outputs: [NoteCommitment(Fr::from(50u64))].into(),
         };
         let tx = SignedOps::from_parts(
             Ops::from([Op::ChannelWithdraw(withdraw)]),
@@ -2905,7 +2944,7 @@ mod tests {
                 .latest_note_sets()
                 .get(2)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(5u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(5u64)))
         );
         assert_eq!(
             state
@@ -2928,8 +2967,8 @@ mod tests {
         let withdrawal = PendingWithdrawal {
             due: Slot::from(1u64),
             note_set: channel_set,
-            inputs: [NoteNf(Fr::from(7u64))].into(),
-            outputs: [NoteCm(Fr::from(70u64))].into(),
+            inputs: [NoteNullifier(Fr::from(7u64))].into(),
+            outputs: [NoteCommitment(Fr::from(70u64))].into(),
         };
         state.cryptarchia_ledger.pending_withdrawals =
             PendingWithdrawals::new().push(withdrawal.clone());
@@ -2953,14 +2992,18 @@ mod tests {
                 .latest_note_sets()
                 .get(channel_set)
                 .unwrap()
-                .contains_nullifier(&NoteNf(Fr::from(7u64)))
+                .contains_nullifier(&NoteNullifier(Fr::from(7u64)))
         );
         assert_eq!(
-            state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root(),
-            ledger_before
-                .execute_adding(&[NoteCm(Fr::from(70u64))])
+            state
+                .latest_note_sets()
+                .get(LEDGER_SET)
                 .unwrap()
-                .cm_root()
+                .commitment_root(),
+            ledger_before
+                .execute_adding(&[NoteCommitment(Fr::from(70u64))])
+                .unwrap()
+                .commitment_root()
         );
         assert!(events.iter().any(|event| matches!(
             event,
@@ -3377,15 +3420,20 @@ mod tests {
         update_ledger_prices(&mut ledger, 1, 1);
         let root = ledger_root(&ledger);
 
-        let tx = create_tx(vec![NoteNf(Fr::ONE)], vec![NoteCm(Fr::from(2u64))], root, 0);
+        let tx = create_tx(
+            vec![NoteNullifier(Fr::ONE)],
+            vec![NoteCommitment(Fr::from(2u64))],
+            root,
+            0,
+        );
         let gas_context = OpsGasContext::from_channels(&Channels::new(), ledger.get_gas_prices());
         let fees = tx
             .op_refs()
             .total_gas_cost::<MainnetGasProfile>(&gas_context)
             .unwrap();
         let tx = create_tx(
-            vec![NoteNf(Fr::ONE)],
-            vec![NoteCm(Fr::from(2u64))],
+            vec![NoteNullifier(Fr::ONE)],
+            vec![NoteCommitment(Fr::from(2u64))],
             root,
             fees.into_inner(),
         )
@@ -3424,7 +3472,12 @@ mod tests {
         let mut ledger = LedgerState::from_notes([note()], &config);
         let root = ledger_root(&ledger);
 
-        let tx = create_tx(vec![NoteNf(Fr::ONE)], vec![NoteCm(Fr::from(2u64))], root, 0);
+        let tx = create_tx(
+            vec![NoteNullifier(Fr::ONE)],
+            vec![NoteCommitment(Fr::from(2u64))],
+            root,
+            0,
+        );
         update_ledger_prices(&mut ledger, 1, 1);
         let ledger_set_before = ledger.latest_note_sets().get(LEDGER_SET).unwrap().clone();
         let gas_context = OpsGasContext::from_channels(&Channels::new(), ledger.get_gas_prices());
@@ -3433,8 +3486,8 @@ mod tests {
             .total_gas_cost::<MainnetGasProfile>(&gas_context)
             .unwrap();
         let tx = create_tx(
-            vec![NoteNf(Fr::ONE)],
-            vec![NoteCm(Fr::from(2u64))],
+            vec![NoteNullifier(Fr::ONE)],
+            vec![NoteCommitment(Fr::from(2u64))],
             root,
             fees.into_inner(),
         )
@@ -3456,8 +3509,8 @@ mod tests {
         // The tx ays 1823 fees = 619 execution base fee + 1000 execution tip + 204
         // storage
         let tx = create_tx(
-            vec![NoteNf(Fr::ONE)],
-            vec![NoteCm(Fr::from(2u64))],
+            vec![NoteNullifier(Fr::ONE)],
+            vec![NoteCommitment(Fr::from(2u64))],
             root,
             fees.into_inner() + 1000,
         )
@@ -3479,11 +3532,11 @@ mod tests {
             ledger_set_before
                 .clone()
                 .execute_adding(&[
-                    NoteCm(Fr::from(2u64)),
+                    NoteCommitment(Fr::from(2u64)),
                     notes::Note::new(value, Fr::ZERO, ZkPublicKey::zero()).commitment(),
                 ])
                 .unwrap()
-                .cm_root()
+                .commitment_root()
         };
         assert_eq!(
             ledger_root(&no_priority_fee_ledger),
@@ -3506,7 +3559,7 @@ mod tests {
         // No outputs: the whole input covers the gas cost and the remainder is
         // tipped. We only assert on the storage counter, not the tip, so the
         // exact balance is irrelevant.
-        let tx = create_tx(vec![NoteNf(Fr::ONE)], vec![], root, 10_000)
+        let tx = create_tx(vec![NoteNullifier(Fr::ONE)], vec![], root, 10_000)
             .preverify()
             .unwrap();
 
@@ -3796,10 +3849,10 @@ mod tests {
             );
             let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
             assert_eq!(
-                ledger_set.tx_cm_root(&root_before, 0),
-                Ok(ledger_set.cm_root())
+                ledger_set.tx_commitment_root(&root_before, 0),
+                Ok(ledger_set.commitment_root())
             );
-            assert_ne!(ledger_set.cm_root(), root_before);
+            assert_ne!(ledger_set.commitment_root(), root_before);
             assert_eq!(events.len(), 1);
             let TxEventPayload::PoWRewardClaimed { note, .. } = &events[0].payload else {
                 panic!("expected PoWRewardClaimed tx event");
@@ -3883,10 +3936,10 @@ mod tests {
 
             let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
             assert_eq!(
-                ledger_set.tx_cm_root(&root_before, 0),
-                Ok(ledger_set.cm_root())
+                ledger_set.tx_commitment_root(&root_before, 0),
+                Ok(ledger_set.commitment_root())
             );
-            assert_ne!(ledger_set.cm_root(), root_before);
+            assert_ne!(ledger_set.commitment_root(), root_before);
 
             assert_eq!(events.len(), 1);
             assert!(matches!(

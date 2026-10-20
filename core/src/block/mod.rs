@@ -118,7 +118,7 @@ where
         let raw = RawBlock::<Tx>::deserialize(deserializer)?;
 
         Self::reconstruct(raw.header, raw.uncle_headers, raw.transactions)
-        .map_err(serde::de::Error::custom)
+            .map_err(serde::de::Error::custom)
     }
 }
 

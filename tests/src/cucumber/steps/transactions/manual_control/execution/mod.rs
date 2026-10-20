@@ -47,7 +47,7 @@ use std::{
 };
 
 use lb_core::mantle::{
-    notes::NoteNf,
+    notes::NoteNullifier,
     transactions::{GasPrices, hash::TxHash},
 };
 use lb_key_management_system_service::keys::ZkPublicKey;

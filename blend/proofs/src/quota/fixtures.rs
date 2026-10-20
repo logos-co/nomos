@@ -169,8 +169,8 @@ pub fn valid_proof_of_leadership_quota_inputs(
         slot: wallet.slot,
         note_value: wallet.note_value,
         note_nonce: wallet.note_nonce,
-        cm_aged_path_and_selectors: wallet.cm_aged_path_and_selectors,
-        nf_root_aged: wallet.nf_root_aged,
+        commitment_aged_path_and_selectors: wallet.commitment_aged_path_and_selectors,
+        nullifier_root_aged: wallet.nullifier_root_aged,
         set_aged_path_and_selectors: wallet.set_aged_path_and_selectors,
         secret_key: wallet.pol_secret_key,
     };

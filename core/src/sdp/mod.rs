@@ -32,7 +32,10 @@ use crate::{
     block::BlockNumber,
     mantle::{
         Value,
-        notes::{InputNfs, Note, NoteCm, NoteNf, OutputCms, derive_note_nonce},
+        notes::{
+            InputNullifiers, Note, NoteCommitment, NoteNullifier, OutputCommitments,
+            derive_note_nonce,
+        },
         ops::{OpId as _, sdp::SdpError},
         transactions::hash::TxHashView,
     },
@@ -433,9 +436,9 @@ impl BoundedSerializeOp for DeclarationId {
 pub struct Declaration {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    pub service_note: NoteCm,
+    pub service_note: NoteCommitment,
     // empty until the withdrawal
-    pub withdraw_outputs: OutputCms,
+    pub withdraw_outputs: OutputCommitments,
     pub locators: Locators,
     pub zk_id: ZkPublicKey,
     /// The epoch of the block that contained the declaration
@@ -468,7 +471,7 @@ impl Declaration {
             service_type: declaration_msg.service_type,
             provider_id: declaration_msg.provider_id,
             service_note: declaration_msg.service_note().commitment(),
-            withdraw_outputs: OutputCms::default(),
+            withdraw_outputs: OutputCommitments::default(),
             locators: declaration_msg.locators.clone(),
             zk_id: declaration_msg.zk_id,
             created: epoch,
@@ -537,9 +540,9 @@ pub struct DeclarationMessage {
     pub locators: Locators,
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
+    pub commitment_merkle_root: Fr,
     pub amount: Value,
 }
 
@@ -590,8 +593,8 @@ impl DeclarationMessage {
                 .into(),
             provider_id: ProviderId(Ed25519Key::from_bytes(&[24; 32]).public_key()),
             zk_id: ZkPublicKey::from(Fr::from(25u64)),
-            inputs: [NoteNf(Fr::from(26u64))].into(),
-            cm_merkle_root: Fr::from(44u64),
+            inputs: [NoteNullifier(Fr::from(26u64))].into(),
+            commitment_merkle_root: Fr::from(44u64),
             amount: 45,
         }
     }
@@ -619,13 +622,14 @@ pub fn declaration_id(
     DeclarationId(hasher.finalize().into())
 }
 
-// WithdrawMessage = DeclarationId Nonce NoteNf Outputs Value, encoded in field order.
+// WithdrawMessage = DeclarationId Nonce NoteNullifier Outputs Value, encoded in
+// field order.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
-    pub service_note_nf: NoteNf,
-    pub outputs: OutputCms,
+    pub service_note_nullifier: NoteNullifier,
+    pub outputs: OutputCommitments,
     pub excess_value: Value,
 }
 
@@ -708,7 +712,7 @@ mod tests {
     use multiaddr::Multiaddr;
 
     use crate::{
-        mantle::notes::{InputNfs, OutputCms},
+        mantle::notes::{InputNullifiers, OutputCommitments},
         sdp::{
             Declaration, DeclarationId, DeclarationMessage, Locator, Locators, ProviderId,
             ServiceType,
@@ -788,8 +792,8 @@ mod tests {
                 .unwrap(),
             provider_id: Ed25519Key::from_bytes(&[0; _]).public_key().into(),
             zk_id: ZkPublicKey::zero(),
-            inputs: InputNfs::default(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: InputNullifiers::default(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 0,
         };
 
@@ -797,7 +801,7 @@ mod tests {
         assert_eq!(declaration.service_type, msg.service_type);
         assert_eq!(declaration.provider_id, msg.provider_id);
         assert_eq!(declaration.service_note, msg.service_note().commitment());
-        assert_eq!(declaration.withdraw_outputs, OutputCms::default());
+        assert_eq!(declaration.withdraw_outputs, OutputCommitments::default());
         assert_eq!(declaration.locators, msg.locators);
         assert_eq!(declaration.zk_id, msg.zk_id);
         assert_eq!(declaration.created, Epoch::new(10));
@@ -812,8 +816,8 @@ mod tests {
             locators: locators.try_into().unwrap(),
             provider_id: Ed25519Key::from_bytes(&[1; _]).public_key().into(),
             zk_id: ZkPublicKey::new(Fr::from(3u64)),
-            inputs: InputNfs::default(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: InputNullifiers::default(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 1,
         }
     }
@@ -872,8 +876,8 @@ impl WithdrawMessage {
         Self {
             declaration_id: DeclarationId([27u8; 32]),
             nonce: 29,
-            service_note_nf: NoteNf(Fr::from(28u64)),
-            outputs: [NoteCm(Fr::from(46u64))].into(),
+            service_note_nullifier: NoteNullifier(Fr::from(28u64)),
+            outputs: [NoteCommitment(Fr::from(46u64))].into(),
             excess_value: 47,
         }
     }

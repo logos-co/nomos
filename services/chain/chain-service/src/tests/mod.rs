@@ -20,7 +20,7 @@ use lb_core::{
         gas::{MainnetGasProfile, TxGasCalculator as _},
         ledger::verification_mode::StandardMode,
         note_set::{CommitmentMmr, LEDGER_SET},
-        notes::{OutputCms, derive_note_nf},
+        notes::{OutputCommitments, derive_note_nullifier},
         ops::{
             ZkTransferProof,
             channel::{
@@ -823,8 +823,8 @@ fn transfer_tx_with_fake_sig(
 fn burn_tx(note: &Note, secret_key: Fr, path: &MerklePath) -> SignedOps<Preverified, StandardMode> {
     let root = path.root::<ZkHasher>(note.commitment().0);
     let ops = Ops::from([Op::Transfer(TransferOp::new(
-        [derive_note_nf(&note.commitment(), &secret_key)].into(),
-        OutputCms::default(),
+        [derive_note_nullifier(&note.commitment(), &secret_key)].into(),
+        OutputCommitments::default(),
         root,
         note.value,
     ))]);
@@ -850,7 +850,7 @@ fn transfer_tx(
     excess_value: Value,
 ) -> SignedOps<Unverified, StandardMode> {
     let transfer_op = TransferOp::new(
-        [derive_note_nf(&note.commitment(), key.as_fr())].into(),
+        [derive_note_nullifier(&note.commitment(), key.as_fr())].into(),
         [output_note.commitment()].into(),
         commitment_paths(std::slice::from_ref(note))[0].root::<ZkHasher>(note.commitment().0),
         excess_value,
@@ -1003,7 +1003,7 @@ pub fn try_build_block_with_transactions(
 ) -> Option<(Block<SignedOps<Preverified, StandardMode>>, ZkPublicKey)> {
     let start_slot: u64 = start_slot.into();
     let public_key = ZkKey::new(secret_key).to_public_key();
-    let nullifier = derive_note_nf(&note.commitment(), &secret_key);
+    let nullifier = derive_note_nullifier(&note.commitment(), &secret_key);
     for slot in start_slot..=(start_slot + 1000) {
         let epoch_state = cryptarchia.epoch_state_for_slot(slot.into()).unwrap();
         let tip_state = cryptarchia.ledger.state(&cryptarchia.tip()).unwrap();

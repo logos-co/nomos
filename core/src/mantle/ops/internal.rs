@@ -10,9 +10,7 @@ use super::{
 use crate::mantle::{
     ledger::ProvableOperation as _,
     ops::{
-        channel::withdraw::ChannelWithdrawOp,
-        pow::ClaimPowRewardOp,
-        program::ProgramRegisterOp,
+        channel::withdraw::ChannelWithdrawOp, pow::ClaimPowRewardOp, program::ProgramRegisterOp,
     },
 };
 

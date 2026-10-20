@@ -82,7 +82,7 @@ genesis_block:
           - b2883db5d45bd2eb542569401e6bd96defe5c4b0c3cf3105822b45ac3cb6061a
           - 3c77c8adcf1fb462e31283ce7d7817307a2a27158bfd9a3a320b5b1a30045c03
           - e3dc87457cfb61e7ce5ce0782efbb12e923c72b3990d2a5ed2bd04521d614008
-          cm_merkle_root: 32f165b759eb971b6cf2e21c586558d1391b20942166a6a0d7a598058b18ad1d
+          commitment_merkle_root: 32f165b759eb971b6cf2e21c586558d1391b20942166a6a0d7a598058b18ad1d
           excess_value: 0
       - opcode: 17
         payload:
@@ -107,7 +107,7 @@ genesis_block:
           zk_id: 852efb444db8c3c811625850df39425f43aeffc69571192c0be9f72523256e0a
           inputs:
           - cd7a38f7f7bc3519ec00fbea38b8d110852c2a99d1b79cefe3a34b5a3d8f8628
-          cm_merkle_root: 32f165b759eb971b6cf2e21c586558d1391b20942166a6a0d7a598058b18ad1d
+          commitment_merkle_root: 32f165b759eb971b6cf2e21c586558d1391b20942166a6a0d7a598058b18ad1d
           amount: 1000000000
     ops_proofs:
     - !ZkTransfer

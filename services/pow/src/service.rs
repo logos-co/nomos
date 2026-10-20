@@ -27,7 +27,7 @@ use lb_core::{
         gas::MainnetGasProfile,
         ledger::verification_mode::StandardMode,
         note_set::{CommitmentMmr, LEDGER_SET},
-        notes::{NoteNf, derive_note_nf, derive_note_nonce},
+        notes::{NoteNullifier, derive_note_nonce, derive_note_nullifier},
         ops::{
             NoOpProof, OpId as _, ZkTransferProof,
             pow::{ClaimPowRewardOp, PowNullifier},
@@ -1403,8 +1403,8 @@ fn claim_tx_size(claims: usize) -> Result<u64, PoWError> {
             }
         })
         .collect();
-    let nullifiers: Vec<NoteNf> = (0..claims)
-        .map(|index| NoteNf(Fr::from(index as u64)))
+    let nullifiers: Vec<NoteNullifier> = (0..claims)
+        .map(|index| NoteNullifier(Fr::from(index as u64)))
         .collect();
     let change = Note::new(0, Fr::ZERO, ZkPublicKey::zero());
     let transfers = transfer_ops(
@@ -1531,10 +1531,10 @@ async fn build_reward_claim_tx_inner(
         .iter()
         .map(|claim| reward_note(claim, reward_value))
         .collect();
-    let nullifiers: Vec<NoteNf> = reward_notes
+    let nullifiers: Vec<NoteNullifier> = reward_notes
         .iter()
         .zip(tickets)
-        .map(|(note, (sk, _))| derive_note_nf(&note.commitment(), sk.as_fr()))
+        .map(|(note, (sk, _))| derive_note_nullifier(&note.commitment(), sk.as_fr()))
         .collect();
 
     // Size the change against the final tx shape, then spread the fee across
@@ -1596,8 +1596,8 @@ async fn build_reward_claim_tx_inner(
     let zk_transfers = tokio::task::spawn_blocking(move || {
         witnesses
             .iter()
-            .map(|(inputs, change, tx_cm_root)| {
-                ZkTransferProof::new(prove_transfer(inputs, &[*change], *tx_cm_root, msg))
+            .map(|(inputs, change, tx_commitment_root)| {
+                ZkTransferProof::new(prove_transfer(inputs, &[*change], *tx_commitment_root, msg))
             })
             .collect::<Vec<_>>()
     })
@@ -1619,13 +1619,14 @@ fn reward_note(claim: &ClaimPowRewardOp, reward_value: Value) -> Note {
     )
 }
 
-/// Builds the `Transfer` ops spending `nullifiers` against `cm_merkle_root`,
-/// grouped into batches of up to [`MAX_TRANSFER_INPUTS`] inputs, each creating
-/// `change_notes[group]` and paying `fee_shares[group]` as its excess.
+/// Builds the `Transfer` ops spending `nullifiers` against
+/// `commitment_merkle_root`, grouped into batches of up to
+/// [`MAX_TRANSFER_INPUTS`] inputs, each creating `change_notes[group]` and
+/// paying `fee_shares[group]` as its excess.
 fn transfer_ops(
-    nullifiers: &[NoteNf],
+    nullifiers: &[NoteNullifier],
     change_notes: &[Note],
-    cm_merkle_root: Fr,
+    commitment_merkle_root: Fr,
     fee_shares: &[Value],
 ) -> Result<Vec<TransferOp>, PoWError> {
     nullifiers
@@ -1635,7 +1636,7 @@ fn transfer_ops(
             Ok(TransferOp::new(
                 group.try_into()?,
                 [change.commitment()].into(),
-                cm_merkle_root,
+                commitment_merkle_root,
                 fee_share,
             ))
         })
@@ -1688,7 +1689,7 @@ fn claim_ops_proofs(
 /// cover a fee larger than any single group's reward; only a fee exceeding the
 /// *total* reward fails with [`PoWError::RewardBelowFee`].
 fn change_outputs(
-    nullifiers: &[NoteNf],
+    nullifiers: &[NoteNullifier],
     reward_value: Value,
     fee: Value,
 ) -> Result<Vec<Value>, PoWError> {
@@ -1733,7 +1734,7 @@ where
 /// zero-value outputs.
 fn estimate_reward_claim_fee(
     claims: &[ClaimPowRewardOp],
-    nullifiers: &[NoteNf],
+    nullifiers: &[NoteNullifier],
     claim_address: ZkPublicKey,
     context: &OpsContext,
 ) -> Result<Value, PoWError> {
@@ -1764,7 +1765,7 @@ mod tests {
             Note, OpProofRef, OpRef, SignedOps, Value,
             ledger::verification_mode::StandardMode,
             note_set::CommitmentMmr,
-            notes::{NoteCm, NoteNf, derive_note_nf, derive_note_nonce},
+            notes::{NoteCommitment, NoteNullifier, derive_note_nonce, derive_note_nullifier},
             ops::{OpId as _, pow::ClaimPowRewardOp},
             traits::{Hashable as _, MantleTx as _},
             transactions::{
@@ -1792,8 +1793,8 @@ mod tests {
 
     const SLOT_WINDOW: NonZeroU64 = NonZeroU64::new(100).expect("100 is not 0");
     /// A distinct dummy nullifier.
-    fn nullifier(seed: u8) -> NoteNf {
-        NoteNf(Fr::from(u64::from(seed)))
+    fn nullifier(seed: u8) -> NoteNullifier {
+        NoteNullifier(Fr::from(u64::from(seed)))
     }
 
     /// One change nonce per transfer group of `tickets` claims.
@@ -1822,9 +1823,9 @@ mod tests {
     }
 
     /// Asserts a built tx respects every limit it has to clear: the op budget,
-    /// the per-transfer `ZkTransfer` input limit, a correctly-typed proof per op (via
-    /// the ledger's stateless `preverify`), and the Blend payload body it is
-    /// published in.
+    /// the per-transfer `ZkTransfer` input limit, a correctly-typed proof per
+    /// op (via the ledger's stateless `preverify`), and the Blend payload
+    /// body it is published in.
     fn assert_within_tx_limits(tx: &SignedOps<Unverified, StandardMode>) {
         let size = tx.to_bytes().expect("built tx should serialize").len();
         assert!(
@@ -1967,7 +1968,7 @@ mod tests {
 
     #[test]
     fn change_outputs_returns_reward_minus_fee_for_a_single_group() {
-        let notes: Vec<NoteNf> = (0u8..3).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..3).map(nullifier).collect();
         let outputs = change_outputs(&notes, 100, 30).unwrap();
         assert_eq!(outputs, vec![3 * 100 - 30]);
     }
@@ -1976,7 +1977,7 @@ mod tests {
     fn change_outputs_charges_earlier_groups_first() {
         // 6 notes -> two groups of 4 and 2. The first group's reward covers
         // the whole fee, so it absorbs it all.
-        let notes: Vec<NoteNf> = (0u8..6).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..6).map(nullifier).collect();
         let outputs = change_outputs(&notes, 100, 30).unwrap();
         assert_eq!(outputs, vec![4 * 100 - 30, 2 * 100]);
     }
@@ -1985,7 +1986,7 @@ mod tests {
     fn change_outputs_spills_the_fee_into_later_groups() {
         // 6 notes -> groups of 4 and 2. Fee 450 exceeds the first group's
         // 4*100=400 reward, so the 50 remainder spills into the second group.
-        let notes: Vec<NoteNf> = (0u8..6).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..6).map(nullifier).collect();
         let outputs = change_outputs(&notes, 100, 450).unwrap();
         assert_eq!(outputs, vec![0, 2 * 100 - 50]);
     }
@@ -1994,7 +1995,7 @@ mod tests {
     fn change_outputs_errors_only_when_fee_exceeds_total_reward() {
         // 6 notes -> total reward 600. A fee of 600 is fully covered
         // (all outputs zero); one satoshi more cannot be.
-        let notes: Vec<NoteNf> = (0u8..6).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..6).map(nullifier).collect();
         assert_eq!(change_outputs(&notes, 100, 600).unwrap(), vec![0, 0]);
         assert!(matches!(
             change_outputs(&notes, 100, 601),
@@ -2013,7 +2014,7 @@ mod tests {
 
     #[test]
     fn change_outputs_errors_on_overflow() {
-        let notes: Vec<NoteNf> = (0u8..2).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..2).map(nullifier).collect();
         assert!(matches!(
             change_outputs(&notes, u64::MAX, 0),
             Err(PoWError::RewardOverflow)
@@ -2023,7 +2024,7 @@ mod tests {
     #[test]
     fn transfer_ops_groups_inputs_by_the_zk_transfer_input_limit() {
         // 10 notes -> groups of 4, 4, 2.
-        let notes: Vec<NoteNf> = (0u8..10).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..10).map(nullifier).collect();
         let changes =
             [10, 20, 30].map(|value| Note::new(value, Fr::from(1u64), ZkPublicKey::zero()));
         let transfers = transfer_ops(&notes, &changes, Fr::from(2u64), &[1, 2, 3]).unwrap();
@@ -2034,7 +2035,7 @@ mod tests {
     #[test]
     fn push_reward_claim_ops_interleaves_claims_and_transfers() {
         let claims: Vec<_> = std::iter::repeat_with(|| ticket().1).take(6).collect();
-        let notes: Vec<NoteNf> = (0u8..6).map(nullifier).collect();
+        let notes: Vec<NoteNullifier> = (0u8..6).map(nullifier).collect();
         let changes: Vec<Note> = change_outputs(&notes, 100, 0)
             .unwrap()
             .into_iter()
@@ -2080,7 +2081,8 @@ mod tests {
             derive_note_nonce(&claim.op_id(), 0, REWARD, &claim.public_key),
             claim.public_key,
         );
-        let expected_nullifier = derive_note_nf(&reward_note.commitment(), secret_key.as_fr());
+        let expected_nullifier =
+            derive_note_nullifier(&reward_note.commitment(), secret_key.as_fr());
 
         let (tx, claimed) = build_reward_claim_tx_inner(
             ZkPublicKey::zero(),
@@ -2115,7 +2117,9 @@ mod tests {
     async fn reward_claim_transfer_spends_the_buffered_reward_notes() {
         const REWARD: Value = 1_000_000_000_000_000;
         let tickets = vec![ticket(), ticket()];
-        let ledger_mmr = CommitmentMmr::new().push(NoteCm(Fr::from(9u64))).unwrap();
+        let ledger_mmr = CommitmentMmr::new()
+            .push(NoteCommitment(Fr::from(9u64)))
+            .unwrap();
         let claim_address = ZkPublicKey::new(Fr::from(3u64));
 
         let (tx, claimed) = build_reward_claim_tx_inner(
@@ -2136,7 +2140,7 @@ mod tests {
         let OpRef::Transfer(transfer) = &ops[2] else {
             panic!("the claims are followed by their transfer")
         };
-        assert_eq!(transfer.cm_merkle_root, ledger_mmr.frontier_root());
+        assert_eq!(transfer.commitment_merkle_root, ledger_mmr.frontier_root());
         let reward_note = |(sk, claim): &(UnsecuredZkKey, ClaimPowRewardOp)| {
             Note::new(
                 REWARD,
@@ -2144,17 +2148,25 @@ mod tests {
                 sk.to_public_key(),
             )
         };
-        let tx_cm_root = ledger_mmr
+        let tx_commitment_root = ledger_mmr
             .push(reward_note(&tickets[0]).commitment())
             .unwrap()
             .push(reward_note(&tickets[1]).commitment())
             .unwrap()
             .frontier_root();
         let public = ZkTransferVerifierInput::new(
-            &transfer.inputs.iter().map(|nf| nf.0).collect::<Vec<_>>(),
-            &transfer.outputs.iter().map(|cm| cm.0).collect::<Vec<_>>(),
+            &transfer
+                .inputs
+                .iter()
+                .map(|nullifier| nullifier.0)
+                .collect::<Vec<_>>(),
+            &transfer
+                .outputs
+                .iter()
+                .map(|commitment| commitment.0)
+                .collect::<Vec<_>>(),
             transfer.excess_value,
-            tx_cm_root,
+            tx_commitment_root,
             tx.hash().to_fr(),
         )
         .unwrap();

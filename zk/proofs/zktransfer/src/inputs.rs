@@ -104,7 +104,7 @@ pub struct ZkTransferVerifierInput {
     pub excess_value: Groth16Input,
     pub inputs_active: [Groth16Input; MAX_INPUTS],
     pub outputs_active: [Groth16Input; MAX_OUTPUTS],
-    pub tx_cm_root: Groth16Input,
+    pub tx_commitment_root: Groth16Input,
     pub msg: Groth16Input,
 }
 
@@ -150,7 +150,7 @@ impl TryFrom<ZkTransferVerifierInputJson> for ZkTransferVerifierInput {
             output_active_5,
             output_active_6,
             output_active_7,
-            tx_cm_root,
+            tx_commitment_root,
             msg,
         ] = signals;
         Ok(Self {
@@ -175,7 +175,7 @@ impl TryFrom<ZkTransferVerifierInputJson> for ZkTransferVerifierInput {
                 output_active_6,
                 output_active_7,
             ],
-            tx_cm_root,
+            tx_commitment_root,
             msg,
         })
     }
@@ -191,7 +191,7 @@ impl ZkTransferVerifierInput {
             .chain(iter::once(&self.excess_value))
             .chain(&self.inputs_active)
             .chain(&self.outputs_active)
-            .chain([&self.tx_cm_root, &self.msg]);
+            .chain([&self.tx_commitment_root, &self.msg]);
         let mut inputs = [Fr::ZERO; 27];
         for (input, signal) in inputs.iter_mut().zip(signals) {
             *input = signal.into_inner();
@@ -203,7 +203,7 @@ impl ZkTransferVerifierInput {
         inputs: &[Fr],
         outputs: &[Fr],
         excess_value: u64,
-        tx_cm_root: Fr,
+        tx_commitment_root: Fr,
         msg: Fr,
     ) -> Result<Self, ZkTransferInputsError> {
         if inputs.len() > MAX_INPUTS {
@@ -218,7 +218,7 @@ impl ZkTransferVerifierInput {
             excess_value: Fr::from(excess_value).into(),
             inputs_active: active_flags(inputs.len()),
             outputs_active: active_flags(outputs.len()),
-            tx_cm_root: tx_cm_root.into(),
+            tx_commitment_root: tx_commitment_root.into(),
             msg: msg.into(),
         })
     }

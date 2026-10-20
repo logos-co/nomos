@@ -1101,7 +1101,7 @@ where
                 req.funding_public_keys.clone(),
             )
             .await?;
-        let cm_merkle_root = split_root(&split_builder)?;
+        let commitment_merkle_root = split_root(&split_builder)?;
         let holder_note = Note::new(
             req.amount,
             fr_from_mod_bytes(&rand::random::<[u8; 32]>()),
@@ -1123,7 +1123,7 @@ where
             Op::ChannelDeposit(DepositOp {
                 channel_id: req.channel_id,
                 inputs: [exact.nullifier].into(),
-                cm_merkle_root,
+                commitment_merkle_root,
                 outputs: [holder_note.commitment()].into(),
                 excess_value: 0,
                 metadata: req.metadata,

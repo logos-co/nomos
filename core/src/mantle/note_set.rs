@@ -17,7 +17,7 @@ use thiserror::Error;
 use crate::{
     block::BlockNumber,
     crypto::{Digest as _, Hasher, ZkHasher},
-    mantle::notes::{NoteCm, NoteNf},
+    mantle::notes::{NoteCommitment, NoteNullifier},
 };
 
 pub type NoteSetIndex = u64;
@@ -29,7 +29,7 @@ pub const SDP_SET: NoteSetIndex = 1;
 // block it was current at.
 pub const RECENT_ROOTS_WINDOW: BlockNumber = 1024;
 
-pub type CommitmentMmr = MerkleMountainRange<NoteCm, ZkHasher, 41>;
+pub type CommitmentMmr = MerkleMountainRange<NoteCommitment, ZkHasher, 41>;
 pub type NullifierImt = IndexedMerkleTree<ZkHasher, 40>;
 type EligibleTree = DynamicMerkleTree<UtxoMerkleHasher<ZkHasher>, 40>;
 
@@ -42,11 +42,11 @@ pub enum NoteSetError {
     #[error("Inputs cannot be empty")]
     EmptyInputs,
     #[error("Inputs contain the nullifier {0:?} twice")]
-    DuplicateInput(NoteNf),
+    DuplicateInput(NoteNullifier),
     #[error("Commitment root {0} is not a recent root of the note set")]
     UnknownRoot(Fr),
     #[error("Note of nullifier {0:?} is already spent")]
-    AlreadySpent(NoteNf),
+    AlreadySpent(NoteNullifier),
     #[error("Cannot append {buffered} buffered commitments out of {len}")]
     BufferedTooLarge { buffered: usize, len: usize },
     #[error(transparent)]
@@ -92,9 +92,9 @@ impl Eq for TxRoots {}
 pub struct NoteSetUpdate {
     pub note_set: NoteSetIndex,
     // inserted during the block, in execution order
-    pub nullifiers: Vec<NoteNf>,
+    pub nullifiers: Vec<NoteNullifier>,
     // appended during the block, in execution order
-    pub commitments: Vec<NoteCm>,
+    pub commitments: Vec<NoteCommitment>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,19 +105,19 @@ pub struct NoteSet {
     #[serde(with = "serde_fr")]
     committed_root: Fr,
     // snapshot of each recent root, with the block at whose end it was superseded
-    #[serde(with = "serde_recent_cm_roots")]
-    recent_cm_roots: HashTrieMapSync<Fr, (CommitmentMmr, BlockNumber)>,
+    #[serde(with = "serde_recent_commitment_roots")]
+    recent_commitment_roots: HashTrieMapSync<Fr, (CommitmentMmr, BlockNumber)>,
     // commitments added by the previous Operations of the Mantle Transaction
     #[serde(skip)]
-    tx_cm_buffer: VectorSync<NoteCm>,
-    // the id of each prefix of `tx_cm_buffer`, ending at each commitment
+    tx_commitment_buffer: VectorSync<NoteCommitment>,
+    // the id of each prefix of `tx_commitment_buffer`, ending at each commitment
     #[serde(skip)]
-    tx_cm_prefix_ids: VectorSync<PrefixId>,
+    tx_commitment_prefix_ids: VectorSync<PrefixId>,
     // what the set inserted and appended during the current block, reported at its end
     #[serde(skip)]
-    block_nullifiers: VectorSync<NoteNf>,
+    block_nullifiers: VectorSync<NoteNullifier>,
     #[serde(skip)]
-    block_commitments: VectorSync<NoteCm>,
+    block_commitments: VectorSync<NoteCommitment>,
 }
 
 impl NoteSet {
@@ -126,25 +126,25 @@ impl NoteSet {
         let commitments = CommitmentMmr::new();
         let committed_root = commitments.frontier_root();
         Self {
-            recent_cm_roots: HashTrieMapSync::new_sync()
+            recent_commitment_roots: HashTrieMapSync::new_sync()
                 .insert(committed_root, (commitments.clone(), 0)),
             commitments,
             nullifiers: NullifierImt::new(),
             committed_root,
-            tx_cm_buffer: VectorSync::new_sync(),
-            tx_cm_prefix_ids: VectorSync::new_sync(),
+            tx_commitment_buffer: VectorSync::new_sync(),
+            tx_commitment_prefix_ids: VectorSync::new_sync(),
             block_nullifiers: VectorSync::new_sync(),
             block_commitments: VectorSync::new_sync(),
         }
     }
 
     #[must_use]
-    pub fn cm_root(&self) -> Fr {
+    pub fn commitment_root(&self) -> Fr {
         self.commitments.frontier_root()
     }
 
     #[must_use]
-    pub fn nf_root(&self) -> Fr {
+    pub fn nullifier_root(&self) -> Fr {
         self.nullifiers.root()
     }
 
@@ -159,14 +159,14 @@ impl NoteSet {
     }
 
     #[must_use]
-    pub fn contains_nullifier(&self, nf: &NoteNf) -> bool {
-        self.nullifiers.contains(&nf.0)
+    pub fn contains_nullifier(&self, nullifier: &NoteNullifier) -> bool {
+        self.nullifiers.contains(&nullifier.0)
     }
 
     pub fn assert_spendable(
         &self,
-        inputs: &[NoteNf],
-        cm_merkle_root: &Fr,
+        inputs: &[NoteNullifier],
+        commitment_merkle_root: &Fr,
         block: BlockNumber,
     ) -> Result<(), NoteSetError> {
         if inputs.is_empty() {
@@ -178,7 +178,7 @@ impl NoteSet {
                 return Err(NoteSetError::DuplicateInput(*input));
             }
         }
-        self.recent_mmr(cm_merkle_root, block)?;
+        self.recent_mmr(commitment_merkle_root, block)?;
         for input in inputs {
             if self.contains_nullifier(input) {
                 return Err(NoteSetError::AlreadySpent(*input));
@@ -187,60 +187,75 @@ impl NoteSet {
         Ok(())
     }
 
-    pub fn tx_cm_root(&self, cm_merkle_root: &Fr, block: BlockNumber) -> Result<Fr, NoteSetError> {
-        self.step_cm_root(cm_merkle_root, self.tx_cm_buffer.len(), block)
+    pub fn tx_commitment_root(
+        &self,
+        commitment_merkle_root: &Fr,
+        block: BlockNumber,
+    ) -> Result<Fr, NoteSetError> {
+        self.step_commitment_root(
+            commitment_merkle_root,
+            self.tx_commitment_buffer.len(),
+            block,
+        )
     }
 
-    pub fn step_cm_root(
+    pub fn step_commitment_root(
         &self,
-        cm_merkle_root: &Fr,
+        commitment_merkle_root: &Fr,
         buffered: usize,
         block: BlockNumber,
     ) -> Result<Fr, NoteSetError> {
-        if buffered > self.tx_cm_buffer.len() {
+        if buffered > self.tx_commitment_buffer.len() {
             return Err(NoteSetError::BufferedTooLarge {
                 buffered,
-                len: self.tx_cm_buffer.len(),
+                len: self.tx_commitment_buffer.len(),
             });
         }
-        let mut mmr = self.recent_mmr(cm_merkle_root, block)?.clone();
-        for note_cm in self.tx_cm_buffer.iter().take(buffered) {
-            mmr = mmr.push(*note_cm).map_err(|_| NoteSetError::MmrFull)?;
+        let mut mmr = self.recent_mmr(commitment_merkle_root, block)?.clone();
+        for note_commitment in self.tx_commitment_buffer.iter().take(buffered) {
+            mmr = mmr
+                .push(*note_commitment)
+                .map_err(|_| NoteSetError::MmrFull)?;
         }
         Ok(mmr.frontier_root())
     }
 
-    pub fn cached_tx_cm_root(
+    pub fn cached_tx_commitment_root(
         &self,
         tx_roots: &TxRoots,
-        cm_merkle_root: &Fr,
+        commitment_merkle_root: &Fr,
         block: BlockNumber,
     ) -> Result<Fr, NoteSetError> {
-        self.cached_step_cm_root(tx_roots, cm_merkle_root, self.tx_cm_buffer.len(), block)
+        self.cached_step_commitment_root(
+            tx_roots,
+            commitment_merkle_root,
+            self.tx_commitment_buffer.len(),
+            block,
+        )
     }
 
-    // Same root as `step_cm_root`, resuming from the closest extended MMR
+    // Same root as `step_commitment_root`, resuming from the closest extended MMR
     // `tx_roots` holds for the referenced root instead of replaying the whole
     // buffer for every Operation and step.
-    pub fn cached_step_cm_root(
+    pub fn cached_step_commitment_root(
         &self,
         tx_roots: &TxRoots,
-        cm_merkle_root: &Fr,
+        commitment_merkle_root: &Fr,
         buffered: usize,
         block: BlockNumber,
     ) -> Result<Fr, NoteSetError> {
-        if buffered > self.tx_cm_buffer.len() {
+        if buffered > self.tx_commitment_buffer.len() {
             return Err(NoteSetError::BufferedTooLarge {
                 buffered,
-                len: self.tx_cm_buffer.len(),
+                len: self.tx_commitment_buffer.len(),
             });
         }
-        let base = self.recent_mmr(cm_merkle_root, block)?;
+        let base = self.recent_mmr(commitment_merkle_root, block)?;
         let key = |len: usize| {
             let prefix_id = len
                 .checked_sub(1)
-                .map_or(EMPTY_PREFIX, |last| self.tx_cm_prefix_ids[last]);
-            (*cm_merkle_root, base.len(), prefix_id)
+                .map_or(EMPTY_PREFIX, |last| self.tx_commitment_prefix_ids[last]);
+            (*commitment_merkle_root, base.len(), prefix_id)
         };
         let mut cache = tx_roots.0.lock().unwrap_or_else(PoisonError::into_inner);
         let mut start = buffered;
@@ -255,7 +270,7 @@ impl NoteSet {
         };
         for len in start + 1..=buffered {
             mmr = mmr
-                .push(self.tx_cm_buffer[len - 1])
+                .push(self.tx_commitment_buffer[len - 1])
                 .map_err(|_| NoteSetError::MmrFull)?;
             if len % PREFIX_CHECKPOINT == 0 {
                 cache.insert(key(len), mmr.clone());
@@ -267,25 +282,25 @@ impl NoteSet {
     }
 
     #[must_use]
-    pub fn buffer_outputs(mut self, outputs: &[NoteCm]) -> Self {
-        for note_cm in outputs {
+    pub fn buffer_outputs(mut self, outputs: &[NoteCommitment]) -> Self {
+        for note_commitment in outputs {
             let previous = self
-                .tx_cm_prefix_ids
+                .tx_commitment_prefix_ids
                 .last()
                 .copied()
                 .unwrap_or(EMPTY_PREFIX);
             let prefix_id: PrefixId = Hasher::new()
                 .chain_update(previous)
-                .chain_update(fr_to_bytes(&note_cm.0))
+                .chain_update(fr_to_bytes(&note_commitment.0))
                 .finalize()
                 .into();
-            self.tx_cm_buffer.push_back_mut(*note_cm);
-            self.tx_cm_prefix_ids.push_back_mut(prefix_id);
+            self.tx_commitment_buffer.push_back_mut(*note_commitment);
+            self.tx_commitment_prefix_ids.push_back_mut(prefix_id);
         }
         self
     }
 
-    pub fn execute_spending(mut self, inputs: &[NoteNf]) -> Result<Self, NoteSetError> {
+    pub fn execute_spending(mut self, inputs: &[NoteNullifier]) -> Result<Self, NoteSetError> {
         for input in inputs {
             self.nullifiers = self.nullifiers.insert(input.0)?;
             self.block_nullifiers.push_back_mut(*input);
@@ -293,7 +308,7 @@ impl NoteSet {
         Ok(self)
     }
 
-    pub fn execute_adding(mut self, outputs: &[NoteCm]) -> Result<Self, NoteSetError> {
+    pub fn execute_adding(mut self, outputs: &[NoteCommitment]) -> Result<Self, NoteSetError> {
         for output in outputs {
             self.commitments = self
                 .commitments
@@ -304,36 +319,38 @@ impl NoteSet {
         Ok(self)
     }
 
-    // The snapshot of `cm_merkle_root` if it can be referenced while validating
-    // `block`.
+    // The snapshot of `commitment_merkle_root` if it can be referenced while
+    // validating `block`.
     fn recent_mmr(
         &self,
-        cm_merkle_root: &Fr,
+        commitment_merkle_root: &Fr,
         block: BlockNumber,
     ) -> Result<&CommitmentMmr, NoteSetError> {
-        match self.recent_cm_roots.get(cm_merkle_root) {
+        match self.recent_commitment_roots.get(commitment_merkle_root) {
             Some((mmr, superseded_at))
-                if *cm_merkle_root == self.committed_root || is_recent(*superseded_at, block) =>
+                if *commitment_merkle_root == self.committed_root
+                    || is_recent(*superseded_at, block) =>
             {
                 Ok(mmr)
             }
-            _ => Err(NoteSetError::UnknownRoot(*cm_merkle_root)),
+            _ => Err(NoteSetError::UnknownRoot(*commitment_merkle_root)),
         }
     }
 
     // Called at the end of `block` on a set the block changed.
-    fn record_cm_root(mut self, block: BlockNumber) -> Self {
+    fn record_commitment_root(mut self, block: BlockNumber) -> Self {
         let previous = self.committed_root;
-        if let Some((mmr, _)) = self.recent_cm_roots.get(&previous).cloned() {
+        if let Some((mmr, _)) = self.recent_commitment_roots.get(&previous).cloned() {
             // The empty seed root is current before block 0, so a root is
             // stored with the block that superseded it.
-            self.recent_cm_roots.insert_mut(previous, (mmr, block));
+            self.recent_commitment_roots
+                .insert_mut(previous, (mmr, block));
         }
-        self.committed_root = self.cm_root();
-        self.recent_cm_roots
+        self.committed_root = self.commitment_root();
+        self.recent_commitment_roots
             .insert_mut(self.committed_root, (self.commitments.clone(), block));
         let expired: Vec<Fr> = self
-            .recent_cm_roots
+            .recent_commitment_roots
             .iter()
             .filter(|(root, (_, superseded_at))| {
                 **root != self.committed_root && !is_recent(*superseded_at, block)
@@ -341,10 +358,10 @@ impl NoteSet {
             .map(|(root, _)| *root)
             .collect();
         for root in &expired {
-            self.recent_cm_roots.remove_mut(root);
+            self.recent_commitment_roots.remove_mut(root);
         }
-        self.tx_cm_buffer = VectorSync::new_sync();
-        self.tx_cm_prefix_ids = VectorSync::new_sync();
+        self.tx_commitment_buffer = VectorSync::new_sync();
+        self.tx_commitment_prefix_ids = VectorSync::new_sync();
         self.block_nullifiers = VectorSync::new_sync();
         self.block_commitments = VectorSync::new_sync();
         self
@@ -403,7 +420,7 @@ impl NoteSets {
         let set = NoteSet::empty();
         let (eligible, position) = self
             .eligible
-            .insert(eligible_leaf(&set.cm_root(), &set.nf_root()));
+            .insert(eligible_leaf(&set.commitment_root(), &set.nullifier_root()));
         assert_eq!(position, self.sets.len(), "eligible leaves follow the sets");
         self.eligible = eligible;
         self.sets.push_back_mut(set);
@@ -415,8 +432,8 @@ impl NoteSets {
         for index in &self.changed {
             let position = usize::try_from(*index).expect("note set index fits in usize");
             let mut set = self.sets[position].clone();
-            set.tx_cm_buffer = VectorSync::new_sync();
-            set.tx_cm_prefix_ids = VectorSync::new_sync();
+            set.tx_commitment_buffer = VectorSync::new_sync();
+            set.tx_commitment_prefix_ids = VectorSync::new_sync();
             self.sets.set_mut(position, set);
         }
         self.tx_roots = TxRoots::default();
@@ -432,10 +449,11 @@ impl NoteSets {
     pub fn end_block(mut self, block: BlockNumber) -> Self {
         for index in &self.changed {
             let position = usize::try_from(*index).expect("note set index fits in usize");
-            let set = self.sets[position].clone().record_cm_root(block);
-            self.eligible = self
-                .eligible
-                .update(position, eligible_leaf(&set.cm_root(), &set.nf_root()));
+            let set = self.sets[position].clone().record_commitment_root(block);
+            self.eligible = self.eligible.update(
+                position,
+                eligible_leaf(&set.commitment_root(), &set.nullifier_root()),
+            );
             self.sets.set_mut(position, set);
         }
         self.changed = HashTrieSetSync::new_sync();
@@ -495,11 +513,13 @@ impl<'de> Deserialize<'de> for NoteSets {
         for set in decoded {
             sets.push_back_mut(set);
         }
-        let eligible = EligibleTree::from_sorted_items(
-            sets.iter()
-                .enumerate()
-                .map(|(position, set)| (position, eligible_leaf(&set.cm_root(), &set.nf_root()))),
-        );
+        let eligible =
+            EligibleTree::from_sorted_items(sets.iter().enumerate().map(|(position, set)| {
+                (
+                    position,
+                    eligible_leaf(&set.commitment_root(), &set.nullifier_root()),
+                )
+            }));
         Ok(Self {
             sets,
             eligible,
@@ -510,11 +530,11 @@ impl<'de> Deserialize<'de> for NoteSets {
 }
 
 #[must_use]
-pub fn eligible_leaf(cm_root: &Fr, nf_root: &Fr) -> Fr {
-    ZkHasher::digest(&[*ELIGIBLE_SET_LEAF_V1, *cm_root, *nf_root])
+pub fn eligible_leaf(commitment_root: &Fr, nullifier_root: &Fr) -> Fr {
+    ZkHasher::digest(&[*ELIGIBLE_SET_LEAF_V1, *commitment_root, *nullifier_root])
 }
 
-mod serde_recent_cm_roots {
+mod serde_recent_commitment_roots {
     use lb_groth16::{Fr, serde::serde_fr};
     use rpds::HashTrieMapSync;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -564,20 +584,24 @@ mod test {
 
     use super::*;
 
-    fn cm(n: u64) -> NoteCm {
-        NoteCm(Fr::from(n))
+    fn commitment(n: u64) -> NoteCommitment {
+        NoteCommitment(Fr::from(n))
     }
 
-    fn nf(n: u64) -> NoteNf {
-        NoteNf(Fr::from(n))
+    fn nullifier(n: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(n))
     }
 
-    fn add_and_end_block(sets: NoteSets, note_cm: NoteCm, block: BlockNumber) -> NoteSets {
+    fn add_and_end_block(
+        sets: NoteSets,
+        note_commitment: NoteCommitment,
+        block: BlockNumber,
+    ) -> NoteSets {
         let set = sets
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .execute_adding(&[note_cm])
+            .execute_adding(&[note_commitment])
             .unwrap();
         sets.update(LEDGER_SET, set).end_block(block)
     }
@@ -600,20 +624,23 @@ mod test {
     }
 
     #[test]
-    fn test_tx_cm_root_appends_buffer_to_referenced_root() {
+    fn test_tx_commitment_root_appends_buffer_to_referenced_root() {
         let set = NoteSet::empty();
-        let referenced = set.cm_root();
-        let set = set.buffer_outputs(&[cm(1), cm(2)]);
+        let referenced = set.commitment_root();
+        let set = set.buffer_outputs(&[commitment(1), commitment(2)]);
         let expected = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(2))
+            .push(commitment(2))
             .unwrap()
             .frontier_root();
-        assert_eq!(set.tx_cm_root(&referenced, 1).unwrap(), expected);
-        assert_eq!(set.step_cm_root(&referenced, 0, 1).unwrap(), referenced);
+        assert_eq!(set.tx_commitment_root(&referenced, 1).unwrap(), expected);
         assert_eq!(
-            set.step_cm_root(&referenced, 3, 1),
+            set.step_commitment_root(&referenced, 0, 1).unwrap(),
+            referenced
+        );
+        assert_eq!(
+            set.step_commitment_root(&referenced, 3, 1),
             Err(NoteSetError::BufferedTooLarge {
                 buffered: 3,
                 len: 2
@@ -622,31 +649,31 @@ mod test {
     }
 
     #[test]
-    fn test_tx_roots_match_step_cm_root_in_any_order() {
+    fn test_tx_roots_match_step_commitment_root_in_any_order() {
         let set = NoteSet::empty();
-        let referenced = set.cm_root();
+        let referenced = set.commitment_root();
         let tx_roots = TxRoots::default();
-        let set = set.buffer_outputs(&[cm(1), cm(2), cm(3)]);
+        let set = set.buffer_outputs(&[commitment(1), commitment(2), commitment(3)]);
         for buffered in [2, 0, 3, 1] {
             assert_eq!(
-                set.cached_step_cm_root(&tx_roots, &referenced, buffered, 1),
-                set.step_cm_root(&referenced, buffered, 1)
+                set.cached_step_commitment_root(&tx_roots, &referenced, buffered, 1),
+                set.step_commitment_root(&referenced, buffered, 1)
             );
         }
-        let set = set.buffer_outputs(&[cm(4)]);
+        let set = set.buffer_outputs(&[commitment(4)]);
         assert_eq!(
-            set.cached_step_cm_root(&tx_roots, &referenced, 4, 1),
-            set.step_cm_root(&referenced, 4, 1)
+            set.cached_step_commitment_root(&tx_roots, &referenced, 4, 1),
+            set.step_commitment_root(&referenced, 4, 1)
         );
         assert_eq!(
-            set.cached_step_cm_root(&tx_roots, &referenced, 5, 1),
+            set.cached_step_commitment_root(&tx_roots, &referenced, 5, 1),
             Err(NoteSetError::BufferedTooLarge {
                 buffered: 5,
                 len: 4
             })
         );
         assert_eq!(
-            set.cached_step_cm_root(&tx_roots, &Fr::from(7u64), 0, 1),
+            set.cached_step_commitment_root(&tx_roots, &Fr::from(7u64), 0, 1),
             Err(NoteSetError::UnknownRoot(Fr::from(7u64)))
         );
     }
@@ -654,48 +681,52 @@ mod test {
     #[test]
     fn test_tx_roots_resume_from_checkpoints_and_ignore_other_buffers() {
         let set = NoteSet::empty();
-        let referenced = set.cm_root();
+        let referenced = set.commitment_root();
         let tx_roots = TxRoots::default();
-        let outputs: Vec<NoteCm> = (1..=200).map(cm).collect();
+        let outputs: Vec<NoteCommitment> = (1..=200).map(commitment).collect();
         let set = set.buffer_outputs(&outputs);
         for buffered in [200, 130, 64, 65, 199, 1] {
             assert_eq!(
-                set.cached_step_cm_root(&tx_roots, &referenced, buffered, 1),
-                set.step_cm_root(&referenced, buffered, 1)
+                set.cached_step_commitment_root(&tx_roots, &referenced, buffered, 1),
+                set.step_commitment_root(&referenced, buffered, 1)
             );
         }
         // A clone with another buffer shares the cache but none of its prefixes
-        let other = NoteSet::empty().buffer_outputs(&[cm(1), cm(9)]);
+        let other = NoteSet::empty().buffer_outputs(&[commitment(1), commitment(9)]);
         assert_eq!(
-            other.cached_step_cm_root(&tx_roots, &referenced, 2, 1),
-            other.step_cm_root(&referenced, 2, 1)
+            other.cached_step_commitment_root(&tx_roots, &referenced, 2, 1),
+            other.step_commitment_root(&referenced, 2, 1)
         );
     }
 
     #[test]
     fn test_root_window_edges() {
         let sets = NoteSets::new();
-        let old = sets.get(LEDGER_SET).unwrap().cm_root();
-        let sets = add_and_end_block(sets, cm(1), 1); // `old` last current at block 0
+        let old = sets.get(LEDGER_SET).unwrap().commitment_root();
+        let sets = add_and_end_block(sets, commitment(1), 1); // `old` last current at block 0
         let set = sets.get(LEDGER_SET).unwrap();
-        assert!(set.assert_spendable(&[nf(9)], &old, 1024).is_ok());
+        assert!(set.assert_spendable(&[nullifier(9)], &old, 1024).is_ok());
         assert_eq!(
-            set.assert_spendable(&[nf(9)], &old, 1025),
+            set.assert_spendable(&[nullifier(9)], &old, 1025),
             Err(NoteSetError::UnknownRoot(old))
         );
-        assert!(set.assert_spendable(&[nf(9)], &set.cm_root(), 5000).is_ok()); // untouched set
+        assert!(
+            set.assert_spendable(&[nullifier(9)], &set.commitment_root(), 5000)
+                .is_ok()
+        ); // untouched set
     }
 
     #[test]
     fn test_seed_root_leaves_the_window_1024_blocks_after_the_set_first_changes() {
-        let empty = NoteSet::empty().cm_root();
+        let empty = NoteSet::empty().commitment_root();
 
-        // Genesis changes the ledger set at block 0: the seed root was current before it.
-        let sets = add_and_end_block(NoteSets::new(), cm(1), 0);
+        // Genesis changes the ledger set at block 0: the seed root was current before
+        // it.
+        let sets = add_and_end_block(NoteSets::new(), commitment(1), 0);
         let set = sets.get(LEDGER_SET).unwrap();
-        assert!(set.assert_spendable(&[nf(9)], &empty, 1023).is_ok());
+        assert!(set.assert_spendable(&[nullifier(9)], &empty, 1023).is_ok());
         assert_eq!(
-            set.assert_spendable(&[nf(9)], &empty, 1024),
+            set.assert_spendable(&[nullifier(9)], &empty, 1024),
             Err(NoteSetError::UnknownRoot(empty))
         );
 
@@ -705,13 +736,13 @@ mod test {
             .get(channel)
             .unwrap()
             .clone()
-            .execute_adding(&[cm(2)])
+            .execute_adding(&[commitment(2)])
             .unwrap();
         let sets = sets.update(channel, channel_set).end_block(10);
         let set = sets.get(channel).unwrap();
-        assert!(set.assert_spendable(&[nf(9)], &empty, 1033).is_ok());
+        assert!(set.assert_spendable(&[nullifier(9)], &empty, 1033).is_ok());
         assert_eq!(
-            set.assert_spendable(&[nf(9)], &empty, 1034),
+            set.assert_spendable(&[nullifier(9)], &empty, 1034),
             Err(NoteSetError::UnknownRoot(empty))
         );
     }
@@ -719,22 +750,22 @@ mod test {
     #[test]
     fn test_spendable_rejects_empty_duplicate_spent() {
         let set = NoteSet::empty();
-        let root = set.cm_root();
+        let root = set.commitment_root();
         assert_eq!(
             set.assert_spendable(&[], &root, 0),
             Err(NoteSetError::EmptyInputs)
         );
         assert_eq!(
-            set.assert_spendable(&[nf(1), nf(2), nf(1)], &root, 0),
-            Err(NoteSetError::DuplicateInput(nf(1)))
+            set.assert_spendable(&[nullifier(1), nullifier(2), nullifier(1)], &root, 0),
+            Err(NoteSetError::DuplicateInput(nullifier(1)))
         );
-        let set = set.execute_spending(&[nf(2)]).unwrap();
-        assert!(set.contains_nullifier(&nf(2)));
+        let set = set.execute_spending(&[nullifier(2)]).unwrap();
+        assert!(set.contains_nullifier(&nullifier(2)));
         assert_eq!(
-            set.assert_spendable(&[nf(1), nf(2)], &root, 0),
-            Err(NoteSetError::AlreadySpent(nf(2)))
+            set.assert_spendable(&[nullifier(1), nullifier(2)], &root, 0),
+            Err(NoteSetError::AlreadySpent(nullifier(2)))
         );
-        assert!(set.assert_spendable(&[nf(1)], &root, 0).is_ok());
+        assert!(set.assert_spendable(&[nullifier(1)], &root, 0).is_ok());
     }
 
     #[test]
@@ -744,21 +775,24 @@ mod test {
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .buffer_outputs(&[cm(1)]);
+            .buffer_outputs(&[commitment(1)]);
         let sets = sets.update(LEDGER_SET, set).start_transaction();
         let set = sets.get(LEDGER_SET).unwrap();
-        assert_eq!(set.tx_cm_root(&set.cm_root(), 0).unwrap(), set.cm_root());
+        assert_eq!(
+            set.tx_commitment_root(&set.commitment_root(), 0).unwrap(),
+            set.commitment_root()
+        );
     }
 
     #[test]
     fn test_eligible_root_matches_naive_over_sets() {
         let (sets, channel) = NoteSets::new().push_empty();
         assert_eq!(channel, 2);
-        let sets = add_and_end_block(sets, cm(1), 1);
+        let sets = add_and_end_block(sets, commitment(1), 1);
         let leaves: Vec<Fr> = (0..3)
             .map(|i| {
                 let s = sets.get(i).unwrap();
-                eligible_leaf(&s.cm_root(), &s.nf_root())
+                eligible_leaf(&s.commitment_root(), &s.nullifier_root())
             })
             .collect();
         assert_eq!(sets.eligible_root(), naive_root_40(&leaves));
@@ -767,15 +801,15 @@ mod test {
     #[test]
     fn test_serde_rebuilds_the_eligible_tree() {
         let (sets, channel) = NoteSets::new().push_empty();
-        let old = sets.get(LEDGER_SET).unwrap().cm_root();
-        let sets = add_and_end_block(sets, cm(1), 1);
+        let old = sets.get(LEDGER_SET).unwrap().commitment_root();
+        let sets = add_and_end_block(sets, commitment(1), 1);
         let channel_set = sets
             .get(channel)
             .unwrap()
             .clone()
-            .execute_adding(&[cm(2)])
+            .execute_adding(&[commitment(2)])
             .unwrap()
-            .execute_spending(&[nf(3)])
+            .execute_spending(&[nullifier(3)])
             .unwrap();
         let sets = sets.update(channel, channel_set).end_block(2);
 
@@ -795,7 +829,7 @@ mod test {
             decoded
                 .get(LEDGER_SET)
                 .unwrap()
-                .assert_spendable(&[nf(9)], &old, 1024)
+                .assert_spendable(&[nullifier(9)], &old, 1024)
                 .is_ok()
         );
 
@@ -817,15 +851,15 @@ mod test {
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .execute_adding(&[cm(1), cm(2)])
+            .execute_adding(&[commitment(1), commitment(2)])
             .unwrap()
-            .execute_spending(&[nf(7)])
+            .execute_spending(&[nullifier(7)])
             .unwrap();
         let channel_set = sets
             .get(channel)
             .unwrap()
             .clone()
-            .execute_adding(&[cm(3)])
+            .execute_adding(&[commitment(3)])
             .unwrap();
         let sets = sets.update(channel, channel_set).update(LEDGER_SET, ledger);
 
@@ -835,13 +869,13 @@ mod test {
             vec![
                 NoteSetUpdate {
                     note_set: LEDGER_SET,
-                    nullifiers: vec![nf(7)],
-                    commitments: vec![cm(1), cm(2)]
+                    nullifiers: vec![nullifier(7)],
+                    commitments: vec![commitment(1), commitment(2)]
                 },
                 NoteSetUpdate {
                     note_set: channel,
                     nullifiers: vec![],
-                    commitments: vec![cm(3)]
+                    commitments: vec![commitment(3)]
                 },
             ]
         );
@@ -849,7 +883,7 @@ mod test {
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .execute_adding(&[cm(4)])
+            .execute_adding(&[commitment(4)])
             .unwrap();
         let (_, next) = sets.update(LEDGER_SET, ledger).end_block_with_updates(2);
         assert_eq!(
@@ -857,7 +891,7 @@ mod test {
             vec![NoteSetUpdate {
                 note_set: LEDGER_SET,
                 nullifiers: vec![],
-                commitments: vec![cm(4)]
+                commitments: vec![commitment(4)]
             }]
         );
     }
@@ -865,12 +899,12 @@ mod test {
     #[test]
     fn test_accessors_expose_the_set_trees() {
         let set = NoteSet::empty()
-            .execute_adding(&[cm(1)])
+            .execute_adding(&[commitment(1)])
             .unwrap()
-            .execute_spending(&[nf(2)])
+            .execute_spending(&[nullifier(2)])
             .unwrap();
-        assert_eq!(set.commitments().frontier_root(), set.cm_root());
-        assert_eq!(set.nullifiers().root(), set.nf_root());
-        assert!(set.nullifiers().low_leaf(&nf(2).0).is_none());
+        assert_eq!(set.commitments().frontier_root(), set.commitment_root());
+        assert_eq!(set.nullifiers().root(), set.nullifier_root());
+        assert!(set.nullifiers().low_leaf(&nullifier(2).0).is_none());
     }
 }

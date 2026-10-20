@@ -119,7 +119,10 @@ mod tests {
 
         assert_eq!(sender_output_total, 10);
         assert_eq!(inscription_signers, Vec::new());
-        assert_eq!(builder.openings().keys().copied().collect::<Vec<_>>(), vec![0]);
+        assert_eq!(
+            builder.openings().keys().copied().collect::<Vec<_>>(),
+            vec![0]
+        );
     }
 
     #[test]
@@ -139,7 +142,10 @@ mod tests {
             .expect("hybrid intent");
         let (builder, _, _, inscription_signers) = intent.into_parts();
         // the funding Transfer follows the inscription
-        assert_eq!(builder.openings().keys().copied().collect::<Vec<_>>(), vec![1]);
+        assert_eq!(
+            builder.openings().keys().copied().collect::<Vec<_>>(),
+            vec![1]
+        );
         assert_eq!(inscription_signers.len(), 1);
     }
 }

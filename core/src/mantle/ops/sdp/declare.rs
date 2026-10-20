@@ -181,24 +181,28 @@ impl VerifiableOperation<StandardMode>
             .expect("the ledger note set always exists");
         ledger.assert_spendable(
             operation.inputs.as_slice(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
-        let tx_cm_root = ledger.cached_tx_cm_root(
+        let tx_commitment_root = ledger.cached_tx_commitment_root(
             context.note_sets.tx_roots(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
 
         // Defer the proof verification so that the caller can batch it.
         // Ed25519 verification is done by `preverify`.
-        let nfs: Vec<Fr> = operation.inputs.iter().map(|nf| nf.0).collect();
+        let nullifiers: Vec<Fr> = operation
+            .inputs
+            .iter()
+            .map(|nullifier| nullifier.0)
+            .collect();
         // The declaration creates no output in the ledger set: its excess is the stake.
         let public = ZkTransferVerifierInput::new(
-            &nfs,
+            &nullifiers,
             &[],
             operation.amount,
-            tx_cm_root,
+            tx_commitment_root,
             *context.tx_hash_view.as_fr(),
         )?;
         Ok(DeferredZkTransfer::new(
@@ -235,18 +239,26 @@ impl VerifiableOperation<GenesisMode> for SignedOperation<SDPDeclareOp, Preverif
             .note_sets
             .get(LEDGER_SET)
             .expect("the ledger note set always exists");
-        ledger.assert_spendable(operation.inputs.as_slice(), &operation.cm_merkle_root, 0)?;
+        ledger.assert_spendable(
+            operation.inputs.as_slice(),
+            &operation.commitment_merkle_root,
+            0,
+        )?;
 
         // Genesis Validation Exemptions 1: the ZkTransfer of a declaration is verified
         // as at any other time, against the empty root extended with the
         // outputs of the genesis Transfer.
-        let tx_cm_root = ledger.tx_cm_root(&operation.cm_merkle_root, 0)?;
-        let nfs: Vec<Fr> = operation.inputs.iter().map(|nf| nf.0).collect();
+        let tx_commitment_root = ledger.tx_commitment_root(&operation.commitment_merkle_root, 0)?;
+        let nullifiers: Vec<Fr> = operation
+            .inputs
+            .iter()
+            .map(|nullifier| nullifier.0)
+            .collect();
         let public = ZkTransferVerifierInput::new(
-            &nfs,
+            &nullifiers,
             &[],
             operation.amount,
-            tx_cm_root,
+            tx_commitment_root,
             *context.tx_hash_view.as_fr(),
         )?;
         if !lb_zktransfer::verify(self.proof().zk_proof.as_proof(), &public).unwrap_or(false) {
@@ -290,26 +302,29 @@ mod tests {
             gas::{Gas, OpGasCalculator as _, test_utils::FixedThresholds},
             ledger::Declarations,
             note_set::{CommitmentMmr, LEDGER_SET, NoteSet, NoteSetError, NoteSets, SDP_SET},
-            notes::{self, NoteCm, NoteNf, OutputCms, derive_note_nf, derive_note_nonce},
+            notes::{
+                self, NoteCommitment, NoteNullifier, OutputCommitments, derive_note_nonce,
+                derive_note_nullifier,
+            },
             ops::{ZkTransferProof, op_proof::samples::SampleProof as _},
         },
         sdp::{Declaration, ServiceType, StakeThreshold},
     };
 
-    fn nf(n: u64) -> NoteNf {
-        NoteNf(Fr::from(n))
+    fn nullifier(n: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(n))
     }
 
     // The ledger set holds the commitment 1, recorded at the end of block 0.
     fn note_sets() -> NoteSets {
         let ledger = NoteSet::empty()
-            .execute_adding(&[NoteCm(Fr::from(1u64))])
+            .execute_adding(&[NoteCommitment(Fr::from(1u64))])
             .unwrap();
         NoteSets::new().update(LEDGER_SET, ledger).end_block(0)
     }
 
     fn root() -> Fr {
-        note_sets().get(LEDGER_SET).unwrap().cm_root()
+        note_sets().get(LEDGER_SET).unwrap().commitment_root()
     }
 
     fn declare_op(provider_sk: u8, zk_sk: u64, locator: &str) -> SDPDeclareOp {
@@ -320,8 +335,8 @@ mod tests {
                 .public_key()
                 .into(),
             zk_id: ZkKey::from(BigUint::from(zk_sk)).to_public_key(),
-            inputs: [nf(2)].into(),
-            cm_merkle_root: root(),
+            inputs: [nullifier(2)].into(),
+            commitment_merkle_root: root(),
             amount: 10_000,
         }
     }
@@ -464,7 +479,6 @@ mod tests {
             );
         }
 
-
         #[test]
         fn verify_accepts_a_well_formed_declaration() {
             verify_against(
@@ -494,7 +508,7 @@ mod tests {
                 [Fr::ZERO; 8]
             );
             assert_eq!(public.excess_value.into_inner(), Fr::from(10_000u64));
-            assert_eq!(public.tx_cm_root.into_inner(), root());
+            assert_eq!(public.tx_commitment_root.into_inner(), root());
             assert_eq!(public.msg.into_inner(), *tx_hash_view().as_fr());
         }
 
@@ -505,7 +519,7 @@ mod tests {
                 .get(LEDGER_SET)
                 .unwrap()
                 .clone()
-                .buffer_outputs(&[NoteCm(Fr::from(4u64))]);
+                .buffer_outputs(&[NoteCommitment(Fr::from(4u64))]);
             let sets = sets.update(LEDGER_SET, buffered);
             let deferred = verify_against(
                 declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
@@ -516,18 +530,18 @@ mod tests {
             )
             .unwrap();
             let expected = CommitmentMmr::new()
-                .push(NoteCm(Fr::from(1u64)))
+                .push(NoteCommitment(Fr::from(1u64)))
                 .unwrap()
-                .push(NoteCm(Fr::from(4u64)))
+                .push(NoteCommitment(Fr::from(4u64)))
                 .unwrap()
                 .frontier_root();
-            assert_eq!(deferred.inputs().tx_cm_root.into_inner(), expected);
+            assert_eq!(deferred.inputs().tx_commitment_root.into_inner(), expected);
         }
 
         #[test]
         fn verify_rejects_an_unknown_root() {
             let operation = SDPDeclareOp {
-                cm_merkle_root: Fr::from(5u64),
+                commitment_merkle_root: Fr::from(5u64),
                 ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
             };
             assert_eq!(
@@ -543,7 +557,7 @@ mod tests {
                 .get(LEDGER_SET)
                 .unwrap()
                 .clone()
-                .execute_spending(&[nf(2)])
+                .execute_spending(&[nullifier(2)])
                 .unwrap();
             let sets = sets.update(LEDGER_SET, spent);
             assert_eq!(
@@ -555,14 +569,21 @@ mod tests {
                     &sets
                 )
                 .unwrap_err(),
-                SdpError::NoteSet(NoteSetError::AlreadySpent(nf(2)))
+                SdpError::NoteSet(NoteSetError::AlreadySpent(nullifier(2)))
             );
         }
 
         #[test]
         fn verify_rejects_more_than_four_inputs() {
             let operation = SDPDeclareOp {
-                inputs: [nf(2), nf(3), nf(4), nf(5), nf(6)].into(),
+                inputs: [
+                    nullifier(2),
+                    nullifier(3),
+                    nullifier(4),
+                    nullifier(5),
+                    nullifier(6),
+                ]
+                .into(),
                 ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
             };
             assert_eq!(
@@ -617,7 +638,7 @@ mod tests {
                 .unwrap();
             let sets = NoteSets::new().update(LEDGER_SET, ledger).end_block(0);
             let root = mmr.frontier_root();
-            let nullifier = derive_note_nf(&input.commitment(), &secret_key);
+            let nullifier = derive_note_nullifier(&input.commitment(), &secret_key);
             let proof = crate::mantle::ops::transfer::test_utils::prove_transfer(
                 &[(input, secret_key, path)],
                 &[],
@@ -626,7 +647,7 @@ mod tests {
             );
             let staking = |amount| SDPDeclareOp {
                 inputs: [nullifier].into(),
-                cm_merkle_root: root,
+                commitment_merkle_root: root,
                 amount,
                 ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
             };
@@ -682,13 +703,13 @@ mod tests {
                 })
                 .expect("the input is unspent");
 
-            let empty_root = NoteSet::empty().cm_root();
+            let empty_root = NoteSet::empty().commitment_root();
             let ledger = context.note_sets.get(LEDGER_SET).unwrap();
-            assert!(ledger.contains_nullifier(&nf(26)));
-            assert_eq!(ledger.cm_root(), empty_root);
-            assert_eq!(ledger.tx_cm_root(&empty_root, 0), Ok(empty_root)); // nothing buffered
+            assert!(ledger.contains_nullifier(&nullifier(26)));
+            assert_eq!(ledger.commitment_root(), empty_root);
+            assert_eq!(ledger.tx_commitment_root(&empty_root, 0), Ok(empty_root)); // nothing buffered
             assert_eq!(
-                context.note_sets.get(SDP_SET).unwrap().cm_root(),
+                context.note_sets.get(SDP_SET).unwrap().commitment_root(),
                 CommitmentMmr::new()
                     .push(expected.commitment())
                     .unwrap()
@@ -696,7 +717,7 @@ mod tests {
             );
             let declaration = context.declarations.get(&operation.id()).unwrap();
             assert_eq!(declaration.service_note, expected.commitment());
-            assert_eq!(declaration.withdraw_outputs, OutputCms::default());
+            assert_eq!(declaration.withdraw_outputs, OutputCommitments::default());
             assert_eq!(declaration.created, Epoch::new(4));
             assert_eq!(events, []);
         }
@@ -740,7 +761,7 @@ mod tests {
         #[test]
         fn genesis_verify_rejects_an_unknown_root() {
             let operation = SDPDeclareOp {
-                cm_merkle_root: Fr::from(5u64),
+                commitment_merkle_root: Fr::from(5u64),
                 ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
             };
 
@@ -835,7 +856,7 @@ mod tests {
                 NoteSet::empty().execute_adding(&outputs).unwrap(),
             );
 
-            let nullifier = derive_note_nf(&staked.commitment(), &secret_key);
+            let nullifier = derive_note_nullifier(&staked.commitment(), &secret_key);
             let proof = prove_transfer(
                 &[(staked, secret_key, paths[0].clone())],
                 &[],
@@ -844,7 +865,7 @@ mod tests {
             );
             let declaration = SDPDeclareOp {
                 inputs: [nullifier].into(),
-                cm_merkle_root: CommitmentMmr::new().frontier_root(),
+                commitment_merkle_root: CommitmentMmr::new().frontier_root(),
                 amount: 1_000,
                 ..SDPDeclareOp::sample()
             };

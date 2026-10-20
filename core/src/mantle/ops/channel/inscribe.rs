@@ -38,7 +38,7 @@ use crate::{
             verification_mode::{StandardMode, VerificationMode},
         },
         note_set::{NoteSet, NoteSets},
-        notes::{InputNfs, OutputCms},
+        notes::{InputNullifiers, OutputCommitments},
         ops::{
             ChannelInscribeProof, OpId, SignedOperation, StepProof, StepProofShape,
             channel::{
@@ -95,10 +95,10 @@ pub const EXECUTION_PROGRAM_PROOF_GAS: Gas = Gas::new(2451);
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct ChannelStep {
-    pub inputs: InputNfs,
-    pub outputs: OutputCms,
+    pub inputs: InputNullifiers,
+    pub outputs: OutputCommitments,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
+    pub commitment_merkle_root: Fr,
     pub buffered: u16,
 }
 
@@ -137,7 +137,7 @@ impl Step {
     }
 
     #[must_use]
-    pub const fn outputs(&self) -> &OutputCms {
+    pub const fn outputs(&self) -> &OutputCommitments {
         match self {
             Self::User(step) => &step.outputs,
             Self::Program(step) => &step.outputs,
@@ -194,9 +194,9 @@ pub fn step_msg(step: &ChannelStep) -> Fr {
     let mut elements = Vec::with_capacity(3 + step.inputs.len() + step.outputs.len());
     elements.push(*CHANNEL_STEP_V1);
     elements.push(Fr::from(step.inputs.len() as u64));
-    elements.extend(step.inputs.iter().map(|note_nf| note_nf.0));
+    elements.extend(step.inputs.iter().map(|note_nullifier| note_nullifier.0));
     elements.push(Fr::from(step.outputs.len() as u64));
-    elements.extend(step.outputs.iter().map(|note_cm| note_cm.0));
+    elements.extend(step.outputs.iter().map(|note_commitment| note_commitment.0));
     ZkHasher::digest(&elements)
 }
 
@@ -247,9 +247,9 @@ impl InscriptionOp {
             // The steps of the spec vector.
             steps: [
                 Step::User(ChannelStep {
-                    inputs: [crate::mantle::notes::NoteNf(Fr::from(0x23u64))].into(),
-                    outputs: [crate::mantle::notes::NoteCm(Fr::from(0x24u64))].into(),
-                    cm_merkle_root: Fr::from(0x25u64),
+                    inputs: [crate::mantle::notes::NoteNullifier(Fr::from(0x23u64))].into(),
+                    outputs: [crate::mantle::notes::NoteCommitment(Fr::from(0x24u64))].into(),
+                    commitment_merkle_root: Fr::from(0x25u64),
                     buffered: 0x46,
                 }),
                 Step::Program(ProgramStep::sample()),
@@ -397,8 +397,10 @@ impl PreverifiableOperation<StandardMode>
                     // Every note of the program the step creates is opened, for the
                     // availability of its state; the check reads the step alone, so a copy
                     // failing it is dropped when it deserializes.
-                    for ((output, cm), opening) in step.program_cms().zip(&proof.program_notes) {
-                        if opening.note(step.program_id).commitment() != *cm {
+                    for ((output, commitment), opening) in
+                        step.program_commitments().zip(&proof.program_notes)
+                    {
+                        if opening.note(step.program_id).commitment() != *commitment {
                             return Err(Error::ProgramNoteOpening {
                                 step: index,
                                 output,
@@ -484,7 +486,7 @@ impl VerifiableOperation<StandardMode>
         let mut note_set = note_set.ok_or(Error::NoNoteSet {
             channel_id: operation.channel_id,
         })?;
-        let mut step_nfs = HashSet::new();
+        let mut step_nullifiers = HashSet::new();
         let tx_roots = context.note_sets.tx_roots();
         let mut deferred = InscriptionDeferredProofs::default();
         // The message of the program spends and the third input of the program proofs
@@ -499,25 +501,33 @@ impl VerifiableOperation<StandardMode>
                 (Step::User(step), StepProof::User(proof)) => {
                     note_set.assert_spendable(
                         step.inputs.as_slice(),
-                        &step.cm_merkle_root,
+                        &step.commitment_merkle_root,
                         context.block_number,
                     )?;
-                    for note_nf in step.inputs.iter() {
-                        if !step_nfs.insert(*note_nf) {
-                            return Err(Error::StepDoubleSpend(*note_nf));
+                    for note_nullifier in step.inputs.iter() {
+                        if !step_nullifiers.insert(*note_nullifier) {
+                            return Err(Error::StepDoubleSpend(*note_nullifier));
                         }
                     }
-                    // `buffered <= len(tx_cm_buffer)` is checked by `cached_step_cm_root`
-                    let tx_cm_root = note_set.cached_step_cm_root(
+                    // `buffered <= len(tx_commitment_buffer)` is checked by
+                    // `cached_step_commitment_root`
+                    let tx_commitment_root = note_set.cached_step_commitment_root(
                         tx_roots,
-                        &step.cm_merkle_root,
+                        &step.commitment_merkle_root,
                         usize::from(step.buffered),
                         context.block_number,
                     )?;
-                    let nfs: Vec<Fr> = step.inputs.iter().map(|nf| nf.0).collect();
-                    let cms: Vec<Fr> = step.outputs.iter().map(|cm| cm.0).collect();
-                    let public =
-                        ZkTransferVerifierInput::new(&nfs, &cms, 0, tx_cm_root, step_msg(step))?;
+                    let nullifiers: Vec<Fr> =
+                        step.inputs.iter().map(|nullifier| nullifier.0).collect();
+                    let commitments: Vec<Fr> =
+                        step.outputs.iter().map(|commitment| commitment.0).collect();
+                    let public = ZkTransferVerifierInput::new(
+                        &nullifiers,
+                        &commitments,
+                        0,
+                        tx_commitment_root,
+                        step_msg(step),
+                    )?;
                     deferred
                         .zk_transfers
                         .push(DeferredZkTransfer::new(*proof.as_proof(), public));
@@ -532,27 +542,32 @@ impl VerifiableOperation<StandardMode>
                     {
                         note_set.assert_spendable(
                             payment.inputs.as_slice(),
-                            &payment.cm_merkle_root,
+                            &payment.commitment_merkle_root,
                             context.block_number,
                         )?;
-                        for note_nf in payment.inputs.iter() {
-                            if !step_nfs.insert(*note_nf) {
-                                return Err(Error::StepDoubleSpend(*note_nf));
+                        for note_nullifier in payment.inputs.iter() {
+                            if !step_nullifiers.insert(*note_nullifier) {
+                                return Err(Error::StepDoubleSpend(*note_nullifier));
                             }
                         }
-                        let tx_cm_root = note_set.cached_step_cm_root(
+                        let tx_commitment_root = note_set.cached_step_commitment_root(
                             tx_roots,
-                            &payment.cm_merkle_root,
+                            &payment.commitment_merkle_root,
                             usize::from(payment.buffered),
                             context.block_number,
                         )?;
-                        let nfs: Vec<Fr> = payment.inputs.iter().map(|nf| nf.0).collect();
-                        let cms: Vec<Fr> = payment.outputs.iter().map(|cm| cm.0).collect();
+                        let nullifiers: Vec<Fr> =
+                            payment.inputs.iter().map(|nullifier| nullifier.0).collect();
+                        let commitments: Vec<Fr> = payment
+                            .outputs
+                            .iter()
+                            .map(|commitment| commitment.0)
+                            .collect();
                         let public = ZkTransferVerifierInput::new(
-                            &nfs,
-                            &cms,
+                            &nullifiers,
+                            &commitments,
                             payment.paid_value,
-                            tx_cm_root,
+                            tx_commitment_root,
                             payment_msg(&step.program_id, payment),
                         )?;
                         deferred
@@ -567,28 +582,30 @@ impl VerifiableOperation<StandardMode>
                     if !step.inputs.is_empty() {
                         note_set.assert_spendable(
                             step.inputs.as_slice(),
-                            &step.cm_merkle_root,
+                            &step.commitment_merkle_root,
                             context.block_number,
                         )?;
                     }
-                    for note_nf in step.inputs.iter() {
-                        if !step_nfs.insert(*note_nf) {
-                            return Err(Error::StepDoubleSpend(*note_nf));
+                    for note_nullifier in step.inputs.iter() {
+                        if !step_nullifiers.insert(*note_nullifier) {
+                            return Err(Error::StepDoubleSpend(*note_nullifier));
                         }
                     }
                     // Rejects a root outside the window when the spend consumes nothing
-                    let tx_cm_root = note_set.cached_tx_cm_root(
+                    let tx_commitment_root = note_set.cached_tx_commitment_root(
                         tx_roots,
-                        &step.cm_merkle_root,
+                        &step.commitment_merkle_root,
                         context.block_number,
                     )?;
-                    let nfs: Vec<Fr> = step.inputs.iter().map(|nf| nf.0).collect();
-                    let cms: Vec<Fr> = step.outputs.iter().map(|cm| cm.0).collect();
+                    let nullifiers: Vec<Fr> =
+                        step.inputs.iter().map(|nullifier| nullifier.0).collect();
+                    let commitments: Vec<Fr> =
+                        step.outputs.iter().map(|commitment| commitment.0).collect();
                     let public = ZkProgramSpendVerifierInput::new(&ZkProgramSpendPublic {
-                        inputs: &nfs,
-                        outputs: &cms,
+                        inputs: &nullifiers,
+                        outputs: &commitments,
                         outputs_of_program: &step.program_outputs.flags(step.outputs.len()),
-                        tx_cm_root,
+                        tx_commitment_root,
                         program_id: step.program_id,
                         paid_value,
                         spend_notes_hash: step.spend_notes_hash,
@@ -718,7 +735,7 @@ mod tests {
             batch::{DeferrableProof as _, DeferredProofs},
             gas::test_utils::FixedThresholds,
             note_set::{CommitmentMmr, NoteSetError},
-            notes::{self, NoteCm, NoteNf, derive_note_nf},
+            notes::{self, NoteCommitment, NoteNullifier, derive_note_nullifier},
             ops::{
                 ProgramNoteOpening, ProgramProof, ProgramStepProof, ZkProgramSpendProof,
                 ZkTransferProof,
@@ -1152,9 +1169,9 @@ mod tests {
     #[test]
     fn inscription_op_execution_gas_charges_a_transfer_per_step() {
         let step = ChannelStep {
-            inputs: [NoteNf(Fr::from(1u64))].into(),
-            outputs: OutputCms::default(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::from(1u64))].into(),
+            outputs: OutputCommitments::default(),
+            commitment_merkle_root: Fr::ZERO,
             buffered: 0,
         };
         for (steps, expected) in [(0usize, 59u64), (1, 678), (3, 1_916)] {
@@ -1173,7 +1190,7 @@ mod tests {
 
     #[test]
     fn inscription_op_execution_gas_charges_each_program_step() {
-        let user = Step::User(step(&[nf(1)], &[], Fr::ZERO, 0));
+        let user = Step::User(step(&[nullifier(1)], &[], Fr::ZERO, 0));
         let program = |payments: usize| {
             Step::Program(ProgramStep {
                 payments: vec![Payment::sample(); payments].try_into().unwrap(),
@@ -1200,24 +1217,24 @@ mod tests {
         }
     }
 
-    fn cm(n: u64) -> NoteCm {
-        NoteCm(Fr::from(n))
+    fn commitment(n: u64) -> NoteCommitment {
+        NoteCommitment(Fr::from(n))
     }
 
-    fn nf(n: u64) -> NoteNf {
-        NoteNf(Fr::from(n))
+    fn nullifier(n: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(n))
     }
 
     fn step(
-        inputs: &[NoteNf],
-        outputs: &[NoteCm],
-        cm_merkle_root: Fr,
+        inputs: &[NoteNullifier],
+        outputs: &[NoteCommitment],
+        commitment_merkle_root: Fr,
         buffered: u16,
     ) -> ChannelStep {
         ChannelStep {
-            inputs: InputNfs::try_from_iter(inputs.iter().copied()).unwrap(),
-            outputs: OutputCms::try_from_iter(outputs.iter().copied()).unwrap(),
-            cm_merkle_root,
+            inputs: InputNullifiers::try_from_iter(inputs.iter().copied()).unwrap(),
+            outputs: OutputCommitments::try_from_iter(outputs.iter().copied()).unwrap(),
+            commitment_merkle_root,
             buffered,
         }
     }
@@ -1234,18 +1251,21 @@ mod tests {
     }
 
     // The sample channel, accrediting the sample signer, owns note set 2, which
-    // holds cm(1), recorded at the end of block 0.
+    // holds commitment(1), recorded at the end of block 0.
     fn state() -> (Channels, NoteSets) {
         let channel_id = InscriptionOp::sample().channel_id;
         let keys = UnverifiedChannelKeys::from(signer().public_key().into_unverified());
         let (channels, note_sets) =
             Channels::new().create_channel(channel_id, Slot::from(0u64), keys, NoteSets::new());
-        let set = NoteSet::empty().execute_adding(&[cm(1)]).unwrap();
+        let set = NoteSet::empty().execute_adding(&[commitment(1)]).unwrap();
         (channels, note_sets.update(2, set).end_block(0))
     }
 
     fn root() -> Fr {
-        CommitmentMmr::new().push(cm(1)).unwrap().frontier_root()
+        CommitmentMmr::new()
+            .push(commitment(1))
+            .unwrap()
+            .frontier_root()
     }
 
     fn tx_hash_view() -> TxHashView {
@@ -1287,7 +1307,12 @@ mod tests {
     fn step_msg_hashes_the_counts_and_the_notes() {
         let dst = fr_from_bytes(b"CHANNEL_STEP_V1").unwrap();
         assert_eq!(
-            step_msg(&step(&[nf(0x23)], &[cm(0x24), cm(0x25)], Fr::ZERO, 0)),
+            step_msg(&step(
+                &[nullifier(0x23)],
+                &[commitment(0x24), commitment(0x25)],
+                Fr::ZERO,
+                0
+            )),
             ZkHasher::digest(&[
                 dst,
                 Fr::from(1u64),
@@ -1298,19 +1323,24 @@ mod tests {
             ])
         );
         assert_ne!(
-            step_msg(&step(&[nf(1), nf(2)], &[], Fr::ZERO, 0)),
-            step_msg(&step(&[nf(1)], &[cm(2)], Fr::ZERO, 0))
+            step_msg(&step(&[nullifier(1), nullifier(2)], &[], Fr::ZERO, 0)),
+            step_msg(&step(&[nullifier(1)], &[commitment(2)], Fr::ZERO, 0))
         );
         assert_eq!(
-            step_msg(&step(&[nf(1)], &[], Fr::ZERO, 0)),
-            step_msg(&step(&[nf(1)], &[], Fr::ONE, 7))
+            step_msg(&step(&[nullifier(1)], &[], Fr::ZERO, 0)),
+            step_msg(&step(&[nullifier(1)], &[], Fr::ONE, 7))
         );
     }
 
     #[test]
     fn preverify_rejects_a_step_proof_count_other_than_the_step_count() {
         let signed_operation = signed(
-            with_steps(vec![Step::User(step(&[nf(2)], &[cm(3)], root(), 0))]),
+            with_steps(vec![Step::User(step(
+                &[nullifier(2)],
+                &[commitment(3)],
+                root(),
+                0,
+            ))]),
             vec![],
         );
         assert_eq!(
@@ -1326,9 +1356,9 @@ mod tests {
 
     #[test]
     fn preverify_rejects_a_step_with_more_than_eight_outputs() {
-        let outputs: Vec<NoteCm> = (1..=9).map(cm).collect();
+        let outputs: Vec<NoteCommitment> = (1..=9).map(commitment).collect();
         let signed_operation = signed(
-            with_steps(vec![Step::User(step(&[nf(2)], &outputs, root(), 0))]),
+            with_steps(vec![Step::User(step(&[nullifier(2)], &outputs, root(), 0))]),
             vec![StepProof::User(ZkTransferProof::sample())],
         );
         assert_eq!(
@@ -1345,7 +1375,12 @@ mod tests {
     fn verify_rejects_steps_on_the_null_channel() {
         let operation = InscriptionOp {
             channel_id: NULL_CHANNEL_ID,
-            ..with_steps(vec![Step::User(step(&[nf(2)], &[cm(3)], root(), 0))])
+            ..with_steps(vec![Step::User(step(
+                &[nullifier(2)],
+                &[commitment(3)],
+                root(),
+                0,
+            ))])
         };
         let deferred = signed(operation, vec![StepProof::User(ZkTransferProof::sample())])
             .into_preverified(&InscriptionPreverificationContext {
@@ -1371,8 +1406,8 @@ mod tests {
     fn verify_defers_one_balanced_transfer_per_step_bound_to_its_step_msg() {
         let (channels, note_sets) = state();
         let steps = vec![
-            step(&[nf(2)], &[cm(3)], root(), 0),
-            step(&[nf(4)], &[cm(5)], root(), 0),
+            step(&[nullifier(2)], &[commitment(3)], root(), 0),
+            step(&[nullifier(4)], &[commitment(5)], root(), 0),
         ];
         let deferred = verify_steps(
             steps.iter().cloned().map(Step::User).collect(),
@@ -1384,7 +1419,7 @@ mod tests {
         for (deferred, step) in deferred.zk_transfers.iter().zip(&steps) {
             assert_eq!(deferred.inputs().excess_value.into_inner(), Fr::ZERO);
             assert_eq!(deferred.inputs().msg.into_inner(), step_msg(step));
-            assert_eq!(deferred.inputs().tx_cm_root.into_inner(), root());
+            assert_eq!(deferred.inputs().tx_commitment_root.into_inner(), root());
             assert_eq!(
                 deferred.inputs().inputs[0].into_inner(),
                 step.inputs.as_slice()[0].0
@@ -1395,31 +1430,45 @@ mod tests {
     #[test]
     fn verify_extends_each_step_root_with_its_buffered_prefix() {
         let (channels, note_sets) = state();
-        // An earlier Operation of the transaction deposited cm(7) into the channel.
-        let set = note_sets.get(2).unwrap().clone().buffer_outputs(&[cm(7)]);
+        // An earlier Operation of the transaction deposited commitment(7) into the
+        // channel.
+        let set = note_sets
+            .get(2)
+            .unwrap()
+            .clone()
+            .buffer_outputs(&[commitment(7)]);
         let note_sets = note_sets.update(2, set);
-        let first = Step::User(step(&[nf(2)], &[cm(3)], root(), 0));
-        let second = Step::User(step(&[nf(4)], &[cm(5)], root(), 2));
+        let first = Step::User(step(&[nullifier(2)], &[commitment(3)], root(), 0));
+        let second = Step::User(step(&[nullifier(4)], &[commitment(5)], root(), 2));
         let deferred = verify_steps(vec![first.clone(), second], &channels, &note_sets).unwrap();
         let extended = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(7))
+            .push(commitment(7))
             .unwrap()
-            .push(cm(3))
+            .push(commitment(3))
             .unwrap()
             .frontier_root();
         assert_eq!(
-            deferred.zk_transfers[0].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers[0]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             root()
         );
         assert_eq!(
-            deferred.zk_transfers[1].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers[1]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             extended
         );
         assert_eq!(
             verify_steps(
-                vec![first, Step::User(step(&[nf(4)], &[cm(5)], root(), 3))],
+                vec![
+                    first,
+                    Step::User(step(&[nullifier(4)], &[commitment(5)], root(), 3))
+                ],
                 &channels,
                 &note_sets
             )
@@ -1435,12 +1484,12 @@ mod tests {
     fn verify_rejects_a_note_consumed_by_an_earlier_step() {
         let (channels, note_sets) = state();
         let steps = vec![
-            Step::User(step(&[nf(2)], &[cm(3)], root(), 0)),
-            Step::User(step(&[nf(2)], &[cm(4)], root(), 0)),
+            Step::User(step(&[nullifier(2)], &[commitment(3)], root(), 0)),
+            Step::User(step(&[nullifier(2)], &[commitment(4)], root(), 0)),
         ];
         assert_eq!(
             verify_steps(steps, &channels, &note_sets).unwrap_err(),
-            Error::StepDoubleSpend(nf(2))
+            Error::StepDoubleSpend(nullifier(2))
         );
     }
 
@@ -1451,17 +1500,22 @@ mod tests {
             .get(2)
             .unwrap()
             .clone()
-            .execute_spending(&[nf(2)])
+            .execute_spending(&[nullifier(2)])
             .unwrap();
         let note_sets = note_sets.update(2, set);
         assert_eq!(
             verify_steps(
-                vec![Step::User(step(&[nf(2)], &[cm(3)], root(), 0))],
+                vec![Step::User(step(
+                    &[nullifier(2)],
+                    &[commitment(3)],
+                    root(),
+                    0
+                ))],
                 &channels,
                 &note_sets
             )
             .unwrap_err(),
-            Error::NoteSet(NoteSetError::AlreadySpent(nf(2)))
+            Error::NoteSet(NoteSetError::AlreadySpent(nullifier(2)))
         );
     }
 
@@ -1469,8 +1523,8 @@ mod tests {
     fn execute_spends_adds_and_buffers_every_step_in_order() {
         let (channels, note_sets) = state();
         let operation = with_steps(vec![
-            Step::User(step(&[nf(2)], &[cm(3)], root(), 0)),
-            Step::User(step(&[nf(4)], &[cm(5)], root(), 1)),
+            Step::User(step(&[nullifier(2)], &[commitment(3)], root(), 0)),
+            Step::User(step(&[nullifier(4)], &[commitment(5)], root(), 1)),
         ]);
         let signed_operation: SignedOperation<_, _, StandardMode> = signed(
             operation,
@@ -1491,16 +1545,16 @@ mod tests {
 
         let set = context.note_sets.get(2).unwrap();
         let expected = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(3))
+            .push(commitment(3))
             .unwrap()
-            .push(cm(5))
+            .push(commitment(5))
             .unwrap()
             .frontier_root();
-        assert!(set.contains_nullifier(&nf(2)) && set.contains_nullifier(&nf(4)));
-        assert_eq!(set.cm_root(), expected);
-        assert_eq!(set.tx_cm_root(&root(), 1), Ok(expected));
+        assert!(set.contains_nullifier(&nullifier(2)) && set.contains_nullifier(&nullifier(4)));
+        assert_eq!(set.commitment_root(), expected);
+        assert_eq!(set.tx_commitment_root(&root(), 1), Ok(expected));
     }
 
     #[test]
@@ -1521,7 +1575,7 @@ mod tests {
         let note_sets = note_sets.update(2, set).end_block(1);
         let output = notes::Note::new(1_000, Fr::from(12u64), ZkPublicKey::new(Fr::from(2u64)));
         let step = step(
-            &[derive_note_nf(&input.commitment(), &secret_key)],
+            &[derive_note_nullifier(&input.commitment(), &secret_key)],
             &[output.commitment()],
             mmr.frontier_root(),
             0,
@@ -1569,7 +1623,7 @@ mod tests {
             Step::decode(&program.encode(), &()).unwrap(),
             (&[][..], program)
         );
-        let user = Step::User(step(&[nf(2)], &[cm(3)], Fr::ZERO, 0));
+        let user = Step::User(step(&[nullifier(2)], &[commitment(3)], Fr::ZERO, 0));
         assert_eq!(user.encode()[0], USER_STEP_KIND);
         let mut bytes = user.encode();
         bytes[0] = 0x02;
@@ -1594,16 +1648,16 @@ mod tests {
     }
 
     fn payment(
-        inputs: &[NoteNf],
-        outputs: &[NoteCm],
-        cm_merkle_root: Fr,
+        inputs: &[NoteNullifier],
+        outputs: &[NoteCommitment],
+        commitment_merkle_root: Fr,
         buffered: u16,
         paid_value: u64,
     ) -> Payment {
         Payment {
-            inputs: InputNfs::try_from_iter(inputs.iter().copied()).unwrap(),
-            outputs: OutputCms::try_from_iter(outputs.iter().copied()).unwrap(),
-            cm_merkle_root,
+            inputs: InputNullifiers::try_from_iter(inputs.iter().copied()).unwrap(),
+            outputs: OutputCommitments::try_from_iter(outputs.iter().copied()).unwrap(),
+            commitment_merkle_root,
             buffered,
             paid_value,
             intent: Fr::from(paid_value),
@@ -1612,18 +1666,18 @@ mod tests {
 
     fn program_step(
         payments: Vec<Payment>,
-        inputs: &[NoteNf],
-        outputs: &[NoteCm],
+        inputs: &[NoteNullifier],
+        outputs: &[NoteCommitment],
         program_outputs: u8,
-        cm_merkle_root: Fr,
+        commitment_merkle_root: Fr,
     ) -> ProgramStep {
         ProgramStep {
             program_id: program_id(),
             payments: payments.try_into().unwrap(),
-            inputs: InputNfs::try_from_iter(inputs.iter().copied()).unwrap(),
-            outputs: OutputCms::try_from_iter(outputs.iter().copied()).unwrap(),
+            inputs: InputNullifiers::try_from_iter(inputs.iter().copied()).unwrap(),
+            outputs: OutputCommitments::try_from_iter(outputs.iter().copied()).unwrap(),
             program_outputs: ProgramOutputs(program_outputs),
-            cm_merkle_root,
+            commitment_merkle_root,
             spend_notes_hash: Fr::from(77u64),
         }
     }
@@ -1678,11 +1732,11 @@ mod tests {
         let (_, note_sets) = state();
         let step = program_step(
             vec![
-                payment(&[nf(2)], &[cm(3)], root(), 0, 5),
-                payment(&[nf(4)], &[], root(), 0, 7),
+                payment(&[nullifier(2)], &[commitment(3)], root(), 0, 5),
+                payment(&[nullifier(4)], &[], root(), 0, 7),
             ],
             &[],
-            &[cm(8), cm(9)],
+            &[commitment(8), commitment(9)],
             0b00,
             root(),
         );
@@ -1724,45 +1778,64 @@ mod tests {
     #[test]
     fn verify_extends_payment_roots_with_buffered_and_the_spend_root_with_the_whole_buffer() {
         let (_, note_sets) = state();
-        // An earlier Operation of the transaction deposited cm(7) into the channel.
-        let set = note_sets.get(2).unwrap().clone().buffer_outputs(&[cm(7)]);
+        // An earlier Operation of the transaction deposited commitment(7) into the
+        // channel.
+        let set = note_sets
+            .get(2)
+            .unwrap()
+            .clone()
+            .buffer_outputs(&[commitment(7)]);
         let note_sets = note_sets.update(2, set);
         let program = Step::Program(program_step(
             vec![
-                payment(&[nf(2)], &[cm(3)], root(), 0, 5),
-                payment(&[nf(4)], &[cm(5)], root(), 2, 7),
+                payment(&[nullifier(2)], &[commitment(3)], root(), 0, 5),
+                payment(&[nullifier(4)], &[commitment(5)], root(), 2, 7),
             ],
-            &[nf(6)],
-            &[cm(8)],
+            &[nullifier(6)],
+            &[commitment(8)],
             0b0,
             root(),
         ));
-        let user = Step::User(step(&[nf(9)], &[cm(10)], root(), 4));
+        let user = Step::User(step(&[nullifier(9)], &[commitment(10)], root(), 4));
         let steps = vec![program, user];
         let deferred =
             verify_operation(with_steps(steps.clone()), sample_proofs(&steps), &note_sets).unwrap();
 
-        let extended = |cms: &[u64]| {
-            cms.iter()
-                .fold(CommitmentMmr::new().push(cm(1)).unwrap(), |mmr, n| {
-                    mmr.push(cm(*n)).unwrap()
-                })
+        let extended = |commitments: &[u64]| {
+            commitments
+                .iter()
+                .fold(
+                    CommitmentMmr::new().push(commitment(1)).unwrap(),
+                    |mmr, n| mmr.push(commitment(*n)).unwrap(),
+                )
                 .frontier_root()
         };
         assert_eq!(
-            deferred.zk_transfers[0].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers[0]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             root()
         );
         assert_eq!(
-            deferred.zk_transfers[1].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers[1]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             extended(&[7, 3])
         );
         assert_eq!(
-            deferred.program_spends[0].inputs().tx_cm_root.into_inner(),
+            deferred.program_spends[0]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             extended(&[7, 3, 5])
         );
         assert_eq!(
-            deferred.zk_transfers[2].inputs().tx_cm_root.into_inner(),
+            deferred.zk_transfers[2]
+                .inputs()
+                .tx_commitment_root
+                .into_inner(),
             extended(&[7, 3, 5, 8])
         );
     }
@@ -1770,7 +1843,7 @@ mod tests {
     #[test]
     fn verify_needs_a_recent_root_for_a_spend_consuming_nothing() {
         let (_, note_sets) = state();
-        let step: Step = program_step(vec![], &[], &[cm(8)], 0, Fr::from(99u64)).into();
+        let step: Step = program_step(vec![], &[], &[commitment(8)], 0, Fr::from(99u64)).into();
         assert_eq!(
             verify_operation(
                 with_steps(vec![step.clone()]),
@@ -1786,9 +1859,9 @@ mod tests {
     fn verify_rejects_a_note_consumed_by_a_payment_and_the_spend() {
         let (_, note_sets) = state();
         let step: Step = program_step(
-            vec![payment(&[nf(2)], &[], root(), 0, 5)],
-            &[nf(2)],
-            &[cm(8)],
+            vec![payment(&[nullifier(2)], &[], root(), 0, 5)],
+            &[nullifier(2)],
+            &[commitment(8)],
             0,
             root(),
         )
@@ -1800,7 +1873,7 @@ mod tests {
                 &note_sets
             )
             .unwrap_err(),
-            Error::StepDoubleSpend(nf(2))
+            Error::StepDoubleSpend(nullifier(2))
         );
     }
 
@@ -1809,8 +1882,8 @@ mod tests {
         let (_, note_sets) = state();
         let step: Step = program_step(
             vec![
-                payment(&[nf(2)], &[], root(), 0, u64::MAX),
-                payment(&[nf(4)], &[], root(), 0, 1),
+                payment(&[nullifier(2)], &[], root(), 0, u64::MAX),
+                payment(&[nullifier(4)], &[], root(), 0, 1),
             ],
             &[],
             &[],
@@ -1845,9 +1918,9 @@ mod tests {
             data: Fr::from(4u64),
         };
         let step = program_step(
-            vec![payment(&[nf(2)], &[], root(), 0, 5)],
+            vec![payment(&[nullifier(2)], &[], root(), 0, 5)],
             &[],
-            &[cm(9), note.commitment()],
+            &[commitment(9), note.commitment()],
             0b10,
             root(),
         );
@@ -1912,7 +1985,11 @@ mod tests {
             Err(Error::ProgramOutputsOutOfRange { step: 0 })
         );
         let five_inputs = ProgramStep {
-            inputs: (1..=5).map(nf).collect::<Vec<_>>().try_into().unwrap(),
+            inputs: (1..=5)
+                .map(nullifier)
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
             ..step
         };
         assert_eq!(
@@ -1928,15 +2005,15 @@ mod tests {
         let (channels, note_sets) = state();
         let program = Step::Program(program_step(
             vec![
-                payment(&[nf(2)], &[cm(3)], root(), 0, 5),
-                payment(&[nf(4)], &[cm(5)], root(), 0, 7),
+                payment(&[nullifier(2)], &[commitment(3)], root(), 0, 5),
+                payment(&[nullifier(4)], &[commitment(5)], root(), 0, 7),
             ],
-            &[nf(6)],
-            &[cm(8)],
+            &[nullifier(6)],
+            &[commitment(8)],
             0,
             root(),
         ));
-        let user = Step::User(step(&[nf(9)], &[cm(10)], root(), 0));
+        let user = Step::User(step(&[nullifier(9)], &[commitment(10)], root(), 0));
         let steps = vec![program, user];
         let signed_operation: SignedOperation<_, _, StandardMode> =
             signed(with_steps(steps.clone()), sample_proofs(&steps)).into_state_trusted();
@@ -1952,13 +2029,18 @@ mod tests {
         let set = context.note_sets.get(2).unwrap();
         let expected = [3, 5, 8, 10]
             .iter()
-            .fold(CommitmentMmr::new().push(cm(1)).unwrap(), |mmr, n| {
-                mmr.push(cm(*n)).unwrap()
-            })
+            .fold(
+                CommitmentMmr::new().push(commitment(1)).unwrap(),
+                |mmr, n| mmr.push(commitment(*n)).unwrap(),
+            )
             .frontier_root();
-        assert!([2, 4, 6, 9].iter().all(|n| set.contains_nullifier(&nf(*n))));
-        assert_eq!(set.cm_root(), expected);
-        assert_eq!(set.tx_cm_root(&root(), 1), Ok(expected));
+        assert!(
+            [2, 4, 6, 9]
+                .iter()
+                .all(|n| set.contains_nullifier(&nullifier(*n)))
+        );
+        assert_eq!(set.commitment_root(), expected);
+        assert_eq!(set.tx_commitment_root(&root(), 1), Ok(expected));
     }
 
     #[test]
@@ -1994,9 +2076,9 @@ mod tests {
         };
 
         let payment = Payment {
-            inputs: [derive_note_nf(&user_note.commitment(), &secret_key)].into(),
-            outputs: OutputCms::default(),
-            cm_merkle_root: root,
+            inputs: [derive_note_nullifier(&user_note.commitment(), &secret_key)].into(),
+            outputs: OutputCommitments::default(),
+            commitment_merkle_root: root,
             buffered: 0,
             paid_value: 1_000,
             intent: Fr::from(9u64),
@@ -2017,10 +2099,10 @@ mod tests {
         let step = ProgramStep {
             program_id: program_id(),
             payments: [payment].into(),
-            inputs: InputNfs::default(),
+            inputs: InputNullifiers::default(),
             outputs: [program_note.commitment()].into(),
             program_outputs: ProgramOutputs(0b1),
-            cm_merkle_root: root,
+            commitment_merkle_root: root,
             spend_notes_hash: spend_notes_hash(
                 &core::array::from_fn(|_| SpendInputFields::inactive()),
                 &outputs,

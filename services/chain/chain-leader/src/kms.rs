@@ -87,8 +87,6 @@ where
             .await
             .map_err(|error| PrivateInputsError::KmsApi(Box::new(error)))?;
 
-        output_rx
-            .await
-            .map_err(|_| PrivateInputsError::KmsResponse)
+        output_rx.await.map_err(|_| PrivateInputsError::KmsResponse)
     }
 }

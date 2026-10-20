@@ -7,7 +7,7 @@ pub mod balance {
     };
     use lb_core::{
         header::HeaderId,
-        mantle::{Value, notes::NoteCm},
+        mantle::{Value, notes::NoteCommitment},
     };
     use lb_key_management_system_keys::keys::ZkPublicKey;
     use lb_log_targets::api;
@@ -20,7 +20,7 @@ pub mod balance {
     pub struct WalletBalanceResponseBody {
         pub tip: HeaderId,
         pub balance: Value,
-        pub notes: HashMap<NoteCm, Value>,
+        pub notes: HashMap<NoteCommitment, Value>,
         pub address: ZkPublicKey,
     }
 
@@ -49,7 +49,7 @@ pub mod aged_notes {
     };
     use lb_core::{
         header::HeaderId,
-        mantle::{Value, note_set::NoteSetIndex, notes::NoteCm},
+        mantle::{Value, note_set::NoteSetIndex, notes::NoteCommitment},
     };
     use lb_key_management_system_keys::keys::ZkPublicKey;
     use lb_log_targets::api;
@@ -62,7 +62,7 @@ pub mod aged_notes {
     /// lottery.
     #[derive(Serialize, Deserialize)]
     pub struct LeaderAgedNoteResponseBody {
-        pub commitment: NoteCm,
+        pub commitment: NoteCommitment,
         /// The note set holding the note.
         pub note_set: NoteSetIndex,
         pub value: Value,

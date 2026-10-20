@@ -11,7 +11,7 @@ use lb_core::mantle::{
     gas::{MainnetGasProfile, TxGasCalculator as _},
     ledger::verification_mode::StandardMode,
     note_set::CommitmentMmr,
-    notes::derive_note_nf,
+    notes::derive_note_nullifier,
     ops::{ZkTransferProof, transfer::prove_transfer},
     traits::{GenesisTx as _, Hashable as _},
     transactions::{
@@ -292,7 +292,7 @@ fn build_wallet_transaction(
     let secret_key = *input.account.secret_key.as_fr();
     let funding = FundingNote {
         note: input.note.note,
-        nullifier: derive_note_nf(&input.note.note.commitment(), &secret_key),
+        nullifier: derive_note_nullifier(&input.note.note.commitment(), &secret_key),
     };
     let self_transfer = |value| {
         MantleTxBuilder::new()

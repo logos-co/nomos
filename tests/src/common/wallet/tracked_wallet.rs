@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use lb_core::mantle::notes::NoteNf;
+use lb_core::mantle::notes::NoteNullifier;
 use lb_wallet::OwnedNote;
 use serde::{Deserialize, Serialize};
 
@@ -113,7 +113,7 @@ fn available_utxos(on_chain_utxos: &[OwnedNote], reserved_utxos: &[OwnedNote]) -
 /// that may not be reflected by the chain view yet.
 #[derive(Debug)]
 pub struct TrackedWallet {
-    utxos_by_note: HashMap<NoteNf, OwnedNote>,
+    utxos_by_note: HashMap<NoteNullifier, OwnedNote>,
     pending_state: PendingWalletState,
 }
 
@@ -242,7 +242,7 @@ pub struct TrackedWalletState {
 #[derive(Debug, Default, Clone)]
 struct PendingWalletState {
     reserved_utxos: Vec<OwnedNote>,
-    reserved_note_ids: HashSet<NoteNf>,
+    reserved_note_ids: HashSet<NoteNullifier>,
     tracked_spent_fees: u64,
 }
 
@@ -255,7 +255,7 @@ impl PendingWalletState {
         }
     }
 
-    fn retain_reserved_note_ids(&mut self, on_chain_note_ids: &HashSet<NoteNf>) {
+    fn retain_reserved_note_ids(&mut self, on_chain_note_ids: &HashSet<NoteNullifier>) {
         self.reserved_utxos
             .retain(|utxo| on_chain_note_ids.contains(&utxo.nullifier));
         self.reserved_note_ids
@@ -292,12 +292,12 @@ mod tests {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::zero()),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(output_index)),
+            nullifier: NoteNullifier(Fr::from(output_index)),
             path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
         }
     }
 
-    fn nullifier(utxo: &OwnedNote) -> NoteNf {
+    fn nullifier(utxo: &OwnedNote) -> NoteNullifier {
         utxo.nullifier
     }
 

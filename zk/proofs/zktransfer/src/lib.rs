@@ -46,8 +46,8 @@ use lb_groth16::{
 use lb_log_targets::proofs;
 use tracing::error;
 pub use wallet_inputs::{
-    InputPathAndSelectors, TX_CM_TREE_DEPTH, ZkTransferInputNoteData, ZkTransferOutputNoteData,
-    ZkTransferWalletInputs, ZkTransferWalletInputsData,
+    InputPathAndSelectors, TX_COMMITMENT_TREE_DEPTH, ZkTransferInputNoteData,
+    ZkTransferOutputNoteData, ZkTransferWalletInputs, ZkTransferWalletInputsData,
 };
 
 pub use crate::inputs::{
@@ -189,7 +189,11 @@ mod tests {
         assert!(verify(&proof, &inputs).unwrap());
         assert_eq!(inputs.excess_value.into_inner(), Fr::from(SAMPLE_EXCESS));
         assert_eq!(frs(&inputs.inputs[2..]), vec![Fr::ZERO; 2]);
-        assert!(frs(&inputs.inputs[..2]).iter().all(|nf| *nf != Fr::ZERO));
+        assert!(
+            frs(&inputs.inputs[..2])
+                .iter()
+                .all(|nullifier| *nullifier != Fr::ZERO)
+        );
     }
 
     #[test]
@@ -200,7 +204,7 @@ mod tests {
             &frs(&inputs.inputs[..2]),
             &frs(&inputs.outputs),
             SAMPLE_EXCESS,
-            data.chain.tx_cm_root,
+            data.chain.tx_commitment_root,
             data.chain.msg,
         )
         .unwrap();

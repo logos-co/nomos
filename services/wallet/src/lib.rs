@@ -22,7 +22,7 @@ use lb_core::{
         gas::{GasCost, GasOverflow, MainnetGasProfile},
         ledger::verification_mode::StandardMode,
         note_set::{LEDGER_SET, NoteSetIndex, SDP_SET},
-        notes::{NoteCm, NoteNf},
+        notes::{NoteCommitment, NoteNullifier},
         ops::{
             ChannelInscribeProof, NoOpProof, OpRef, ZkAndEd25519Proof, ZkTransferProof,
             channel::ChannelId,
@@ -185,7 +185,7 @@ pub enum WalletMsg {
     },
     OwnedNote {
         tip: Option<HeaderId>,
-        commitment: NoteCm,
+        commitment: NoteCommitment,
         resp_tx: Sender<Result<TipResponse<Option<OwnedNote>>, WalletServiceError>>,
     },
     GetLeaderAgedNotes {
@@ -233,7 +233,7 @@ pub struct AgedNote {
 /// One wallet-owned UTXO old enough to take part in the leadership lottery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeaderAgedNoteInfo {
-    pub commitment: NoteCm,
+    pub commitment: NoteCommitment,
     pub note_set: NoteSetIndex,
     pub value: Value,
     /// The wallet address holding the note.
@@ -635,7 +635,7 @@ where
                     return;
                 }
 
-                let funded_notes: Vec<NoteNf> = funded.nullifiers_consumed().collect();
+                let funded_notes: Vec<NoteNullifier> = funded.nullifiers_consumed().collect();
                 state.reserve_pending_notes(funded_notes.iter().copied());
 
                 if resp_tx
@@ -670,7 +670,7 @@ where
                     }
                 };
 
-                let funded_notes: Vec<NoteNf> = tx_builder.nullifiers_consumed().collect();
+                let funded_notes: Vec<NoteNullifier> = tx_builder.nullifiers_consumed().collect();
 
                 let resp = Self::sign_tx(tx_builder, tip, &ledger, kms, state.wallet())
                     .await
@@ -711,7 +711,7 @@ where
                     }
                 };
 
-                let funded_notes: Vec<NoteNf> = tx_builder.nullifiers_consumed().collect();
+                let funded_notes: Vec<NoteNullifier> = tx_builder.nullifiers_consumed().collect();
 
                 let resp = Self::prove_funding(tx_builder, tip, &ledger, kms, state.wallet())
                     .await
@@ -1076,7 +1076,7 @@ where
 
     async fn owned_note_at(
         tip: Option<HeaderId>,
-        commitment: &NoteCm,
+        commitment: &NoteCommitment,
         wallet: &Wallet,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     ) -> Result<TipResponse<Option<OwnedNote>>, WalletServiceError> {
@@ -1225,7 +1225,7 @@ where
         funding_pks: Vec<ZkPublicKey>,
         state: &mut ServiceState<'_>,
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<(MantleTxBuilder, KnownNote, Vec<NoteNf>), WalletServiceError> {
+    ) -> Result<(MantleTxBuilder, KnownNote, Vec<NoteNullifier>), WalletServiceError> {
         let key_id = state
             .wallet()
             .known_keys()
@@ -1345,7 +1345,7 @@ where
         let spent = declarations
             .iter()
             .flat_map(|declaration| declaration.operation().inputs.iter().copied())
-            .collect::<Vec<NoteNf>>();
+            .collect::<Vec<NoteNullifier>>();
 
         let key_ids = settings
             .known_keys
@@ -1378,7 +1378,8 @@ where
     }
 
     /// Derive voucher secret from KMS given master key and index.
-    // TODO: Use secure KMS operator that returns `VoucherCm` and `VoucherNullifier`
+    // TODO: Use secure KMS operator that returns `VoucherCommitment` and
+    // `VoucherNullifier`
     async fn derive_voucher_from_kms(
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
         key_id: KeyId,
@@ -1398,7 +1399,7 @@ where
         .map_err(|error| WalletServiceError::KmsApi(Box::new(error)))?;
 
         output_rx.await.map_err(|_| {
-            WalletServiceError::KmsApi("KMS API did not respond with voucher_cm".into())
+            WalletServiceError::KmsApi("KMS API did not respond with voucher_commitment".into())
         })
     }
 

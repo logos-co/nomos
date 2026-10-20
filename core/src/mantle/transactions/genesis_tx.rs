@@ -516,7 +516,7 @@ mod tests {
         mantle::{
             Note, OpProof,
             note_set::CommitmentMmr,
-            notes::{InputNfs, NoteNf, OutputCms, derive_note_nf},
+            notes::{InputNullifiers, NoteNullifier, OutputCommitments, derive_note_nullifier},
             ops::{
                 ChannelInscribeProof, StepProof, ZkTransferProof,
                 channel::inscribe::{ChannelStep, ChannelSteps, Inscription, Step},
@@ -557,8 +557,8 @@ mod tests {
     ) -> SDPDeclareOp {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            inputs: [derive_note_nf(&note_to_use.commitment(), &Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [derive_note_nullifier(&note_to_use.commitment(), &Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
             amount: note_to_use.value,
             zk_id: ZkPublicKey::new(BigUint::from(zk_id_value).into()),
             provider_id: ProviderId(verifying_key),
@@ -568,7 +568,11 @@ mod tests {
 
     // Helper function to create a test note
     fn create_test_note(value: Value, nonce: u64) -> Note {
-        Note::new(value, Fr::from(nonce), ZkPublicKey::from(BigUint::from(123u64)))
+        Note::new(
+            value,
+            Fr::from(nonce),
+            ZkPublicKey::from(BigUint::from(123u64)),
+        )
     }
 
     fn allocation(value: Value, key: u64) -> GenesisAllocation {
@@ -584,8 +588,8 @@ mod tests {
 
     fn transfer_of(allocations: &[GenesisAllocation]) -> TransferOp {
         TransferOp::new(
-            InputNfs::default(),
-            OutputCms::try_from_iter(
+            InputNullifiers::default(),
+            OutputCommitments::try_from_iter(
                 allocations
                     .iter()
                     .enumerate()
@@ -927,7 +931,7 @@ mod tests {
     #[test]
     fn from_tx_rejects_a_transfer_that_spends_an_input() {
         let transfer_op = TransferOp {
-            inputs: [NoteNf(Fr::ONE)].into(),
+            inputs: [NoteNullifier(Fr::ONE)].into(),
             ..transfer_of(&allocations())
         };
         let c = cryptarchia_op();
@@ -1101,9 +1105,9 @@ mod tests {
         ));
 
         let step = ChannelStep {
-            inputs: [NoteNf(Fr::ONE)].into(),
-            outputs: OutputCms::default(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::ONE)].into(),
+            outputs: OutputCommitments::default(),
+            commitment_merkle_root: Fr::ZERO,
             buffered: 0,
         };
         let with_step = InscriptionOp {

@@ -8,7 +8,7 @@ use lb_key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
 use crate::{
     mantle::{
         channel::{SlotTimeframe, SlotTimeout},
-        notes::{NoteCm, NoteNf},
+        notes::{NoteCommitment, NoteNullifier},
         ops::{
             channel::{
                 ChannelId, MsgId,
@@ -31,9 +31,17 @@ use crate::{
 };
 
 pub static TRANSFER: LazyLock<TransferOp> = LazyLock::new(|| TransferOp {
-    inputs: [NoteNf(Fr::from(0x01u64)), NoteNf(Fr::from(0x02u64))].into(),
-    outputs: [NoteCm(Fr::from(0x03u64)), NoteCm(Fr::from(0x04u64))].into(),
-    cm_merkle_root: Fr::from(0x05u64),
+    inputs: [
+        NoteNullifier(Fr::from(0x01u64)),
+        NoteNullifier(Fr::from(0x02u64)),
+    ]
+    .into(),
+    outputs: [
+        NoteCommitment(Fr::from(0x03u64)),
+        NoteCommitment(Fr::from(0x04u64)),
+    ]
+    .into(),
+    commitment_merkle_root: Fr::from(0x05u64),
     excess_value: 0x06,
 });
 
@@ -69,26 +77,26 @@ pub static INSCRIPTION: LazyLock<InscriptionOp> = LazyLock::new(|| InscriptionOp
         .into_unverified(),
     steps: [
         Step::User(ChannelStep {
-            inputs: [NoteNf(Fr::from(0x23u64))].into(),
-            outputs: [NoteCm(Fr::from(0x24u64))].into(),
-            cm_merkle_root: Fr::from(0x25u64),
+            inputs: [NoteNullifier(Fr::from(0x23u64))].into(),
+            outputs: [NoteCommitment(Fr::from(0x24u64))].into(),
+            commitment_merkle_root: Fr::from(0x25u64),
             buffered: 0x46,
         }),
         Step::Program(ProgramStep {
             program_id: Fr::from(0x34u64),
             payments: [Payment {
-                inputs: [NoteNf(Fr::from(0x35u64))].into(),
-                outputs: [NoteCm(Fr::from(0x36u64))].into(),
-                cm_merkle_root: Fr::from(0x37u64),
+                inputs: [NoteNullifier(Fr::from(0x35u64))].into(),
+                outputs: [NoteCommitment(Fr::from(0x36u64))].into(),
+                commitment_merkle_root: Fr::from(0x37u64),
                 buffered: 0x47,
                 paid_value: 0x38,
                 intent: Fr::from(0x39u64),
             }]
             .into(),
-            inputs: [NoteNf(Fr::from(0x3au64))].into(),
-            outputs: [NoteCm(Fr::from(0x3bu64))].into(),
+            inputs: [NoteNullifier(Fr::from(0x3au64))].into(),
+            outputs: [NoteCommitment(Fr::from(0x3bu64))].into(),
             program_outputs: ProgramOutputs(0b1),
-            cm_merkle_root: Fr::from(0x3cu64),
+            commitment_merkle_root: Fr::from(0x3cu64),
             spend_notes_hash: Fr::from(0x3du64),
         }),
     ]
@@ -97,9 +105,9 @@ pub static INSCRIPTION: LazyLock<InscriptionOp> = LazyLock::new(|| InscriptionOp
 
 pub static DEPOSIT: LazyLock<DepositOp> = LazyLock::new(|| DepositOp {
     channel_id: ChannelId::from([16u8; 32]),
-    inputs: [NoteNf(Fr::from(0x11u64))].into(),
-    cm_merkle_root: Fr::from(0x26u64),
-    outputs: [NoteCm(Fr::from(0x27u64))].into(),
+    inputs: [NoteNullifier(Fr::from(0x11u64))].into(),
+    commitment_merkle_root: Fr::from(0x26u64),
+    outputs: [NoteCommitment(Fr::from(0x27u64))].into(),
     excess_value: 0x28,
     metadata: Metadata::try_from(b"deposit-metadata".to_vec())
         .expect("the metadata is within bounds"),
@@ -107,9 +115,9 @@ pub static DEPOSIT: LazyLock<DepositOp> = LazyLock::new(|| DepositOp {
 
 pub static CHANNEL_WITHDRAW: LazyLock<ChannelWithdrawOp> = LazyLock::new(|| ChannelWithdrawOp {
     channel_id: ChannelId::from([18u8; 32]),
-    inputs: [NoteNf(Fr::from(0x13u64))].into(),
-    cm_merkle_root: Fr::from(0x29u64),
-    outputs: [NoteCm(Fr::from(0x2au64))].into(),
+    inputs: [NoteNullifier(Fr::from(0x13u64))].into(),
+    commitment_merkle_root: Fr::from(0x29u64),
+    outputs: [NoteCommitment(Fr::from(0x2au64))].into(),
 });
 
 pub static SDP_DECLARE: LazyLock<SDPDeclareOp> = LazyLock::new(|| SDPDeclareOp {
@@ -121,16 +129,16 @@ pub static SDP_DECLARE: LazyLock<SDPDeclareOp> = LazyLock::new(|| SDPDeclareOp {
     .unwrap(),
     provider_id: ProviderId(Ed25519Key::from_bytes(&[24u8; 32]).public_key()),
     zk_id: ZkPublicKey::from(Fr::from(25u64)),
-    inputs: [NoteNf(Fr::from(26u64))].into(),
-    cm_merkle_root: Fr::from(44u64),
+    inputs: [NoteNullifier(Fr::from(26u64))].into(),
+    commitment_merkle_root: Fr::from(44u64),
     amount: 45,
 });
 
 pub static SDP_WITHDRAW: LazyLock<SDPWithdrawOp> = LazyLock::new(|| SDPWithdrawOp {
     declaration_id: DeclarationId([27u8; 32]),
     nonce: 29,
-    service_note_nf: NoteNf(Fr::from(28u64)),
-    outputs: [NoteCm(Fr::from(46u64))].into(),
+    service_note_nullifier: NoteNullifier(Fr::from(28u64)),
+    outputs: [NoteCommitment(Fr::from(46u64))].into(),
     excess_value: 47,
 });
 

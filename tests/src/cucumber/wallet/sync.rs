@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use lb_core::mantle::notes::NoteNf;
+use lb_core::mantle::notes::NoteNullifier;
 use lb_key_management_system_service::keys::UnsecuredZkKey;
 use lb_wallet::OwnedNote;
 use tokio::time::sleep;
@@ -335,7 +335,7 @@ pub async fn wait_wallet_send_ready<S: BuildHasher + Sync>(
     required_available: u64,
     readiness: WalletSendReadiness,
     available_utxos: &mut WalletUtxos,
-    used_input_note_ids: &HashSet<NoteNf, S>,
+    used_input_note_ids: &HashSet<NoteNullifier, S>,
 ) -> Result<BestNodeInfo, StepError> {
     let start = tokio::time::Instant::now();
 

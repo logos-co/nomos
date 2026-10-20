@@ -357,14 +357,14 @@ impl ExecutableOperation for SignedOperation<ClaimPowRewardOp, Verified, Standar
             derive_note_nonce(&op_id, 0, context.epoch_reward, &operation.public_key),
             operation.public_key,
         );
-        let note_cm = note.commitment();
+        let note_commitment = note.commitment();
         let ledger = context
             .note_sets
             .get(LEDGER_SET)
             .expect("the ledger set always exists")
             .clone()
-            .execute_adding(&[note_cm])?
-            .buffer_outputs(&[note_cm]);
+            .execute_adding(&[note_commitment])?
+            .buffer_outputs(&[note_commitment]);
         context.note_sets = context.note_sets.update(LEDGER_SET, ledger);
         // decrement current pool
         context.decrement_reward_pool();
@@ -774,9 +774,9 @@ mod tests {
             .unwrap()
             .frontier_root();
         let ledger_set = ctx.note_sets.get(LEDGER_SET).unwrap();
-        assert_eq!(ledger_set.cm_root(), expected_root);
+        assert_eq!(ledger_set.commitment_root(), expected_root);
         assert_eq!(
-            ledger_set.tx_cm_root(&CommitmentMmr::new().frontier_root(), 0),
+            ledger_set.tx_commitment_root(&CommitmentMmr::new().frontier_root(), 0),
             Ok(expected_root)
         );
 

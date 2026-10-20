@@ -6,7 +6,7 @@ use lb_core::{
     mantle::{
         CryptarchiaParameter, GenesisTime, Note,
         note_set::CommitmentMmr,
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         ops::channel::{
             ChannelId, MsgId,
             inscribe::{ChannelSteps, Inscription, InscriptionOp},
@@ -42,7 +42,7 @@ const DEFAULT_SDP_FUNDING_NOTES_PER_NODE: usize = 1;
 
 /// Test-tool mirror of the genesis transfer-output bound.
 ///
-/// The bound is the transaction output bound used by `OutputCms` in the
+/// The bound is the transaction output bound used by `OutputCommitments` in the
 /// release core. Keeping this value in test tooling avoids exporting a
 /// production constant solely for fixture validation.
 pub const GENESIS_TRANSFER_OUTPUT_LIMIT: usize = u8::MAX as usize;
@@ -467,12 +467,12 @@ pub fn create_genesis_block_with_declarations(
                 locators: provider.locator.clone().into(),
                 provider_id: provider.provider_id(),
                 zk_id: provider.zk_id(),
-                inputs: [derive_note_nf(
+                inputs: [derive_note_nullifier(
                     &allocation.note(index).commitment(),
                     provider.note.sk.as_fr(),
                 )]
                 .into(),
-                cm_merkle_root: CommitmentMmr::new().frontier_root(),
+                commitment_merkle_root: CommitmentMmr::new().frontier_root(),
                 amount: allocation.value,
             }
         })

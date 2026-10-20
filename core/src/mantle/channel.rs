@@ -12,7 +12,7 @@ use crate::{
         gas::ThresholdSource,
         ledger::verification_mode::GenesisMode,
         note_set::{NoteSetError, NoteSetIndex, NoteSets},
-        notes::{NoteNf, ProgramId},
+        notes::{NoteNullifier, ProgramId},
         ops::{
             SignedOperation,
             channel::{
@@ -100,7 +100,7 @@ pub enum Error {
     #[error("The inscription carries {proofs} step proofs for {steps} steps")]
     StepProofCount { steps: usize, proofs: usize },
     #[error("Note {0:?} is consumed by two steps of the inscription")]
-    StepDoubleSpend(NoteNf),
+    StepDoubleSpend(NoteNullifier),
     #[error("Program {0:?} is not registered")]
     UnknownProgram(ProgramId),
     #[error("The proof of step {step} is not of the kind of the step")]

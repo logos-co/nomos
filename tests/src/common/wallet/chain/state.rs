@@ -5,7 +5,7 @@ use std::{
 
 use lb_core::mantle::{
     Note,
-    notes::{NoteCm, NoteNf},
+    notes::{NoteCommitment, NoteNullifier},
     traits::GenesisTx as _,
     transactions::GenesisTx,
 };
@@ -74,7 +74,7 @@ pub enum TrackedWalletKeysError {
 pub struct GenesisNotes {
     pub notes: Vec<Note>,
     pub service_notes: Vec<Note>,
-    pub spent: Vec<NoteNf>,
+    pub spent: Vec<NoteNullifier>,
 }
 
 impl GenesisNotes {
@@ -102,7 +102,7 @@ impl GenesisNotes {
 // Openings of the notes the test wallets create. A block reveals only their
 // commitments, so a scanner adopts an appended commitment of its keys from
 // here.
-static NOTE_OPENINGS: LazyLock<Mutex<HashMap<NoteCm, Note>>> =
+static NOTE_OPENINGS: LazyLock<Mutex<HashMap<NoteCommitment, Note>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub fn record_note_openings(notes: impl IntoIterator<Item = Note>) {
@@ -113,7 +113,7 @@ pub fn record_note_openings(notes: impl IntoIterator<Item = Note>) {
 }
 
 #[must_use]
-pub fn note_opening(commitment: &NoteCm) -> Option<Note> {
+pub fn note_opening(commitment: &NoteCommitment) -> Option<Note> {
     NOTE_OPENINGS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

@@ -84,8 +84,8 @@ fn witness_input_for_proof_type(
                 slot,
                 secret_key,
                 note_nonce,
-                cm_aged_path_and_selectors,
-                nf_root_aged,
+                commitment_aged_path_and_selectors,
+                nullifier_root_aged,
                 set_aged_path_and_selectors,
             } = *leadership_quota_private_inputs;
 
@@ -94,8 +94,8 @@ fn witness_input_for_proof_type(
                 slot,
                 pol_secret_key: secret_key,
                 note_nonce,
-                cm_aged_path_and_selectors,
-                nf_root_aged,
+                commitment_aged_path_and_selectors,
+                nullifier_root_aged,
                 set_aged_path_and_selectors,
             };
             PoQWitnessInputs::from_leader_data(

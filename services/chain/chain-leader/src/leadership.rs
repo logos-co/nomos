@@ -474,7 +474,7 @@ mod pol_tests {
         mantle::{
             Note,
             note_set::{CommitmentMmr, LEDGER_SET},
-            notes::derive_note_nf,
+            notes::derive_note_nullifier,
         },
         proofs::leader_proof::{LeaderPrivate, check_winning},
         sdp::{MinStake, ServiceParameters, ServiceType},
@@ -533,7 +533,7 @@ mod pol_tests {
         let owned = OwnedNote {
             note,
             note_set: LEDGER_SET,
-            nullifier: derive_note_nf(&note.commitment(), sk.as_fr()),
+            nullifier: derive_note_nullifier(&note.commitment(), sk.as_fr()),
             path: aged_path.clone(),
         };
         (

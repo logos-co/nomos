@@ -11,10 +11,9 @@ use crate::{
     block::{Block, BlockTransactions, UncleHeaders},
     header::Header,
     mantle::{
-        Op,
-        OpProof,
+        Op, OpProof,
         note_set::CommitmentMmr,
-        notes::{InputNfs, OutputCms, derive_note_nf},
+        notes::{InputNullifiers, OutputCommitments, derive_note_nullifier},
         ops::{
             ChannelInscribeProof, ZkAndEd25519Proof, ZkTransferProof,
             channel::{
@@ -909,8 +908,8 @@ fn genesis_ops(
     // The genesis notes take their output index as nonce and are proven
     // against the empty commitment root.
     let transfer = TransferOp::new(
-        InputNfs::default(),
-        OutputCms::try_from_iter(
+        InputNullifiers::default(),
+        OutputCommitments::try_from_iter(
             notes
                 .iter()
                 .enumerate()
@@ -980,21 +979,21 @@ fn prove_declarations(
     stake_keys: &[ZkKey],
     msg: Fr,
 ) -> Result<Vec<ZkTransferProof>> {
-    let cms: Vec<_> = notes
+    let commitments: Vec<_> = notes
         .iter()
         .enumerate()
         .map(|(index, note)| note.note(index).commitment())
         .collect();
     let mut mmr = CommitmentMmr::new();
-    let mut paths = Vec::with_capacity(cms.len());
-    for cm in &cms {
+    let mut paths = Vec::with_capacity(commitments.len());
+    for commitment in &commitments {
         let (next, path) = mmr
-            .push_with_paths(*cm, &mut paths)
+            .push_with_paths(*commitment, &mut paths)
             .expect("the genesis notes fit the commitment MMR");
         mmr = next;
         paths.push(path);
     }
-    let tx_cm_root = mmr.frontier_root();
+    let tx_commitment_root = mmr.frontier_root();
     declarations
         .iter()
         .zip(stake_keys)
@@ -1003,10 +1002,12 @@ fn prove_declarations(
             let openings = op
                 .inputs
                 .iter()
-                .map(|nf| {
-                    let index = cms
+                .map(|nullifier| {
+                    let index = commitments
                         .iter()
-                        .position(|cm| derive_note_nf(cm, stake_key.as_fr()) == *nf)
+                        .position(|commitment| {
+                            derive_note_nullifier(commitment, stake_key.as_fr()) == *nullifier
+                        })
                         .ok_or(Error::UnknownDeclarationInput { declaration })?;
                     Ok((
                         notes[index].note(index),
@@ -1024,7 +1025,7 @@ fn prove_declarations(
             Ok(ZkTransferProof::new(prove_transfer(
                 &openings,
                 &[],
-                tx_cm_root,
+                tx_commitment_root,
                 msg,
             )))
         })
@@ -1451,7 +1452,7 @@ mod tests {
         mantle::{
             CryptarchiaParameter, GenesisTime,
             ledger::verification_mode::GenesisMode,
-            notes::{NoteCm, NoteNf},
+            notes::{NoteCommitment, NoteNullifier},
             ops::{
                 OpRef,
                 channel::{ChannelId, MsgId},
@@ -1509,8 +1510,8 @@ mod tests {
         // zero Ed25519 key since not all 32-byte arrays are valid curve points.
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            inputs: [NoteNf(Fr::from(u64::from(id)))].into(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::from(u64::from(id)))].into(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 0,
             zk_id: ZkPublicKey::from(BigUint::from(u64::from(id) + 1)),
             provider_id: ProviderId(Ed25519PublicKey::from_bytes(&[1; 32]).unwrap()),
@@ -1532,8 +1533,8 @@ mod tests {
         let notes = [make_note(1_000)];
         let mut ops = vec![
             Op::Transfer(TransferOp::new(
-                InputNfs::default(),
-                OutputCms::try_from_iter(
+                InputNullifiers::default(),
+                OutputCommitments::try_from_iter(
                     notes
                         .iter()
                         .enumerate()
@@ -1994,14 +1995,14 @@ mod tests {
         );
         assert_eq!(tx.distribution().as_slice(), notes.as_slice());
         let transfer = tx.transfer().operation();
-        let outputs: Vec<NoteCm> = notes
+        let outputs: Vec<NoteCommitment> = notes
             .iter()
             .enumerate()
             .map(|(index, note)| note.note(index).commitment())
             .collect();
         assert_eq!(transfer.outputs.as_slice(), outputs.as_slice());
         assert_eq!(
-            transfer.cm_merkle_root,
+            transfer.commitment_merkle_root,
             CommitmentMmr::new().frontier_root()
         );
         assert_eq!(transfer.excess_value, 0);
@@ -2017,10 +2018,10 @@ mod tests {
             },
             make_note(2_000),
         ];
-        let nullifier = derive_note_nf(&notes[0].note(0).commitment(), stake_key.as_fr());
+        let nullifier = derive_note_nullifier(&notes[0].note(0).commitment(), stake_key.as_fr());
         let declaration = SDPDeclareOp {
             inputs: [nullifier].into(),
-            cm_merkle_root: CommitmentMmr::new().frontier_root(),
+            commitment_merkle_root: CommitmentMmr::new().frontier_root(),
             amount: 1_000,
             ..make_sdp_decl(0)
         };
@@ -2035,7 +2036,7 @@ mod tests {
             .build_proven(std::slice::from_ref(&stake_key))
             .unwrap();
         let tx = block.genesis_tx();
-        let tx_cm_root = CommitmentMmr::new()
+        let tx_commitment_root = CommitmentMmr::new()
             .push(notes[0].note(0).commitment())
             .unwrap()
             .push(notes[1].note(1).commitment())
@@ -2045,7 +2046,7 @@ mod tests {
             &[nullifier.0],
             &[],
             1_000,
-            tx_cm_root,
+            tx_commitment_root,
             *TxHashView::from(tx.hash()).as_fr(),
         )
         .unwrap();

@@ -403,8 +403,7 @@ pub mod test_utils {
         Op,
         channel::{ChannelState, SlotTimeframe, SlotTimeout},
         ops::channel::{
-            MsgId,
-            UnverifiedChannelKeys,
+            MsgId, UnverifiedChannelKeys,
             inscribe::{ChannelSteps, InscriptionOp},
         },
         transactions::Ops,
@@ -429,9 +428,7 @@ pub mod test_utils {
     // TODO: The generated channels are bare. We should add more realistic channel
     // states for testing.
     #[must_use]
-    pub fn make_channel_state(
-        accredited_keys: Option<UnverifiedChannelKeys>,
-    ) -> ChannelState {
+    pub fn make_channel_state(accredited_keys: Option<UnverifiedChannelKeys>) -> ChannelState {
         let keys = accredited_keys.unwrap_or_else(|| {
             [Ed25519Key::from_bytes(&[0; 32])
                 .public_key()
@@ -470,7 +467,7 @@ mod tests {
         channel::{Channels, Error as ChannelError},
         gas::{MainnetGasProfile, TxGasCalculator as _},
         ledger::verification_mode::StandardMode,
-        notes::{InputNfs, Note, NoteNf, OutputCms},
+        notes::{InputNullifiers, Note, NoteNullifier, OutputCommitments},
         ops::{
             ChannelInscribeProof, ProgramNoteOpening, ProgramProof, ProgramStepProof, StepProof,
             ZkProgramSpendProof,
@@ -528,9 +525,9 @@ mod tests {
     fn create_deposit_op(channel_id: ChannelId) -> DepositOp {
         DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
+            outputs: OutputCommitments::default(),
             excess_value: 0,
             metadata: [].into(),
         }
@@ -546,9 +543,9 @@ mod tests {
     fn create_withdraw_op(channel_id: ChannelId) -> ChannelWithdrawOp {
         ChannelWithdrawOp {
             channel_id,
-            inputs: [NoteNf(Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
+            outputs: OutputCommitments::default(),
         }
     }
 
@@ -1008,10 +1005,10 @@ mod tests {
         let step = ProgramStep {
             program_id: Fr::from(7u64),
             payments: Payments::default(),
-            inputs: InputNfs::default(),
+            inputs: InputNullifiers::default(),
             outputs: [note.commitment()].into(),
             program_outputs: ProgramOutputs(0b1),
-            cm_merkle_root: Fr::ZERO,
+            commitment_merkle_root: Fr::ZERO,
             spend_notes_hash: Fr::ZERO,
         };
         let ops = Ops::from([Op::ChannelInscribe(InscriptionOp {

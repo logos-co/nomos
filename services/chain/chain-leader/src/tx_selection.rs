@@ -177,7 +177,7 @@ mod tests {
             Note, Op, OpProof,
             gas::TxGasCalculator as _,
             note_set::LEDGER_SET,
-            notes::{OutputCms, derive_note_nf},
+            notes::{OutputCommitments, derive_note_nullifier},
             ops::{ZkTransferProof, transfer::TransferOp},
             traits::StorageSize,
             transactions::{OpProofs, Ops, states::Unverified},
@@ -210,13 +210,17 @@ mod tests {
     fn transfer_heavy_transaction(
         funding_notes: &[Note],
         funding_key: &ZkKey,
-        cm_root: Fr,
+        commitment_root: Fr,
     ) -> SignedOps<Preverified, StandardMode> {
         let ops = Ops::try_from_iter(funding_notes.iter().map(|note| {
             Op::Transfer(TransferOp::new(
-                [derive_note_nf(&note.commitment(), funding_key.as_fr())].into(),
-                OutputCms::default(),
-                cm_root,
+                [derive_note_nullifier(
+                    &note.commitment(),
+                    funding_key.as_fr(),
+                )]
+                .into(),
+                OutputCommitments::default(),
+                commitment_root,
                 note.value,
             ))
         }))
@@ -254,14 +258,14 @@ mod tests {
             .collect::<Vec<_>>();
         let ledger_state =
             LedgerState::from_notes(funding_notes.iter().flatten().copied(), &config);
-        let cm_root = ledger_state
+        let commitment_root = ledger_state
             .latest_note_sets()
             .get(LEDGER_SET)
             .expect("the ledger set exists")
-            .cm_root();
+            .commitment_root();
         let candidates = funding_notes
             .iter()
-            .map(|notes| transfer_heavy_transaction(notes, &funding_key, cm_root))
+            .map(|notes| transfer_heavy_transaction(notes, &funding_key, commitment_root))
             .collect::<Vec<_>>();
         let gas_context = ledger_state.tx_context().gas_context;
         let individual_gas = candidates[0]

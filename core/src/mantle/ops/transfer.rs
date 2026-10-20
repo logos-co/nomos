@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::mantle::notes::{NoteCm, NoteNf};
+use crate::mantle::notes::{NoteCommitment, NoteNullifier};
 use crate::{
     block::BlockNumber,
     events::TxEvent,
@@ -23,7 +23,7 @@ use crate::{
             verification_mode::{StandardMode, VerificationMode},
         },
         note_set::{LEDGER_SET, NoteSetError, NoteSets},
-        notes::{InputNfs, Note, OutputCms},
+        notes::{InputNullifiers, Note, OutputCommitments},
         ops::{OpId, SignedOperation, ZkTransferProof},
         transactions::{
             hash::TxHashView,
@@ -34,25 +34,25 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, BinaryCodec)]
 pub struct TransferOp {
-    pub inputs: InputNfs,
-    pub outputs: OutputCms,
+    pub inputs: InputNullifiers,
+    pub outputs: OutputCommitments,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
+    pub commitment_merkle_root: Fr,
     pub excess_value: Value,
 }
 
 impl TransferOp {
     #[must_use]
     pub const fn new(
-        inputs: InputNfs,
-        outputs: OutputCms,
-        cm_merkle_root: Fr,
+        inputs: InputNullifiers,
+        outputs: OutputCommitments,
+        commitment_merkle_root: Fr,
         excess_value: Value,
     ) -> Self {
         Self {
             inputs,
             outputs,
-            cm_merkle_root,
+            commitment_merkle_root,
             excess_value,
         }
     }
@@ -61,8 +61,12 @@ impl TransferOp {
     #[must_use]
     pub fn sample() -> Self {
         Self::new(
-            [NoteNf(Fr::from(1u64)), NoteNf(Fr::from(2u64))].into(),
-            [NoteCm(Fr::from(3u64)), NoteCm(Fr::from(4u64))].into(),
+            [NoteNullifier(Fr::from(1u64)), NoteNullifier(Fr::from(2u64))].into(),
+            [
+                NoteCommitment(Fr::from(3u64)),
+                NoteCommitment(Fr::from(4u64)),
+            ]
+            .into(),
             Fr::from(5u64),
             6,
         )
@@ -141,23 +145,31 @@ impl VerifiableOperation<StandardMode> for SignedOperation<TransferOp, Preverifi
             .expect("the ledger note set always exists");
         ledger.assert_spendable(
             operation.inputs.as_slice(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
-        let tx_cm_root = ledger.cached_tx_cm_root(
+        let tx_commitment_root = ledger.cached_tx_commitment_root(
             context.note_sets.tx_roots(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
 
         // Defer the proof verification so that the caller can batch it.
-        let nfs: Vec<Fr> = operation.inputs.iter().map(|nf| nf.0).collect();
-        let cms: Vec<Fr> = operation.outputs.iter().map(|cm| cm.0).collect();
+        let nullifiers: Vec<Fr> = operation
+            .inputs
+            .iter()
+            .map(|nullifier| nullifier.0)
+            .collect();
+        let commitments: Vec<Fr> = operation
+            .outputs
+            .iter()
+            .map(|commitment| commitment.0)
+            .collect();
         let public = ZkTransferVerifierInput::new(
-            &nfs,
-            &cms,
+            &nullifiers,
+            &commitments,
             operation.excess_value,
-            tx_cm_root,
+            tx_commitment_root,
             *context.tx_hash_view.as_fr(),
         )?;
         Ok(DeferredZkTransfer::new(*self.proof().as_proof(), public))
@@ -194,7 +206,7 @@ impl<Mode: VerificationMode> ExecutableOperation for SignedOperation<TransferOp,
 pub fn transfer_witness(
     inputs: &[(Note, MerklePath)],
     outputs: &[Note],
-    tx_cm_root: Fr,
+    tx_commitment_root: Fr,
     msg: Fr,
 ) -> ZkTransferWitnessInputsData {
     assert!(
@@ -235,7 +247,7 @@ pub fn transfer_witness(
     let chain = ZkTransferChainInputsData {
         inputs_active: core::array::from_fn(|i| i < inputs.len()),
         outputs_active: core::array::from_fn(|j| j < outputs.len()),
-        tx_cm_root,
+        tx_commitment_root,
         msg,
     };
     ZkTransferWitnessInputsData::from_chain_and_wallet_data(chain, wallet)
@@ -248,14 +260,14 @@ pub fn transfer_witness(
 pub fn prove_transfer(
     inputs: &[(Note, Fr, MerklePath)],
     outputs: &[Note],
-    tx_cm_root: Fr,
+    tx_commitment_root: Fr,
     msg: Fr,
 ) -> lb_zktransfer::ZkTransferProof {
     let openings: Vec<(Note, MerklePath)> = inputs
         .iter()
         .map(|(note, _, path)| (*note, path.clone()))
         .collect();
-    let mut witness = transfer_witness(&openings, outputs, tx_cm_root, msg);
+    let mut witness = transfer_witness(&openings, outputs, tx_commitment_root, msg);
     for (input, (_, secret_key, _)) in witness.wallet.inputs.iter_mut().zip(inputs) {
         input.secret_key = *secret_key;
     }
@@ -279,7 +291,7 @@ mod test {
         TxHash,
         gas::test_utils::FixedThresholds,
         note_set::{CommitmentMmr, NoteSet},
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         ops::op_proof::samples::SampleProof as _,
     };
 
@@ -293,29 +305,33 @@ mod test {
         }
     }
 
-    fn cm(n: u64) -> NoteCm {
-        NoteCm(Fr::from(n))
+    fn commitment(n: u64) -> NoteCommitment {
+        NoteCommitment(Fr::from(n))
     }
 
-    fn nf(n: u64) -> NoteNf {
-        NoteNf(Fr::from(n))
+    fn nullifier(n: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(n))
     }
 
-    // The ledger set holds cm(1), recorded at the end of block 0.
+    // The ledger set holds commitment(1), recorded at the end of block 0.
     fn note_sets() -> NoteSets {
-        let ledger = NoteSet::empty().execute_adding(&[cm(1)]).unwrap();
+        let ledger = NoteSet::empty().execute_adding(&[commitment(1)]).unwrap();
         NoteSets::new().update(LEDGER_SET, ledger).end_block(0)
     }
 
     fn root() -> Fr {
-        note_sets().get(LEDGER_SET).unwrap().cm_root()
+        note_sets().get(LEDGER_SET).unwrap().commitment_root()
     }
 
-    fn transfer(inputs: &[NoteNf], outputs: &[NoteCm], cm_merkle_root: Fr) -> TransferOp {
+    fn transfer(
+        inputs: &[NoteNullifier],
+        outputs: &[NoteCommitment],
+        commitment_merkle_root: Fr,
+    ) -> TransferOp {
         TransferOp::new(
-            InputNfs::try_from_iter(inputs.iter().copied()).unwrap(),
-            OutputCms::try_from_iter(outputs.iter().copied()).unwrap(),
-            cm_merkle_root,
+            InputNullifiers::try_from_iter(inputs.iter().copied()).unwrap(),
+            OutputCommitments::try_from_iter(outputs.iter().copied()).unwrap(),
+            commitment_merkle_root,
             6,
         )
     }
@@ -341,7 +357,7 @@ mod test {
     #[test]
     fn preverify_rejects_empty_inputs() {
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-            transfer(&[], &[cm(2)], root()),
+            transfer(&[], &[commitment(2)], root()),
             ZkTransferProof::sample(),
         );
         assert_eq!(
@@ -353,7 +369,17 @@ mod test {
     #[test]
     fn preverify_rejects_more_than_four_inputs() {
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-            transfer(&[nf(1), nf(2), nf(3), nf(4), nf(5)], &[], root()),
+            transfer(
+                &[
+                    nullifier(1),
+                    nullifier(2),
+                    nullifier(3),
+                    nullifier(4),
+                    nullifier(5),
+                ],
+                &[],
+                root(),
+            ),
             ZkTransferProof::sample(),
         );
         assert_eq!(
@@ -366,9 +392,9 @@ mod test {
 
     #[test]
     fn preverify_rejects_more_than_eight_outputs() {
-        let outputs: Vec<NoteCm> = (1..=9).map(cm).collect();
+        let outputs: Vec<NoteCommitment> = (1..=9).map(commitment).collect();
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-            transfer(&[nf(1)], &outputs, root()),
+            transfer(&[nullifier(1)], &outputs, root()),
             ZkTransferProof::sample(),
         );
         assert_eq!(
@@ -381,7 +407,11 @@ mod test {
 
     #[test]
     fn verify_defers_the_zk_transfer_public_inputs() {
-        let deferred = verify(transfer(&[nf(2)], &[cm(3)], root()), &note_sets()).unwrap();
+        let deferred = verify(
+            transfer(&[nullifier(2)], &[commitment(3)], root()),
+            &note_sets(),
+        )
+        .unwrap();
         let public = deferred.inputs();
         assert_eq!(
             public.inputs.map(Groth16Input::into_inner),
@@ -394,7 +424,7 @@ mod test {
         assert_eq!(public.outputs[0].into_inner(), Fr::from(3u64));
         assert_eq!(public.outputs[1].into_inner(), Fr::ZERO);
         assert_eq!(public.excess_value.into_inner(), Fr::from(6u64));
-        assert_eq!(public.tx_cm_root.into_inner(), root());
+        assert_eq!(public.tx_commitment_root.into_inner(), root());
         assert_eq!(public.msg.into_inner(), *tx_hash_view().as_fr());
         assert_eq!(deferred.proof(), ZkTransferProof::sample().as_proof());
     }
@@ -406,22 +436,26 @@ mod test {
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .buffer_outputs(&[cm(4)]);
+            .buffer_outputs(&[commitment(4)]);
         let sets = sets.update(LEDGER_SET, buffered);
-        let deferred = verify(transfer(&[nf(2)], &[cm(3)], root()), &sets).unwrap();
+        let deferred = verify(transfer(&[nullifier(2)], &[commitment(3)], root()), &sets).unwrap();
         let expected = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(4))
+            .push(commitment(4))
             .unwrap()
             .frontier_root();
-        assert_eq!(deferred.inputs().tx_cm_root.into_inner(), expected);
+        assert_eq!(deferred.inputs().tx_commitment_root.into_inner(), expected);
     }
 
     #[test]
     fn verify_rejects_an_unknown_root() {
         assert_eq!(
-            verify(transfer(&[nf(2)], &[cm(3)], Fr::from(5u64)), &note_sets()).unwrap_err(),
+            verify(
+                transfer(&[nullifier(2)], &[commitment(3)], Fr::from(5u64)),
+                &note_sets()
+            )
+            .unwrap_err(),
             TransferError::NoteSet(NoteSetError::UnknownRoot(Fr::from(5u64)))
         );
     }
@@ -433,19 +467,19 @@ mod test {
             .get(LEDGER_SET)
             .unwrap()
             .clone()
-            .execute_spending(&[nf(2)])
+            .execute_spending(&[nullifier(2)])
             .unwrap();
         let sets = sets.update(LEDGER_SET, spent);
         assert_eq!(
-            verify(transfer(&[nf(2)], &[cm(3)], root()), &sets).unwrap_err(),
-            TransferError::NoteSet(NoteSetError::AlreadySpent(nf(2)))
+            verify(transfer(&[nullifier(2)], &[commitment(3)], root()), &sets).unwrap_err(),
+            TransferError::NoteSet(NoteSetError::AlreadySpent(nullifier(2)))
         );
     }
 
     #[test]
     fn execute_spends_adds_and_buffers() {
         let signed_operation: SignedOperation<_, _, StandardMode> = SignedOperation::new(
-            transfer(&[nf(2)], &[cm(3)], root()),
+            transfer(&[nullifier(2)], &[commitment(3)], root()),
             ZkTransferProof::sample(),
         )
         .into_state_trusted();
@@ -454,14 +488,14 @@ mod test {
             .expect("the input is unspent");
         let ledger = sets.get(LEDGER_SET).unwrap();
         let expected = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(3))
+            .push(commitment(3))
             .unwrap()
             .frontier_root();
-        assert!(ledger.contains_nullifier(&nf(2)));
-        assert_eq!(ledger.cm_root(), expected);
-        assert_eq!(ledger.tx_cm_root(&root(), 1), Ok(expected));
+        assert!(ledger.contains_nullifier(&nullifier(2)));
+        assert_eq!(ledger.commitment_root(), expected);
+        assert_eq!(ledger.tx_commitment_root(&root(), 1), Ok(expected));
         assert_eq!(events, []);
     }
 
@@ -480,10 +514,10 @@ mod test {
             .execute_adding(&[input.commitment()])
             .unwrap();
         let sets = NoteSets::new().update(LEDGER_SET, ledger).end_block(0);
-        let root = sets.get(LEDGER_SET).unwrap().cm_root();
+        let root = sets.get(LEDGER_SET).unwrap().commitment_root();
         assert_eq!(root, mmr.frontier_root());
         let output = Note::new(994, Fr::from(12u64), ZkPublicKey::new(Fr::from(2u64)));
-        let nullifier = derive_note_nf(&input.commitment(), &secret_key);
+        let nullifier = derive_note_nullifier(&input.commitment(), &secret_key);
         let proof = prove_transfer(
             &[(input, secret_key, path)],
             &[output],
@@ -526,7 +560,7 @@ mod test {
     fn transfer_witness_leaves_the_secret_keys_to_the_prover() {
         let input = Note::new(1_000, Fr::from(11u64), ZkPublicKey::new(Fr::from(2u64)));
         let (mmr, path) = CommitmentMmr::new()
-            .push(NoteCm(Fr::from(4u64)))
+            .push(NoteCommitment(Fr::from(4u64)))
             .unwrap()
             .push_with_paths(input.commitment(), &mut [])
             .unwrap();
@@ -548,7 +582,7 @@ mod test {
             [true, false, false, false, false, false, false, false]
         );
         assert_eq!(
-            (witness.chain.tx_cm_root, witness.chain.msg),
+            (witness.chain.tx_commitment_root, witness.chain.msg),
             (mmr.frontier_root(), Fr::from(77u64))
         );
     }

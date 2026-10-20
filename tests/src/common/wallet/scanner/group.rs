@@ -14,7 +14,8 @@ use super::{
 use crate::{
     common::wallet::TrackedWalletKeys,
     cucumber::{
-        error::StepError, fee_reserve::SCENARIO_FEE_ACCOUNT_NAME,
+        error::StepError,
+        fee_reserve::SCENARIO_FEE_ACCOUNT_NAME,
         wallet::best_node::get_best_node_info_from_clients,
         world::{CucumberWorld, WalletType},
     },

@@ -86,7 +86,7 @@ fn shared_inputs(
 #[cfg(test)]
 mod tests {
     use lb_core::mantle::{
-        notes::derive_note_nf,
+        notes::derive_note_nullifier,
         ops::OpRef,
         traits::{GenesisTx as _, MantleTx as _},
     };
@@ -149,7 +149,7 @@ mod tests {
             let blend_note = &network.consensus.blend_notes[i];
             assert_eq!(
                 *nullifier,
-                derive_note_nf(&blend_note.note.commitment(), blend_note.sk.as_fr())
+                derive_note_nullifier(&blend_note.note.commitment(), blend_note.sk.as_fr())
             );
         }
 

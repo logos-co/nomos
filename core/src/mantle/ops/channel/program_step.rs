@@ -12,7 +12,7 @@ use crate::{
     crypto::{Digest as _, Hash, Hasher, ZkHasher},
     mantle::{
         Value,
-        notes::{InputNfs, NoteCm, OutputCms, ProgramId, derive_note_nonce},
+        notes::{InputNullifiers, NoteCommitment, OutputCommitments, ProgramId, derive_note_nonce},
     },
 };
 
@@ -29,11 +29,11 @@ pub type Payments = UpperBoundedVec<Payment, MAX_PAYMENTS>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct Payment {
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     // The change, user notes of the channel.
-    pub outputs: OutputCms,
+    pub outputs: OutputCommitments,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
+    pub commitment_merkle_root: Fr,
     pub buffered: u16,
     // The excess of the ZkTransfer, paid to the program.
     pub paid_value: Value,
@@ -46,9 +46,9 @@ impl Payment {
     #[must_use]
     pub fn sample() -> Self {
         Self {
-            inputs: [crate::mantle::notes::NoteNf(Fr::from(0x35u64))].into(),
-            outputs: [NoteCm(Fr::from(0x36u64))].into(),
-            cm_merkle_root: Fr::from(0x37u64),
+            inputs: [crate::mantle::notes::NoteNullifier(Fr::from(0x35u64))].into(),
+            outputs: [NoteCommitment(Fr::from(0x36u64))].into(),
+            commitment_merkle_root: Fr::from(0x37u64),
             buffered: 0x47,
             paid_value: 0x38,
             intent: Fr::from(0x39u64),
@@ -106,19 +106,19 @@ pub struct ProgramStep {
     pub program_id: ProgramId,
     pub payments: Payments,
     // The notes of the program, possibly none.
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     // The notes of the program and the user notes it pays.
-    pub outputs: OutputCms,
+    pub outputs: OutputCommitments,
     pub program_outputs: ProgramOutputs,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
+    pub commitment_merkle_root: Fr,
     #[serde(with = "serde_fr")]
     pub spend_notes_hash: Fr,
 }
 
 impl ProgramStep {
     // The outputs of the program, with their index.
-    pub fn program_cms(&self) -> impl Iterator<Item = (usize, &NoteCm)> {
+    pub fn program_commitments(&self) -> impl Iterator<Item = (usize, &NoteCommitment)> {
         self.outputs
             .iter()
             .enumerate()
@@ -131,10 +131,10 @@ impl ProgramStep {
         Self {
             program_id: Fr::from(0x34u64),
             payments: [Payment::sample()].into(),
-            inputs: [crate::mantle::notes::NoteNf(Fr::from(0x3au64))].into(),
-            outputs: [NoteCm(Fr::from(0x3bu64))].into(),
+            inputs: [crate::mantle::notes::NoteNullifier(Fr::from(0x3au64))].into(),
+            outputs: [NoteCommitment(Fr::from(0x3bu64))].into(),
             program_outputs: ProgramOutputs(0b1),
-            cm_merkle_root: Fr::from(0x3cu64),
+            commitment_merkle_root: Fr::from(0x3cu64),
             spend_notes_hash: Fr::from(0x3du64),
         }
     }
@@ -147,7 +147,7 @@ impl BinaryEncode for ProgramStep {
             + self.inputs.encoded_length()
             + self.outputs.encoded_length()
             + self.program_outputs.encoded_length()
-            + self.cm_merkle_root.encoded_length()
+            + self.commitment_merkle_root.encoded_length()
             + self.spend_notes_hash.encoded_length()
     }
 
@@ -157,7 +157,7 @@ impl BinaryEncode for ProgramStep {
         self.inputs.encode_into(out);
         self.outputs.encode_into(out);
         self.program_outputs.encode_into(out);
-        self.cm_merkle_root.encode_into(out);
+        self.commitment_merkle_root.encode_into(out);
         self.spend_notes_hash.encode_into(out);
     }
 }
@@ -171,10 +171,10 @@ impl BinaryDecode for ProgramStep {
     ) -> Result<(&'input [u8], Self), DecodeError> {
         let (rest, program_id) = ProgramId::decode(input, &())?;
         let (rest, payments) = Payments::decode(rest, &())?;
-        let (rest, inputs) = InputNfs::decode(rest, &())?;
-        let (rest, outputs) = OutputCms::decode(rest, &())?;
+        let (rest, inputs) = InputNullifiers::decode(rest, &())?;
+        let (rest, outputs) = OutputCommitments::decode(rest, &())?;
         let (rest, program_outputs) = ProgramOutputs::decode(rest, &())?;
-        let (rest, cm_merkle_root) = Fr::decode(rest, &())?;
+        let (rest, commitment_merkle_root) = Fr::decode(rest, &())?;
         let (rest, spend_notes_hash) = Fr::decode(rest, &())?;
         // A step has a single encoding.
         if outputs.len() > lb_program_spend::MAX_OUTPUTS {
@@ -195,7 +195,7 @@ impl BinaryDecode for ProgramStep {
                 inputs,
                 outputs,
                 program_outputs,
-                cm_merkle_root,
+                commitment_merkle_root,
                 spend_notes_hash,
             },
         ))
@@ -210,9 +210,14 @@ pub fn payment_msg(program_id: &ProgramId, payment: &Payment) -> Fr {
     elements.push(*program_id);
     elements.push(payment.intent);
     elements.push(Fr::from(payment.inputs.len() as u64));
-    elements.extend(payment.inputs.iter().map(|note_nf| note_nf.0));
+    elements.extend(payment.inputs.iter().map(|note_nullifier| note_nullifier.0));
     elements.push(Fr::from(payment.outputs.len() as u64));
-    elements.extend(payment.outputs.iter().map(|note_cm| note_cm.0));
+    elements.extend(
+        payment
+            .outputs
+            .iter()
+            .map(|note_commitment| note_commitment.0),
+    );
     ZkHasher::digest(&elements)
 }
 
@@ -275,7 +280,7 @@ pub mod test_utils {
         inputs: &[(Note, Fr, MerklePath)],
         outputs: &[Note],
         outputs_of_program: &[bool],
-        tx_cm_root: Fr,
+        tx_commitment_root: Fr,
         program_id: ProgramId,
         paid_value: Value,
         msg: Fr,
@@ -318,7 +323,7 @@ pub mod test_utils {
             outputs_of_program: core::array::from_fn(|j| {
                 outputs_of_program.get(j).copied().unwrap_or(false)
             }),
-            tx_cm_root,
+            tx_commitment_root,
             program_id,
             paid_value,
             msg,
@@ -339,7 +344,7 @@ mod tests {
     #[test]
     fn payment_msg_commits_to_the_program_the_intent_and_the_notes() {
         let dst = fr_from_bytes(b"PROGRAM_PAYMENT_V1").unwrap();
-        let payment = Payment::sample(); // nf 0x35, cm 0x36, root 0x37, buffered 0x47, paid 0x38, intent 0x39
+        let payment = Payment::sample(); // nullifier 0x35, commitment 0x36, root 0x37, buffered 0x47, paid 0x38, intent 0x39
         let program = Fr::from(0x34u64);
         assert_eq!(
             payment_msg(&program, &payment),
@@ -355,7 +360,7 @@ mod tests {
         );
         // the root, the buffered count and the paid value are not part of the message
         let moved = Payment {
-            cm_merkle_root: Fr::ONE,
+            commitment_merkle_root: Fr::ONE,
             buffered: 0,
             paid_value: 1,
             ..payment.clone()
@@ -402,7 +407,7 @@ mod tests {
         ));
         let nine = ProgramStep {
             outputs: (1..=9)
-                .map(|n| NoteCm(Fr::from(n)))
+                .map(|n| NoteCommitment(Fr::from(n)))
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),

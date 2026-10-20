@@ -8,7 +8,7 @@ use lb_core::mantle::{
     Note,
     gas::{GasCost, MainnetGasProfile},
     note_set::LEDGER_SET,
-    notes::NoteNf,
+    notes::NoteNullifier,
     transactions::{
         GENESIS_EXECUTION_GAS_PRICE, GasPrices, MantleTxBuilder, OpProofs,
         tx_list::ops::{OpsContext, OpsGasContext},
@@ -435,7 +435,7 @@ fn estimate_drain_fee_with_values(input_count: NonZeroUsize, value: u64) -> Resu
         .map(|index| OwnedNote {
             note: Note::new(input_value, Fr::from(index as u64), ZkPublicKey::zero()),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(index as u64)),
+            nullifier: NoteNullifier(Fr::from(index as u64)),
             path: MerklePath::try_new(index, Vec::new()).expect("an empty path is bounded"),
         })
         .collect::<Vec<_>>();

@@ -1,7 +1,7 @@
 use std::ptr;
 
 use crate::api::{
-    cryptarchia::{HeaderId, NoteCm},
+    cryptarchia::{HeaderId, NoteCommitment},
     types::value::Value,
 };
 
@@ -9,7 +9,7 @@ use crate::api::{
 #[repr(C)]
 pub struct WalletNote {
     /// The note commitment.
-    pub commitment: NoteCm,
+    pub commitment: NoteCommitment,
     /// The value held by the note.
     pub value: Value,
 }

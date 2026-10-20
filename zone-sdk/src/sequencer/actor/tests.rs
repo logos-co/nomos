@@ -152,7 +152,7 @@ async fn gap_deposits_surface_after_a_failed_backfill_and_a_fork_switch() {
     };
 
     use lb_core::mantle::{
-        notes::{NoteCm, NoteNf},
+        notes::{NoteCommitment, NoteNullifier},
         ops::{OpId as _, channel::deposit::Metadata},
     };
     use lb_groth16::Fr;
@@ -166,9 +166,9 @@ async fn gap_deposits_surface_after_a_failed_backfill_and_a_fork_switch() {
     let deposit = |n: u32| {
         let op = DepositOp {
             channel_id,
-            inputs: [NoteNf(Fr::from(n))].into(),
-            cm_merkle_root: Fr::from(0u64),
-            outputs: [NoteCm(Fr::from(1000 + u64::from(n)))].into(),
+            inputs: [NoteNullifier(Fr::from(n))].into(),
+            commitment_merkle_root: Fr::from(0u64),
+            outputs: [NoteCommitment(Fr::from(1000 + u64::from(n)))].into(),
             excess_value: 0,
             metadata: Metadata::try_from(vec![u8::try_from(n).unwrap()]).unwrap(),
         };
@@ -1374,7 +1374,7 @@ async fn resume_backfill_refines_finalized_config_from_a_replayed_config() {
 #[tokio::test]
 async fn resume_backfill_retires_a_pending_entry_finalized_under_another_hash() {
     use lb_core::mantle::{
-        notes::{NoteCm, NoteNf},
+        notes::{NoteCommitment, NoteNullifier},
         ops::transfer::TransferOp,
     };
     use lb_groth16::Fr;
@@ -1388,8 +1388,8 @@ async fn resume_backfill_retires_a_pending_entry_finalized_under_another_hash() 
     let original = unverified_tx_with_ops(vec![
         Op::ChannelInscribe(m.clone()),
         Op::Transfer(TransferOp::new(
-            [NoteNf(Fr::from(1u64))].into(),
-            [NoteCm(Fr::from(50u64))].into(),
+            [NoteNullifier(Fr::from(1u64))].into(),
+            [NoteCommitment(Fr::from(50u64))].into(),
             Fr::from(0u64),
             0,
         )),

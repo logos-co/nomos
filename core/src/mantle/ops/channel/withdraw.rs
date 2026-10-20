@@ -5,7 +5,7 @@ use lb_zktransfer::{MAX_INPUTS, MAX_OUTPUTS, ZkTransferInputsError, ZkTransferVe
 use serde::{Deserialize, Serialize};
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::mantle::notes::{NoteCm, NoteNf};
+use crate::mantle::notes::{NoteCommitment, NoteNullifier};
 use crate::{
     block::BlockNumber,
     events::TxEvent,
@@ -18,7 +18,7 @@ use crate::{
             verification_mode::{StandardMode, VerificationMode},
         },
         note_set::{LEDGER_SET, NoteSetError, NoteSetIndex, NoteSets},
-        notes::{InputNfs, OutputCms},
+        notes::{InputNullifiers, OutputCommitments},
         ops::{
             OpId, SignedOperation, ZkTransferProof,
             channel::{ChannelId, deposit::channel_note_set},
@@ -30,15 +30,15 @@ use crate::{
     },
 };
 
-// ChannelWithdraw = ChannelId InputNfs CmMerkleRoot OutputCms, plain
-// field-order concat.
+// ChannelWithdraw = ChannelId InputNullifiers CommitmentMerkleRoot
+// OutputCommitments, plain field-order concat.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, BinaryCodec)]
 pub struct ChannelWithdrawOp {
     pub channel_id: ChannelId,
-    pub inputs: InputNfs,
+    pub inputs: InputNullifiers,
     #[serde(with = "serde_fr")]
-    pub cm_merkle_root: Fr,
-    pub outputs: OutputCms,
+    pub commitment_merkle_root: Fr,
+    pub outputs: OutputCommitments,
 }
 
 impl OpId for ChannelWithdrawOp {
@@ -67,8 +67,8 @@ pub const WITHDRAW_DELAY: u64 = 86_400; // slots
 pub struct PendingWithdrawal {
     pub due: Slot,
     pub note_set: NoteSetIndex,
-    pub inputs: InputNfs,
-    pub outputs: OutputCms,
+    pub inputs: InputNullifiers,
+    pub outputs: OutputCommitments,
 }
 
 // Posting order is due order, since every withdrawal of a block has the same
@@ -111,7 +111,7 @@ impl PendingWithdrawals {
             if withdrawal
                 .inputs
                 .iter()
-                .any(|nf| set.contains_nullifier(nf))
+                .any(|nullifier| set.contains_nullifier(nullifier))
             {
                 continue;
             }
@@ -186,21 +186,34 @@ impl VerifiableOperation<StandardMode>
             .expect("a channel's note set exists");
         set.assert_spendable(
             operation.inputs.as_slice(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
-        let tx_cm_root = set.cached_tx_cm_root(
+        let tx_commitment_root = set.cached_tx_commitment_root(
             context.note_sets.tx_roots(),
-            &operation.cm_merkle_root,
+            &operation.commitment_merkle_root,
             context.block_number,
         )?;
 
         // Defer the proof verification so that the caller can batch it.
-        let nfs: Vec<Fr> = operation.inputs.iter().map(|nf| nf.0).collect();
-        let cms: Vec<Fr> = operation.outputs.iter().map(|cm| cm.0).collect();
+        let nullifiers: Vec<Fr> = operation
+            .inputs
+            .iter()
+            .map(|nullifier| nullifier.0)
+            .collect();
+        let commitments: Vec<Fr> = operation
+            .outputs
+            .iter()
+            .map(|commitment| commitment.0)
+            .collect();
         // A withdrawal balances exactly
-        let public =
-            ZkTransferVerifierInput::new(&nfs, &cms, 0, tx_cm_root, *context.tx_hash_view.as_fr())?;
+        let public = ZkTransferVerifierInput::new(
+            &nullifiers,
+            &commitments,
+            0,
+            tx_commitment_root,
+            *context.tx_hash_view.as_fr(),
+        )?;
         Ok(DeferredZkTransfer::new(*self.proof().as_proof(), public))
     }
 }
@@ -240,9 +253,9 @@ impl ChannelWithdrawOp {
     pub fn sample() -> Self {
         Self {
             channel_id: ChannelId::from([18u8; 32]),
-            inputs: [NoteNf(Fr::from(0x13u64))].into(),
-            cm_merkle_root: Fr::from(0x29u64),
-            outputs: [NoteCm(Fr::from(0x2au64))].into(),
+            inputs: [NoteNullifier(Fr::from(0x13u64))].into(),
+            commitment_merkle_root: Fr::from(0x29u64),
+            outputs: [NoteCommitment(Fr::from(0x2au64))].into(),
         }
     }
 }
@@ -265,12 +278,12 @@ mod test {
 
     const CHANNEL: ChannelId = ChannelId([1u8; 32]);
 
-    fn cm(n: u64) -> NoteCm {
-        NoteCm(Fr::from(n))
+    fn commitment(n: u64) -> NoteCommitment {
+        NoteCommitment(Fr::from(n))
     }
 
-    fn nf(n: u64) -> NoteNf {
-        NoteNf(Fr::from(n))
+    fn nullifier(n: u64) -> NoteNullifier {
+        NoteNullifier(Fr::from(n))
     }
 
     fn keys() -> UnverifiedChannelKeys {
@@ -281,13 +294,13 @@ mod test {
         )
     }
 
-    // CHANNEL owns note set 2, which holds cm(5), recorded at the end of block 0;
-    // the ledger set holds cm(1).
+    // CHANNEL owns note set 2, which holds commitment(5), recorded at the end of
+    // block 0; the ledger set holds commitment(1).
     fn state() -> (Channels, NoteSets) {
         let (channels, note_sets) =
             Channels::new().create_channel(CHANNEL, Slot::from(0u64), keys(), NoteSets::new());
-        let ledger = NoteSet::empty().execute_adding(&[cm(1)]).unwrap();
-        let channel = NoteSet::empty().execute_adding(&[cm(5)]).unwrap();
+        let ledger = NoteSet::empty().execute_adding(&[commitment(1)]).unwrap();
+        let channel = NoteSet::empty().execute_adding(&[commitment(5)]).unwrap();
         (
             channels,
             note_sets
@@ -298,15 +311,18 @@ mod test {
     }
 
     fn channel_root() -> Fr {
-        CommitmentMmr::new().push(cm(5)).unwrap().frontier_root()
+        CommitmentMmr::new()
+            .push(commitment(5))
+            .unwrap()
+            .frontier_root()
     }
 
-    fn withdrawal(cm_merkle_root: Fr) -> ChannelWithdrawOp {
+    fn withdrawal(commitment_merkle_root: Fr) -> ChannelWithdrawOp {
         ChannelWithdrawOp {
             channel_id: CHANNEL,
-            inputs: [nf(5)].into(),
-            cm_merkle_root,
-            outputs: [cm(50)].into(),
+            inputs: [nullifier(5)].into(),
+            commitment_merkle_root,
+            outputs: [commitment(50)].into(),
         }
     }
 
@@ -333,7 +349,7 @@ mod test {
     #[test]
     fn preverify_rejects_empty_inputs() {
         let operation = ChannelWithdrawOp {
-            inputs: InputNfs::default(),
+            inputs: InputNullifiers::default(),
             ..withdrawal(channel_root())
         };
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
@@ -371,14 +387,14 @@ mod test {
         assert_eq!(public.inputs[0].into_inner(), Fr::from(5u64));
         assert_eq!(public.outputs[0].into_inner(), Fr::from(50u64));
         assert_eq!(public.excess_value.into_inner(), Fr::ZERO);
-        assert_eq!(public.tx_cm_root.into_inner(), channel_root());
+        assert_eq!(public.tx_commitment_root.into_inner(), channel_root());
         assert_eq!(public.msg.into_inner(), *tx_hash_view().as_fr());
     }
 
     #[test]
     fn verify_rejects_a_root_of_the_ledger_set() {
         let (channels, note_sets) = state();
-        let ledger_root = note_sets.get(LEDGER_SET).unwrap().cm_root();
+        let ledger_root = note_sets.get(LEDGER_SET).unwrap().commitment_root();
         assert_eq!(
             verify(withdrawal(ledger_root), &channels, &note_sets).unwrap_err(),
             Error::NoteSet(NoteSetError::UnknownRoot(ledger_root))
@@ -405,8 +421,8 @@ mod test {
             vec![&PendingWithdrawal {
                 due: Slot::from(86_410u64),
                 note_set: 2,
-                inputs: [nf(5)].into(),
-                outputs: [cm(50)].into(),
+                inputs: [nullifier(5)].into(),
+                outputs: [commitment(50)].into(),
             }]
         );
         assert_eq!(events, []);
@@ -426,20 +442,20 @@ mod test {
         PendingWithdrawal {
             due: Slot::from(due),
             note_set: 2,
-            inputs: [nf(input)].into(),
-            outputs: [cm(output)].into(),
+            inputs: [nullifier(input)].into(),
+            outputs: [commitment(output)].into(),
         }
     }
 
     #[test]
     fn release_applies_due_withdrawals_with_unspent_inputs_only() {
         let (_, note_sets) = state();
-        // A step consumed nf(6) before its withdrawal was due.
+        // A step consumed nullifier(6) before its withdrawal was due.
         let channel = note_sets
             .get(2)
             .unwrap()
             .clone()
-            .execute_spending(&[nf(6)])
+            .execute_spending(&[nullifier(6)])
             .unwrap();
         let note_sets = note_sets.update(2, channel);
         let ledger_before = note_sets.get(LEDGER_SET).unwrap().clone();
@@ -457,20 +473,23 @@ mod test {
             vec![&pending(101, 7, 70)]
         );
         let channel = note_sets.get(2).unwrap();
-        assert!(channel.contains_nullifier(&nf(5)));
-        assert!(!channel.contains_nullifier(&nf(7)));
-        let expected = ledger_before.clone().execute_adding(&[cm(50)]).unwrap();
+        assert!(channel.contains_nullifier(&nullifier(5)));
+        assert!(!channel.contains_nullifier(&nullifier(7)));
+        let expected = ledger_before
+            .clone()
+            .execute_adding(&[commitment(50)])
+            .unwrap();
         assert_eq!(
-            note_sets.get(LEDGER_SET).unwrap().cm_root(),
-            expected.cm_root()
+            note_sets.get(LEDGER_SET).unwrap().commitment_root(),
+            expected.commitment_root()
         );
         // No transaction is open, so the released outputs are not buffered.
         assert_eq!(
             note_sets
                 .get(LEDGER_SET)
                 .unwrap()
-                .tx_cm_root(&ledger_before.cm_root(), 1),
-            Ok(ledger_before.cm_root())
+                .tx_commitment_root(&ledger_before.commitment_root(), 1),
+            Ok(ledger_before.commitment_root())
         );
     }
 
@@ -497,11 +516,14 @@ mod test {
         let (_, note_sets, released) = withdrawals.release(note_sets, Slot::from(100u64)).unwrap();
         assert_eq!(released, vec![pending(100, 5, 50)]);
         let expected = CommitmentMmr::new()
-            .push(cm(1))
+            .push(commitment(1))
             .unwrap()
-            .push(cm(50))
+            .push(commitment(50))
             .unwrap()
             .frontier_root();
-        assert_eq!(note_sets.get(LEDGER_SET).unwrap().cm_root(), expected);
+        assert_eq!(
+            note_sets.get(LEDGER_SET).unwrap().commitment_root(),
+            expected
+        );
     }
 }

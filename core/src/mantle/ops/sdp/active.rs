@@ -89,7 +89,8 @@ impl VerifiableOperation<StandardMode> for SignedOperation<SDPActiveOp, Preverif
             });
         }
 
-        // Ensure the `provider_id` attached to this declaration authorized this Operation.
+        // Ensure the `provider_id` attached to this declaration authorized this
+        // Operation.
         declaration
             .provider_id
             .0
@@ -477,12 +478,11 @@ mod tests {
             )
             .into_state_trusted();
 
-        signed_operation
-            .verify(&SDPActiveValidationContext {
-                declarations: &declarations,
-                tx_hash_view: &tx_hash_view,
-                epoch,
-            })
+        signed_operation.verify(&SDPActiveValidationContext {
+            declarations: &declarations,
+            tx_hash_view: &tx_hash_view,
+            epoch,
+        })
     }
 
     #[test]

@@ -19,12 +19,12 @@ pub use fee_horizon::{
     FeeProjectionError, TransactionFeeHorizon, TransactionFeePolicy, build_fee_horizon,
     project_storage_price,
 };
-pub use funding::{
-    WalletFundingPolicy, WalletFundingResources, WalletFundingSource,
-    WalletInputSelectionStrategy, WalletReservedInputs,
-};
 pub(crate) use funding::{
     WalletFundingOutcome, WalletFundingPlan, WalletFundingUtxos, WalletSelectedInputs,
+};
+pub use funding::{
+    WalletFundingPolicy, WalletFundingResources, WalletFundingSource, WalletInputSelectionStrategy,
+    WalletReservedInputs,
 };
 pub use funding_from_chain::{funded_signed_spending_tx, funded_signed_tx};
 pub use ids::{WalletChainSourceId, WalletId, wallet_id_for_chain_source};

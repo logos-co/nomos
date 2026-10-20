@@ -31,9 +31,9 @@ static NOTE_NONCE_V1: LazyLock<Fr> = LazyLock::new(|| {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, BinaryCodec,
 )]
 #[serde(transparent)]
-pub struct NoteCm(#[serde(with = "serde_fr")] pub Fr);
+pub struct NoteCommitment(#[serde(with = "serde_fr")] pub Fr);
 
-impl AsRef<Fr> for NoteCm {
+impl AsRef<Fr> for NoteCommitment {
     fn as_ref(&self) -> &Fr {
         &self.0
     }
@@ -43,9 +43,9 @@ impl AsRef<Fr> for NoteCm {
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, BinaryCodec,
 )]
 #[serde(transparent)]
-pub struct NoteNf(#[serde(with = "serde_fr")] pub Fr);
+pub struct NoteNullifier(#[serde(with = "serde_fr")] pub Fr);
 
-impl AsRef<Fr> for NoteNf {
+impl AsRef<Fr> for NoteNullifier {
     fn as_ref(&self) -> &Fr {
         &self.0
     }
@@ -53,8 +53,8 @@ impl AsRef<Fr> for NoteNf {
 
 // The count of `Inputs` and `Outputs` is a byte in the encoding.
 pub const MAX_NOTE_LIST_LEN: usize = u8::MAX as usize;
-pub type InputNfs = UpperBoundedVec<NoteNf, MAX_NOTE_LIST_LEN>;
-pub type OutputCms = UpperBoundedVec<NoteCm, MAX_NOTE_LIST_LEN>;
+pub type InputNullifiers = UpperBoundedVec<NoteNullifier, MAX_NOTE_LIST_LEN>;
+pub type OutputCommitments = UpperBoundedVec<NoteCommitment, MAX_NOTE_LIST_LEN>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub struct Note {
@@ -82,10 +82,10 @@ impl Note {
     }
 
     #[must_use]
-    pub fn commitment(&self) -> NoteCm {
+    pub fn commitment(&self) -> NoteCommitment {
         // constants and structure as defined in the Mantle spec:
         // https://lip.logos.co/blockchain/raw/bedrock-v1.1-mantle-specification.html
-        NoteCm(ZkHasher::digest(&[
+        NoteCommitment(ZkHasher::digest(&[
             *NOTE_CM_V1,
             Fr::from(self.value),
             self.nonce,
@@ -97,8 +97,8 @@ impl Note {
 }
 
 #[must_use]
-pub fn derive_note_nf(cm: &NoteCm, secret_key: &Fr) -> NoteNf {
-    NoteNf(ZkHasher::digest(&[*NOTE_NF_V1, cm.0, *secret_key]))
+pub fn derive_note_nullifier(commitment: &NoteCommitment, secret_key: &Fr) -> NoteNullifier {
+    NoteNullifier(ZkHasher::digest(&[*NOTE_NF_V1, commitment.0, *secret_key]))
 }
 
 #[must_use]
@@ -147,8 +147,8 @@ mod test {
         for (index, input) in data.wallet.inputs.iter().enumerate() {
             let expected = if data.chain.inputs_active[index] {
                 let public_key = ZkKey::new(input.secret_key).to_public_key();
-                let cm = Note::new(input.value, input.nonce, public_key).commitment();
-                derive_note_nf(&cm, &input.secret_key).0
+                let commitment = Note::new(input.value, input.nonce, public_key).commitment();
+                derive_note_nullifier(&commitment, &input.secret_key).0
             } else {
                 Fr::ZERO
             };

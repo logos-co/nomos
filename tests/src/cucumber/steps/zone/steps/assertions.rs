@@ -1,4 +1,4 @@
-use lb_core::mantle::{notes::NoteNf, ops::OpRef};
+use lb_core::mantle::{notes::NoteNullifier, ops::OpRef};
 
 use super::{
     CONCURRENT_DUPLICATE_SETTLE_SECS, CucumberWorld, DEFAULT_ZONE_SEQUENCER, Duration, HashMap,
@@ -349,7 +349,7 @@ async fn step_double_handed_messages_are_refunded(
             .ok_or_else(|| StepError::LogicalError {
                 message: format!("Zone message '{alias}' has no submitted tx hash"),
             })?;
-        let fee_notes: HashSet<NoteNf> = checkpoint
+        let fee_notes: HashSet<NoteNullifier> = checkpoint
             .pending_txs
             .iter()
             .filter(|(hash, _)| *hash == submitted)

@@ -2,11 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use lb_core::{
     mantle::{
-        Value as NoteValue,
-        note_set::CommitmentMmr,
-        notes::derive_note_nf,
-        ops::sdp::SDPDeclareOp,
-        transactions::GenesisAllocation,
+        Value as NoteValue, note_set::CommitmentMmr, notes::derive_note_nullifier,
+        ops::sdp::SDPDeclareOp, transactions::GenesisAllocation,
     },
     sdp::ServiceType,
 };
@@ -103,12 +100,12 @@ where
                 locators: provider.locators,
                 provider_id: provider.provider_id,
                 zk_id: provider.zk_id,
-                inputs: [derive_note_nf(
+                inputs: [derive_note_nullifier(
                     &allocation.note(index).commitment(),
                     stake_key.as_fr(),
                 )]
                 .into(),
-                cm_merkle_root: CommitmentMmr::new().frontier_root(),
+                commitment_merkle_root: CommitmentMmr::new().frontier_root(),
                 amount: allocation.value,
             });
             keys.push(stake_key.clone());
@@ -176,13 +173,13 @@ mod tests {
         );
         assert_eq!(
             declarations[0].inputs.as_slice(),
-            [derive_note_nf(
+            [derive_note_nullifier(
                 &allocations[0].note(0).commitment(),
                 stake_key.as_fr()
             )]
         );
         assert_eq!(
-            declarations[0].cm_merkle_root,
+            declarations[0].commitment_merkle_root,
             CommitmentMmr::new().frontier_root()
         );
         assert_eq!(declarations[0].amount, 1_000);

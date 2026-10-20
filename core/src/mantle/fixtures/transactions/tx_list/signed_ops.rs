@@ -18,7 +18,7 @@ use crate::mantle::{
         },
     },
     ledger::verification_mode::VerificationMode,
-    notes::{NoteNf, OutputCms},
+    notes::{NoteNullifier, OutputCommitments},
     ops::{
         ChannelInscribeProof, NoOpProof, SignedOp, SignedOperation, StepProof, ZkTransferProof,
         channel::{
@@ -44,9 +44,9 @@ const TWO_OPS_HEX: &str = concat!(
     // Op 0: Transfer.
     "00",                                                               // code
     "01",                                                               // one input
-    "0000000000000000000000000000000000000000000000000000000000000000", // NoteNf
+    "0000000000000000000000000000000000000000000000000000000000000000", // NoteNullifier
     "00",                                                               // no outputs
-    "0000000000000000000000000000000000000000000000000000000000000000", // CmMerkleRoot
+    "0000000000000000000000000000000000000000000000000000000000000000", // CommitmentMerkleRoot
     "0000000000000000",                                                 // Value
     // Op 1: ChannelInscribe.
     "11",                                                               // code
@@ -67,7 +67,12 @@ const TWO_OPS_HEX: &str = concat!(
 
 fn two_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<State, Mode> {
     let transfer = SignedOperation::<TransferOp, Unverified, Mode>::new(
-        TransferOp::new([NoteNf(Fr::ZERO)].into(), OutputCms::default(), Fr::ZERO, 0),
+        TransferOp::new(
+            [NoteNullifier(Fr::ZERO)].into(),
+            OutputCommitments::default(),
+            Fr::ZERO,
+            0,
+        ),
         ZkTransferProof::new(CompressedGroth16Proof::from_bytes(&[0xAAu8; 128])),
     );
     let inscription = SignedOperation::<InscriptionOp, Unverified, Mode>::new(

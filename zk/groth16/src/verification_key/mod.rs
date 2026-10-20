@@ -200,7 +200,8 @@ impl VerificationKey<ark_bn254::Bn254> {
         ark_bn254::Bn254::pairing(self.alpha_1, self.beta_2).0
     }
 
-    // The line coefficients of `-γ` and `-δ` are computed here, `e(α, β)` comes from the ledger.
+    // The line coefficients of `-γ` and `-δ` are computed here, `e(α, β)` comes
+    // from the ledger.
     #[must_use]
     #[expect(
         clippy::large_types_passed_by_value,
@@ -272,7 +273,8 @@ mod tests {
 
     #[test]
     fn compressed_points_reject_bytes_above_the_base_field() {
-        // The placeholder bytes of the spec's PROGRAM_REGISTER vector: x is not below q.
+        // The placeholder bytes of the spec's PROGRAM_REGISTER vector: x is not below
+        // q.
         assert_eq!(
             g1_from_compressed(&[0x3e; 32], KeyPoint::Alpha),
             Err(KeyPointError::Invalid(KeyPoint::Alpha))

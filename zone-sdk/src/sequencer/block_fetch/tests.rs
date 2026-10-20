@@ -4,7 +4,7 @@ use lb_core::{
     mantle::{
         Op,
         channel::{SlotTimeframe, SlotTimeout},
-        notes::{NoteCm, NoteNf, OutputCms},
+        notes::{NoteCommitment, NoteNullifier, OutputCommitments},
         ops::{
             ChannelInscribeProof, OpProof,
             channel::{
@@ -28,9 +28,9 @@ use crate::test_support::{
 fn deposit_op(channel_id: ChannelId, input_seed: u32, metadata: Metadata) -> DepositOp {
     DepositOp {
         channel_id,
-        inputs: [NoteNf(Fr::from(input_seed))].into(),
-        cm_merkle_root: Fr::from(0u64),
-        outputs: [NoteCm(Fr::from(input_seed))].into(),
+        inputs: [NoteNullifier(Fr::from(input_seed))].into(),
+        commitment_merkle_root: Fr::from(0u64),
+        outputs: [NoteCommitment(Fr::from(input_seed))].into(),
         excess_value: 0,
         metadata,
     }
@@ -39,7 +39,7 @@ fn deposit_op(channel_id: ChannelId, input_seed: u32, metadata: Metadata) -> Dep
 fn deposit_event_entry(
     tx_hash: TxHash,
     op_id: Hash,
-    outputs: OutputCms,
+    outputs: OutputCommitments,
 ) -> (DepositOpKey, TxEventPayload) {
     (
         DepositOpKey { tx_hash, op_id },
@@ -141,9 +141,9 @@ fn extract_deposits_preserves_tx_and_op_order() {
     let hash_b = tx_b.hash();
 
     let amounts = DepositEvents::from([
-        deposit_event_entry(hash_a, id1, OutputCms::default()),
-        deposit_event_entry(hash_a, id2, OutputCms::default()),
-        deposit_event_entry(hash_b, id3, OutputCms::default()),
+        deposit_event_entry(hash_a, id1, OutputCommitments::default()),
+        deposit_event_entry(hash_a, id2, OutputCommitments::default()),
+        deposit_event_entry(hash_b, id3, OutputCommitments::default()),
     ]);
 
     let deposits = extract_deposits_for_test(&[tx_a, tx_b], channel_id, &amounts);
@@ -179,7 +179,7 @@ fn extract_finalized_items_interleaves_deposit_then_inscription_in_same_tx() {
     let tx_hash = tx.hash();
 
     let mut amounts = DepositEvents::new();
-    let (key, event) = deposit_event_entry(tx_hash, dep_op_id, OutputCms::default());
+    let (key, event) = deposit_event_entry(tx_hash, dep_op_id, OutputCommitments::default());
     amounts.insert(key, event);
 
     let items = extract_finalized_items(
@@ -1318,8 +1318,8 @@ async fn restored_pending_mined_under_another_hash_is_neither_adopted_nor_droppe
     let original = unverified_tx_with_ops(vec![
         Op::ChannelInscribe(m.clone()),
         Op::Transfer(TransferOp::new(
-            [NoteNf(Fr::from(1u64))].into(),
-            [NoteCm(Fr::from(50u64))].into(),
+            [NoteNullifier(Fr::from(1u64))].into(),
+            [NoteCommitment(Fr::from(50u64))].into(),
             Fr::from(0u64),
             0,
         )),
@@ -1376,8 +1376,8 @@ async fn originals_landing_around_a_tracked_entry_are_re_mirrored() {
         unverified_tx_with_ops(vec![
             Op::ChannelInscribe(op.clone()),
             Op::Transfer(TransferOp::new(
-                [NoteNf(Fr::from(seed))].into(),
-                [NoteCm(Fr::from(50u64))].into(),
+                [NoteNullifier(Fr::from(seed))].into(),
+                [NoteCommitment(Fr::from(50u64))].into(),
                 Fr::from(0u64),
                 0,
             )),

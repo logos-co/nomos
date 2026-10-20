@@ -13,7 +13,7 @@ use futures::{StreamExt as _, stream::FuturesUnordered};
 use lb_core::mantle::{
     SignedOps, TxHash,
     ledger::verification_mode::StandardMode,
-    notes::NoteNf,
+    notes::NoteNullifier,
     transactions::{GasPrices, OpProofs, states::Preverified},
 };
 use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
@@ -114,8 +114,8 @@ const fn continuous_workload_sender_fee_requirement(base_tx_fee: u64, fee_sponso
 /// reserved note ID.
 #[derive(Debug, Default)]
 struct WorkloadUtxoPool {
-    by_value: BTreeMap<u64, BTreeMap<NoteNf, OwnedNote>>,
-    value_by_note_id: HashMap<NoteNf, u64>,
+    by_value: BTreeMap<u64, BTreeMap<NoteNullifier, OwnedNote>>,
+    value_by_note_id: HashMap<NoteNullifier, u64>,
     candidate_count: usize,
 }
 
@@ -139,7 +139,7 @@ impl WorkloadUtxoPool {
         self.candidate_count
     }
 
-    fn remove(&mut self, note_id: NoteNf) {
+    fn remove(&mut self, note_id: NoteNullifier) {
         if let Some(value) = self.value_by_note_id.remove(&note_id) {
             let remove_value_bucket = self.by_value.get_mut(&value).is_some_and(|bucket| {
                 bucket.remove(&note_id);
@@ -236,7 +236,7 @@ impl WorkloadCandidateSet {
 #[derive(Debug, Default)]
 pub struct WorkloadUtxoPools {
     by_wallet: HashMap<WalletId, WorkloadUtxoPool>,
-    cache_positions: HashMap<NoteNf, (WalletId, usize)>,
+    cache_positions: HashMap<NoteNullifier, (WalletId, usize)>,
 }
 
 impl WorkloadUtxoPools {
@@ -1704,7 +1704,7 @@ mod cache_removal_tests {
         OwnedNote {
             note: Note::new(value, Fr::from(nullifier), public_key),
             note_set: LEDGER_SET,
-            nullifier: NoteNf(Fr::from(nullifier)),
+            nullifier: NoteNullifier(Fr::from(nullifier)),
             path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
         }
     }
@@ -2538,9 +2538,8 @@ mod cache_removal_tests {
 
         let fee_sponsor_account = WalletAccount::deterministic(101, 1_000_000, false)
             .expect("fee sponsor test account should build");
-        let mut remaining_sponsor_utxos = (0..11).map(|index| {
-            owned_note(10_000_000, 0xFE00 + index, fee_sponsor_account.public_key())
-        });
+        let mut remaining_sponsor_utxos = (0..11)
+            .map(|index| owned_note(10_000_000, 0xFE00 + index, fee_sponsor_account.public_key()));
 
         for transaction_index in 0..11 {
             let primary = pool

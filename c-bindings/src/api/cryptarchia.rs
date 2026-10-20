@@ -36,8 +36,8 @@ pub type Hash = [u8; 32];
 pub type HeaderId = Hash;
 pub type TxHash = Hash;
 /// A note commitment, as 32 little-endian bytes. The FFI representation of
-/// [`lb_core::mantle::notes::NoteCm`].
-pub type NoteCm = Hash;
+/// [`lb_core::mantle::notes::NoteCommitment`].
+pub type NoteCommitment = Hash;
 
 /// Converts a raw pointer to a `TxHash` into a `lb_core::mantle::TxHash`.
 ///

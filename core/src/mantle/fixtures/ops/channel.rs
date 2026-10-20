@@ -12,10 +12,9 @@ use crate::{
             CHANNEL_WITHDRAW_PAYLOAD_HEX, DEPOSIT, DEPOSIT_PAYLOAD_HEX, INSCRIPTION,
             INSCRIPTION_PAYLOAD_HEX,
         },
-        notes::{InputNfs, NoteCm, NoteNf, OutputCms},
+        notes::{InputNullifiers, NoteCommitment, NoteNullifier, OutputCommitments},
         ops::channel::{
-            ChannelId,
-            MsgId,
+            ChannelId, MsgId,
             config::ChannelConfigOp,
             deposit::{DepositOp, Metadata},
             inscribe::{ChannelStep, ChannelSteps, InscriptionOp, Step},
@@ -44,9 +43,9 @@ codec_fixtures!(
     DepositOp,
     Self {
         channel_id: ChannelId::from([0u8; 32]),
-        inputs: InputNfs::default(),
-        cm_merkle_root: Fr::ZERO,
-        outputs: OutputCms::default(),
+        inputs: InputNullifiers::default(),
+        commitment_merkle_root: Fr::ZERO,
+        outputs: OutputCommitments::default(),
         excess_value: 0,
         metadata: Metadata::empty(),
     } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
@@ -65,15 +64,15 @@ codec_fixtures!(
 );
 codec_fixtures!(
     ChannelStep,
-    Self { inputs: [NoteNf(Fr::ONE)].into(), outputs: OutputCms::default(), cm_merkle_root: Fr::ZERO, buffered: 2 }
+    Self { inputs: [NoteNullifier(Fr::ONE)].into(), outputs: OutputCommitments::default(), commitment_merkle_root: Fr::ZERO, buffered: 2 }
         => "0101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200",
 );
 // `Payment::sample` only exists with `test-utils`, the examples always do.
 fn payment() -> Payment {
     Payment {
-        inputs: [NoteNf(Fr::from(0x35u64))].into(),
-        outputs: [NoteCm(Fr::from(0x36u64))].into(),
-        cm_merkle_root: Fr::from(0x37u64),
+        inputs: [NoteNullifier(Fr::from(0x35u64))].into(),
+        outputs: [NoteCommitment(Fr::from(0x36u64))].into(),
+        commitment_merkle_root: Fr::from(0x37u64),
         buffered: 0x47,
         paid_value: 0x38,
         intent: Fr::from(0x39u64),
@@ -90,25 +89,25 @@ codec_fixtures!(
     ProgramStep {
         program_id: Fr::from(0x34u64),
         payments: [payment()].into(),
-        inputs: [NoteNf(Fr::from(0x3au64))].into(),
-        outputs: [NoteCm(Fr::from(0x3bu64))].into(),
+        inputs: [NoteNullifier(Fr::from(0x3au64))].into(),
+        outputs: [NoteCommitment(Fr::from(0x3bu64))].into(),
         program_outputs: ProgramOutputs(0b1),
-        cm_merkle_root: Fr::from(0x3cu64),
+        commitment_merkle_root: Fr::from(0x3cu64),
         spend_notes_hash: Fr::from(0x3du64),
     } => "3400000000000000000000000000000000000000000000000000000000000000010135000000000000000000000000000000000000000000000000000000000000000136000000000000000000000000000000000000000000000000000000000000003700000000000000000000000000000000000000000000000000000000000000470038000000000000003900000000000000000000000000000000000000000000000000000000000000013a00000000000000000000000000000000000000000000000000000000000000013b00000000000000000000000000000000000000000000000000000000000000013c000000000000000000000000000000000000000000000000000000000000003d00000000000000000000000000000000000000000000000000000000000000",
 );
 codec_fixtures!(
     Step,
-    Step::User(ChannelStep { inputs: [NoteNf(Fr::ONE)].into(), outputs: OutputCms::default(), cm_merkle_root: Fr::ZERO, buffered: 2 })
+    Step::User(ChannelStep { inputs: [NoteNullifier(Fr::ONE)].into(), outputs: OutputCommitments::default(), commitment_merkle_root: Fr::ZERO, buffered: 2 })
         => "000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200",
 );
 codec_fixtures!(
     ChannelWithdrawOp,
     Self {
         channel_id: ChannelId::from([0u8; 32]),
-        inputs: InputNfs::default(),
-        cm_merkle_root: Fr::ZERO,
-        outputs: OutputCms::default(),
+        inputs: InputNullifiers::default(),
+        commitment_merkle_root: Fr::ZERO,
+        outputs: OutputCommitments::default(),
     } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     CHANNEL_WITHDRAW.clone() => CHANNEL_WITHDRAW_PAYLOAD_HEX,
 );

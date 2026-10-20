@@ -63,7 +63,8 @@ where
             )
             .await
             .map_err(|e| SdpWalletError::WalletApi(e.into()))?;
-        let cm_merkle_root = split_root(&split_builder).map_err(SdpWalletError::WalletApi)?;
+        let commitment_merkle_root =
+            split_root(&split_builder).map_err(SdpWalletError::WalletApi)?;
         tx_builder = split_builder.push_op_with_opening(
             Op::SDPDeclare(DeclarationMessage {
                 service_type: declaration.service_type,
@@ -71,7 +72,7 @@ where
                 provider_id: declaration.provider_id,
                 zk_id: declaration.zk_id,
                 inputs: [exact.nullifier].into(),
-                cm_merkle_root,
+                commitment_merkle_root,
                 amount: declaration.amount,
             }),
             ZkTransferOpening {
@@ -142,7 +143,7 @@ where
             Op::SDPWithdraw(WithdrawMessage {
                 declaration_id: declaration.id,
                 nonce,
-                service_note_nf: service_note.nullifier,
+                service_note_nullifier: service_note.nullifier,
                 outputs: [output.commitment()].into(),
                 excess_value: 0,
             }),
@@ -231,7 +232,7 @@ where
 // `tx_builder`, is proven against.
 pub fn split_root(tx_builder: &MantleTxBuilder) -> Result<Fr, DynError> {
     match tx_builder.clone().build()?.last() {
-        Some(Op::Transfer(split)) => Ok(split.cm_merkle_root),
+        Some(Op::Transfer(split)) => Ok(split.commitment_merkle_root),
         _ => Err("the exact note split is missing".into()),
     }
 }

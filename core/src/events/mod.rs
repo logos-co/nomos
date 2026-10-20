@@ -6,7 +6,7 @@ use crate::{
     crypto::Hash,
     mantle::{
         note_set::{NoteSetIndex, NoteSetUpdate},
-        notes::{InputNfs, Note, OutputCms},
+        notes::{InputNullifiers, Note, OutputCommitments},
         ops::{
             channel::{ChannelId, deposit::Metadata},
             pow::PowNullifier,
@@ -111,7 +111,7 @@ pub enum TxEventPayload {
     Deposit {
         channel_id: ChannelId,
         metadata: Metadata,
-        outputs: OutputCms,
+        outputs: OutputCommitments,
     },
     /// A `PoW` claim operation created a reward note for its beneficiary
     PoWRewardClaimed {
@@ -128,7 +128,7 @@ pub enum HeaderEvent {
     SdpWithdrawalReleased {
         service_type: ServiceType,
         declaration_id: DeclarationId,
-        outputs: OutputCms,
+        outputs: OutputCommitments,
     },
     /// A reward note of a provider entered the ledger note set.
     SdpRewardDistributed {
@@ -139,8 +139,8 @@ pub enum HeaderEvent {
     /// outputs entered the ledger note set.
     ChannelWithdrawalReleased {
         note_set: NoteSetIndex,
-        inputs: InputNfs,
-        outputs: OutputCms,
+        inputs: InputNullifiers,
+        outputs: OutputCommitments,
     },
 }
 
@@ -178,7 +178,7 @@ mod tests {
     use super::*;
     use crate::mantle::{
         note_set::LEDGER_SET,
-        notes::{NoteCm, NoteNf},
+        notes::{NoteCommitment, NoteNullifier},
     };
 
     /// A `Deposit` payload carrying several notes must survive the events codec
@@ -187,7 +187,11 @@ mod tests {
     /// per-note value/pk data that channel-note tracking depends on.
     #[test]
     fn deposit_event_outputs_survive_codec_round_trip() {
-        let outputs: OutputCms = [NoteCm(Fr::from(11u64)), NoteCm(Fr::from(22u64))].into();
+        let outputs: OutputCommitments = [
+            NoteCommitment(Fr::from(11u64)),
+            NoteCommitment(Fr::from(22u64)),
+        ]
+        .into();
 
         let tx_hash = TxHash([1u8; 32]);
         let op_id: Hash = [2u8; 32];
@@ -239,7 +243,7 @@ mod tests {
         let note = Note::new(5, Fr::from(3u64), ZkPublicKey::from(Fr::from(7u64)));
         let update = NoteSetUpdate {
             note_set: LEDGER_SET,
-            nullifiers: vec![NoteNf(Fr::ONE)],
+            nullifiers: vec![NoteNullifier(Fr::ONE)],
             commitments: vec![note.commitment()],
         };
         let events: Events = [

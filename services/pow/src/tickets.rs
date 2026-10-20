@@ -251,10 +251,10 @@ fn new_block_search_stream(
 
 /// Runs a single ticket-search attempt for a block.
 ///
-/// Generates a random key and nonce, builds the reward claim, and validates its puzzle
-/// ticket against `difficulty`. The heavy computation is off-loaded to the
-/// dedicated `pool` so it does not stall Tokio's runtime threads. Returns the
-/// winning `(key, claim)` when the ticket meets the difficulty target,
+/// Generates a random key and nonce, builds the reward claim, and validates its
+/// puzzle ticket against `difficulty`. The heavy computation is off-loaded to
+/// the dedicated `pool` so it does not stall Tokio's runtime threads. Returns
+/// the winning `(key, claim)` when the ticket meets the difficulty target,
 /// otherwise `None`.
 async fn search_winner_ticket(
     block_header: HeaderId,

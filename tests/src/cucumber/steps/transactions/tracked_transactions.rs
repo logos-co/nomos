@@ -5,7 +5,7 @@ use lb_core::mantle::{
     Note, Op, OpProof, SignedOps,
     ledger::verification_mode::StandardMode,
     note_set::CommitmentMmr,
-    notes::{InputNfs, derive_note_nf},
+    notes::{InputNullifiers, derive_note_nullifier},
     ops::{
         ZkTransferProof,
         transfer::{TransferOp, prove_transfer},
@@ -259,7 +259,7 @@ async fn transaction_is_in_chain(
 pub fn create_stateless_invalid_transaction() -> SignedOps<Unverified, StandardMode> {
     let output_note = Note::new(1000, Fr::from(0u64), ZkPublicKey::new(1u8.into()));
     let transfer_op = TransferOp::new(
-        InputNfs::empty(),
+        InputNullifiers::empty(),
         [output_note.commitment()].into(),
         Fr::from(0u64),
         0,
@@ -284,7 +284,11 @@ fn create_stateful_invalid_transaction() -> SignedOps<Unverified, StandardMode> 
     let root = mmr.frontier_root();
     let output_note = Note::new(1000, Fr::from(1u64), ZkPublicKey::new(1u8.into()));
     let transfer_op = TransferOp::new(
-        [derive_note_nf(&input_note.commitment(), secret_key.as_fr())].into(),
+        [derive_note_nullifier(
+            &input_note.commitment(),
+            secret_key.as_fr(),
+        )]
+        .into(),
         [output_note.commitment()].into(),
         root,
         0,

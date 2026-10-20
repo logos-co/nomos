@@ -54,9 +54,9 @@ pub fn minimum_signed_transaction_size(op_refs: &OpRefs<'_>, context: &OpsGasCon
                 OpRef::SDPActive(_) => ED25519_SIGNATURE_SIZE,
 
                 // ZkTransferProof = ZkTransfer = Groth16Proof
-                OpRef::Transfer(_)
-                | OpRef::ChannelDeposit(_)
-                | OpRef::ChannelWithdraw(_) => COMPRESSED_PROOF_SIZE,
+                OpRef::Transfer(_) | OpRef::ChannelDeposit(_) | OpRef::ChannelWithdraw(_) => {
+                    COMPRESSED_PROOF_SIZE
+                }
 
                 OpRef::ClaimPowReward(_) | OpRef::ProgramRegister(_) => 0, // no proof
             };
@@ -89,7 +89,7 @@ mod tests {
         mantle::{
             Op, OpProof,
             ledger::verification_mode::StandardMode,
-            notes::{InputNfs, NoteCm, NoteNf, OutputCms},
+            notes::{InputNullifiers, NoteCommitment, NoteNullifier, OutputCommitments},
             ops::{
                 ChannelInscribeProof, StepProof, ZkAndEd25519Proof, ZkTransferProof,
                 channel::{
@@ -297,8 +297,8 @@ mod tests {
     fn test_encode_decode_roundtrip_with_transfer() {
         // Create a MantleTx with ledger inputs and outputs
         let transfer_op = TransferOp::new(
-            [NoteNf(Fr::from(123u64))].into(),
-            [NoteCm(Fr::from(1000u64))].into(),
+            [NoteNullifier(Fr::from(123u64))].into(),
+            [NoteCommitment(Fr::from(1000u64))].into(),
             Fr::from(5u64),
             6,
         );
@@ -367,9 +367,9 @@ mod tests {
     #[test]
     fn minimum_size_counts_one_zk_transfer_per_step() {
         let step = ChannelStep {
-            inputs: [NoteNf(Fr::ONE)].into(),
-            outputs: OutputCms::default(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::ONE)].into(),
+            outputs: OutputCommitments::default(),
+            commitment_merkle_root: Fr::ZERO,
             buffered: 0,
         };
         let ops = Ops::from([Op::ChannelInscribe(InscriptionOp {
@@ -463,8 +463,8 @@ mod tests {
             .unwrap(),
             provider_id: ProviderId(signing_key.public_key()),
             zk_id: zk_sk.to_public_key(),
-            inputs: [NoteNf(Fr::from(500u64))].into(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::from(500u64))].into(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 500,
         };
 
@@ -492,8 +492,8 @@ mod tests {
         let sdp_withdraw_op = SDPWithdrawOp {
             declaration_id: DeclarationId([0x11; 32]),
             nonce: 42,
-            service_note_nf: NoteNf(Fr::from(123u64)),
-            outputs: [NoteCm(Fr::from(124u64))].into(),
+            service_note_nullifier: NoteNullifier(Fr::from(123u64)),
+            outputs: [NoteCommitment(Fr::from(124u64))].into(),
             excess_value: 1,
         };
 
@@ -612,8 +612,10 @@ mod tests {
     #[test]
     fn test_minimum_signed_mantle_tx_size_with_ledger_inputs_outputs() {
         let transfer_op = TransferOp::new(
-            [111u64, 222, 333].map(|n| NoteNf(Fr::from(n))).into(),
-            [1000u64, 2000].map(|n| NoteCm(Fr::from(n))).into(),
+            [111u64, 222, 333]
+                .map(|n| NoteNullifier(Fr::from(n)))
+                .into(),
+            [1000u64, 2000].map(|n| NoteCommitment(Fr::from(n))).into(),
             Fr::ZERO,
             0,
         );
@@ -656,8 +658,8 @@ mod tests {
         };
 
         let transfer_op = TransferOp::new(
-            [NoteNf(Fr::from(777u64))].into(),
-            [NoteCm(Fr::from(5000u64))].into(),
+            [NoteNullifier(Fr::from(777u64))].into(),
+            [NoteCommitment(Fr::from(5000u64))].into(),
             Fr::ZERO,
             0,
         );
@@ -669,8 +671,8 @@ mod tests {
             locators: Locator::new_unchecked(locator).into(),
             provider_id: ProviderId(signing_key1.public_key()),
             zk_id: zk_sk.to_public_key(),
-            inputs: [NoteNf(Fr::from(500u64))].into(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::from(500u64))].into(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 500,
         };
 
@@ -711,9 +713,9 @@ mod tests {
     fn test_encode_decode_channel_withdraw_tx() {
         let mantle_tx = Ops::new_unchecked(vec![Op::ChannelWithdraw(ChannelWithdrawOp {
             channel_id: ChannelId::from([0xAB; 32]),
-            inputs: [NoteNf(Fr::ZERO)].into(),
-            cm_merkle_root: Fr::ZERO,
-            outputs: OutputCms::default(),
+            inputs: [NoteNullifier(Fr::ZERO)].into(),
+            commitment_merkle_root: Fr::ZERO,
+            outputs: OutputCommitments::default(),
         })]);
         let op_proofs = OpProofs::from([OpProof::ZkTransfer(ZkTransferProof::new(
             CompressedGroth16Proof::from_bytes(&[0u8; 128]),
@@ -962,8 +964,8 @@ mod tests {
             locators: Locator::new_unchecked(invalid_locator).into(),
             provider_id: ProviderId(Ed25519Key::from_bytes(&[1; 32]).public_key()),
             zk_id: ZkKey::zero().to_public_key(),
-            inputs: [NoteNf(Fr::from(500u64))].into(),
-            cm_merkle_root: Fr::ZERO,
+            inputs: [NoteNullifier(Fr::from(500u64))].into(),
+            commitment_merkle_root: Fr::ZERO,
             amount: 500,
         };
 
@@ -978,8 +980,8 @@ mod tests {
 
     #[test]
     fn test_encode_decode_max_inputs() {
-        let inputs = (0..u8::MAX).map(|index| NoteNf(BigUint::from(index).into()));
-        let inputs = InputNfs::try_from_iter(inputs).unwrap();
+        let inputs = (0..u8::MAX).map(|index| NoteNullifier(BigUint::from(index).into()));
+        let inputs = InputNullifiers::try_from_iter(inputs).unwrap();
 
         // Encode should succeed
         let encoded = inputs.encode();
@@ -989,7 +991,7 @@ mod tests {
         );
 
         // Decode should succeed and produce the same number of inputs
-        let result = InputNfs::decode(&encoded);
+        let result = InputNullifiers::decode(&encoded);
         assert!(result.is_ok(), "Should decode max input count");
         let (_, decoded_inputs) = result.unwrap();
         assert_eq!(
@@ -1001,9 +1003,9 @@ mod tests {
 
     #[test]
     fn test_encode_decode_max_outputs() {
-        let note = NoteCm(BigUint::from(42u64).into());
+        let note = NoteCommitment(BigUint::from(42u64).into());
         let outputs = [note; u8::MAX as usize];
-        let outputs = OutputCms::from(outputs);
+        let outputs = OutputCommitments::from(outputs);
 
         // Encode should succeed
         let encoded = outputs.encode();
@@ -1013,7 +1015,7 @@ mod tests {
         );
 
         // Decode should succeed and produce the same number of outputs
-        let result = OutputCms::decode(&encoded);
+        let result = OutputCommitments::decode(&encoded);
         assert!(result.is_ok(), "Should decode max output count");
         let (_, decoded_outputs) = result.unwrap();
         assert_eq!(
@@ -1032,12 +1034,12 @@ mod tests {
         // Add MAX_INPUT_COUNT distinct field elements (each 32 bytes, little
         // endian)
         for index in 0..u8::MAX {
-            let mut note_nf = [0x01; 32];
-            note_nf[0] = index;
-            valid_input.extend_from_slice(&note_nf);
+            let mut note_nullifier = [0x01; 32];
+            note_nullifier[0] = index;
+            valid_input.extend_from_slice(&note_nullifier);
         }
 
-        let result = InputNfs::decode(&valid_input);
+        let result = InputNullifiers::decode(&valid_input);
         assert!(result.is_ok(), "Should accept max input count");
         let (_, inputs) = result.unwrap();
         assert_eq!(inputs.len(), u8::MAX as usize);
@@ -1050,7 +1052,7 @@ mod tests {
             valid_output.extend_from_slice(&[0x02; 32]);
         }
 
-        let result = OutputCms::decode(&valid_output);
+        let result = OutputCommitments::decode(&valid_output);
         assert!(result.is_ok(), "Should accept max output count");
         let (_, outputs) = result.unwrap();
         assert_eq!(outputs.len(), u8::MAX as usize);

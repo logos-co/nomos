@@ -1367,8 +1367,9 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
-    /// The block ID does not cover the proof of leadership, so a copy carrying an
-    /// invalid proof must not get the ID rejected: the genuine block shares it.
+    /// The block ID does not cover the proof of leadership, so a copy carrying
+    /// an invalid proof must not get the ID rejected: the genuine block
+    /// shares it.
     #[test]
     fn invalid_leader_proof_is_not_cached_by_orphan_downloader() {
         assert!(is_recoverable_apply_error(&Error::Cryptarchia(

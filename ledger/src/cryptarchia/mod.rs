@@ -15,7 +15,7 @@ use lb_core::{
         gas::{Gas, GasOverflow, GasPrice, GasProfile},
         ledger::verification_mode::{GenesisMode, StandardMode},
         note_set::{LEDGER_SET, NoteSetError, NoteSetUpdate, NoteSets},
-        notes::{self, NoteCm},
+        notes::{self, NoteCommitment},
         ops::{
             SignedOperation,
             channel::withdraw::{PendingWithdrawal, PendingWithdrawals},
@@ -893,18 +893,18 @@ impl LedgerState {
     }
 
     fn from_commitments(
-        cms: impl IntoIterator<Item = NoteCm>,
+        commitments: impl IntoIterator<Item = NoteCommitment>,
         total_stake: Value,
         config: &Config,
         nonce: Fr,
     ) -> Self {
-        let cms = cms.into_iter().collect::<Vec<_>>();
+        let commitments = commitments.into_iter().collect::<Vec<_>>();
         let note_sets = NoteSets::new();
         let ledger_set = note_sets
             .get(LEDGER_SET)
             .cloned()
             .expect("the ledger set exists")
-            .execute_adding(&cms)
+            .execute_adding(&commitments)
             .expect("genesis notes fit in the commitment MMR");
         let note_sets = note_sets.update(LEDGER_SET, ledger_set).end_block(0);
         let (lottery_0, lottery_1) = config
@@ -918,7 +918,7 @@ impl LedgerState {
         ));
         let block_density = BlockDensity::new(config.epoch(slot), config);
         Self {
-            note_sets:note_sets.clone(),
+            note_sets: note_sets.clone(),
             pending_withdrawals: PendingWithdrawals::new(),
             nonce,
             // No epoch precedes genesis; seed with the genesis nonce so an
@@ -1036,7 +1036,7 @@ pub mod tests {
             SignedOps,
             gas::MainnetGasProfile,
             note_set::CommitmentMmr,
-            notes::{InputNfs, NoteNf, OutputCms, derive_note_nf},
+            notes::{InputNullifiers, NoteNullifier, OutputCommitments, derive_note_nullifier},
             ops::{ZkAndEd25519Proof, ZkTransferProof, sdp::SDPDeclareOp},
             transactions::states::{Preverified, Unverified},
         },
@@ -1369,13 +1369,17 @@ pub mod tests {
             locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
             provider_id: signing_key.public_key().into(),
             zk_id: zk_key.to_public_key(),
-            inputs: [derive_note_nf(&sdp_utxo.commitment(), &sdp_secret_key)].into(),
-            cm_merkle_root: ledger.states[&id]
+            inputs: [derive_note_nullifier(
+                &sdp_utxo.commitment(),
+                &sdp_secret_key,
+            )]
+            .into(),
+            commitment_merkle_root: ledger.states[&id]
                 .cryptarchia_ledger
                 .latest_note_sets()
                 .get(LEDGER_SET)
                 .unwrap()
-                .cm_root(),
+                .commitment_root(),
             amount: sdp_utxo.value,
         };
 
@@ -2055,7 +2059,11 @@ pub mod tests {
             .unwrap()
             .frontier_root();
         assert_eq!(
-            state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root(),
+            state
+                .latest_note_sets()
+                .get(LEDGER_SET)
+                .unwrap()
+                .commitment_root(),
             expected
         );
         assert_eq!(state.epoch_state().total_stake(), 300);
@@ -2088,7 +2096,11 @@ pub mod tests {
             .unwrap()
             .frontier_root();
         assert_eq!(
-            state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root(),
+            state
+                .latest_note_sets()
+                .get(LEDGER_SET)
+                .unwrap()
+                .commitment_root(),
             expected
         );
         assert_eq!(state.block_rewards.rewards_pool(), 1_000);
@@ -2130,7 +2142,11 @@ pub mod tests {
             .unwrap()
             .frontier_root();
         assert_eq!(
-            state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root(),
+            state
+                .latest_note_sets()
+                .get(LEDGER_SET)
+                .unwrap()
+                .commitment_root(),
             expected
         );
         assert_eq!(state.block_rewards.blend_rewards_pending(), 0);
@@ -2234,10 +2250,14 @@ pub mod tests {
         let genesis_note =
             notes::Note::new(10_000, Fr::from(1u64), ZkPublicKey::new(Fr::from(2u64)));
         let state = LedgerState::from_notes([genesis_note], &config(), Fr::ZERO);
-        let root = state.latest_note_sets().get(LEDGER_SET).unwrap().cm_root();
+        let root = state
+            .latest_note_sets()
+            .get(LEDGER_SET)
+            .unwrap()
+            .commitment_root();
         let operation = TransferOp::new(
-            [NoteNf(Fr::from(3u64))].into(),
-            [NoteCm(Fr::from(4u64))].into(),
+            [NoteNullifier(Fr::from(3u64))].into(),
+            [NoteCommitment(Fr::from(4u64))].into(),
             root,
             6,
         );
@@ -2253,19 +2273,23 @@ pub mod tests {
         let expected = CommitmentMmr::new()
             .push(genesis_note.commitment())
             .unwrap()
-            .push(NoteCm(Fr::from(4u64)))
+            .push(NoteCommitment(Fr::from(4u64)))
             .unwrap()
             .frontier_root();
-        assert!(ledger_set.contains_nullifier(&NoteNf(Fr::from(3u64))));
-        assert_eq!(ledger_set.cm_root(), expected);
-        assert_eq!(ledger_set.tx_cm_root(&root, 1), Ok(expected));
+        assert!(ledger_set.contains_nullifier(&NoteNullifier(Fr::from(3u64))));
+        assert_eq!(ledger_set.commitment_root(), expected);
+        assert_eq!(ledger_set.tx_commitment_root(&root, 1), Ok(expected));
     }
 
     #[test]
     fn genesis_transfer_outputs_enter_the_ledger_set() {
         let operation = TransferOp::new(
-            InputNfs::default(),
-            [NoteCm(Fr::from(3u64)), NoteCm(Fr::from(4u64))].into(),
+            InputNullifiers::default(),
+            [
+                NoteCommitment(Fr::from(3u64)),
+                NoteCommitment(Fr::from(4u64)),
+            ]
+            .into(),
             CommitmentMmr::new().frontier_root(),
             0,
         );
@@ -2274,30 +2298,34 @@ pub mod tests {
         let state =
             LedgerState::from_genesis_tx::<()>(&transfer, 3_000, &config(), Fr::ZERO).unwrap();
         let expected = CommitmentMmr::new()
-            .push(NoteCm(Fr::from(3u64)))
+            .push(NoteCommitment(Fr::from(3u64)))
             .unwrap()
-            .push(NoteCm(Fr::from(4u64)))
+            .push(NoteCommitment(Fr::from(4u64)))
             .unwrap()
             .frontier_root();
         let ledger_set = state.latest_note_sets().get(LEDGER_SET).unwrap();
-        assert_eq!(ledger_set.cm_root(), expected);
+        assert_eq!(ledger_set.commitment_root(), expected);
         assert_eq!(state.epoch_state().total_stake(), 3_000);
         // The outputs are buffered for the genesis declarations.
         assert_eq!(
-            ledger_set.tx_cm_root(&CommitmentMmr::new().frontier_root(), 0),
+            ledger_set.tx_commitment_root(&CommitmentMmr::new().frontier_root(), 0),
             Ok(expected)
         );
     }
 
     #[test]
     fn genesis_transfer_with_an_input_is_rejected() {
-        let operation =
-            TransferOp::new([NoteNf(Fr::ONE)].into(), OutputCms::default(), Fr::ZERO, 0);
+        let operation = TransferOp::new(
+            [NoteNullifier(Fr::ONE)].into(),
+            OutputCommitments::default(),
+            Fr::ZERO,
+            0,
+        );
         let transfer = SignedOperation::<_, Unverified, GenesisMode>::new(operation, zero_proof())
             .into_state_trusted();
         assert_eq!(
             LedgerState::from_genesis_tx::<()>(&transfer, 1, &config(), Fr::ZERO).err(),
-            Some(LedgerError::InputInGenesis(NoteNf(Fr::ONE)))
+            Some(LedgerError::InputInGenesis(NoteNullifier(Fr::ONE)))
         );
     }
 

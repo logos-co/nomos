@@ -584,7 +584,7 @@ async fn wait_for_blend_funded_note(
     world: &CucumberWorld,
     node_name: &str,
     blend_zk_pk: ZkPublicKey,
-) -> Result<lb_core::mantle::notes::NoteCm, StepError> {
+) -> Result<lb_core::mantle::notes::NoteCommitment, StepError> {
     let base_url = world
         .nodes_info
         .get(node_name)

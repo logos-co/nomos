@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use lb_core::mantle::{
     Note, Op, Value,
     note_set::{CommitmentMmr, LEDGER_SET, NoteSetIndex, SDP_SET},
-    notes::{NoteCm, NoteNf, derive_note_nonce},
+    notes::{NoteCommitment, NoteNullifier, derive_note_nonce},
     ops::{
         OpId as _,
         channel::{ChannelId, inscribe::Step},
@@ -38,22 +38,22 @@ pub struct OpWitness {
 
 // A note set's commitment MMR as the transaction extends it, with the
 // commitments the wallet can spend and their paths.
-type SetBuffer = (CommitmentMmr, Vec<NoteCm>, Vec<MerklePath>);
+type SetBuffer = (CommitmentMmr, Vec<NoteCommitment>, Vec<MerklePath>);
 
 #[derive(Clone, Copy)]
 enum Spend<'a> {
     // inputs of `note_set` proven against its current root
     InSet {
         note_set: NoteSetIndex,
-        nullifiers: &'a [NoteNf],
-        cm_merkle_root: Fr,
+        nullifiers: &'a [NoteNullifier],
+        commitment_merkle_root: Fr,
     },
     // a service note proven against the root of its own commitment
-    ServiceNote(&'a NoteNf),
+    ServiceNote(&'a NoteNullifier),
 }
 
 // What an Operation spends and the commitments it appends to the buffers.
-type Effects<'a> = (Option<Spend<'a>>, Vec<(NoteSetIndex, NoteCm)>);
+type Effects<'a> = (Option<Spend<'a>>, Vec<(NoteSetIndex, NoteCommitment)>);
 
 // The witnesses of the Operations of `ops` that carry a ZkTransfer, each
 // proven against its set as the Operations before it extended it.
@@ -113,11 +113,11 @@ fn witnesses_of(
                 msg,
             )?);
         }
-        for (note_set, cm) in appends {
-            let (mmr, cms, paths) = set_buffer(&mut buffers, state, note_set);
-            let (next, path) = push(mmr, cm, paths, note_set)?;
+        for (note_set, commitment) in appends {
+            let (mmr, commitments, paths) = set_buffer(&mut buffers, state, note_set);
+            let (next, path) = push(mmr, commitment, paths, note_set)?;
             *mmr = next;
-            cms.push(cm);
+            commitments.push(commitment);
             paths.push(path);
         }
     }
@@ -135,12 +135,12 @@ fn op_effects<'a>(
             Some(Spend::InSet {
                 note_set: LEDGER_SET,
                 nullifiers: &transfer.inputs,
-                cm_merkle_root: transfer.cm_merkle_root,
+                commitment_merkle_root: transfer.commitment_merkle_root,
             }),
             transfer
                 .outputs
                 .iter()
-                .map(|cm| (LEDGER_SET, *cm))
+                .map(|commitment| (LEDGER_SET, *commitment))
                 .collect(),
         ),
         Op::ChannelDeposit(deposit) => {
@@ -149,9 +149,13 @@ fn op_effects<'a>(
                 Some(Spend::InSet {
                     note_set: LEDGER_SET,
                     nullifiers: &deposit.inputs,
-                    cm_merkle_root: deposit.cm_merkle_root,
+                    commitment_merkle_root: deposit.commitment_merkle_root,
                 }),
-                deposit.outputs.iter().map(|cm| (note_set, *cm)).collect(),
+                deposit
+                    .outputs
+                    .iter()
+                    .map(|commitment| (note_set, *commitment))
+                    .collect(),
             )
         }
         // the outputs wait for the release
@@ -159,7 +163,7 @@ fn op_effects<'a>(
             Some(Spend::InSet {
                 note_set: channel_note_set(context, &withdraw.channel_id)?,
                 nullifiers: &withdraw.inputs,
-                cm_merkle_root: withdraw.cm_merkle_root,
+                commitment_merkle_root: withdraw.commitment_merkle_root,
             }),
             Vec::new(),
         ),
@@ -168,12 +172,12 @@ fn op_effects<'a>(
             Some(Spend::InSet {
                 note_set: LEDGER_SET,
                 nullifiers: &declare.inputs,
-                cm_merkle_root: declare.cm_merkle_root,
+                commitment_merkle_root: declare.commitment_merkle_root,
             }),
             Vec::new(),
         ),
         Op::SDPWithdraw(withdraw) => (
-            Some(Spend::ServiceNote(&withdraw.service_note_nf)),
+            Some(Spend::ServiceNote(&withdraw.service_note_nullifier)),
             Vec::new(),
         ),
         Op::ClaimPowReward(claim) => {
@@ -206,7 +210,7 @@ fn op_effects<'a>(
                             .flat_map(|payment| payment.outputs.iter())
                             .chain(step.outputs().iter())
                     })
-                    .map(|cm| (note_set, *cm))
+                    .map(|commitment| (note_set, *commitment))
                     .collect(),
             )
         }
@@ -226,25 +230,26 @@ fn op_witness(
     spend: Spend,
     msg: Fr,
 ) -> Result<OpWitness, WalletError> {
-    let (tx_cm_root, inputs) = match spend {
+    let (tx_commitment_root, inputs) = match spend {
         Spend::InSet {
             note_set,
             nullifiers,
-            cm_merkle_root,
+            commitment_merkle_root,
         } => {
             // the wallet only proves against its own tip
             if state
                 .commitments
                 .get(&note_set)
                 .map(CommitmentMmr::frontier_root)
-                != Some(cm_merkle_root)
+                != Some(commitment_merkle_root)
             {
                 return Err(WalletError::UnknownRoot { op_index });
             }
-            let (mmr, cms, paths) = &*set_buffer(buffers, state, note_set);
-            let inputs = input_paths(state, known, op_index, opening, nullifiers, |cm| {
-                cms.iter()
-                    .position(|buffered| buffered == cm)
+            let (mmr, commitments, paths) = &*set_buffer(buffers, state, note_set);
+            let inputs = input_paths(state, known, op_index, opening, nullifiers, |commitment| {
+                commitments
+                    .iter()
+                    .position(|buffered| buffered == commitment)
                     .map(|position| paths[position].clone())
             })?;
             (mmr.frontier_root(), inputs)
@@ -253,15 +258,15 @@ fn op_witness(
             let [service] = opening.inputs.as_slice() else {
                 return Err(WalletError::NullifierMismatch { op_index });
             };
-            let service_cm = service.commitment();
-            let (mmr, path) = push(&CommitmentMmr::new(), service_cm, &mut [], SDP_SET)?;
+            let service_commitment = service.commitment();
+            let (mmr, path) = push(&CommitmentMmr::new(), service_commitment, &mut [], SDP_SET)?;
             let inputs = input_paths(
                 state,
                 known,
                 op_index,
                 opening,
                 core::slice::from_ref(nullifier),
-                |cm| (*cm == service_cm).then(|| path.clone()),
+                |commitment| (*commitment == service_commitment).then(|| path.clone()),
             )?;
             (mmr.frontier_root(), inputs)
         }
@@ -282,7 +287,7 @@ fn op_witness(
     }
     Ok(OpWitness {
         op_index,
-        witness: transfer_witness(&inputs, &opening.outputs, tx_cm_root, msg),
+        witness: transfer_witness(&inputs, &opening.outputs, tx_commitment_root, msg),
         signers: inputs.iter().map(|(note, _)| note.public_key).collect(),
     })
 }
@@ -304,11 +309,11 @@ fn set_buffer<'a>(
     note_set: NoteSetIndex,
 ) -> &'a mut SetBuffer {
     buffers.entry(note_set).or_insert_with(|| {
-        let (cms, paths) = state
+        let (commitments, paths) = state
             .notes
             .iter()
             .filter(|(_, owned)| owned.note_set == note_set)
-            .map(|(cm, owned)| (*cm, owned.path.clone()))
+            .map(|(commitment, owned)| (*commitment, owned.path.clone()))
             .unzip();
         (
             state
@@ -316,7 +321,7 @@ fn set_buffer<'a>(
                 .get(&note_set)
                 .cloned()
                 .unwrap_or_default(),
-            cms,
+            commitments,
             paths,
         )
     })
@@ -324,14 +329,15 @@ fn set_buffer<'a>(
 
 fn push(
     mmr: &CommitmentMmr,
-    cm: NoteCm,
+    commitment: NoteCommitment,
     paths: &mut [MerklePath],
     note_set: NoteSetIndex,
 ) -> Result<(CommitmentMmr, MerklePath), WalletError> {
-    mmr.push_with_paths(cm, paths).map_err(|error| match error {
-        PushWithPathsError::MmrFull(_) => WalletError::MmrFull(note_set),
-        PushWithPathsError::InvalidTrackedPath(error) => error.into(),
-    })
+    mmr.push_with_paths(commitment, paths)
+        .map_err(|error| match error {
+            PushWithPathsError::MmrFull(_) => WalletError::MmrFull(note_set),
+            PushWithPathsError::InvalidTrackedPath(error) => error.into(),
+        })
 }
 
 // The opened inputs with their paths, each checked against the nullifier the
@@ -341,8 +347,8 @@ fn input_paths(
     known: &KnownNotes,
     op_index: usize,
     opening: &ZkTransferOpening,
-    nullifiers: &[NoteNf],
-    path_of: impl Fn(&NoteCm) -> Option<MerklePath>,
+    nullifiers: &[NoteNullifier],
+    path_of: impl Fn(&NoteCommitment) -> Option<MerklePath>,
 ) -> Result<Vec<(Note, MerklePath)>, WalletError> {
     if opening.inputs.len() != nullifiers.len() {
         return Err(WalletError::NullifierMismatch { op_index });
@@ -352,13 +358,17 @@ fn input_paths(
         .iter()
         .zip(nullifiers)
         .map(|(note, nullifier)| {
-            let cm = note.commitment();
-            let path = path_of(&cm).ok_or(WalletError::MissingInputPath { op_index })?;
+            let commitment = note.commitment();
+            let path = path_of(&commitment).ok_or(WalletError::MissingInputPath { op_index })?;
             let derived = state
                 .notes
-                .get(&cm)
+                .get(&commitment)
                 .map(|owned| owned.nullifier)
-                .or_else(|| known.get(&cm).map(|known_note| known_note.nullifier));
+                .or_else(|| {
+                    known
+                        .get(&commitment)
+                        .map(|known_note| known_note.nullifier)
+                });
             if derived != Some(*nullifier) {
                 return Err(WalletError::NullifierMismatch { op_index });
             }
@@ -386,7 +396,7 @@ mod tests {
     use lb_cryptarchia_engine::Epoch;
 
     use super::*;
-    use crate::test_utils::{known, nf, pk};
+    use crate::test_utils::{known, nullifier, pk};
 
     fn free_context() -> OpsContext {
         OpsContext {
@@ -403,28 +413,28 @@ mod tests {
         let change = Note::new(400, Fr::from(6u64), pk(1));
         let returned = Note::new(500, Fr::from(7u64), pk(1));
         let known = known(&[
-            (owned, LEDGER_SET, nf(1)),
-            (service, SDP_SET, nf(2)),
-            (exact, LEDGER_SET, nf(5)),
+            (owned, LEDGER_SET, nullifier(1)),
+            (service, SDP_SET, nullifier(2)),
+            (exact, LEDGER_SET, nullifier(5)),
         ]);
         let state = WalletState::from_genesis(&known, &[owned], &[service], Epoch::new(0)).unwrap();
         let root = state.commitments[&LEDGER_SET].frontier_root();
 
         let ops = Ops::new_unchecked(vec![
             Op::Transfer(TransferOp::new(
-                [nf(1)].into(),
+                [nullifier(1)].into(),
                 [exact.commitment(), change.commitment()].into(),
                 root,
                 0,
             )),
             Op::SDPDeclare(SDPDeclareOp {
-                inputs: [nf(5)].into(),
-                cm_merkle_root: root,
+                inputs: [nullifier(5)].into(),
+                commitment_merkle_root: root,
                 amount: 600,
                 ..SDPDeclareOp::sample()
             }),
             Op::SDPWithdraw(SDPWithdrawOp {
-                service_note_nf: nf(2),
+                service_note_nullifier: nullifier(2),
                 outputs: [returned.commitment()].into(),
                 excess_value: 0,
                 ..SDPWithdrawOp::sample()
@@ -465,7 +475,7 @@ mod tests {
         .unwrap();
         let roots: Vec<Fr> = witnesses
             .iter()
-            .map(|w| w.witness.chain.tx_cm_root)
+            .map(|w| w.witness.chain.tx_commitment_root)
             .collect();
         assert_eq!(
             roots,
@@ -509,18 +519,18 @@ mod tests {
     fn op_witness_at_needs_no_opening_for_the_other_operations() {
         let owned = Note::new(1_000, Fr::from(1u64), pk(1));
         let foreign = Note::new(70, Fr::from(2u64), pk(2));
-        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        let known = known(&[(owned, LEDGER_SET, nullifier(1))]);
         let state = WalletState::from_genesis(&known, &[owned], &[], Epoch::new(0)).unwrap();
         let root = state.commitments[&LEDGER_SET].frontier_root();
         let ops = Ops::new_unchecked(vec![
             // proven by the caller, with a note the wallet does not know
             Op::Transfer(TransferOp::new(
-                [nf(9)].into(),
+                [nullifier(9)].into(),
                 [foreign.commitment()].into(),
                 Fr::from(3u64),
                 0,
             )),
-            Op::Transfer(TransferOp::new([nf(1)].into(), [].into(), root, 0)),
+            Op::Transfer(TransferOp::new([nullifier(1)].into(), [].into(), root, 0)),
         ]);
         let openings = BTreeMap::from([(
             1,
@@ -542,7 +552,7 @@ mod tests {
         .unwrap();
         assert_eq!(witness.op_index, 1);
         assert_eq!(
-            witness.witness.chain.tx_cm_root,
+            witness.witness.chain.tx_commitment_root,
             CommitmentMmr::new()
                 .push(owned.commitment())
                 .unwrap()
@@ -572,9 +582,9 @@ mod tests {
             Note::new(200, Fr::from(3u64), pk(1)),
         ];
         let known = known(&[
-            (notes[0], LEDGER_SET, nf(1)),
-            (notes[1], LEDGER_SET, nf(2)),
-            (notes[2], LEDGER_SET, nf(3)),
+            (notes[0], LEDGER_SET, nullifier(1)),
+            (notes[1], LEDGER_SET, nullifier(2)),
+            (notes[2], LEDGER_SET, nullifier(3)),
         ]);
         let state = WalletState::from_genesis(&known, &notes, &[], Epoch::new(0)).unwrap();
         let output = Note::new(350, Fr::from(9u64), pk(2));
@@ -597,14 +607,14 @@ mod tests {
                 .iter()
                 .map(|f| (f.note.value, f.nullifier))
                 .collect::<Vec<_>>(),
-            vec![(300, nf(2)), (200, nf(3))]
+            vec![(300, nullifier(2)), (200, nullifier(3))]
         );
         let change = Note::new(150, Fr::from(10u64), pk(1));
         let ops: Vec<Op> = funded.build().unwrap().iter().cloned().collect();
         assert_eq!(
             ops,
             vec![Op::Transfer(TransferOp::new(
-                [nf(2), nf(3)].into(),
+                [nullifier(2), nullifier(3)].into(),
                 [output.commitment(), change.commitment()].into(),
                 state.commitments[&LEDGER_SET].frontier_root(),
                 0
@@ -620,7 +630,7 @@ mod tests {
         let entries: Vec<_> = notes
             .iter()
             .zip(1..)
-            .map(|(note, i)| (*note, LEDGER_SET, nf(i)))
+            .map(|(note, i)| (*note, LEDGER_SET, nullifier(i)))
             .collect();
         let known = known(&entries);
         let state = WalletState::from_genesis(&known, &notes, &[], Epoch::new(0)).unwrap();
