@@ -62,6 +62,8 @@ pub unsafe extern "C" fn start_lb_node(
 ) -> FfiInitializedLogosBlockchainNodeResult {
     return_error_if_null_pointer!(config_path);
 
+    // SAFETY: `config_path` is non null (checked above); both paths are C
+    // strings or null, per `# Safety`.
     unsafe { initialize_lb_node(config_path, custom_deployment_path) }.map_or_else(
         FfiInitializedLogosBlockchainNodeResult::err,
         FfiInitializedLogosBlockchainNodeResult::from_value,
@@ -99,6 +101,7 @@ unsafe fn initialize_lb_node(
     config_path: *const c_char,
     custom_deployment_path: *const c_char,
 ) -> StatusResult<LogosBlockchainNode> {
+    // SAFETY: same contract as ours, forwarded from `# Safety`.
     let run_config = unsafe { resolve_run_config(config_path, custom_deployment_path) }?;
 
     // Captured before the run config is consumed, so the node handle can answer
@@ -150,6 +153,7 @@ pub(crate) unsafe fn resolve_run_config(
     config_path: *const c_char,
     custom_deployment_path: *const c_char,
 ) -> StatusResult<RunConfig> {
+    // SAFETY: `config_path` is a C string per `# Safety`.
     let user_config = unsafe { get_user_config(config_path) }?;
 
     let mut run_config = build_run_config_from_env(user_config).map_err(|e| {
@@ -160,6 +164,7 @@ pub(crate) unsafe fn resolve_run_config(
     })?;
 
     if !custom_deployment_path.is_null() {
+        // SAFETY: non null (checked above), so a C string per `# Safety`.
         run_config.deployment = unsafe { get_deployment_config(custom_deployment_path) }?;
     }
 
@@ -170,6 +175,7 @@ pub(crate) unsafe fn resolve_run_config(
 ///
 /// `config_path` must be a valid NUL-terminated C string.
 unsafe fn get_user_config(config_path: *const c_char) -> StatusResult<UserConfig> {
+    // SAFETY: `config_path` is a C string per `# Safety`.
     let user_config_path = unsafe { std::ffi::CStr::from_ptr(config_path) }
         .to_str()
         .map_err(|e| {
@@ -197,6 +203,7 @@ unsafe fn get_deployment_config(
     if custom_deployment_path.is_null() {
         Ok(DeploymentSettings::default())
     } else {
+        // SAFETY: non null (checked above), so a C string per `# Safety`.
         let custom_deployment_path = unsafe { std::ffi::CStr::from_ptr(custom_deployment_path) }
             .to_str()
             .map_err(|error| {
@@ -250,6 +257,8 @@ unsafe fn get_deployment_config(
 pub unsafe extern "C" fn shutdown_node(node: *mut LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
     unwrap_or_return_error!(ensure_blocking_allowed());
+    // SAFETY: non null (checked above), a `Box::into_raw` handle from
+    // `start_lb_node` with no other call in progress, per `# Safety`.
     let node = unsafe { Box::from_raw(node) };
     // The node is freed from here on, even when shutting it down panics, so a
     // panic must not come back as the `RuntimeError` that leaves it untouched.
@@ -367,6 +376,7 @@ mod test {
     fn test_basic_lifecycle() {
         let test_paths = TestConfigPaths::new();
 
+        // SAFETY: both paths are live `CString`s owned by `test_paths`.
         let start_status = unsafe {
             start_lb_node(
                 test_paths.node_config.as_ptr(),
@@ -385,6 +395,7 @@ mod test {
         // deadlocks Overwatch. See [`STARTUP_SETTLE`].
         std::thread::sleep(STARTUP_SETTLE);
 
+        // SAFETY: `node` came from a successful `start_lb_node` and is not used again.
         let shutdown_status = unsafe { shutdown_node(node) };
 
         assert!(
@@ -404,6 +415,7 @@ mod test {
         // no other test observes it.
         unsafe { std::env::set_var("HTTP_HOST", "not-a-socket-address") };
 
+        // SAFETY: both paths are live `CString`s owned by `test_paths`.
         let start_status = unsafe {
             start_lb_node(
                 test_paths.node_config.as_ptr(),
@@ -411,6 +423,7 @@ mod test {
             )
         };
 
+        // SAFETY: serialized via `#[serial]`, so no other thread reads the environment.
         unsafe { std::env::remove_var("HTTP_HOST") };
 
         assert!(
@@ -418,6 +431,7 @@ mod test {
             "An invalid HTTP_HOST env override should fail node start, proving env \
              overrides are applied"
         );
+        // SAFETY: the failed start's error status is owned here and released once.
         unsafe { free_operation_status(start_status.error) };
     }
 }

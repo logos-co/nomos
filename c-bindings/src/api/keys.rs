@@ -59,6 +59,7 @@ unsafe fn key_title_from_ptr(key_title: *const c_char) -> Option<String> {
         None
     } else {
         Some(
+            // SAFETY: non null (checked above) C string, readable per `# Safety`.
             unsafe { CStr::from_ptr(key_title) }
                 .to_string_lossy()
                 .to_string(),
@@ -109,9 +110,12 @@ pub unsafe extern "C" fn generate_key(
     let key_type = unwrap_or_return_error!(KeyType::try_from(key_type));
 
     let args = GenerateKeyArgs::new(
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
         key_type.into(),
+        // SAFETY: null or a C string per `# Safety`.
         unsafe { key_title_from_ptr(key_title) },
         true,
     );
@@ -173,6 +177,7 @@ pub unsafe extern "C" fn add_key(
     return_error_if_null_pointer!(key_hex);
     let key_type = unwrap_or_return_error!(KeyType::try_from(key_type));
 
+    // SAFETY: non null (checked above) C string per `# Safety`.
     let key_hex = unsafe { CStr::from_ptr(key_hex) }.to_string_lossy();
 
     let key = match parse_key_hex(key_type, &key_hex) {
@@ -186,8 +191,11 @@ pub unsafe extern "C" fn add_key(
     };
 
     let args = AddKeyArgs::new(
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
+        // SAFETY: null or a C string per `# Safety`.
         unsafe { key_title_from_ptr(key_title) },
         &key,
         true,
@@ -249,12 +257,15 @@ pub unsafe extern "C" fn remove_key(
     return_error_if_null_pointer!(keystore_path);
     return_error_if_null_pointer!(key_title);
 
+    // SAFETY: non null (checked above) C string per `# Safety`.
     let key_title = unsafe { CStr::from_ptr(key_title) }
         .to_string_lossy()
         .to_string();
 
     let args = RemoveKeyArgs::new(
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
+        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
         key_title,
         true,

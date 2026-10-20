@@ -178,7 +178,10 @@ pub unsafe extern "C" fn subscribe_to_new_blocks(
     let Some(callback_per_block) = callback_per_block else {
         return OperationStatus::OK;
     };
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
+    // SAFETY: the callback is thread safe, callable until the terminal NULL or
+    // shutdown, and does not unwind, per `# Safety`.
     let callback_per_block = unsafe { into_boxed_callback(callback_per_block) };
     subscribe_to_new_blocks_sync(node, callback_per_block)
 }
@@ -280,7 +283,10 @@ pub unsafe extern "C" fn subscribe_to_processed_blocks(
     let Some(callback_per_event) = callback_per_event else {
         return OperationStatus::OK;
     };
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
+    // SAFETY: the callback is thread safe, callable until the terminal NULL or
+    // shutdown, and does not unwind, per `# Safety`.
     subscribe_to_processed_blocks_sync(node, unsafe { into_boxed_callback(callback_per_event) })
 }
 
@@ -373,6 +379,9 @@ pub unsafe extern "C" fn subscribe_to_lib_blocks(
     let Some(callback_per_event) = callback_per_event else {
         return OperationStatus::OK;
     };
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
+    // SAFETY: the callback is thread safe, callable until the terminal NULL or
+    // shutdown, and does not unwind, per `# Safety`.
     subscribe_to_lib_blocks_sync(node, unsafe { into_boxed_callback(callback_per_event) })
 }

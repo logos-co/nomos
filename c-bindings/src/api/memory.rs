@@ -18,6 +18,8 @@ use crate::{OperationStatus, return_error_if_null_pointer};
 /// `Type` and must not have been freed already.
 pub unsafe fn free<Type>(pointer: *mut Type) -> OperationStatus {
     return_error_if_null_pointer!(pointer);
+    // SAFETY: non null (checked above), from `Box::into_raw` for a `Type` and
+    // not yet freed, per `# Safety`.
     unsafe { drop(Box::from_raw(pointer)) };
     OperationStatus::OK
 }
@@ -44,6 +46,8 @@ pub unsafe fn free<Type>(pointer: *mut Type) -> OperationStatus {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_cstring(pointer: *mut c_char) -> OperationStatus {
     return_error_if_null_pointer!(pointer);
+    // SAFETY: non null (checked above), from `CString::into_raw` in this
+    // library and not yet freed, per `# Safety`.
     drop(unsafe { CString::from_raw(pointer) });
     OperationStatus::OK
 }

@@ -84,7 +84,10 @@ impl DeploymentInfo {
             &mut self.node_version,
         ] {
             // A null field has nothing to free; the status reporting it does.
+            // SAFETY: a non null field is a live `CString::into_raw` pointer per
+            // `# Safety`; nulling it first prevents a second free.
             let status = unsafe { free_cstring(std::mem::replace(pointer, std::ptr::null_mut())) };
+            // SAFETY: `status` was just returned by this library and is owned here.
             unsafe { free_operation_status(status) };
         }
     }
@@ -136,6 +139,8 @@ pub unsafe extern "C" fn get_deployment_info(
 ) -> FfiDeploymentInfoResult {
     return_error_if_null_pointer!(config_path);
 
+    // SAFETY: `config_path` is non null (checked above); both paths are C
+    // strings or null as `resolve_run_config` requires, per `# Safety`.
     let run_config = match unsafe { resolve_run_config(config_path, custom_deployment_path) } {
         Ok(run_config) => run_config,
         Err(error) => return FfiDeploymentInfoResult::err(error),
@@ -162,8 +167,12 @@ pub unsafe extern "C" fn get_deployment_info(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_deployment_info(pointer: *mut DeploymentInfo) -> OperationStatus {
     return_error_if_null_pointer!(pointer);
+    // SAFETY: non null (checked above), a live `Box<DeploymentInfo>` from
+    // `get_deployment_info` per `# Safety`.
     let deployment_info = unsafe { &mut *pointer };
+    // SAFETY: its strings come from `CString::into_raw` in `DeploymentInfo::new`.
     unsafe { deployment_info.free() };
+    // SAFETY: `pointer` is that live box, freed only here.
     unsafe { free::<DeploymentInfo>(pointer) }
 }
 
@@ -177,10 +186,12 @@ mod tests {
     fn free_twice_frees_nothing_the_second_time() {
         let mut info = DeploymentInfo::new(&DeploymentSettings::default())
             .expect("The default deployment should describe itself");
+        // SAFETY: the strings come from `CString::into_raw` in `DeploymentInfo::new`.
         unsafe { info.free() };
         assert!(info.chain_id.is_null());
         assert!(info.protocol_names.mempool.is_null());
         assert!(info.node_version.is_null());
+        // SAFETY: every field is null now, so this frees nothing.
         unsafe { info.free() };
     }
 }

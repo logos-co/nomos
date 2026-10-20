@@ -43,6 +43,7 @@ pub type FfiGetChainIdResult = FfiStatusResult<*mut c_char>;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_chain_id(node: *const LogosBlockchainNode) -> FfiGetChainIdResult {
     return_error_if_null_pointer!(node);
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
 
     let Some(chain_id) = node.chain_id() else {

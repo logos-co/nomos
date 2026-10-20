@@ -74,6 +74,8 @@ impl FfiReturn for () {
     /// There is nowhere to report the error, so it is released: dropping it
     /// would leak its message.
     fn from_operation_status(status: OperationStatus) -> Self {
+        // SAFETY: `status` was built by this library and is owned here, so it
+        // is released exactly once.
         unsafe { free_operation_status(status) };
     }
 }

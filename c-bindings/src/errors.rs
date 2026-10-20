@@ -101,7 +101,11 @@ pub const unsafe extern "C" fn is_ok(status: *const OperationStatus) -> bool {
     if status.is_null() {
         return false;
     }
+    // SAFETY: `status` is non null (checked above) and aligned per `# Safety`;
+    // `&raw const` only computes the field address.
     let code = unsafe { &raw const (*status).code }.cast::<c_int>();
+    // SAFETY: `code` is the readable, aligned `#[repr(C)]` enum field, read as
+    // its `c_int` representation.
     unsafe { code.read() == OperationStatusCode::Ok as c_int }
 }
 
@@ -115,6 +119,7 @@ pub const unsafe extern "C" fn is_ok(status: *const OperationStatus) -> bool {
 #[must_use]
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn is_error(status: *const OperationStatus) -> bool {
+    // SAFETY: `is_ok` has the same `# Safety` contract, forwarded from our caller.
     !unsafe { is_ok(status) }
 }
 
@@ -138,6 +143,8 @@ pub const unsafe extern "C" fn is_error(status: *const OperationStatus) -> bool 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_operation_status(status: OperationStatus) {
     if !status.message.is_null() {
+        // SAFETY: a non null message comes from `CString::into_raw` in
+        // `OperationStatus::error` and is not yet released, per `# Safety`.
         drop(unsafe { CString::from_raw(status.message) });
     }
 }
@@ -147,6 +154,8 @@ impl std::fmt::Debug for OperationStatus {
         let message = if self.message.is_null() {
             None
         } else {
+            // SAFETY: a non null message is a live NUL terminated string from
+            // `CString::into_raw` in `OperationStatus::error`.
             Some(unsafe { CStr::from_ptr(self.message) }.to_string_lossy())
         };
         f.debug_struct("OperationStatus")

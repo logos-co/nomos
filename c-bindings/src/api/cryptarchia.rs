@@ -60,6 +60,7 @@ pub type NoteCm = Hash;
 /// The caller must ensure that the pointer is valid and points to a properly
 /// initialized `TxHash`.
 pub(crate) unsafe fn into_tx_hash(tx_hash: *const TxHash) -> lb_core::mantle::TxHash {
+    // SAFETY: `tx_hash` points to an initialized `TxHash` per `# Safety`.
     lb_core::mantle::TxHash::from(unsafe { *tx_hash })
 }
 
@@ -148,6 +149,7 @@ pub unsafe extern "C" fn get_cryptarchia_info(
     node: *const LogosBlockchainNode,
 ) -> FfiCryptarchiaInfoResult {
     return_error_if_null_pointer!(node);
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let service_info = unwrap_or_return_error!(get_cryptarchia_info_sync(node));
     let c_info = CryptarchiaInfo::from(service_info);
@@ -168,6 +170,8 @@ pub unsafe extern "C" fn get_cryptarchia_info(
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_cryptarchia_info(pointer: *mut CryptarchiaInfo) -> OperationStatus {
+    // SAFETY: a non null `pointer` is a live `Box<CryptarchiaInfo>` from
+    // `get_cryptarchia_info`, per `# Safety`.
     unsafe { free::<CryptarchiaInfo>(pointer) }
 }
 
@@ -273,7 +277,9 @@ pub unsafe extern "C" fn get_block_events(
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(header_id);
 
+    // SAFETY: non null (checked above), 32 readable bytes per `# Safety`.
     let header_id = unsafe { *header_id };
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let json_cstring = unwrap_or_return_error!(get_block_events_sync(node, header_id));
     FfiGetBlockEventsResult::ok(json_cstring.into_raw())

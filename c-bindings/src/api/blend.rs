@@ -48,6 +48,7 @@ impl From<sdp::DeclarationId> for DeclarationId {
 /// `ptr` must be non-null and point to a valid NUL-terminated C string that
 /// stays readable for the duration of the call.
 unsafe fn parse_locator(ptr: *const c_char) -> Result<Locator, OperationStatus> {
+    // SAFETY: non null C string, readable for the call, per `# Safety`.
     let c_str = unsafe { std::ffi::CStr::from_ptr(ptr) };
     let Ok(s) = c_str.to_str() else {
         return Err(OperationStatus::error(
@@ -97,11 +98,13 @@ pub unsafe extern "C" fn blend_join_as_core_node(
     // TODO(RFC-480): the wallet funds the declaration stake.
     // return_error_if_null_pointer!(service_note_id);
 
+    // SAFETY: `locator` is non null (checked above) and a C string per `# Safety`.
     let locator = unwrap_or_return_error!(unsafe { parse_locator(locator) });
     // TODO(RFC-480): the wallet funds the declaration stake.
     // let service_note_id =
     //     unwrap_or_return_error!(unsafe { parse_service_note_id(service_note_id) });
 
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
 
     let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
@@ -185,6 +188,7 @@ pub type FfiBlendInfoResult = FfiStatusResult<*mut c_char>;
 pub unsafe extern "C" fn blend_info(node: *const LogosBlockchainNode) -> FfiBlendInfoResult {
     return_error_if_null_pointer!(node);
 
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let network_info = unwrap_or_return_error!(blend_info_sync(node));
 

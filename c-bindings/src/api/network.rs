@@ -89,6 +89,7 @@ pub unsafe extern "C" fn get_network_info(
 ) -> FfiNetworkInfoResult {
     return_error_if_null_pointer!(node);
 
+    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let info = unwrap_or_return_error!(get_network_info_sync(node));
 

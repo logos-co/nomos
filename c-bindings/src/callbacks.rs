@@ -24,5 +24,7 @@ pub type BoxedCallback<T> = Box<dyn FnMut(T) + Send + Sync>;
 /// safely called from Rust code, and stays valid for as long as the returned
 /// callback may be called.
 pub unsafe fn into_boxed_callback<T: 'static>(callback: CCallback<T>) -> BoxedCallback<T> {
+    // SAFETY: the caller guarantees `callback` is thread safe and stays valid
+    // while the returned closure lives, per `# Safety`.
     Box::new(move |block: T| unsafe { callback(block) })
 }

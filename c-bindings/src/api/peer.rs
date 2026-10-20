@@ -39,6 +39,7 @@ pub type FfiGetPeerIdResult = FfiStatusResult<*mut c_char>;
 pub unsafe extern "C" fn get_peer_id(config_path: *const c_char) -> FfiGetPeerIdResult {
     return_error_if_null_pointer!(config_path);
 
+    // SAFETY: non null (checked above) and NUL terminated per `# Safety`.
     let config_path = unsafe { cstr_to_path(config_path) };
 
     let peer_id = match lb_node::cli::get_peer_id::peer_id_from_config(&config_path) {
