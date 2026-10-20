@@ -157,34 +157,34 @@ lb-merkle-tree                     = { default-features = false, package = "logo
 lb-mmr                             = { default-features = false, package = "logos-blockchain-mmr", path = "./mmr" }
 lb-network-service                 = { default-features = false, package = "logos-blockchain-network-service", path = "./services/network" }
 lb-node                            = { default-features = false, package = "logos-blockchain-node", path = "./nodes/node/binary" }
-lb-pol                = { default-features = false, package = "logos-blockchain-pol", path = "./zk/proofs/pol" }
-lb-poq                = { default-features = false, package = "logos-blockchain-poq", path = "./zk/proofs/poq" }
-lb-poseidon2          = { default-features = false, package = "logos-blockchain-poseidon2", path = "./zk/poseidon2" }
-lb-pow-service        = { default-features = false, package = "logos-blockchain-pow-service", path = "./services/pow" }
-lb-program-spend      = { default-features = false, package = "logos-blockchain-program-spend", path = "./zk/proofs/program_spend" }
-lb-sdp-service        = { default-features = false, package = "logos-blockchain-sdp-service", path = "./services/sdp" }
-lb-services-utils     = { default-features = false, package = "logos-blockchain-services-utils", path = "./services/utils" }
-lb-storage-service    = { default-features = false, package = "logos-blockchain-storage-service", path = "./services/storage" }
-lb-system-sig-service = { default-features = false, package = "logos-blockchain-system-sig-service", path = "./services/system-sig" }
-lb-testing-framework  = { default-features = false, package = "blockchain-test-logos", path = "./tests/tf_integration/logos" }
-lb-time-service       = { default-features = false, package = "logos-blockchain-time-service", path = "./services/time" }
-lb-tracing            = { default-features = false, package = "logos-blockchain-tracing", path = "./tracing" }
-lb-tracing-service    = { default-features = false, package = "logos-blockchain-tracing-service", path = "./services/tracing" }
-lb-tx-service         = { default-features = false, package = "logos-blockchain-tx-service", path = "./services/tx-service" }
-lb-utils              = { default-features = false, package = "logos-blockchain-utils", path = "./utils" }
-lb-utxotree           = { default-features = false, package = "logos-blockchain-utxotree", path = "merkle/utxotree" }
-lb-version            = { default-features = false, package = "logos-blockchain-version", path = "./nodes/version" }
-lb-wallet             = { default-features = false, package = "logos-blockchain-wallet", path = "./wallet" }
-lb-wallet-service     = { default-features = false, package = "logos-blockchain-wallet-service", path = "./services/wallet" }
-lb-zktransfer          = { default-features = false, package = "logos-blockchain-zktransfer", path = "./zk/proofs/zktransfer" }
-lb-zone-sdk            = { default-features = false, package = "logos-blockchain-zone-sdk", path = "./zone-sdk" }
-logos-blockchain-tests = { default-features = false, path = "./tests" }
-logos-sql              = { default-features = false, path = "./logos_sql" }
+lb-pol                             = { default-features = false, package = "logos-blockchain-pol", path = "./zk/proofs/pol" }
+lb-poq                             = { default-features = false, package = "logos-blockchain-poq", path = "./zk/proofs/poq" }
+lb-poseidon2                       = { default-features = false, package = "logos-blockchain-poseidon2", path = "./zk/poseidon2" }
+lb-pow-service                     = { default-features = false, package = "logos-blockchain-pow-service", path = "./services/pow" }
+lb-program-spend                   = { default-features = false, package = "logos-blockchain-program-spend", path = "./zk/proofs/program_spend" }
+lb-sdp-service                     = { default-features = false, package = "logos-blockchain-sdp-service", path = "./services/sdp" }
+lb-services-utils                  = { default-features = false, package = "logos-blockchain-services-utils", path = "./services/utils" }
+lb-storage-service                 = { default-features = false, package = "logos-blockchain-storage-service", path = "./services/storage" }
+lb-system-sig-service              = { default-features = false, package = "logos-blockchain-system-sig-service", path = "./services/system-sig" }
+lb-testing-framework               = { default-features = false, package = "blockchain-test-logos", path = "./tests/tf_integration/logos" }
+lb-time-service                    = { default-features = false, package = "logos-blockchain-time-service", path = "./services/time" }
+lb-tracing                         = { default-features = false, package = "logos-blockchain-tracing", path = "./tracing" }
+lb-tracing-service                 = { default-features = false, package = "logos-blockchain-tracing-service", path = "./services/tracing" }
+lb-tx-service                      = { default-features = false, package = "logos-blockchain-tx-service", path = "./services/tx-service" }
+lb-utils                           = { default-features = false, package = "logos-blockchain-utils", path = "./utils" }
+lb-utxotree                        = { default-features = false, package = "logos-blockchain-utxotree", path = "merkle/utxotree" }
+lb-version                         = { default-features = false, package = "logos-blockchain-version", path = "./nodes/version" }
+lb-wallet                          = { default-features = false, package = "logos-blockchain-wallet", path = "./wallet" }
+lb-wallet-service                  = { default-features = false, package = "logos-blockchain-wallet-service", path = "./services/wallet" }
+lb-zktransfer                      = { default-features = false, package = "logos-blockchain-zktransfer", path = "./zk/proofs/zktransfer" }
+lb-zone-sdk                        = { default-features = false, package = "logos-blockchain-zone-sdk", path = "./zone-sdk" }
+logos-blockchain-tests             = { default-features = false, path = "./tests" }
+logos-sql                          = { default-features = false, path = "./logos_sql" }
 # When bumping any lbc-* tag, also update the logos-blockchain-circuits flake input tag in flake.nix
 # and run `nix flake lock --update-input logos-blockchain-circuits`.
-lbc-pol-sys           = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-pol-sys", tag = "v0.6.0" }
-lbc-poq-sys           = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-poq-sys", tag = "v0.6.0" }
-lbc-program-spend-sys = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-program-spend-sys", tag = "v0.6.0" }
+lbc-pol-sys                      = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-pol-sys", tag = "v0.6.0" }
+lbc-poq-sys                      = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-poq-sys", tag = "v0.6.0" }
+lbc-program-spend-sys            = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-program-spend-sys", tag = "v0.6.0" }
 lbc-transfer-sys                 = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-transfer-sys", tag = "v0.6.0" }
 lbc-types                        = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-types", tag = "v0.6.0" }
 lbp-error                        = { default-features = false, package = "logos-blockchain-proofs-error", path = "./zk/proofs/error" }

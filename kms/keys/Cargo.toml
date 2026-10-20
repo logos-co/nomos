@@ -28,7 +28,7 @@ lb-log-targets                  = { workspace = true }
 lb-poseidon2                    = { workspace = true }
 lb-utils                        = { workspace = true }
 lb-zktransfer                   = { workspace = true }
-num-bigint                     = { workspace = true }
+num-bigint                      = { workspace = true }
 rand_core                       = { workspace = true }
 serde                           = { features = ["derive"], workspace = true }
 subtle                          = { workspace = true }

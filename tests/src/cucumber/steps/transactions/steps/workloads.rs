@@ -11,9 +11,7 @@ use super::{
     execute_mempool_next_wallet_user_wallet, info, parse_wallet_output_state,
     perform_manual_step_control, then, timeout, verify_min_outputs_all_user_wallets, warn, when,
 };
-use crate::cucumber::{
-    steps::nodes::diagnostics::BlendDiagnosticEventLogger, utils::lgo_to_units,
-};
+use crate::cucumber::{steps::nodes::diagnostics::BlendDiagnosticEventLogger, utils::lgo_to_units};
 
 const CONTINUOUS_LOAD_REFERENCE_NODE: &str = "NODE_9";
 const CONTINUOUS_LOAD_CLOCK_QUERY_TIMEOUT: Duration = Duration::from_millis(1_500);
@@ -168,9 +166,9 @@ async fn step_coin_split_transactions_for_each_user_wallet(
         lgo_to_units(value),
     )
     .await
-        .inspect_err(|e| {
-            warn!(target: TARGET, "Step `{}` error: {e}", step.value);
-        })?;
+    .inspect_err(|e| {
+        warn!(target: TARGET, "Step `{}` error: {e}", step.value);
+    })?;
 
     Ok(())
 }

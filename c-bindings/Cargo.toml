@@ -10,10 +10,10 @@ repository  = { workspace = true }
 version     = { workspace = true }
 
 [dependencies]
-futures          = { workspace = true }
-lb-api-service   = { workspace = true }
-lb-blend-service = { workspace = true }
-lb-c-macros      = { workspace = true }
+futures                       = { workspace = true }
+lb-api-service                = { workspace = true }
+lb-blend-service              = { workspace = true }
+lb-c-macros                   = { workspace = true }
 lb-chain-service              = { workspace = true }
 lb-core                       = { workspace = true }
 lb-groth16                    = { workspace = true }

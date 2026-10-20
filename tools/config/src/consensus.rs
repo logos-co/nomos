@@ -530,7 +530,11 @@ mod tests {
         );
         assert_eq!(SdpFundingConfig::default().target_notes_per_node, 1);
         assert_eq!(outputs.len(), ids.len());
-        assert!(outputs.iter().all(|note| note.value == 10_000 * UNITS_PER_LGO));
+        assert!(
+            outputs
+                .iter()
+                .all(|note| note.value == 10_000 * UNITS_PER_LGO)
+        );
     }
 
     #[test]

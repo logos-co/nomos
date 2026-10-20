@@ -19,16 +19,16 @@ lb-groth16 = { workspace = true }
 lb-mmr     = { workspace = true }
 
 [dependencies]
-async-trait             = { workspace = true }
-axum                    = { features = ["http1", "json", "tokio"], workspace = true }
-bincode                 = { workspace = true }
-blockchain-test-support = { workspace = true }
-cucumber                = { features = ["macros", "output-junit"], workspace = true }
-ed25519                 = { workspace = true }
-educe                   = { features = ["Default"], workspace = true }
-futures                 = { workspace = true }
-futures-util            = { workspace = true }
-hex                     = { workspace = true }
+async-trait                      = { workspace = true }
+axum                             = { features = ["http1", "json", "tokio"], workspace = true }
+bincode                          = { workspace = true }
+blockchain-test-support          = { workspace = true }
+cucumber                         = { features = ["macros", "output-junit"], workspace = true }
+ed25519                          = { workspace = true }
+educe                            = { features = ["Default"], workspace = true }
+futures                          = { workspace = true }
+futures-util                     = { workspace = true }
+hex                              = { workspace = true }
 lb-binary-codec                  = { workspace = true }
 lb-chain-service                 = { workspace = true }
 lb-common-http-client            = { workspace = true }
@@ -49,29 +49,29 @@ lb-testing-framework             = { workspace = true }
 lb-tx-service                    = { workspace = true }
 lb-utils                         = { workspace = true }
 lb-wallet                        = { workspace = true }
-lb-zktransfer = { workspace = true }
-lb-zone-sdk   = { workspace = true }
-libp2p        = { workspace = true }
-logos-sql     = { workspace = true }
-rand        = { workspace = true }
-rand_chacha = { workspace = true }
-reqwest     = { features = ["json"], workspace = true }
-rusqlite                       = { workspace = true }
-serde                          = { features = ["derive"], workspace = true }
-serde_json                     = { workspace = true }
-serde_yaml                     = { workspace = true }
-serial_test                    = { workspace = true }
-strum                          = { features = ["derive", "std"], workspace = true }
-strum_macros                   = { workspace = true }
-tempfile                       = { workspace = true }
-testing-framework-app          = { workspace = true }
-testing-framework-core         = { workspace = true }
-testing-framework-runner-local = { workspace = true }
-thiserror                      = { workspace = true }
-time                           = { workspace = true }
-tokio                          = { workspace = true }
-tracing                        = { workspace = true }
-tracing-subscriber             = { features = ["env-filter", "fmt"], workspace = true }
+lb-zktransfer                    = { workspace = true }
+lb-zone-sdk                      = { workspace = true }
+libp2p                           = { workspace = true }
+logos-sql                        = { workspace = true }
+rand                             = { workspace = true }
+rand_chacha                      = { workspace = true }
+reqwest                          = { features = ["json"], workspace = true }
+rusqlite                         = { workspace = true }
+serde                            = { features = ["derive"], workspace = true }
+serde_json                       = { workspace = true }
+serde_yaml                       = { workspace = true }
+serial_test                      = { workspace = true }
+strum                            = { features = ["derive", "std"], workspace = true }
+strum_macros                     = { workspace = true }
+tempfile                         = { workspace = true }
+testing-framework-app            = { workspace = true }
+testing-framework-core           = { workspace = true }
+testing-framework-runner-local   = { workspace = true }
+thiserror                        = { workspace = true }
+time                             = { workspace = true }
+tokio                            = { workspace = true }
+tracing                          = { workspace = true }
+tracing-subscriber               = { features = ["env-filter", "fmt"], workspace = true }
 
 [features]
 cucumber             = []
