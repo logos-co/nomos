@@ -3,6 +3,8 @@ use super::{
     create_and_submit_transaction, create_and_submit_transaction_hashes_with_utxo_cache, info,
     wait_wallet_send_ready, warn, when,
 };
+use lb_zktransfer::MAX_OUTPUTS;
+
 use crate::cucumber::utils::lgo_to_units;
 
 #[when(expr = "I do a coin split for {string} of {int} UTXOs valued at {int} LGO tokens each")]
@@ -18,42 +20,48 @@ async fn step_do_coin_split(
         warn!(target: TARGET, "Step `{}` error: {e}", step.value);
     })?;
 
-    let mut available_utxos = WalletUtxos::new();
-    let best_node_info = wait_wallet_send_ready(
-        world,
-        &step.value,
-        &wallet_name,
-        180,
-        number_of_outputs as u64 * output_value,
-        WalletSendReadiness::TotalValueOnly,
-        &mut available_utxos,
-        &HashSet::new(),
-    )
-    .await?;
-
     let self_pk = wallet.public_key().inspect_err(|e| {
         warn!(target: TARGET, "Step `{}` error: {e}", step.value);
     })?;
     let receivers = vec![(self_pk, output_value); number_of_outputs];
-    let tx_hash_hex = create_and_submit_transaction(
-        world,
-        &step.value,
-        &wallet_name,
-        &receivers,
-        Some(&best_node_info),
-        Some(&mut available_utxos),
-    )
-    .await
-    .inspect_err(|e| {
-        warn!(target: TARGET, "Step `{}` error: {e}", step.value);
-    })?;
+    // A ZkTransfer creates at most `MAX_OUTPUTS` notes, one of them the change,
+    // so the split takes one transaction per chunk. Each chunk waits for funds
+    // the earlier ones did not encumber, the change of the last one at worst.
+    for chunk in receivers.chunks(MAX_OUTPUTS - 1) {
+        let mut available_utxos = WalletUtxos::new();
+        let best_node_info = wait_wallet_send_ready(
+            world,
+            &step.value,
+            &wallet_name,
+            180,
+            chunk.len() as u64 * output_value,
+            WalletSendReadiness::TotalValueOnly,
+            &mut available_utxos,
+            &HashSet::new(),
+        )
+        .await?;
 
-    info!(
-        target: TARGET,
-        "Submitted coin split transaction for `{wallet_name}/{}`, outputs: {number_of_outputs}, \
-        value: {output_value}, tx hash: {tx_hash_hex}",
-        wallet.node_name
-    );
+        let tx_hash_hex = create_and_submit_transaction(
+            world,
+            &step.value,
+            &wallet_name,
+            chunk,
+            Some(&best_node_info),
+            Some(&mut available_utxos),
+        )
+        .await
+        .inspect_err(|e| {
+            warn!(target: TARGET, "Step `{}` error: {e}", step.value);
+        })?;
+
+        info!(
+            target: TARGET,
+            "Submitted coin split transaction for `{wallet_name}/{}`, outputs: {}, \
+            value: {output_value}, tx hash: {tx_hash_hex}",
+            wallet.node_name,
+            chunk.len()
+        );
+    }
 
     Ok(())
 }

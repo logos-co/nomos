@@ -139,7 +139,13 @@ impl WalletSnapshot {
             }
         }
 
-        if states_by_node.is_empty() && !wallet_info.is_empty() {
+        // Node funding wallets are not tracked by the scanner, so a scenario
+        // with only those has no state to export.
+        let mut tracks_wallets = false;
+        for node_name in world.nodes_info.keys() {
+            tracks_wallets |= !wallet_ids_for_source(world, node_name)?.is_empty();
+        }
+        if states_by_node.is_empty() && tracks_wallets {
             return Err(StepError::LogicalError {
                 message: "wallet scanner state has no exportable node snapshots".to_owned(),
             });
@@ -176,6 +182,10 @@ impl WalletSnapshot {
         client: &NodeHttpClient,
         world: &mut CucumberWorld,
     ) -> StepResult {
+        let runtime_wallet_ids = wallet_ids_for_source(world, runtime_node_name)?;
+        if runtime_wallet_ids.is_empty() {
+            return Ok(());
+        }
         let Some(node_snapshot) = self
             .states_by_node
             .get(runtime_node_name)
@@ -189,7 +199,6 @@ impl WalletSnapshot {
             });
         };
 
-        let runtime_wallet_ids = wallet_ids_for_source(world, runtime_node_name)?;
         let runtime_wallet_utxos = node_snapshot
             .tracked_wallets
             .to_wallet_utxos()
