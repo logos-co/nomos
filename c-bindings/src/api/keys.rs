@@ -234,11 +234,7 @@ pub unsafe extern "C" fn remove_key(
         .to_string_lossy()
         .to_string();
 
-    let args = RemoveKeyArgs::new(
-        unsafe { cstr_to_path(keystore_path) },
-        key_title,
-        true,
-    );
+    let args = RemoveKeyArgs::new(unsafe { cstr_to_path(keystore_path) }, key_title, true);
 
     match run_remove_key(args) {
         Ok(()) => OperationStatus::OK,

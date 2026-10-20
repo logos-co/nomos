@@ -271,12 +271,10 @@ mod test {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::{
-        api::{
-            free_cstring,
-            keys::{KeyType, add_key, generate_key, remove_key},
-            peer::get_peer_id,
-        },
+    use crate::api::{
+        free_cstring,
+        keys::{KeyType, add_key, generate_key, remove_key},
+        peer::get_peer_id,
     };
 
     fn cstring(path: &Path) -> CString {
