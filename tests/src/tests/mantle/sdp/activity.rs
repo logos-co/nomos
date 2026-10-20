@@ -10,6 +10,7 @@ use std::{
 };
 
 use lb_chain_service::Epoch;
+use lb_common_http_client::Slot;
 use lb_core::{
     mantle::Value,
     sdp::{Declaration, NumberOfEpochs, ProviderId, ServiceType},
@@ -20,7 +21,6 @@ use lb_testing_framework::{
     DeploymentBuilder, LbcEnv, NodeHttpClient, TopologyConfig as TfTopologyConfig,
 };
 use lb_utils::math::NonNegativeRatio;
-use lb_zone_sdk::Slot;
 use logos_blockchain_tests::{
     common::manual_cluster::{
         ManualNodeLayout, start_local_manual_cluster_with_layout, wait_for_nodes_tip_slot,
