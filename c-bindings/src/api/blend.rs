@@ -19,7 +19,7 @@ use multiaddr::PeerId;
 
 use crate::{
     LogosBlockchainNode,
-    api::{lifecycle::resolve_run_config, time::get_time_info_sync},
+    api::{cryptarchia::ensure_online, lifecycle::resolve_run_config, time::get_time_info_sync},
     errors::{OperationStatus, OperationStatusCode},
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
@@ -421,4 +421,102 @@ pub unsafe extern "C" fn blend_withdraw(node: *const LogosBlockchainNode) -> Ffi
         unlocks_at_epoch,
     };
     FfiBlendWithdrawResult::ok(unwrap_or_return_error!(to_json_cstring(&withdrawal)))
+}
+
+pub type FfiBlendRewardsResult = FfiStatusResult<*mut c_char>;
+
+/// Gets this epoch's Blend reward estimate for this node, as a JSON string.
+///
+/// Mirrors the referral program's `blend_rewards()`. The JSON holds the
+/// node's reward key (its zk id) alongside the paying epoch, pool amount,
+/// proof status, premium flag, estimated reward, and network sizes.
+///
+/// # Arguments
+///
+/// - `node`: A non-null pointer to a running [`LogosBlockchainNode`] instance.
+///
+/// # Returns
+///
+/// A [`FfiBlendRewardsResult`] containing a pointer to an allocated C string
+/// (the JSON-serialized rewards) on success, or an [`OperationStatus`] error on
+/// failure. The call fails immediately with a `ServiceError` when the node is
+/// not `Online`, rather than blocking, and with `NotFound` when the Blend
+/// service is not available.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+///
+/// # Memory Management
+///
+/// This function allocates memory for the output C string. The caller must
+/// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[must_use]
+#[panic_to_error]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiBlendRewardsResult {
+    return_error_if_null_pointer!(node);
+
+    let node = unsafe { &*node };
+
+    // The referral spec requires an immediate error when the node is not
+    // Online, never blocking. Checked first, before any relay call.
+    unwrap_or_return_error!(ensure_online(node));
+
+    let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
+    let overwatch_handle = node.get_overwatch_handle().clone();
+
+    let rewards_json: StatusResult<serde_json::Value> = runtime_handle.block_on(async {
+        let reward_key = lb_api_service::http::blend::blend_zk_id::<
+            BlendService<RuntimeServiceId>,
+            RuntimeServiceId,
+        >(&overwatch_handle)
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get blend reward key: {error}"),
+            )
+        })?;
+
+        let info = lb_api_service::http::blend::blend_rewards::<RuntimeServiceId>(
+            &overwatch_handle,
+            reward_key,
+        )
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get blend rewards: {error}"),
+            )
+        })?
+        .ok_or_else(|| {
+            OperationStatus::error(
+                OperationStatusCode::NotFound,
+                "Blend rewards are not available on this node.",
+            )
+        })?;
+
+        // The reward key is carried alongside the ledger-provided fields, so
+        // the JSON matches the referral spec's flat `blend_rewards()` shape.
+        let mut value = serde_json::to_value(&info).map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RuntimeError,
+                format!("Failed to serialize blend rewards: {error}"),
+            )
+        })?;
+        if let serde_json::Value::Object(map) = &mut value {
+            let reward_key_value = serde_json::to_value(reward_key).map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::RuntimeError,
+                    format!("Failed to serialize blend reward key: {error}"),
+                )
+            })?;
+            map.insert("reward_key".to_owned(), reward_key_value);
+        }
+        Ok(value)
+    });
+
+    let rewards_json = unwrap_or_return_error!(rewards_json);
+    FfiBlendRewardsResult::ok(unwrap_or_return_error!(to_json_cstring(&rewards_json)))
 }

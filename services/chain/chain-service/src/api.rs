@@ -20,6 +20,9 @@ use overwatch::{
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
 
+use lb_key_management_system_keys::keys::ZkPublicKey;
+use lb_ledger::mantle::sdp::rewards::blend::BlendRewardsInfo;
+
 use crate::{
     AppliedBlock, ChainServiceInfo, ConsensusMsg, CryptarchiaInfo, EpochStateQueryResult,
     LibUpdate, ProcessedBlockEvent, Query,
@@ -261,6 +264,32 @@ where
 
         rx.await.map_err(|relay_error| {
             ApiError::CommsFailure(format!("{relay_error} while receiving GetSdpSnapshot"))
+        })
+    }
+
+    /// The Blend reward state at the tip for the node identified by
+    /// `reward_key`, or `None` when no Blend service is registered.
+    pub async fn get_blend_rewards(
+        &self,
+        reward_key: ZkPublicKey,
+    ) -> Result<Option<BlendRewardsInfo>, ApiError> {
+        let (reply_channel, rx) = oneshot::channel();
+
+        self.relay
+            .send(
+                Query::GetBlendRewards {
+                    reward_key,
+                    reply_channel,
+                }
+                .into(),
+            )
+            .await
+            .map_err(|error| {
+                ApiError::CommsFailure(format!("{error} while sending GetBlendRewards"))
+            })?;
+
+        rx.await.map_err(|relay_error| {
+            ApiError::CommsFailure(format!("{relay_error} while receiving GetBlendRewards"))
         })
     }
 

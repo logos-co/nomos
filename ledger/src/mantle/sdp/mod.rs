@@ -308,6 +308,14 @@ impl SdpLedger {
         }
     }
 
+    /// The Blend network's reward state, if the Blend service is registered.
+    #[must_use]
+    pub fn blend_rewards(&self) -> Option<&blend::Rewards<RealProofsVerifier>> {
+        match self.services.get(&ServiceType::BlendNetwork)? {
+            Service::BlendNetwork(state) => Some(&state.rewards),
+        }
+    }
+
     pub fn from_genesis(
         config: &Config,
         utxo_tree: &UtxoTree,

@@ -149,6 +149,33 @@ impl TargetEpochTracker {
         }
     }
 
+    /// Number of activity proofs submitted for the target epoch so far.
+    #[must_use]
+    pub fn num_submitted_proofs(&self) -> u64 {
+        self.submitted_proofs.size() as u64
+    }
+
+    /// Number of premium providers (those at the minimum Hamming distance).
+    #[must_use]
+    pub fn num_premium_providers(&self) -> u64 {
+        self.min_hamming_distance.providers.size() as u64
+    }
+
+    /// The provider that submitted a proof under `reward_key`, if any.
+    #[must_use]
+    pub fn provider_for_zk(&self, reward_key: &ZkPublicKey) -> Option<ProviderId> {
+        self.submitted_proofs
+            .iter()
+            .find_map(|(provider_id, (zk_id, _))| (zk_id == reward_key).then_some(*provider_id))
+    }
+
+    /// Whether `provider_id`'s submitted proof is among the premium (minimum
+    /// Hamming distance) set, which earns double the base reward.
+    #[must_use]
+    pub fn is_premium(&self, provider_id: &ProviderId) -> bool {
+        self.min_hamming_distance.providers.contains(provider_id)
+    }
+
     pub fn insert(
         &self,
         provider_id: ProviderId,

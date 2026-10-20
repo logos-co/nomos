@@ -2,11 +2,15 @@ use std::fmt::{Debug, Display};
 
 use lb_binary_codec::bincode::{DeserializeOp, SerializeOp};
 use lb_blend_service::message::{DataPayload, NetworkInfo, ProxyServiceMessage, ServiceMessage};
+use lb_chain_service::api::CryptarchiaServiceApi;
 use lb_core::mantle::Value;
 use lb_key_management_system_keys::keys::ZkPublicKey;
+use lb_ledger::mantle::sdp::rewards::blend::BlendRewardsInfo;
 use lb_network_service::backends::libp2p::PeerId;
 use overwatch::services::{AsServiceId, ServiceData};
 use tokio::sync::oneshot;
+
+use super::consensus::Cryptarchia;
 
 pub async fn blend_info<BlendService, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -26,6 +30,21 @@ where
     receiver
         .await
         .map_err(|e| Box::new(e) as overwatch::DynError)
+}
+
+/// The Blend reward state at the tip for the node identified by `reward_key`,
+/// or `None` when no Blend service is registered on the chain.
+pub async fn blend_rewards<RuntimeServiceId>(
+    handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
+    reward_key: ZkPublicKey,
+) -> Result<Option<BlendRewardsInfo>, overwatch::DynError>
+where
+    RuntimeServiceId:
+        Debug + Send + Sync + Display + 'static + AsServiceId<Cryptarchia<RuntimeServiceId>>,
+{
+    let chain_api =
+        CryptarchiaServiceApi::<Cryptarchia<RuntimeServiceId>>::from_overwatch_handle(handle).await;
+    Ok(chain_api.get_blend_rewards(reward_key).await?)
 }
 
 pub async fn blend_zk_id<BlendService, RuntimeServiceId>(

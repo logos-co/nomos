@@ -113,6 +113,21 @@ pub(crate) fn get_cryptarchia_info_sync(
     Ok(info)
 }
 
+/// Returns an error unless the node's chain is in [`State::Online`].
+///
+/// Used to gate calls that must fail fast when the node is still bootstrapping
+/// or has not started, rather than blocking until it is ready.
+pub(crate) fn ensure_online(node: &LogosBlockchainNode) -> Result<(), OperationStatus> {
+    let info = get_cryptarchia_info_sync(node)?;
+    match State::new(info.cryptarchia_info.state, info.phase) {
+        State::Online => Ok(()),
+        State::Bootstrapping | State::NotStarted => Err(OperationStatus::error(
+            OperationStatusCode::ServiceError,
+            "Node is not Online.",
+        )),
+    }
+}
+
 pub type FfiCryptarchiaInfoResult = FfiStatusResult<*mut CryptarchiaInfo>;
 
 /// Get the current Cryptarchia info.
