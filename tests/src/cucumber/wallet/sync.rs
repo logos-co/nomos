@@ -65,7 +65,13 @@ pub async fn current_wallet_output_balance(
     wallet: &WalletInfo,
     wallet_state_type: WalletOutputState,
 ) -> Result<WalletBalance, StepError> {
-    if wallet.is_node_wallet() {
+    // The change of a PoW claim is a note only the claiming node's wallet
+    // knows the opening of, so a mining wallet is read from its node too.
+    let is_mining_wallet = world
+        .mining_claim_addresses
+        .values()
+        .any(|claim_address| wallet.public_key().ok() == Some(*claim_address));
+    if wallet.is_node_wallet() || is_mining_wallet {
         let node =
             world
                 .nodes_info
@@ -346,6 +352,30 @@ pub async fn wait_wallet_send_ready<S: BuildHasher + Sync>(
 
     let (min_required_outputs, min_value_per_transaction) = readiness.get_minimums();
     let mut last_msg = String::new();
+
+    // A node wallet is not scanned: its node selects the inputs, so readiness
+    // is its node's balance.
+    let wallet = world.resolve_wallet(wallet_name)?;
+    if wallet.is_node_wallet() {
+        while start.elapsed() < Duration::from_secs(timeout_seconds) {
+            let best_node_info =
+                get_best_node_info(world, wallet_name, Some(&mut last_msg)).await?;
+            last_available_value =
+                current_wallet_output_balance(world, step, &wallet, WalletOutputState::OnChain)
+                    .await?
+                    .value;
+            if last_available_value >= required_available {
+                return Ok(best_node_info);
+            }
+            sleep(Duration::from_millis(300)).await;
+        }
+        return Err(StepError::StepFail {
+            message: format!(
+                "Timed out waiting for node wallet '{wallet_name}' to hold {required_available}, \
+                last observed: {last_available_value}"
+            ),
+        });
+    }
 
     while start.elapsed() < Duration::from_secs(timeout_seconds) {
         // Ensure we have a converged majority before proceeding

@@ -10,13 +10,17 @@ use std::{
 };
 
 use futures::{StreamExt as _, stream::FuturesUnordered};
+use lb_common_http_client::CommonHttpClient;
 use lb_core::mantle::{
-    SignedOps, TxHash,
+    Note, SignedOps, TxHash,
     ledger::verification_mode::StandardMode,
+    note_set::LEDGER_SET,
     notes::NoteNullifier,
     transactions::{GasPrices, OpProofs, states::Preverified},
 };
-use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
+use lb_http_api_common::bodies::wallet::{
+    import::WalletImportNoteRequestBody, transfer_funds::WalletTransferFundsRequestBody,
+};
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_testing_framework::{NodeHttpClient, configs::wallet::WalletAccount, is_truthy_env};
 use lb_wallet::{OwnedNote, WalletError};
@@ -91,7 +95,8 @@ pub(crate) struct ReservedUserWalletSubmission {
 }
 
 const CONTINUOUS_WORKLOAD_DUST_RATIO: u64 = 15;
-// A transfer takes at most `MAX_TRANSACTION_INPUTS` inputs, one of them the primary.
+// A transfer takes at most `MAX_TRANSACTION_INPUTS` inputs, one of them the
+// primary.
 const MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS: usize = MAX_TRANSACTION_INPUTS - 1;
 
 const fn continuous_workload_dust_threshold(output_value: u64, base_tx_fee: u64) -> u64 {
@@ -339,6 +344,10 @@ impl SignedUserWalletSubmission {
 
     pub(crate) const fn signed_tx(&self) -> &SignedOps<Preverified, StandardMode> {
         self.submission.signed_tx()
+    }
+
+    pub(crate) fn outputs(&self) -> &[Note] {
+        self.submission.outputs()
     }
 
     #[must_use]
@@ -820,6 +829,9 @@ pub(crate) async fn submit_signed_user_wallet_submissions_to_nodes(
     validate_submission_fee_horizon(world, &same_tip_nodes[0].1, fee_policy).await?;
     let preflight_duration = preflight_started.elapsed();
     info!(target: TARGET, preflight_ms = preflight_duration.as_millis(), "Burst fee-horizon preflight completed");
+    for signed_submission in &signed_submissions {
+        import_node_wallet_outputs(world, signed_submission.outputs()).await?;
+    }
 
     let network_submission_started = Instant::now();
     info!(target: TARGET, "Burst network submission started");
@@ -1063,8 +1075,8 @@ pub async fn create_and_submit_transaction(
     Ok(tx_hashes_hex)
 }
 
-/// Submit one transaction through a node-owned wallet, directing change to the
-/// receiver.
+/// Submit one transaction through a node-owned wallet, directing change to
+/// `change_public_key`.
 ///
 /// Drain flows call this sequentially and wait for inclusion between calls so
 /// the node wallet can observe each spent input.
@@ -1222,6 +1234,7 @@ pub async fn submit_prepared_user_wallet_transaction(
             warn!(target: TARGET, "Step `{}` error: {e}", step);
         })?;
     let tx_hash = signed_submission.tx_hash();
+    import_node_wallet_outputs(world, signed_submission.outputs()).await?;
 
     let (_, best_node_client, _) =
         sanitize_best_node_info(world, &wallet.wallet_name, best_node_info).await?;
@@ -1475,6 +1488,72 @@ async fn submit_user_wallet_transaction(
     .await
 }
 
+// The outputs paid to a node wallet key, once each, with the node holding it.
+fn node_wallet_outputs(
+    node_keys: &HashMap<ZkPublicKey, String>,
+    outputs: &[Note],
+) -> Vec<(String, Note)> {
+    let mut seen = HashSet::new();
+    outputs
+        .iter()
+        .filter(|note| seen.insert(note.commitment()))
+        .filter_map(|note| {
+            node_keys
+                .get(&note.public_key)
+                .map(|node_name| (node_name.clone(), *note))
+        })
+        .collect()
+}
+
+// A node wallet adopts a note paid to one of its keys only when it knows its
+// opening before the block revealing its commitment, so the outputs are
+// imported into the node before the transaction is submitted.
+pub(crate) async fn import_node_wallet_outputs(
+    world: &CucumberWorld,
+    outputs: &[Note],
+) -> Result<(), StepError> {
+    let node_keys = world
+        .wallet_registry
+        .wallet_info
+        .values()
+        .filter(|wallet| wallet.is_node_wallet())
+        .filter_map(|wallet| Some((wallet.public_key().ok()?, wallet.node_name.clone())))
+        .collect();
+    for (node_name, note) in node_wallet_outputs(&node_keys, outputs) {
+        if world.nodes_info.contains_key(&node_name) {
+            import_notes_into_node(world, &node_name, [note]).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Imports `notes` into the wallet of node `node_name`.
+pub(crate) async fn import_notes_into_node(
+    world: &CucumberWorld,
+    node_name: &str,
+    notes: impl IntoIterator<Item = Note>,
+) -> Result<(), StepError> {
+    let node_url = world
+        .resolve_node_http_client(node_name)?
+        .base_url()
+        .clone();
+    for note in notes {
+        CommonHttpClient::new(None)
+            .import_note(
+                node_url.clone(),
+                WalletImportNoteRequestBody {
+                    note,
+                    note_set: LEDGER_SET,
+                },
+            )
+            .await
+            .map_err(|error| StepError::StepFail {
+                message: format!("note import into node `{node_name}` failed: {error}"),
+            })?;
+    }
+    Ok(())
+}
+
 fn user_wallet_funding_resources(
     wallet_account: &WalletAccount,
     sender_available_utxos: &[OwnedNote],
@@ -1685,10 +1764,7 @@ fn group_key_for_wallet(world: &CucumberWorld, wallet_name: &str) -> Result<Stri
 #[cfg(test)]
 mod cache_removal_tests {
     use lb_chain_service::Epoch;
-    use lb_core::{
-        header::HeaderId,
-        mantle::{Note, note_set::LEDGER_SET},
-    };
+    use lb_core::header::HeaderId;
     use lb_groth16::Fr;
     use lb_mmr::MerklePath;
     use rand::{SeedableRng as _, seq::SliceRandom as _};
@@ -2065,13 +2141,8 @@ mod cache_removal_tests {
         let primary_candidates = pool.primary_candidates();
         let selected_primary_count = (1..=primary_candidates.len())
             .find(|count| {
-                prepare_all_provided(
-                    &primary_candidates[..*count],
-                    8_000,
-                    unit_gas_prices(),
-                    0,
-                )
-                .is_ok()
+                prepare_all_provided(&primary_candidates[..*count], 8_000, unit_gas_prices(), 0)
+                    .is_ok()
             })
             .expect("large primary should fund the transaction");
         let base_fee = 0;
@@ -2253,9 +2324,7 @@ mod cache_removal_tests {
 
         assert_eq!(primary_candidates.len(), MAX_TRANSACTION_INPUTS);
         assert_eq!(pool.len(), 300);
-        assert!(
-            prepare_all_provided(&primary_candidates, 1_000, unit_gas_prices(), 0,).is_err()
-        );
+        assert!(prepare_all_provided(&primary_candidates, 1_000, unit_gas_prices(), 0,).is_err());
     }
 
     #[test]
@@ -2394,13 +2463,8 @@ mod cache_removal_tests {
         for dust_count in (0..=candidates.dust.len()).rev() {
             attempts += 1;
             assert!(
-                prepare_all_provided(
-                    &candidates.inputs(dust_count),
-                    15_000,
-                    unit_gas_prices(),
-                    0,
-                )
-                .is_err()
+                prepare_all_provided(&candidates.inputs(dust_count), 15_000, unit_gas_prices(), 0,)
+                    .is_err()
             );
         }
 
@@ -2581,5 +2645,26 @@ mod cache_removal_tests {
         }
 
         assert_eq!(pool.len(), 0, "all eleven sender outputs funded a transfer");
+    }
+
+    #[test]
+    fn node_wallet_outputs_are_the_node_key_outputs_once_each() {
+        let user_pk = ZkPublicKey::new(1u8.into());
+        let node_pk = ZkPublicKey::new(2u8.into());
+        let node_keys = HashMap::from([(node_pk, "NODE_1".to_owned())]);
+        let payments = (0..6u64)
+            .map(|nonce| Note::new(100, Fr::from(nonce), node_pk))
+            .collect::<Vec<_>>();
+        let mut outputs = payments.clone();
+        outputs.push(Note::new(400, Fr::from(6u64), user_pk));
+        outputs.push(payments[0]);
+
+        assert_eq!(
+            node_wallet_outputs(&node_keys, &outputs),
+            payments
+                .into_iter()
+                .map(|note| ("NODE_1".to_owned(), note))
+                .collect::<Vec<_>>()
+        );
     }
 }

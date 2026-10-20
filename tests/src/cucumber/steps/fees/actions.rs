@@ -36,10 +36,14 @@ use tokio::time::timeout;
 use tracing::info;
 
 use crate::{
-    common::fee_spec::{self, GasPriceRecord},
+    common::{
+        fee_spec::{self, GasPriceRecord},
+        wallet::record_note_openings,
+    },
     cucumber::{
         error::{StepError, StepResult},
         steps::TARGET,
+        wallet::submissions::import_notes_into_node,
         world::{CucumberWorld, PreparedPriorityFee, WalletType},
     },
 };
@@ -59,7 +63,7 @@ pub async fn prepare_self_transfer_with_tip(
     let client = world.resolve_node_http_client(node_name)?;
     let prices = live_gas_prices(&client, step).await?;
 
-    let signed_tx = fee_spec::self_transfer_paying_fee_at(
+    let (signed_tx, outputs) = fee_spec::self_transfer_paying_fee_at(
         &world.chain.genesis_block_utxos,
         &account,
         &prices,
@@ -71,6 +75,12 @@ pub async fn prepare_self_transfer_with_tip(
             message: format!("Step `{}` error: {message}", step.value),
         }
     })?;
+
+    // The wallet's node adopts the output only when it knows its opening
+    // before the block revealing its commitment.
+    record_note_openings(outputs.iter().copied());
+    let wallet_node = world.resolve_wallet(wallet_name)?.node_name;
+    import_notes_into_node(world, &wallet_node, outputs).await?;
 
     info!(
         target: TARGET,
@@ -554,14 +564,14 @@ pub async fn concurrently_fund_transfers(
     let mut submitted = Vec::with_capacity(responses.len());
 
     for (alias, response) in responses {
-        let hash = response
-            .map_err(|source| StepError::StepFail {
-                message: format!(
-                    "Step `{}` error: concurrent transfer `{alias}` failed: {source}",
-                    step.value
-                ),
-            })?
-            .tx_hash;
+        let response = response.map_err(|source| StepError::StepFail {
+            message: format!(
+                "Step `{}` error: concurrent transfer `{alias}` failed: {source}",
+                step.value
+            ),
+        })?;
+        record_note_openings([response.recipient_note]);
+        let hash = response.tx_hash;
 
         if !hashes.insert(hash) {
             return Err(StepError::StepFail {

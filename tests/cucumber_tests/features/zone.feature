@@ -11,7 +11,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -45,7 +45,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -80,7 +80,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -122,7 +122,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A      |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     # Take the node down: the sequencer enters its reconnect loop, but its
@@ -163,7 +163,7 @@ Feature: Zone SDK
       | alias |
       | SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" publishes the following zone messages:
@@ -227,7 +227,7 @@ Feature: Zone SDK
       | SEQ_B |
       | SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 60 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     When I stop zone sequencer "SEQ_A"
@@ -251,7 +251,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
@@ -285,7 +285,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
@@ -340,7 +340,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
@@ -400,7 +400,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
@@ -449,7 +449,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
@@ -478,7 +478,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers          |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B, SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |
@@ -532,7 +532,7 @@ Feature: Zone SDK
       | bob     | 10      |
       | charlie | 10      |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
@@ -566,7 +566,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers          |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B, SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 60 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
@@ -593,7 +593,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 200 notes of 3000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 60 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     And sequencer "SEQ_A" submits zone config transaction:
@@ -621,7 +621,7 @@ Feature: Zone SDK
       | node_name | account_index | wallet_name | connected_to | sequencers   |
       | NODE_1    | 1             | WALLET_1A   |              | SEQ_A, SEQ_B |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 30 notes of 1000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 12 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencers:
       | alias | indexer | pending_submit_depth | passive_republish_orphans |

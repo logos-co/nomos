@@ -100,9 +100,22 @@ async fn channel_deposit() {
 
     // The null channel of the genesis inscription has no note set, so the
     // deposit goes to a channel this test creates.
+    let balance_before_channel = get_wallet_balance(&validator.client, funding_pk).await;
     let channel_id = create_channel(&validator.client, &mut block_stream, funding_pk).await;
 
-    let balance_before = get_wallet_balance(&validator.client, funding_pk).await;
+    // The deposit is funded from the inscription's change, so the wallet has
+    // to apply the block including the inscription first.
+    let balance_before = timeout(Duration::from_mins(1), async {
+        loop {
+            let balance = get_wallet_balance(&validator.client, funding_pk).await;
+            if balance != balance_before_channel {
+                return balance;
+            }
+            sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .expect("timed out waiting for the wallet to apply the inscription");
 
     let deposit_metadata: Metadata = format!("Mint {deposit_amount} to Alice in Zone")
         .into_bytes()

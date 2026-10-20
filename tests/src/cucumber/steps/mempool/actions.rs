@@ -27,8 +27,9 @@ use crate::{
         steps::{TARGET, transactions::tracked_transactions::create_stateless_invalid_transaction},
         utils::{tx_hash_to_hex, user_config_from_node_yaml},
         wallet::submissions::{
-            SignedUserWalletSubmission, prepare_user_wallet_transaction_submission,
-            record_signed_user_wallet_submission, sign_prepared_user_wallet_transaction,
+            SignedUserWalletSubmission, import_node_wallet_outputs,
+            prepare_user_wallet_transaction_submission, record_signed_user_wallet_submission,
+            sign_prepared_user_wallet_transaction,
         },
         world::{CucumberWorld, NodeInfo},
     },
@@ -51,6 +52,7 @@ pub async fn prepare_transfer_transaction(
         prepare_user_wallet_transaction_submission(world, step, &sender_wallet_name, intent, None)
             .await?;
     let signed = sign_prepared_user_wallet_transaction(step, prepared, OpProofs::empty())?;
+    import_node_wallet_outputs(world, signed.outputs()).await?;
     let tx_hash = record_prepared_transaction(world, transaction_alias.clone(), &signed)?;
 
     report_prepared_transaction(

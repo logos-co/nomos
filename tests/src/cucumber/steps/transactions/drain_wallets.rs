@@ -318,12 +318,14 @@ pub async fn drain_node_wallet(
                 target: TARGET, "Drain wallet: `{}`, amount: {amount}, estimated fee: {fee}",
                 sender.wallet_name,
             );
+            // The node keeps its change, the scanner of the receiver could
+            // never learn its opening.
             let submit_response = submit_node_wallet_transfer(
                 world,
                 &sender.wallet_name,
                 receiver_pk,
                 amount,
-                receiver_pk,
+                sender.public_key()?,
             )
             .await;
             match submit_response {

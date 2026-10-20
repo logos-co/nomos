@@ -54,7 +54,7 @@ use crate::{
     BIN_PATH_RELEASE,
     common::wallet::{
         GenesisNotes, TrackedWalletKeys, TrackedWalletKeysBySource, TrackedWallets,
-        WalletDiagnostics,
+        WalletDiagnostics, record_note_openings,
         scanner::{
             ScannerSeed, SharedWalletScannerState, WalletScannerRuntime, WalletScannerState,
             build_fork_group_scanner_configs, start_wallet_scanners, wait_for_scanner_catch_up,
@@ -2674,6 +2674,8 @@ impl CucumberWorld {
                         wallet.wallet_name, wallet.node_name
                     ),
                 })??;
+        // A scanned wallet adopts the note once it knows its opening.
+        record_note_openings([response.recipient_note]);
 
         Ok(response.tx_hash)
     }

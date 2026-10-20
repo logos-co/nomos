@@ -31,6 +31,11 @@ pub(super) fn sign_prepared_wallet_transaction(
     reserved_inputs: WalletReservedInputs,
     leading_op_proofs: OpProofs,
 ) -> Result<SignedWalletTransaction, WalletTransactionError> {
+    let outputs = funded_builder
+        .openings()
+        .into_values()
+        .flat_map(|opening| opening.outputs)
+        .collect();
     let mantle_tx = funded_builder.build()?;
     let op_proofs = {
         let mut leading_op_proofs_vec = leading_op_proofs.into_inner().into_inner();
@@ -60,6 +65,7 @@ pub(super) fn sign_prepared_wallet_transaction(
     Ok(SignedWalletTransaction::new(
         signed_tx,
         tx_hash,
+        outputs,
         reserved_inputs,
         paid_fee,
         mandatory_fee_at_preparation,

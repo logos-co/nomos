@@ -137,7 +137,8 @@ pub fn spec_block_execution_gas(block: &ApiBlock) -> Result<u64, String> {
     Ok(total)
 }
 
-/// Builds a signed self-transfer paying its mandatory fee plus `tip`.
+/// Builds a signed self-transfer paying its mandatory fee plus `tip`, with the
+/// openings of the notes it creates.
 ///
 /// A negative `tip` deliberately underfunds it. Spends the account's genesis
 /// note with a `ZkTransfer` against the genesis ledger set root. The fee is
@@ -153,7 +154,7 @@ pub fn self_transfer_paying_fee_at(
     account: &WalletAccount,
     prices: &GasPrices,
     tip: i128,
-) -> SignedOps<Preverified, StandardMode> {
+) -> (SignedOps<Preverified, StandardMode>, Vec<Note>) {
     const MAX_FEE_CONVERGENCE_ATTEMPTS: usize = 32;
 
     let secret_key = *account.secret_key.as_fr();
@@ -257,10 +258,11 @@ pub fn self_transfer_paying_fee_at(
     );
     let op_proofs = OpProofs::from([OpProof::ZkTransfer(ZkTransferProof::new(proof))]);
 
-    SignedOps::from_parts(mantle_tx, op_proofs)
+    let signed_tx = SignedOps::from_parts(mantle_tx, op_proofs)
         .expect("signed transaction should build")
         .preverify()
-        .expect("signed transaction should be valid")
+        .expect("signed transaction should be valid");
+    (signed_tx, outputs)
 }
 
 /// The storage fee is charged on a predicted size; it has to match the real
