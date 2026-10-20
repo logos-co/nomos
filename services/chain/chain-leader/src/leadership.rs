@@ -325,7 +325,7 @@ where
         .ok()?
         .ok()?;
     let eligible_utxos = wallet_api
-        .get_leader_aged_notes(Some(wallet_tip))
+        .get_leader_aged_notes(Some(wallet_tip), epoch_state.epoch)
         .await
         .ok()?;
     let eligible = eligible_utxos

@@ -195,14 +195,48 @@ impl WalletState {
     // snapshot.
     #[must_use]
     pub fn aged_notes(&self) -> Vec<(OwnedNote, MerklePath)> {
+        self.owned_notes_with(&self.aged_paths)
+    }
+
+    // The owned notes with their path in the aged snapshot of `epoch`, which
+    // the first block of `epoch` on top of this state is proven against.
+    #[must_use]
+    pub fn aged_notes_at(&self, epoch: Epoch) -> Vec<(OwnedNote, MerklePath)> {
+        self.owned_notes_with(&self.epoch_paths(epoch).0)
+    }
+
+    fn owned_notes_with(
+        &self,
+        paths: &rpds::HashTrieMapSync<NoteCommitment, MerklePath>,
+    ) -> Vec<(OwnedNote, MerklePath)> {
         self.notes
             .iter()
             .filter_map(|(commitment, owned)| {
-                self.aged_paths
+                paths
                     .get(commitment)
                     .map(|path| (owned.clone(), path.clone()))
             })
             .collect()
+    }
+
+    // The aged and next aged paths of a block of `epoch` on top of this state:
+    // the ledger snapshots the sets of the parent, before any update of the
+    // block.
+    fn epoch_paths(
+        &self,
+        epoch: Epoch,
+    ) -> (
+        rpds::HashTrieMapSync<NoteCommitment, MerklePath>,
+        rpds::HashTrieMapSync<NoteCommitment, MerklePath>,
+    ) {
+        match epoch.into_inner().checked_sub(self.epoch.into_inner()) {
+            None | Some(0) => (self.aged_paths.clone(), self.next_aged_paths.clone()),
+            Some(1) => (self.next_aged_paths.clone(), current_paths(&self.notes)),
+            Some(_) => {
+                let paths = current_paths(&self.notes);
+                (paths.clone(), paths)
+            }
+        }
     }
 
     pub fn apply_block(
@@ -210,20 +244,7 @@ impl WalletState {
         known: &KnownNotes,
         block: &WalletBlock,
     ) -> Result<Self, WalletError> {
-        // The ledger snapshots the sets of the parent, before any update of
-        // the block.
-        let (aged_paths, next_aged_paths) = match block
-            .epoch
-            .into_inner()
-            .checked_sub(self.epoch.into_inner())
-        {
-            None | Some(0) => (self.aged_paths.clone(), self.next_aged_paths.clone()),
-            Some(1) => (self.next_aged_paths.clone(), current_paths(&self.notes)),
-            Some(_) => {
-                let paths = current_paths(&self.notes);
-                (paths.clone(), paths)
-            }
-        };
+        let (aged_paths, next_aged_paths) = self.epoch_paths(block.epoch);
 
         let mut commitments = self.commitments.clone();
         let mut notes = self.notes.clone();
@@ -836,6 +857,33 @@ mod tests {
         let state = append(&state, 4, 4, 4); // epochs skipped: the sets of the parent
         assert!(aged_root_is(&state, 3));
         assert_eq!(state.aged_notes().len(), 1);
+    }
+
+    #[test]
+    fn aged_notes_of_a_later_epoch_are_those_its_first_block_will_use() {
+        let owned = Note::new(100, Fr::from(1u64), pk(1));
+        let known = known(&[(owned, LEDGER_SET, nullifier(1))]);
+        let state = WalletState::from_genesis(&known, &[owned], &[], Epoch::new(0)).unwrap();
+        let state = state
+            .apply_block(
+                &known,
+                &block(1, 0, 1, vec![appended(LEDGER_SET, vec![commitment(1)])]),
+            )
+            .unwrap();
+        let state = state
+            .apply_block(
+                &known,
+                &block(2, 1, 1, vec![appended(LEDGER_SET, vec![commitment(2)])]),
+            )
+            .unwrap();
+        for epoch in 1..=3 {
+            let first_block = state.apply_block(&known, &block(3, 2, epoch, vec![])).unwrap();
+            assert_eq!(
+                state.aged_notes_at(Epoch::new(epoch)),
+                first_block.aged_notes(),
+                "epoch {epoch}"
+            );
+        }
     }
 
     #[test]

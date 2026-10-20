@@ -11,6 +11,7 @@ use lb_core::{
         },
     },
 };
+use lb_chain_service::Epoch;
 use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey, secured_key::SecuredKey};
 use lb_utils::bounded::BoundedError;
 use lb_wallet::{KnownNote, OwnedNote, WalletBalance};
@@ -318,11 +319,16 @@ where
     pub async fn get_leader_aged_notes(
         &self,
         tip: Option<HeaderId>,
+        epoch: Epoch,
     ) -> Result<TipResponse<Vec<AgedNote>>, WalletApiError> {
         let (resp_tx, rx) = oneshot::channel();
 
         self.relay
-            .send(WalletMsg::GetLeaderAgedNotes { tip, resp_tx })
+            .send(WalletMsg::GetLeaderAgedNotes {
+                tip,
+                epoch,
+                resp_tx,
+            })
             .await?;
 
         Ok(rx.await??)

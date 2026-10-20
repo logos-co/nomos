@@ -54,7 +54,7 @@ use lb_services_utils::{
 use lb_storage_service::{api::StorageApi, recovery::StorageRecoveryBackend};
 use lb_utils::bounded::BoundedError;
 use lb_wallet::{
-    KnownNote, OwnedNote, WalletBalance, WalletBlock, WalletError,
+    KnownNote, OwnedNote, WalletBalance, WalletBlock, WalletError, WalletState,
     transaction::{OpWitness, WitnessContext, op_witness_at, op_witnesses},
 };
 use overwatch::{
@@ -190,6 +190,7 @@ pub enum WalletMsg {
     },
     GetLeaderAgedNotes {
         tip: Option<HeaderId>,
+        epoch: Epoch,
         resp_tx: Sender<Result<TipResponse<Vec<AgedNote>>, WalletServiceError>>,
     },
     GetLeaderAgedNotesInfo {
@@ -795,8 +796,14 @@ where
                     debug!(target: LOG_TARGET, "Failed to respond to SignTxWithEd25519");
                 }
             }
-            WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
-                let response = Self::leader_aged_notes_at(tip, state.wallet(), cryptarchia).await;
+            WalletMsg::GetLeaderAgedNotes {
+                tip,
+                epoch,
+                resp_tx,
+            } => {
+                let response =
+                    Self::leader_aged_notes_for_epoch(tip, epoch, state.wallet(), cryptarchia)
+                        .await;
                 if resp_tx.send(response).is_err() {
                     debug!(target: LOG_TARGET, "Failed to respond to GetLeaderAgedNotes");
                 }
@@ -1096,6 +1103,29 @@ where
         wallet: &Wallet,
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     ) -> Result<TipResponse<Vec<AgedNote>>, WalletServiceError> {
+        Self::leader_notes_with(tip, wallet, cryptarchia, WalletState::aged_notes).await
+    }
+
+    // The leader's eligible notes for a slot of `epoch`, which can be past the
+    // epoch of `tip` when no block was made since.
+    async fn leader_aged_notes_for_epoch(
+        tip: Option<HeaderId>,
+        epoch: Epoch,
+        wallet: &Wallet,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
+    ) -> Result<TipResponse<Vec<AgedNote>>, WalletServiceError> {
+        Self::leader_notes_with(tip, wallet, cryptarchia, |state| {
+            state.aged_notes_at(epoch)
+        })
+        .await
+    }
+
+    async fn leader_notes_with(
+        tip: Option<HeaderId>,
+        wallet: &Wallet,
+        cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
+        aged_notes: impl FnOnce(&WalletState) -> Vec<(OwnedNote, MerklePath)>,
+    ) -> Result<TipResponse<Vec<AgedNote>>, WalletServiceError> {
         let tip = Self::msg_tip_or_latest(tip, cryptarchia).await?;
 
         let wallet_state = wallet.wallet_state_at(tip).map_err(|err| {
@@ -1103,8 +1133,7 @@ where
             WalletServiceError::FailedToFetchWalletStateForBlock(tip)
         })?;
 
-        let eligible_notes = wallet_state
-            .aged_notes()
+        let eligible_notes = aged_notes(&wallet_state)
             .into_iter()
             .filter_map(|(note, aged_path)| {
                 wallet
