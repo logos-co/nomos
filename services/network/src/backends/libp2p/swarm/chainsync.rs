@@ -112,13 +112,13 @@ impl From<lb_cryptarchia_sync::Event> for ChainSyncEvent {
         match event {
             lb_cryptarchia_sync::Event::BlocksRequest {
                 target_block,
-                local_tip,
+                requester_tip,
                 latest_immutable_block,
                 additional_blocks,
                 reply_sender,
             } => Self::BlocksRequest {
                 target_block,
-                local_tip,
+                requester_tip,
                 latest_immutable_block,
                 additional_blocks,
                 reply_sender,

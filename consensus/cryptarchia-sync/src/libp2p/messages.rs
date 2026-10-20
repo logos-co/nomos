@@ -64,7 +64,7 @@ pub struct BlocksRequest {
 /// A set of block identifiers the syncing peer already knows.
 #[derive(Debug, Serialize, Clone)]
 pub struct KnownBlocks {
-    /// The local canonical chain latest block.
+    /// The requester's canonical chain tip.
     pub local_tip: HeaderId,
     /// The latest immutable block.
     pub latest_immutable_block: HeaderId,

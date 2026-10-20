@@ -32,19 +32,19 @@ use crate::{
     messages::{SerialisedBlock, TipResponse},
 };
 
-type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksResponseReader, ChainSyncError>>;
+type SendingBlocksRequestFuture = BoxFuture<'static, Result<BlocksResponseReader, ChainSyncError>>;
 
 type SendingTipRequestFuture = BoxFuture<'static, Result<TipResponseReader, ChainSyncError>>;
 
-type ReceivingBlocksResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type ReceivingBlocksResponseFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type ReceivingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type ReceivingTipResponseFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type SendingBlocksResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type SendingBlocksResponseFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type SendingTipResponsesFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
+type SendingTipResponseFuture = BoxFuture<'static, Result<(), ChainSyncError>>;
 
-type ReceivingRequestsFuture = BoxFuture<'static, Result<ReceivedRequest, ChainSyncError>>;
+type ReceivingRequestFuture = BoxFuture<'static, Result<ReceivedRequest, ChainSyncError>>;
 
 const LOG_TARGET: &str = cryptarchia::sync::libp2p::REQUESTS;
 
@@ -103,8 +103,8 @@ pub enum Event {
     BlocksRequest {
         /// Return blocks up to `target_block`.
         target_block: HeaderId,
-        /// The local canonical chain latest block.
-        local_tip: HeaderId,
+        /// The requester's canonical chain tip.
+        requester_tip: HeaderId,
         /// The latest immutable block.
         latest_immutable_block: HeaderId,
         /// The list of additional blocks that the requester has.
@@ -129,23 +129,24 @@ pub struct Behaviour {
     /// block because initially we don't know which request we receive over
     /// stream. After reading the request, we use dedicated `FuturesUnordered`,
     /// either `sending_block_responses` or `sending_tip_responses`.
-    receiving_requests: FuturesUnordered<ReceivingRequestsFuture>,
+    receiving_requests: FuturesUnordered<ReceivingRequestFuture>,
     /// Futures for sending block download requests. After the request is
-    /// read, reading blocks are handled by `receiving_block_responses`.
-    sending_block_requests: FuturesUnordered<SendingBlocksRequestsFuture>,
-    /// Futures for managing the progress of locally initiated block downloads.
-    receiving_block_responses: FuturesUnordered<ReceivingBlocksResponsesFuture>,
+    /// sent, the response is handled by `receiving_block_responses`.
+    sending_block_requests: FuturesUnordered<SendingBlocksRequestFuture>,
+    /// Futures for handing the blocks response of locally initiated block
+    /// downloads to the requester, as a stream read lazily from the peer.
+    receiving_block_responses: FuturesUnordered<ReceivingBlocksResponseFuture>,
     /// Futures for managing the progress of externally initiated block
     /// downloads.
-    sending_block_responses: FuturesUnordered<SendingBlocksResponsesFuture>,
+    sending_block_responses: FuturesUnordered<SendingBlocksResponseFuture>,
     /// Futures for sending tip requests. After the request is
-    /// read, the reading tip is handled by `receiving_tip_responses`.
+    /// sent, the response is handled by `receiving_tip_responses`.
     sending_tip_requests: FuturesUnordered<SendingTipRequestFuture>,
     /// Futures for managing the progress of locally initiated tip requests.
-    receiving_tip_responses: FuturesUnordered<ReceivingTipResponsesFuture>,
+    receiving_tip_responses: FuturesUnordered<ReceivingTipResponseFuture>,
     /// Futures for managing the progress of externally initiated tip
     /// requests.
-    sending_tip_responses: FuturesUnordered<SendingTipResponsesFuture>,
+    sending_tip_responses: FuturesUnordered<SendingTipResponseFuture>,
     /// Futures for closing incoming streams that were rejected due to excess
     /// requests.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
@@ -270,7 +271,7 @@ impl Behaviour {
 
         Poll::Ready(ToSwarm::GenerateEvent(Event::BlocksRequest {
             target_block: request.target_block,
-            local_tip: request.known_blocks.local_tip,
+            requester_tip: request.known_blocks.local_tip,
             latest_immutable_block: request.known_blocks.latest_immutable_block,
             additional_blocks: request.known_blocks.additional_blocks,
             reply_sender,

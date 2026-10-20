@@ -29,8 +29,8 @@ pub enum ChainSyncEvent {
     BlocksRequest {
         /// Return blocks up to `target_block`.
         target_block: HeaderId,
-        /// The local canonical chain latest block.
-        local_tip: HeaderId,
+        /// The requester's canonical chain tip.
+        requester_tip: HeaderId,
         /// The latest immutable block.
         latest_immutable_block: HeaderId,
         /// The list of additional blocks that the requester has.

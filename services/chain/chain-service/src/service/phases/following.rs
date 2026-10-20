@@ -74,12 +74,12 @@ where
         match event {
             ChainSyncEvent::BlocksRequest {
                 target_block,
-                local_tip,
+                requester_tip,
                 latest_immutable_block,
                 additional_blocks,
                 reply_sender,
             } => {
-                let known_blocks = vec![local_tip, latest_immutable_block]
+                let known_blocks = vec![requester_tip, latest_immutable_block]
                     .into_iter()
                     .chain(additional_blocks)
                     .collect::<HashSet<_>>();

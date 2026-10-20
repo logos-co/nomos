@@ -45,9 +45,9 @@ impl Downloader {
     ) -> Result<BlocksResponseReader, ChainSyncError> {
         let mut stream = open_stream(peer_id, &mut control, protocol_name).await?;
 
-        let download_request = RequestMessage::Blocks(request);
+        let blocks_request = RequestMessage::Blocks(request);
 
-        send_message(peer_id, &mut stream, &download_request).await?;
+        send_message(peer_id, &mut stream, &blocks_request).await?;
 
         Ok(BlocksResponseReader::new(peer_id, stream, reply_sender))
     }
@@ -87,6 +87,9 @@ impl Downloader {
         utils::close_stream(peer_id, stream).await
     }
 
+    /// Receives the blocks response from the peer and delivers it to the
+    /// caller of `request_blocks` as a stream of blocks. The response frames
+    /// are read lazily as the caller polls the stream.
     pub fn receive_blocks_response(
         blocks_response_reader: BlocksResponseReader,
         timeout: Duration,
