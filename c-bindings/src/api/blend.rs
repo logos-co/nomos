@@ -43,6 +43,10 @@ impl From<sdp::DeclarationId> for DeclarationId {
 //     })
 // }
 
+/// # Safety
+///
+/// `ptr` must be non-null and point to a valid NUL-terminated C string that
+/// stays readable for the duration of the call.
 unsafe fn parse_locator(ptr: *const c_char) -> Result<Locator, OperationStatus> {
     let c_str = unsafe { std::ffi::CStr::from_ptr(ptr) };
     let Ok(s) = c_str.to_str() else {

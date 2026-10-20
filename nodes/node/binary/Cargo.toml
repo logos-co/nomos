@@ -82,6 +82,9 @@ validator  = { features = ["derive"], workspace = true }
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 boon             = { workspace = true }
 bytes            = { workspace = true }

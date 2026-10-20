@@ -2,6 +2,7 @@
     clippy::undocumented_unsafe_blocks,
     reason = "Well, this is gonna be a shit show of unsafe calls..."
 )]
+#![allow(unsafe_code, reason = "The C API is built on raw pointers and `extern \"C\"` exports.")]
 
 pub mod api;
 mod callbacks;

@@ -49,6 +49,11 @@ impl From<KeyType> for NodeKeyType {
 }
 
 /// Converts a nullable C string pointer into an optional key title.
+///
+/// # Safety
+///
+/// `key_title` must be null or point to a valid NUL-terminated C string that
+/// stays readable for the duration of the call.
 unsafe fn key_title_from_ptr(key_title: *const c_char) -> Option<String> {
     if key_title.is_null() {
         None
@@ -133,6 +138,9 @@ pub unsafe extern "C" fn generate_key(
 /// Adds an existing key to the keystore and user config files, equivalent to
 /// the `add-key` CLI command. Runs non-interactively.
 ///
+/// Exported for C as `import_key`: the bare `add_key` symbol is the Linux
+/// keyring call of libkeyutils, which the dynamic linker could bind instead.
+///
 /// # Arguments
 ///
 /// - `user_config_path`: Path to the user config YAML file.
@@ -152,7 +160,7 @@ pub unsafe extern "C" fn generate_key(
 /// must ensure that all non-null pointers are valid NUL-terminated C strings.
 #[must_use]
 #[panic_to_error]
-#[unsafe(no_mangle)]
+#[unsafe(export_name = "import_key")]
 pub unsafe extern "C" fn add_key(
     user_config_path: *const c_char,
     keystore_path: *const c_char,

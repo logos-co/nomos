@@ -30,6 +30,7 @@ struct CountingAllocator;
 // upholds the `GlobalAlloc` contract. The only added work is a thread-local
 // counter bump, which allocates nothing and so cannot re-enter the
 // allocator.
+#[expect(unsafe_code, reason = "A global allocator is an unsafe trait.")]
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         record_allocation(layout.size());

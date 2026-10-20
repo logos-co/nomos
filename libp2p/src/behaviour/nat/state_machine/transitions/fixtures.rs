@@ -8,7 +8,7 @@ use libp2p::{
 
 use crate::behaviour::nat::{
     address_mapper,
-    state_machine::{OnEvent, StateMachine},
+    state_machine::{OnEvent, StateMachine, event::Event},
 };
 
 impl PartialEq for Box<dyn OnEvent> {
@@ -52,7 +52,10 @@ pub fn all_events<'a>() -> HashSet<TestEvent<'a>> {
 
 #[derive(Debug)]
 pub enum TestEvent<'a> {
-    AutonatClientFailed(&'static autonat::v2::client::Event),
+    // `autonat::v2::client::Event` with an `Err` result cannot be built outside
+    // libp2p (`client::Error` has a crate private field), so the failed test
+    // carries only the tested address.
+    AutonatClientFailed(Multiaddr),
     AutonatClientOk(autonat::v2::client::Event),
     AddressMapping(address_mapper::Event),
     FromSwarm(FromSwarm<'a>),
@@ -72,8 +75,12 @@ impl TestEvent<'_> {
 impl<'a> StateMachine {
     pub(super) fn on_test_event(&mut self, event: TestEvent<'a>) {
         match event {
-            TestEvent::AutonatClientFailed(event) => {
-                self.on_event(event);
+            TestEvent::AutonatClientFailed(tested_addr) => {
+                let current_state = self.inner.take().expect("State to be Some");
+                self.inner = Some(current_state.on_event(
+                    Event::AutonatClientTestFailed(tested_addr),
+                    &self.command_tx,
+                ));
             }
             TestEvent::AutonatClientOk(event) => {
                 self.on_event(&event);
@@ -93,13 +100,7 @@ impl Eq for TestEvent<'_> {}
 impl PartialEq for TestEvent<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::AutonatClientFailed(l), Self::AutonatClientFailed(r)) => {
-                l.tested_addr == r.tested_addr
-                        && l.bytes_sent == r.bytes_sent
-                        && l.server == r.server
-                        // This is sufficient for testing purposes
-                        && l.result.is_ok() == r.result.is_ok()
-            }
+            (Self::AutonatClientFailed(l), Self::AutonatClientFailed(r)) => l == r,
             (Self::AutonatClientOk(l), Self::AutonatClientOk(r)) => {
                 l.tested_addr == r.tested_addr
                         && l.bytes_sent == r.bytes_sent
@@ -129,13 +130,7 @@ impl PartialEq for TestEvent<'_> {
 impl Hash for TestEvent<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            Self::AutonatClientFailed(event) => {
-                event.tested_addr.hash(state);
-                event.bytes_sent.hash(state);
-                event.server.hash(state);
-                // This is sufficient for testing purposes
-                event.result.is_ok().hash(state);
-            }
+            Self::AutonatClientFailed(tested_addr) => tested_addr.hash(state),
             Self::AutonatClientOk(event) => {
                 event.tested_addr.hash(state);
                 event.bytes_sent.hash(state);
@@ -164,10 +159,12 @@ pub static ADDR: LazyLock<Multiaddr> = LazyLock::new(|| Multiaddr::from_str("/me
 pub static LISTENER_ID: LazyLock<ListenerId> = LazyLock::new(ListenerId::next);
 pub static ADDR_1: LazyLock<Multiaddr> =
     LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
-pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
-    LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-pub static AUTONAT_FAILED_1: LazyLock<BinaryCompatAutonatEvent> =
-    LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
+// TODO: obsolete, the failed autonat fixtures no longer fabricate an upstream
+// `autonat::v2::client::Event` (layout UB), remove.
+// pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
+//     LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
+// pub static AUTONAT_FAILED_1: LazyLock<BinaryCompatAutonatEvent> =
+//     LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
 pub static PEER_ID: LazyLock<PeerId> = LazyLock::new(PeerId::random);
 
 pub fn autonat_ok<'a>() -> TestEvent<'a> {
@@ -178,52 +175,46 @@ pub fn autonat_ok_address_mismatch<'a>() -> TestEvent<'a> {
     TestEvent::autonat_ok(ADDR_1.clone())
 }
 
-#[derive(Debug)]
-pub struct BinaryCompatAutonatEvent {
-    pub _tested_addr: Multiaddr,
-    pub _bytes_sent: usize,
-    pub _server: PeerId,
-    pub _result: Result<(), BinaryCompatAutonatError>,
-}
-
-impl BinaryCompatAutonatEvent {
-    pub fn new(tested_addr: &str) -> Self {
-        Self {
-            _tested_addr: Multiaddr::from_str(tested_addr).unwrap(),
-            _bytes_sent: 0,
-            _server: *PEER_ID,
-            _result: Err(BinaryCompatAutonatError {
-                _inner: BinaryCompatDialBackError::NoConnection,
-            }),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct BinaryCompatAutonatError {
-    pub(crate) _inner: BinaryCompatDialBackError,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum BinaryCompatDialBackError {
-    #[error("server failed to establish a connection")]
-    NoConnection,
-}
+// TODO: obsolete, a repr(Rust) look alike cast to the upstream
+// `autonat::v2::client::Event` is layout UB, remove.
+// #[derive(Debug)]
+// pub struct BinaryCompatAutonatEvent {
+//     pub _tested_addr: Multiaddr,
+//     pub _bytes_sent: usize,
+//     pub _server: PeerId,
+//     pub _result: Result<(), BinaryCompatAutonatError>,
+// }
+//
+// impl BinaryCompatAutonatEvent {
+//     pub fn new(tested_addr: &str) -> Self {
+//         Self {
+//             _tested_addr: Multiaddr::from_str(tested_addr).unwrap(),
+//             _bytes_sent: 0,
+//             _server: *PEER_ID,
+//             _result: Err(BinaryCompatAutonatError {
+//                 _inner: BinaryCompatDialBackError::NoConnection,
+//             }),
+//         }
+//     }
+// }
+//
+// #[derive(Debug)]
+// pub struct BinaryCompatAutonatError {
+//     pub(crate) _inner: BinaryCompatDialBackError,
+// }
+//
+// #[derive(thiserror::Error, Debug)]
+// pub enum BinaryCompatDialBackError {
+//     #[error("server failed to establish a connection")]
+//     NoConnection,
+// }
 
 pub fn autonat_failed<'a>() -> TestEvent<'a> {
-    // SAFETY: layout and alignment of `BinaryCompatAutonatEvent` is compatible with
-    // `autonat::v2::client::Event`
-    TestEvent::AutonatClientFailed(unsafe {
-        &*(&raw const *AUTONAT_FAILED).cast::<autonat::v2::client::Event>()
-    })
+    TestEvent::AutonatClientFailed(ADDR.clone())
 }
 
 pub fn autonat_failed_address_mismatch<'a>() -> TestEvent<'a> {
-    // SAFETY: layout and alignment of `BinaryCompatAutonatEvent` is compatible with
-    // `autonat::v2::client::Event`
-    TestEvent::AutonatClientFailed(unsafe {
-        &*(&raw const *AUTONAT_FAILED_1).cast::<autonat::v2::client::Event>()
-    })
+    TestEvent::AutonatClientFailed(ADDR_1.clone())
 }
 
 pub fn mapping_failed<'a>() -> TestEvent<'a> {

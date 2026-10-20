@@ -65,19 +65,26 @@ impl DeploymentInfo {
         })
     }
 
+    /// Frees every string the info owns and nulls its field, so a second call
+    /// frees nothing.
+    ///
+    /// # Safety
+    ///
+    /// Every non-null string field must come from [`CString::into_raw`] in
+    /// this library and must not have been freed through another path.
     unsafe fn free(&mut self) {
         for pointer in [
-            self.chain_id,
-            self.protocol_names.blend,
-            self.protocol_names.cryptarchia,
-            self.protocol_names.kademlia,
-            self.protocol_names.identify,
-            self.protocol_names.chain_sync,
-            self.protocol_names.mempool,
-            self.node_version,
+            &mut self.chain_id,
+            &mut self.protocol_names.blend,
+            &mut self.protocol_names.cryptarchia,
+            &mut self.protocol_names.kademlia,
+            &mut self.protocol_names.identify,
+            &mut self.protocol_names.chain_sync,
+            &mut self.protocol_names.mempool,
+            &mut self.node_version,
         ] {
             // A null field has nothing to free; the status reporting it does.
-            let status = unsafe { free_cstring(pointer) };
+            let status = unsafe { free_cstring(std::mem::replace(pointer, std::ptr::null_mut())) };
             unsafe { free_operation_status(status) };
         }
     }
@@ -158,4 +165,22 @@ pub unsafe extern "C" fn free_deployment_info(pointer: *mut DeploymentInfo) -> O
     let deployment_info = unsafe { &mut *pointer };
     unsafe { deployment_info.free() };
     unsafe { free::<DeploymentInfo>(pointer) }
+}
+
+#[cfg(test)]
+mod tests {
+    use lb_node::config::DeploymentSettings;
+
+    use super::DeploymentInfo;
+
+    #[test]
+    fn free_twice_frees_nothing_the_second_time() {
+        let mut info = DeploymentInfo::new(&DeploymentSettings::default())
+            .expect("The default deployment should describe itself");
+        unsafe { info.free() };
+        assert!(info.chain_id.is_null());
+        assert!(info.protocol_names.mempool.is_null());
+        assert!(info.node_version.is_null());
+        unsafe { info.free() };
+    }
 }

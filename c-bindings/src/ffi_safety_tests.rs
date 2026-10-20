@@ -25,7 +25,7 @@
 )]
 
 use std::{
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, CString, c_char, c_int},
     path::{Path, PathBuf},
     ptr,
     sync::{
@@ -87,7 +87,7 @@ use crate::{
             wallet_fund_tx,
         },
     },
-    errors::free_operation_status,
+    errors::{free_operation_status, is_error, is_ok},
     node::exit_status,
     result::FfiResult,
     return_error_if_null_pointer,
@@ -325,7 +325,8 @@ mod no_node {
                 free_pow_claimable_rewards(PoWClaimableRewards::default()),
                 free_wallet_notes(WalletNotes::default()),
                 free_leader_aged_notes(LeaderAgedNotes::default()),
-                free_pow_status(PoWStatus::default()),
+                free_pow_status(ptr::null_mut()),
+                free_pow_status(&mut PoWStatus::default()),
             ]
         };
         for status in statuses {
@@ -439,12 +440,34 @@ mod no_node {
     #[test]
     #[ignore = "Runs under valgrind only: see the module docs."]
     fn status_helpers() {
+        // A status as C may lay it out, with a code outside the enum.
+        #[repr(C)]
+        struct RawStatus {
+            code: c_int,
+            _message: *mut c_char,
+        }
+
         let ok = OperationStatus::OK;
         let error = OperationStatus::error(OperationStatusCode::NotFound, "nope");
         assert!(ok.is_ok());
         assert!(!ok.is_error());
         assert!(!error.is_ok());
         assert!(error.is_error());
+        let unknown = RawStatus {
+            code: 0x99,
+            _message: ptr::null_mut(),
+        };
+        let unknown = (&raw const unknown).cast::<OperationStatus>();
+        unsafe {
+            assert!(is_ok(&raw const ok));
+            assert!(!is_error(&raw const ok));
+            assert!(!is_ok(&raw const error));
+            assert!(is_error(&raw const error));
+            assert!(!is_ok(ptr::null()));
+            assert!(is_error(ptr::null()));
+            assert!(!is_ok(unknown));
+            assert!(is_error(unknown));
+        }
         assert_eq!(
             consume(error),
             (OperationStatusCode::NotFound, "nope".into())
@@ -1135,12 +1158,12 @@ mod with_node {
             //     OperationStatusCode::Ok
             // );
 
-            let FfiResult { value, error } = pow_status(node);
+            let FfiResult { mut value, error } = pow_status(node);
             log("pow_status", error);
             for target in 0..value.auto_claim.targets_len {
                 let _ = (*value.auto_claim.targets.add(target)).threshold;
             }
-            freed(free_pow_status(value));
+            freed(free_pow_status(&raw mut value));
 
             let FfiResult { value, error } = pow_claimable_rewards(node);
             if log("pow_claimable_rewards", error) == OperationStatusCode::Ok {

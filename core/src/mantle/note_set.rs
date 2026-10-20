@@ -1,10 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::LazyLock,
+    fmt,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
 };
 
 use lb_dynamic_merkle::{DynamicMerkleTree, MerklePath};
-use lb_groth16::{Fr, fr_from_bytes, serde::serde_fr};
+use lb_groth16::{Fr, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use lb_imt::{ImtError, IndexedMerkleTree};
 use lb_mmr::MerkleMountainRange;
 use lb_poseidon2::Digest as _;
@@ -15,7 +16,7 @@ use thiserror::Error;
 
 use crate::{
     block::BlockNumber,
-    crypto::ZkHasher,
+    crypto::{Digest as _, Hasher, ZkHasher},
     mantle::notes::{NoteCm, NoteNf},
 };
 
@@ -54,10 +55,38 @@ pub enum NoteSetError {
     MmrFull,
 }
 
-// The commitment MMR of each referenced root extended by every buffer prefix
-// computed so far
-#[derive(Default)]
-pub struct StepRoots(HashMap<Fr, Vec<CommitmentMmr>>);
+// The commitment MMR of a referenced root extended by a prefix of the
+// transaction buffer is kept every `PREFIX_CHECKPOINT` commitments, so each
+// root replays the buffer once and each lookup at most that many commitments.
+const PREFIX_CHECKPOINT: usize = 64;
+
+// Chained hash of the buffer prefix: with the root and the length of the
+// referenced MMR (a frontier root does not tell trailing zero leaves apart), it
+// names the extended MMR whatever note set or clone computed it.
+type PrefixId = [u8; 32];
+
+const EMPTY_PREFIX: PrefixId = [0; 32];
+
+type TxRootKey = (Fr, usize, PrefixId);
+
+// The extended MMRs computed during the current Mantle Transaction, shared by
+// its Operations; not state, so emptied with every transaction and block.
+#[derive(Clone, Default)]
+pub struct TxRoots(Arc<Mutex<HashMap<TxRootKey, CommitmentMmr>>>);
+
+impl fmt::Debug for TxRoots {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("TxRoots")
+    }
+}
+
+impl PartialEq for TxRoots {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for TxRoots {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NoteSetUpdate {
@@ -81,6 +110,9 @@ pub struct NoteSet {
     // commitments added by the previous Operations of the Mantle Transaction
     #[serde(skip)]
     tx_cm_buffer: VectorSync<NoteCm>,
+    // the id of each prefix of `tx_cm_buffer`, ending at each commitment
+    #[serde(skip)]
+    tx_cm_prefix_ids: VectorSync<PrefixId>,
     // what the set inserted and appended during the current block, reported at its end
     #[serde(skip)]
     block_nullifiers: VectorSync<NoteNf>,
@@ -100,6 +132,7 @@ impl NoteSet {
             nullifiers: NullifierImt::new(),
             committed_root,
             tx_cm_buffer: VectorSync::new_sync(),
+            tx_cm_prefix_ids: VectorSync::new_sync(),
             block_nullifiers: VectorSync::new_sync(),
             block_commitments: VectorSync::new_sync(),
         }
@@ -179,19 +212,19 @@ impl NoteSet {
 
     pub fn cached_tx_cm_root(
         &self,
-        step_roots: &mut StepRoots,
+        tx_roots: &TxRoots,
         cm_merkle_root: &Fr,
         block: BlockNumber,
     ) -> Result<Fr, NoteSetError> {
-        self.cached_step_cm_root(step_roots, cm_merkle_root, self.tx_cm_buffer.len(), block)
+        self.cached_step_cm_root(tx_roots, cm_merkle_root, self.tx_cm_buffer.len(), block)
     }
 
-    // Same root as `step_cm_root`, extending the prefixes cached for the
-    // referenced root instead of replaying the buffer for every step.
-    // `step_roots` must only see this transaction's growing buffer.
+    // Same root as `step_cm_root`, resuming from the closest extended MMR
+    // `tx_roots` holds for the referenced root instead of replaying the whole
+    // buffer for every Operation and step.
     pub fn cached_step_cm_root(
         &self,
-        step_roots: &mut StepRoots,
+        tx_roots: &TxRoots,
         cm_merkle_root: &Fr,
         buffered: usize,
         block: BlockNumber,
@@ -202,28 +235,52 @@ impl NoteSet {
                 len: self.tx_cm_buffer.len(),
             });
         }
-        let mmr = self.recent_mmr(cm_merkle_root, block)?;
-        let prefixes = step_roots
-            .0
-            .entry(*cm_merkle_root)
-            .or_insert_with(|| vec![mmr.clone()]);
-        for note_cm in self
-            .tx_cm_buffer
-            .iter()
-            .take(buffered)
-            .skip(prefixes.len() - 1)
-        {
-            let last = prefixes.last().expect("prefixes start with the root's MMR");
-            let next = last.push(*note_cm).map_err(|_| NoteSetError::MmrFull)?;
-            prefixes.push(next);
+        let base = self.recent_mmr(cm_merkle_root, block)?;
+        let key = |len: usize| {
+            let prefix_id = len
+                .checked_sub(1)
+                .map_or(EMPTY_PREFIX, |last| self.tx_cm_prefix_ids[last]);
+            (*cm_merkle_root, base.len(), prefix_id)
+        };
+        let mut cache = tx_roots.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut start = buffered;
+        let mut mmr = loop {
+            if let Some(mmr) = cache.get(&key(start)) {
+                break mmr.clone();
+            }
+            if start == 0 {
+                break base.clone();
+            }
+            start = (start - 1) / PREFIX_CHECKPOINT * PREFIX_CHECKPOINT;
+        };
+        for len in start + 1..=buffered {
+            mmr = mmr
+                .push(self.tx_cm_buffer[len - 1])
+                .map_err(|_| NoteSetError::MmrFull)?;
+            if len % PREFIX_CHECKPOINT == 0 {
+                cache.insert(key(len), mmr.clone());
+            }
         }
-        Ok(prefixes[buffered].frontier_root())
+        cache.insert(key(buffered), mmr.clone());
+        drop(cache);
+        Ok(mmr.frontier_root())
     }
 
     #[must_use]
     pub fn buffer_outputs(mut self, outputs: &[NoteCm]) -> Self {
         for note_cm in outputs {
+            let previous = self
+                .tx_cm_prefix_ids
+                .last()
+                .copied()
+                .unwrap_or(EMPTY_PREFIX);
+            let prefix_id: PrefixId = Hasher::new()
+                .chain_update(previous)
+                .chain_update(fr_to_bytes(&note_cm.0))
+                .finalize()
+                .into();
             self.tx_cm_buffer.push_back_mut(*note_cm);
+            self.tx_cm_prefix_ids.push_back_mut(prefix_id);
         }
         self
     }
@@ -289,6 +346,7 @@ impl NoteSet {
             self.recent_cm_roots.remove_mut(root);
         }
         self.tx_cm_buffer = VectorSync::new_sync();
+        self.tx_cm_prefix_ids = VectorSync::new_sync();
         self.block_nullifiers = VectorSync::new_sync();
         self.block_commitments = VectorSync::new_sync();
         self
@@ -305,6 +363,7 @@ pub struct NoteSets {
     eligible: EligibleTree,
     // sets touched in the current block
     changed: HashTrieSetSync<NoteSetIndex>,
+    tx_roots: TxRoots,
 }
 
 impl Default for NoteSets {
@@ -320,6 +379,7 @@ impl NoteSets {
             sets: VectorSync::new_sync(),
             eligible: EligibleTree::new(),
             changed: HashTrieSetSync::new_sync(),
+            tx_roots: TxRoots::default(),
         };
         let (sets, ledger) = sets.push_empty();
         let (sets, sdp) = sets.push_empty();
@@ -358,9 +418,16 @@ impl NoteSets {
             let position = usize::try_from(*index).expect("note set index fits in usize");
             let mut set = self.sets[position].clone();
             set.tx_cm_buffer = VectorSync::new_sync();
+            set.tx_cm_prefix_ids = VectorSync::new_sync();
             self.sets.set_mut(position, set);
         }
+        self.tx_roots = TxRoots::default();
         self
+    }
+
+    #[must_use]
+    pub const fn tx_roots(&self) -> &TxRoots {
+        &self.tx_roots
     }
 
     #[must_use]
@@ -374,6 +441,7 @@ impl NoteSets {
             self.sets.set_mut(position, set);
         }
         self.changed = HashTrieSetSync::new_sync();
+        self.tx_roots = TxRoots::default();
         self
     }
 
@@ -438,6 +506,7 @@ impl<'de> Deserialize<'de> for NoteSets {
             sets,
             eligible,
             changed: HashTrieSetSync::new_sync(),
+            tx_roots: TxRoots::default(),
         })
     }
 }
@@ -555,32 +624,53 @@ mod test {
     }
 
     #[test]
-    fn test_step_roots_match_step_cm_root_in_any_order() {
+    fn test_tx_roots_match_step_cm_root_in_any_order() {
         let set = NoteSet::empty();
         let referenced = set.cm_root();
-        let mut step_roots = StepRoots::default();
+        let tx_roots = TxRoots::default();
         let set = set.buffer_outputs(&[cm(1), cm(2), cm(3)]);
         for buffered in [2, 0, 3, 1] {
             assert_eq!(
-                set.cached_step_cm_root(&mut step_roots, &referenced, buffered, 1),
+                set.cached_step_cm_root(&tx_roots, &referenced, buffered, 1),
                 set.step_cm_root(&referenced, buffered, 1)
             );
         }
         let set = set.buffer_outputs(&[cm(4)]);
         assert_eq!(
-            set.cached_step_cm_root(&mut step_roots, &referenced, 4, 1),
+            set.cached_step_cm_root(&tx_roots, &referenced, 4, 1),
             set.step_cm_root(&referenced, 4, 1)
         );
         assert_eq!(
-            set.cached_step_cm_root(&mut step_roots, &referenced, 5, 1),
+            set.cached_step_cm_root(&tx_roots, &referenced, 5, 1),
             Err(NoteSetError::BufferedTooLarge {
                 buffered: 5,
                 len: 4
             })
         );
         assert_eq!(
-            set.cached_step_cm_root(&mut step_roots, &Fr::from(7u64), 0, 1),
+            set.cached_step_cm_root(&tx_roots, &Fr::from(7u64), 0, 1),
             Err(NoteSetError::UnknownRoot(Fr::from(7u64)))
+        );
+    }
+
+    #[test]
+    fn test_tx_roots_resume_from_checkpoints_and_ignore_other_buffers() {
+        let set = NoteSet::empty();
+        let referenced = set.cm_root();
+        let tx_roots = TxRoots::default();
+        let outputs: Vec<NoteCm> = (1..=200).map(cm).collect();
+        let set = set.buffer_outputs(&outputs);
+        for buffered in [200, 130, 64, 65, 199, 1] {
+            assert_eq!(
+                set.cached_step_cm_root(&tx_roots, &referenced, buffered, 1),
+                set.step_cm_root(&referenced, buffered, 1)
+            );
+        }
+        // A clone with another buffer shares the cache but none of its prefixes
+        let other = NoteSet::empty().buffer_outputs(&[cm(1), cm(9)]);
+        assert_eq!(
+            other.cached_step_cm_root(&tx_roots, &referenced, 2, 1),
+            other.step_cm_root(&referenced, 2, 1)
         );
     }
 

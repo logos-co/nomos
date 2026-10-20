@@ -48,6 +48,9 @@ tracing-opentelemetry = { features = ["metrics"], workspace = true }
 tracing-subscriber = { features = ["env-filter", "json", "std"], workspace = true }
 url = { features = ["serde"], workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
 [dev-dependencies]
 serde_json = { workspace = true }
 tempfile   = { workspace = true }

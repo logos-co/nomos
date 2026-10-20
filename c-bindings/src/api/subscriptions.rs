@@ -159,7 +159,13 @@ pub fn subscribe_to_new_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers.
+/// This function is unsafe because it dereferences raw pointers. A non-null
+/// `callback_per_block` must:
+/// - be thread safe: it is called from the node's own threads, at the same time
+///   as the caller's threads run;
+/// - stay callable (for example, the module providing it stays loaded) until it
+///   has received the terminal NULL or `shutdown_node` has returned;
+/// - not unwind (for example, throw a C++ exception) out of the call.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_new_blocks(
@@ -255,7 +261,13 @@ pub fn subscribe_to_processed_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers.
+/// This function is unsafe because it dereferences raw pointers. A non-null
+/// `callback_per_event` must:
+/// - be thread safe: it is called from the node's own threads, at the same time
+///   as the caller's threads run;
+/// - stay callable (for example, the module providing it stays loaded) until it
+///   has received the terminal NULL or `shutdown_node` has returned;
+/// - not unwind (for example, throw a C++ exception) out of the call.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_processed_blocks(
@@ -342,7 +354,13 @@ pub fn subscribe_to_lib_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers.
+/// This function is unsafe because it dereferences raw pointers. A non-null
+/// `callback_per_event` must:
+/// - be thread safe: it is called from the node's own threads, at the same time
+///   as the caller's threads run;
+/// - stay callable (for example, the module providing it stays loaded) until it
+///   has received the terminal NULL or `shutdown_node` has returned;
+/// - not unwind (for example, throw a C++ exception) out of the call.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_lib_blocks(

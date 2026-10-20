@@ -162,6 +162,7 @@ static PI: LazyLock<Value> = LazyLock::new(|| {
 #[cfg(target_arch = "x86_64")]
 #[expect(
     clippy::undocumented_unsafe_blocks,
+    unsafe_code,
     reason = "This test is is just to measure cpu and should be run manually"
 )]
 #[ignore = "This test is just for calculation the cycles for the above set of proofs. This will be moved to the pertinent proof in the future."]

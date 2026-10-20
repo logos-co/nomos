@@ -5112,6 +5112,7 @@ dependencies = [
  "logos-blockchain-key-management-system-operators",
  "logos-blockchain-log-targets",
  "logos-blockchain-tracing",
+ "logos-blockchain-utils",
  "num-bigint",
  "overwatch",
  "rand 0.8.8",
@@ -5266,6 +5267,7 @@ dependencies = [
  "futures",
  "hex",
  "http",
+ "libc",
  "libp2p",
  "logos-blockchain-api-service",
  "logos-blockchain-binary-codec",
@@ -5620,6 +5622,7 @@ name = "logos-blockchain-tracing"
 version = "0.0.0"
 dependencies = [
  "flate2",
+ "libc",
  "logos-blockchain-log-targets",
  "opentelemetry",
  "opentelemetry-appender-tracing",

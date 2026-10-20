@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::Read,
     path::{Path, PathBuf},
 };
@@ -8,6 +9,8 @@ use serde_yaml::Value;
 use tracing::warn;
 
 const LOG_TARGET: &str = lb_log_targets::utils::YAML;
+
+const MAX_INCLUDE_DEPTH: usize = 16;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ValueDeserializationError<Value> {
@@ -128,8 +131,19 @@ impl<Value> From<YamlIncludeError> for ValueDeserializationError<Value> {
 ///
 /// Paths are resolved relative to `base_dir`. Nested includes are supported
 /// (each included file's own includes resolve relative to that file's
-/// directory).
+/// directory). An include cycle or a chain deeper than [`MAX_INCLUDE_DEPTH`]
+/// is rejected.
 fn resolve_includes(value: Value, base_dir: &Path) -> Result<Value, YamlIncludeError> {
+    resolve_includes_within(value, base_dir, &mut HashSet::new())
+}
+
+// `include_stack` holds the canonical paths of the files currently being
+// included.
+fn resolve_includes_within(
+    value: Value,
+    base_dir: &Path,
+    include_stack: &mut HashSet<PathBuf>,
+) -> Result<Value, YamlIncludeError> {
     match value {
         Value::Tagged(tagged) if tagged.tag == "include" => {
             let path_str = match &tagged.value {
@@ -145,22 +159,37 @@ fn resolve_includes(value: Value, base_dir: &Path) -> Result<Value, YamlIncludeE
             } else {
                 base_dir.join(&path_str)
             };
+            if include_stack.len() >= MAX_INCLUDE_DEPTH {
+                return Err(YamlIncludeError::InvalidInclude(format!(
+                    "!include depth exceeds {MAX_INCLUDE_DEPTH} at {}",
+                    resolved_path.display()
+                )));
+            }
+            let canonical_path = resolved_path.canonicalize()?;
+            if !include_stack.insert(canonical_path.clone()) {
+                return Err(YamlIncludeError::InvalidInclude(format!(
+                    "!include cycle at {}",
+                    resolved_path.display()
+                )));
+            }
             let contents = std::fs::read_to_string(&resolved_path)?;
             let included: Value = serde_yaml::from_str(&contents)?;
             let new_base = resolved_path.parent().unwrap_or(base_dir).to_path_buf();
-            resolve_includes(included, &new_base)
+            let resolved = resolve_includes_within(included, &new_base, include_stack);
+            include_stack.remove(&canonical_path);
+            resolved
         }
         Value::Mapping(map) => {
             let resolved = map
                 .into_iter()
-                .map(|(k, v)| Ok((k, resolve_includes(v, base_dir)?)))
+                .map(|(k, v)| Ok((k, resolve_includes_within(v, base_dir, include_stack)?)))
                 .collect::<Result<serde_yaml::Mapping, YamlIncludeError>>()?;
             Ok(Value::Mapping(resolved))
         }
         Value::Sequence(seq) => {
             let resolved = seq
                 .into_iter()
-                .map(|v| resolve_includes(v, base_dir))
+                .map(|v| resolve_includes_within(v, base_dir, include_stack))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Value::Sequence(resolved))
         }
@@ -178,7 +207,7 @@ mod tests {
     };
     use tempfile::TempDir;
 
-    use super::{YamlIncludeError, resolve_includes};
+    use super::{MAX_INCLUDE_DEPTH, YamlIncludeError, resolve_includes};
 
     fn include_tag(path: &str) -> Value {
         Value::Tagged(Box::new(TaggedValue {
@@ -299,6 +328,42 @@ mod tests {
             value: Value::Number(42.into()),
         }));
         let err = resolve_includes(input, Path::new(".")).unwrap_err();
+        assert!(matches!(err, YamlIncludeError::InvalidInclude(_)));
+    }
+
+    #[test]
+    fn self_include_returns_invalid_include_error() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("self.yaml"), "x: !include self.yaml\n").unwrap();
+
+        let input = mapping([("k", include_tag("self.yaml"))]);
+        let err = resolve_includes(input, dir.path()).unwrap_err();
+        assert!(matches!(err, YamlIncludeError::InvalidInclude(_)));
+    }
+
+    #[test]
+    fn include_chain_deeper_than_limit_returns_invalid_include_error() {
+        let dir = TempDir::new().unwrap();
+        // Distinct files `0.yaml` to `{MAX_INCLUDE_DEPTH}.yaml`, each including the
+        // next one.
+        for i in 0..=MAX_INCLUDE_DEPTH {
+            let next = i.checked_add(1).unwrap();
+            fs::write(
+                dir.path().join(format!("{i}.yaml")),
+                format!("x: !include {next}.yaml\n"),
+            )
+            .unwrap();
+        }
+        fs::write(
+            dir.path().join(format!(
+                "{}.yaml",
+                MAX_INCLUDE_DEPTH.checked_add(1).unwrap()
+            )),
+            "leaf: true\n",
+        )
+        .unwrap();
+
+        let err = resolve_includes(include_tag("0.yaml"), dir.path()).unwrap_err();
         assert!(matches!(err, YamlIncludeError::InvalidInclude(_)));
     }
 }

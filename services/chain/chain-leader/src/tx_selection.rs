@@ -105,6 +105,10 @@ pub fn select_transactions(
                         selected_txs.push(tx);
                         assembly_state = AssemblyState::Progress;
                     }
+                    // The public inputs of the proofs only depend on the
+                    // transaction and the roots it references, so no later
+                    // transaction makes them verify: evict it instead of
+                    // applying it again every round.
                     Err(err) => {
                         tracing::trace!(
                             target: LOG_TARGET,
@@ -112,7 +116,9 @@ pub fn select_transactions(
                             %err,
                             "deferred proof verification failed during block assembly",
                         );
-                        still_pending.push(tx);
+                        // TODO(RFC-480): a proof failure is permanent.
+                        // still_pending.push(tx);
+                        invalid_tx_hashes.push(tx.hash());
                     }
                 },
                 Err(err @ lb_ledger::LedgerError::TooMuchExecutionGas { .. }) => {

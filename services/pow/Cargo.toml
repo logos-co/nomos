@@ -1,13 +1,14 @@
 [package]
-categories.workspace  = true
-description.workspace = true
-edition.workspace     = true
-keywords.workspace    = true
-license.workspace     = true
-name                  = "logos-blockchain-pow-service"
-readme.workspace      = true
-repository.workspace  = true
-version.workspace     = true
+categories.workspace   = true
+description.workspace  = true
+edition.workspace      = true
+keywords.workspace     = true
+license.workspace      = true
+name                   = "logos-blockchain-pow-service"
+readme.workspace       = true
+repository.workspace   = true
+rust-version.workspace = true
+version.workspace      = true
 
 [dependencies]
 async-trait  = { workspace = true }
@@ -35,8 +36,8 @@ lb-utils                      = { features = ["tokio"], workspace = true }
 lb-wallet-service             = { workspace = true }
 # TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
 # lb-zksign                     = { workspace = true }
-lb-zktransfer                 = { workspace = true }
-overwatch                    = { workspace = true }
+lb-zktransfer = { workspace = true }
+overwatch     = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

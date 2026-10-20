@@ -614,7 +614,13 @@ pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWS
 ///
 /// # Arguments
 ///
-/// - `status`: A [`PoWStatus`] structure previously returned by [`pow_status`].
+/// - `status`: A pointer to a [`PoWStatus`] structure previously returned by
+///   [`pow_status`]. A null pointer frees nothing and returns a `NullPointer`
+///   error.
+///
+/// Only `auto_claim.targets` and `auto_claim.targets_len` are read: the flag
+/// and enum fields are never read as Rust values, so whatever C stored in them
+/// is harmless.
 ///
 /// # Safety
 ///
@@ -623,18 +629,16 @@ pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWS
 /// The caller must only pass values returned by [`pow_status`] and must call
 /// this exactly once per result.
 ///
-/// The value must be passed back exactly as it was returned: its pointer and
-/// length decide what is freed.
+/// The `auto_claim.targets` and `auto_claim.targets_len` fields must be
+/// exactly as they were returned: they decide what is freed.
 #[panic_to_error]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_pow_status(status: PoWStatus) -> OperationStatus {
-    return_error_if_null_pointer!(status.auto_claim.targets);
-    let targets = unsafe {
-        Box::from_raw(ptr::slice_from_raw_parts_mut(
-            status.auto_claim.targets,
-            status.auto_claim.targets_len,
-        ))
-    };
+pub unsafe extern "C" fn free_pow_status(status: *mut PoWStatus) -> OperationStatus {
+    return_error_if_null_pointer!(status);
+    let targets = unsafe { (*status).auto_claim.targets };
+    let targets_len = unsafe { (*status).auto_claim.targets_len };
+    return_error_if_null_pointer!(targets);
+    let targets = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(targets, targets_len)) };
 
     drop(targets);
     OperationStatus::OK

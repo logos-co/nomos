@@ -1,6 +1,6 @@
 use std::{
     any::Any,
-    ffi::{CStr, CString, c_char},
+    ffi::{CStr, CString, c_char, c_int},
 };
 
 use lb_c_macros::panic_to_error;
@@ -72,25 +72,50 @@ impl OperationStatus {
         )
     }
 
-    /// Whether the status reports success.
-    ///
-    /// Exported for C as `is_ok(const struct OperationStatus *)`. The pointer
-    /// must not be null: it is a reference on the Rust side.
+    /// Whether the status reports success. C uses the exported [`is_ok`].
     #[must_use]
-    #[unsafe(no_mangle)]
-    pub extern "C" fn is_ok(&self) -> bool {
+    pub fn is_ok(&self) -> bool {
         self.code == OperationStatusCode::Ok
     }
 
-    /// Whether the status reports an error.
-    ///
-    /// Exported for C as `is_error(const struct OperationStatus *)`. The
-    /// pointer must not be null: it is a reference on the Rust side.
+    /// Whether the status reports an error. C uses the exported [`is_error`].
     #[must_use]
-    #[unsafe(no_mangle)]
-    pub extern "C" fn is_error(&self) -> bool {
+    pub fn is_error(&self) -> bool {
         !self.is_ok()
     }
+}
+
+/// Whether the status reports success.
+///
+/// A null `status` reports `false`. The `code` is read as the integer C
+/// stored, so a value outside [`OperationStatusCode`] reports `false` too
+/// instead of being read as an invalid Rust enum.
+///
+/// # Safety
+///
+/// A non-null `status` must point to a readable, aligned
+/// [`OperationStatus`].
+#[must_use]
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn is_ok(status: *const OperationStatus) -> bool {
+    if status.is_null() {
+        return false;
+    }
+    let code = unsafe { &raw const (*status).code }.cast::<c_int>();
+    unsafe { code.read() == OperationStatusCode::Ok as c_int }
+}
+
+/// Whether the status reports an error: the opposite of [`is_ok`], so a null
+/// `status` reports `true`.
+///
+/// # Safety
+///
+/// A non-null `status` must point to a readable, aligned
+/// [`OperationStatus`].
+#[must_use]
+#[unsafe(no_mangle)]
+pub const unsafe extern "C" fn is_error(status: *const OperationStatus) -> bool {
+    !unsafe { is_ok(status) }
 }
 
 /// Releases an [`OperationStatus`] returned by this library.

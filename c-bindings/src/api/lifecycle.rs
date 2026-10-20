@@ -1,4 +1,7 @@
-use std::ffi::c_char;
+use std::{
+    ffi::c_char,
+    panic::{AssertUnwindSafe, catch_unwind},
+};
 
 use lb_c_macros::panic_to_error;
 use lb_node::{
@@ -229,7 +232,7 @@ unsafe fn get_deployment_config(
 /// - [`Ok`](OperationStatusCode::Ok) once every service has stopped and the
 ///   node is freed.
 /// - [`ShutdownError`](OperationStatusCode::ShutdownError) when the shutdown
-///   itself fails. The node is freed all the same.
+///   itself fails or panics. The node is freed all the same.
 /// - [`RuntimeError`](OperationStatusCode::RuntimeError) when called from
 ///   inside a subscription callback. Nothing is done: the node keeps running.
 ///
@@ -248,7 +251,14 @@ pub unsafe extern "C" fn shutdown_node(node: *mut LogosBlockchainNode) -> Operat
     return_error_if_null_pointer!(node);
     unwrap_or_return_error!(ensure_blocking_allowed());
     let node = unsafe { Box::from_raw(node) };
-    node.shutdown()
+    // The node is freed from here on, even when shutting it down panics, so a
+    // panic must not come back as the `RuntimeError` that leaves it untouched.
+    catch_unwind(AssertUnwindSafe(move || node.shutdown())).unwrap_or_else(|payload| {
+        OperationStatus {
+            code: OperationStatusCode::ShutdownError,
+            ..OperationStatus::from_panic(payload.as_ref())
+        }
+    })
 }
 
 #[cfg(test)]

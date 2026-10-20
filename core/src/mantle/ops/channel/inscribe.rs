@@ -37,7 +37,7 @@ use crate::{
             ExecutableOperation, PreverifiableOperation, ProvableOperation, VerifiableOperation,
             verification_mode::{StandardMode, VerificationMode},
         },
-        note_set::{NoteSet, NoteSets, StepRoots},
+        note_set::{NoteSet, NoteSets},
         notes::{InputNfs, OutputCms},
         ops::{
             ChannelInscribeProof, OpId, SignedOperation, StepProof, StepProofShape,
@@ -485,8 +485,7 @@ impl VerifiableOperation<StandardMode>
             channel_id: operation.channel_id,
         })?;
         let mut step_nfs = HashSet::new();
-        // The buffer only grows below, so the steps share its prefix roots
-        let mut step_roots = StepRoots::default();
+        let tx_roots = context.note_sets.tx_roots();
         let mut deferred = InscriptionDeferredProofs::default();
         // The message of the program spends and the third input of the program proofs
         let op_id_fr = Fr::from_le_bytes_mod_order(&operation.op_id());
@@ -510,7 +509,7 @@ impl VerifiableOperation<StandardMode>
                     }
                     // `buffered <= len(tx_cm_buffer)` is checked by `cached_step_cm_root`
                     let tx_cm_root = note_set.cached_step_cm_root(
-                        &mut step_roots,
+                        tx_roots,
                         &step.cm_merkle_root,
                         usize::from(step.buffered),
                         context.block_number,
@@ -542,7 +541,7 @@ impl VerifiableOperation<StandardMode>
                             }
                         }
                         let tx_cm_root = note_set.cached_step_cm_root(
-                            &mut step_roots,
+                            tx_roots,
                             &payment.cm_merkle_root,
                             usize::from(payment.buffered),
                             context.block_number,
@@ -579,7 +578,7 @@ impl VerifiableOperation<StandardMode>
                     }
                     // Rejects a root outside the window when the spend consumes nothing
                     let tx_cm_root = note_set.cached_tx_cm_root(
-                        &mut step_roots,
+                        tx_roots,
                         &step.cm_merkle_root,
                         context.block_number,
                     )?;

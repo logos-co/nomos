@@ -1,12 +1,13 @@
 [workspace.package]
-categories  = ["cryptography", "cryptography::cryptocurrencies", "security"]
-description = "Logos blockchain workspace crates. For more information please visit https://logos.co/."
-edition     = "2024"
-keywords    = ["blockchain", "privacy"]
-license     = "MIT or Apache-2.0"
-readme      = "README.md"
-repository  = "https://github.com/logos-blockchain/logos-blockchain"
-version     = "0.0.0"
+categories   = ["cryptography", "cryptography::cryptocurrencies", "security"]
+description  = "Logos blockchain workspace crates. For more information please visit https://logos.co/."
+edition      = "2024"
+keywords     = ["blockchain", "privacy"]
+license      = "MIT or Apache-2.0"
+readme       = "README.md"
+repository   = "https://github.com/logos-blockchain/logos-blockchain"
+rust-version = "1.99"
+version      = "0.0.0"
 
 [profile.release]
 codegen-units = 1     # (Much) slower build time, much better performances
@@ -107,7 +108,7 @@ members = [
   "zk/proofs/zktransfer",
   "zone-sdk",
 ]
-resolver = "2"
+resolver = "3"
 
 [workspace.dependencies]
 # Internal
@@ -162,38 +163,38 @@ lb-network-service                 = { default-features = false, package = "logo
 lb-node                            = { default-features = false, package = "logos-blockchain-node", path = "./nodes/node/binary" }
 # TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader reward is a note in the block.
 # lb-poc                             = { default-features = false, package = "logos-blockchain-poc", path = "./zk/proofs/poc" }
-lb-pol                             = { default-features = false, package = "logos-blockchain-pol", path = "./zk/proofs/pol" }
-lb-poq                             = { default-features = false, package = "logos-blockchain-poq", path = "./zk/proofs/poq" }
-lb-poseidon2                       = { default-features = false, package = "logos-blockchain-poseidon2", path = "./zk/poseidon2" }
-lb-pow-service                     = { default-features = false, package = "logos-blockchain-pow-service", path = "./services/pow" }
-lb-program-spend                   = { default-features = false, package = "logos-blockchain-program-spend", path = "./zk/proofs/program_spend" }
-lb-sdp-service                     = { default-features = false, package = "logos-blockchain-sdp-service", path = "./services/sdp" }
-lb-services-utils                  = { default-features = false, package = "logos-blockchain-services-utils", path = "./services/utils" }
-lb-storage-service                 = { default-features = false, package = "logos-blockchain-storage-service", path = "./services/storage" }
-lb-system-sig-service              = { default-features = false, package = "logos-blockchain-system-sig-service", path = "./services/system-sig" }
-lb-testing-framework               = { default-features = false, package = "blockchain-test-logos", path = "./tests/tf_integration/logos" }
-lb-time-service                    = { default-features = false, package = "logos-blockchain-time-service", path = "./services/time" }
-lb-tracing                         = { default-features = false, package = "logos-blockchain-tracing", path = "./tracing" }
-lb-tracing-service                 = { default-features = false, package = "logos-blockchain-tracing-service", path = "./services/tracing" }
-lb-tx-service                      = { default-features = false, package = "logos-blockchain-tx-service", path = "./services/tx-service" }
-lb-utils                           = { default-features = false, package = "logos-blockchain-utils", path = "./utils" }
-lb-utxotree                        = { default-features = false, package = "logos-blockchain-utxotree", path = "merkle/utxotree" }
-lb-version                         = { default-features = false, package = "logos-blockchain-version", path = "./nodes/version" }
-lb-wallet                          = { default-features = false, package = "logos-blockchain-wallet", path = "./wallet" }
-lb-wallet-service                  = { default-features = false, package = "logos-blockchain-wallet-service", path = "./services/wallet" }
+lb-pol                = { default-features = false, package = "logos-blockchain-pol", path = "./zk/proofs/pol" }
+lb-poq                = { default-features = false, package = "logos-blockchain-poq", path = "./zk/proofs/poq" }
+lb-poseidon2          = { default-features = false, package = "logos-blockchain-poseidon2", path = "./zk/poseidon2" }
+lb-pow-service        = { default-features = false, package = "logos-blockchain-pow-service", path = "./services/pow" }
+lb-program-spend      = { default-features = false, package = "logos-blockchain-program-spend", path = "./zk/proofs/program_spend" }
+lb-sdp-service        = { default-features = false, package = "logos-blockchain-sdp-service", path = "./services/sdp" }
+lb-services-utils     = { default-features = false, package = "logos-blockchain-services-utils", path = "./services/utils" }
+lb-storage-service    = { default-features = false, package = "logos-blockchain-storage-service", path = "./services/storage" }
+lb-system-sig-service = { default-features = false, package = "logos-blockchain-system-sig-service", path = "./services/system-sig" }
+lb-testing-framework  = { default-features = false, package = "blockchain-test-logos", path = "./tests/tf_integration/logos" }
+lb-time-service       = { default-features = false, package = "logos-blockchain-time-service", path = "./services/time" }
+lb-tracing            = { default-features = false, package = "logos-blockchain-tracing", path = "./tracing" }
+lb-tracing-service    = { default-features = false, package = "logos-blockchain-tracing-service", path = "./services/tracing" }
+lb-tx-service         = { default-features = false, package = "logos-blockchain-tx-service", path = "./services/tx-service" }
+lb-utils              = { default-features = false, package = "logos-blockchain-utils", path = "./utils" }
+lb-utxotree           = { default-features = false, package = "logos-blockchain-utxotree", path = "merkle/utxotree" }
+lb-version            = { default-features = false, package = "logos-blockchain-version", path = "./nodes/version" }
+lb-wallet             = { default-features = false, package = "logos-blockchain-wallet", path = "./wallet" }
+lb-wallet-service     = { default-features = false, package = "logos-blockchain-wallet-service", path = "./services/wallet" }
 # TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
 # lb-zksign                          = { default-features = false, package = "logos-blockchain-zksign", path = "./zk/proofs/zksign" }
-lb-zktransfer                      = { default-features = false, package = "logos-blockchain-zktransfer", path = "./zk/proofs/zktransfer" }
-lb-zone-sdk                        = { default-features = false, package = "logos-blockchain-zone-sdk", path = "./zone-sdk" }
-logos-blockchain-tests             = { default-features = false, path = "./tests" }
-logos-sql                          = { default-features = false, path = "./logos_sql" }
+lb-zktransfer          = { default-features = false, package = "logos-blockchain-zktransfer", path = "./zk/proofs/zktransfer" }
+lb-zone-sdk            = { default-features = false, package = "logos-blockchain-zone-sdk", path = "./zone-sdk" }
+logos-blockchain-tests = { default-features = false, path = "./tests" }
+logos-sql              = { default-features = false, path = "./logos_sql" }
 # When bumping any lbc-* tag, also update the logos-blockchain-circuits flake input tag in flake.nix
 # and run `nix flake lock --update-input logos-blockchain-circuits`.
 # TODO(RFC-480): dropped in circuits v0.6.0, LEADER_CLAIM is retired.
 # lbc-poc-sys                      = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-poc-sys", tag = "v0.5.7" }
-lbc-pol-sys                      = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-pol-sys", tag = "v0.6.0" }
-lbc-poq-sys                      = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-poq-sys", tag = "v0.6.0" }
-lbc-program-spend-sys            = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-program-spend-sys", tag = "v0.6.0" }
+lbc-pol-sys           = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-pol-sys", tag = "v0.6.0" }
+lbc-poq-sys           = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-poq-sys", tag = "v0.6.0" }
+lbc-program-spend-sys = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-program-spend-sys", tag = "v0.6.0" }
 # TODO(RFC-480): dropped in circuits v0.6.0, the ZkSignature circuit is retired.
 # lbc-signature-sys                = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-signature-sys", tag = "v0.5.7" }
 lbc-transfer-sys                 = { default-features = false, git = "https://github.com/logos-blockchain/logos-blockchain-circuits.git", package = "logos-blockchain-circuits-transfer-sys", tag = "v0.6.0" }
@@ -253,6 +254,7 @@ humantime                          = { default-features = false, version = "2.1"
 igd-next                           = { default-features = false, version = "0.16.1" }
 indexmap                           = { default-features = false, version = "2.14.0" }
 itertools                          = { default-features = false, version = "0.14" }
+libc                               = { default-features = false, version = "0.2" }
 libp2p                             = { default-features = false, version = "0.56" }
 libp2p-stream                      = { default-features = false, version = "0.4.0-alpha" }
 libp2p-swarm-test                  = { default-features = false, version = "0.6" }
@@ -491,5 +493,5 @@ missing_debug_implementations          = { level = "allow" }
 missing_docs                           = { level = "allow" }
 trivial_casts                          = { level = "allow" }
 unreachable_pub                        = { level = "allow" }
-unsafe_code                            = { level = "allow" }
+unsafe_code                            = { level = "deny" }
 variant_size_differences               = { level = "allow" }

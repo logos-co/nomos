@@ -54,7 +54,7 @@ where
 impl<Backend, RuntimeServiceId> ServiceCore<RuntimeServiceId>
     for KMSService<Backend, RuntimeServiceId>
 where
-    Backend: KMSBackend + Send + 'static,
+    Backend: KMSBackend + Send + Sync + 'static,
     Backend::KeyId: Clone + Debug + Send,
     Backend::Key: Debug + Send,
     <Backend::Key as SecuredKey>::Payload: Send,
@@ -108,7 +108,7 @@ where
 
 impl<Backend, RuntimeServiceId> KMSService<Backend, RuntimeServiceId>
 where
-    Backend: KMSBackend + 'static,
+    Backend: KMSBackend + Sync + 'static,
     Backend::KeyId: Debug + Clone,
     Backend::Key: Debug,
     Backend::Settings: Clone,
@@ -171,13 +171,14 @@ where
                 let signature_result = match signing_strategy {
                     KMSSigningStrategy::Single(key) => {
                         metrics::kms_sign_requests_single();
-                        let signature_result = backend.sign(&key, payload);
+                        let signature_result = backend.sign(&key, payload).await;
                         metrics::kms_sign_single_result(&signature_result);
                         signature_result
                     }
                     KMSSigningStrategy::Multi(keys) => {
                         metrics::kms_sign_requests_multi();
-                        let signature_result = backend.sign_multiple(keys.as_slice(), payload);
+                        let signature_result =
+                            backend.sign_multiple(keys.as_slice(), payload).await;
                         metrics::kms_sign_multi_result(&signature_result);
                         signature_result
                     }

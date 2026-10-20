@@ -99,7 +99,14 @@ impl CompressedRollingAppender {
                     .as_ref()
                     .is_some_and(|active| active == &path);
 
-                if path.is_file()
+                // `DirEntry::file_type` does not follow symlinks, unlike `Path::is_file`.
+                #[expect(
+                    clippy::filetype_is_file,
+                    reason = "Only regular files are compressed, never symlinks or special files."
+                )]
+                let is_regular_file = entry.file_type().is_ok_and(|t| t.is_file());
+
+                if is_regular_file
                     && is_log
                     && !is_compressed
                     && !is_symlink
@@ -131,12 +138,31 @@ impl Write for CompressedRollingAppender {
 }
 
 fn compress_file_gzip(path: &Path) -> io::Result<()> {
-    let input = fs::File::open(path)?;
+    // TODO(RFC-480): replaced by a no follow open so a planted symlink is not read.
+    // let input = fs::File::open(path)?;
+    let mut input_options = fs::OpenOptions::new();
+    input_options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
+        input_options.custom_flags(libc::O_NOFOLLOW)
+    };
+    let input = input_options.open(path)?;
+    if !input.metadata()?.is_file() {
+        return Err(io::Error::other("not a regular file"));
+    }
     let mut new_name = path.to_path_buf();
     let ext = path.extension().unwrap_or_default().to_string_lossy();
     new_name.set_extension(format!("{ext}.gz"));
 
-    let output = fs::File::create(new_name)?;
+    // TODO(RFC-480): replaced by `create_new` so an existing file or symlink is
+    // never truncated.
+    // let output = fs::File::create(new_name)?;
+    let output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(new_name)?;
     let mut encoder = GzEncoder::new(output, Compression::default());
     let mut reader = io::BufReader::new(input);
     io::copy(&mut reader, &mut encoder)?;

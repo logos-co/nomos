@@ -19,13 +19,13 @@ pub trait KMSBackend {
         key_id: &Self::KeyId,
     ) -> Result<<Self::Key as SecuredKey>::PublicKey, Self::Error>;
 
-    fn sign(
+    async fn sign(
         &self,
         key_id: &Self::KeyId,
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error>;
 
-    fn sign_multiple(
+    async fn sign_multiple(
         &self,
         key_ids: &[Self::KeyId],
         payload: <Self::Key as SecuredKey>::Payload,

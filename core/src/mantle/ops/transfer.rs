@@ -210,7 +210,11 @@ impl VerifiableOperation<StandardMode> for SignedOperation<TransferOp, Preverifi
             &operation.cm_merkle_root,
             context.block_number,
         )?;
-        let tx_cm_root = ledger.tx_cm_root(&operation.cm_merkle_root, context.block_number)?;
+        let tx_cm_root = ledger.cached_tx_cm_root(
+            context.note_sets.tx_roots(),
+            &operation.cm_merkle_root,
+            context.block_number,
+        )?;
 
         // Defer the proof verification so that the caller can batch it.
         let nfs: Vec<Fr> = operation.inputs.iter().map(|nf| nf.0).collect();
