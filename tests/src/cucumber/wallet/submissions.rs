@@ -91,7 +91,8 @@ pub(crate) struct ReservedUserWalletSubmission {
 }
 
 const CONTINUOUS_WORKLOAD_DUST_RATIO: u64 = 15;
-const MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS: usize = 10;
+// A transfer takes at most `MAX_TRANSACTION_INPUTS` inputs, one of them the primary.
+const MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS: usize = MAX_TRANSACTION_INPUTS - 1;
 
 const fn continuous_workload_dust_threshold(output_value: u64, base_tx_fee: u64) -> u64 {
     let transfer_value_threshold = output_value / CONTINUOUS_WORKLOAD_DUST_RATIO;
@@ -2219,23 +2220,27 @@ mod cache_removal_tests {
                 .iter()
                 .map(|utxo| utxo.note.value)
                 .collect::<Vec<_>>(),
-            vec![10_000, 1, 10, 100, 500]
+            // 500 is dust too, but the input limit leaves room for three dust inputs
+            vec![10_000, 1, 10, 100]
         );
         let work_item = prepare_all_provided(&inputs, 8_000, unit_gas_prices(), 0)
             .expect("bounded primary and dust set should fund the transfer");
-        assert_eq!(input_values(&work_item), vec![10_000, 1, 10, 100, 500]);
+        assert_eq!(input_values(&work_item), vec![10_000, 1, 10, 100]);
     }
 
     #[test]
-    fn workload_selection_caps_dust_inputs_at_ten() {
+    fn workload_selection_caps_dust_inputs_at_the_input_limit() {
         let mut utxos = vec![workload_utxo(10_000, 0)];
         utxos.extend((1..=20).map(|index| workload_utxo(index as u64, index)));
         let pool = WorkloadUtxoPool::new(&utxos);
         let candidates = pool.candidates(8_000, 0).expect("primary should exist");
 
         assert_eq!(candidates.dust.len(), MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS);
-        assert_eq!(candidates.inputs(candidates.dust.len()).len(), 11);
-        assert_eq!(candidates.dust_value(candidates.dust.len()), 55);
+        assert_eq!(
+            candidates.inputs(candidates.dust.len()).len(),
+            MAX_TRANSACTION_INPUTS
+        );
+        assert_eq!(candidates.dust_value(candidates.dust.len()), 1 + 2 + 3);
     }
 
     #[test]
@@ -2419,7 +2424,10 @@ mod cache_removal_tests {
             workload_utxo(400_000, 1),
             workload_utxo(400_000, 2),
         ];
-        utxos.extend((1..=15).map(|index| workload_utxo(1, index + 2)));
+        // Exactly the dust the two reservations below consume
+        utxos.extend(
+            (1..=2 * MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS).map(|index| workload_utxo(1, index + 2)),
+        );
         let mut cache = HashMap::from([(WalletId::from("sender"), utxos)]);
         let mut pools = WorkloadUtxoPools::from_cache(&cache);
         let mut reserved_ids = HashSet::new();
