@@ -997,10 +997,16 @@ impl TxState {
     }
 
     /// Number of pending channel inscription transactions already posted by
-    /// this runtime.
+    /// this runtime and not yet mined on `tip`'s branch. Mined entries stay
+    /// pending until LIB passes them, but they no longer occupy a publish
+    /// slot: counting them would stall new posts for as long as finality lags.
     #[must_use]
-    pub fn posted_pending_publish_count(&self) -> usize {
-        self.pending.values().filter(|p| p.posted).count()
+    pub fn posted_pending_publish_count(&self, tip: HeaderId) -> usize {
+        let safe = self.blocks.safe_at(tip);
+        self.pending
+            .iter()
+            .filter(|(hash, p)| p.posted && !safe.contains(*hash))
+            .count()
     }
 
     /// Remove pending inscriptions whose lineage does NOT reach the current
@@ -2320,6 +2326,33 @@ mod tests {
             sorted(chain.clone()),
             "a budget covering the backlog rebuilds all of it"
         );
+    }
+
+    /// Posted entries already mined on the tip's branch stay pending until
+    /// LIB passes them, but no longer count as in-flight publishes.
+    #[test]
+    fn mined_posted_entries_do_not_count_as_in_flight() {
+        let genesis = header_id(0);
+        let b1 = header_id(1);
+        let mut state = TxState::new(genesis, MsgId::root());
+        let (first, msg) = submit_own(&mut state, MsgId::root(), 1);
+        let (second, _) = submit_own(&mut state, msg, 2);
+        assert!(state.mark_pending_inscription_posted(&first));
+        assert!(state.mark_pending_inscription_posted(&second));
+
+        state.process_block(
+            b1,
+            genesis,
+            genesis,
+            vec![first],
+            vec![],
+            Vec::new(),
+            vec![],
+        );
+
+        assert_eq!(state.pending_publish_count(), 2);
+        assert_eq!(state.posted_pending_publish_count(genesis), 2);
+        assert_eq!(state.posted_pending_publish_count(b1), 1);
     }
 
     /// A window of zero disables expiry entirely.

@@ -446,7 +446,7 @@ where
             .config
             .max_pending_publish_depth
             .max(1)
-            .saturating_sub(state.posted_pending_publish_count());
+            .saturating_sub(state.posted_pending_publish_count(tip));
         let candidates = state.refund_candidates(tip, self.lib_slot, window, first_post_budget);
         let mut changed = false;
         for candidate in candidates {
@@ -538,7 +538,7 @@ where
             let max_depth = self.config.max_pending_publish_depth.max(1);
 
             let mut submit = Vec::new();
-            let mut active_publish_count = state.posted_pending_publish_count();
+            let mut active_publish_count = state.posted_pending_publish_count(tip);
 
             for (id, signed_tx) in pending {
                 // Skip txs whose post is already in flight — guards the
