@@ -13,6 +13,7 @@ use multiaddr::PeerId;
 
 use crate::{
     LogosBlockchainNode,
+    api::lifecycle::resolve_run_config,
     errors::{OperationStatus, OperationStatusCode},
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
@@ -193,4 +194,120 @@ pub unsafe extern "C" fn blend_info(node: *const LogosBlockchainNode) -> FfiBlen
             )
         }));
     FfiBlendInfoResult::ok(json_network_info_c.into_raw())
+}
+
+/// Serializes a value to JSON and hands back an owned C string the caller must
+/// free with [`free_cstring`](super::free_cstring).
+fn to_json_cstring<T: serde::Serialize>(value: &T) -> Result<*mut c_char, OperationStatus> {
+    let json = serde_json::to_string(value).map_err(|error| {
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to serialize value to JSON: {error}"),
+        )
+    })?;
+    CString::new(json).map(CString::into_raw).map_err(|error| {
+        OperationStatus::error(
+            OperationStatusCode::RuntimeError,
+            format!("Failed to create CString: {error}"),
+        )
+    })
+}
+
+/// The rules a node must meet to join the Blend network as a core node.
+///
+/// Mirrors the referral program's `blend_requirements()`. The values are read
+/// off the deployment's genesis-era parameters, so this works before a node is
+/// started.
+///
+/// Note on omitted fields: the referral spec also lists `lock_period` and
+/// `retention_period`, but neither exists as an SDP/Blend parameter today.
+/// `activation_delay_epochs` is the chain-wide [`SNAPSHOT_FINALIZATION_DELAY`],
+/// which is also the delay before a withdrawn note unlocks.
+///
+/// [`SNAPSHOT_FINALIZATION_DELAY`]: lb_core::sdp::SNAPSHOT_FINALIZATION_DELAY
+#[derive(serde::Serialize)]
+struct BlendRequirements {
+    /// Minimum stake a single service note must hold to back a declaration.
+    min_stake: u64,
+    /// Epochs a core node may go without a successful activity message before
+    /// its declaration is considered inactive.
+    inactivity_period: u32,
+    /// Epochs between a declaration landing and its stake taking effect.
+    activation_delay_epochs: u32,
+    /// Minimum number of core declarations the network needs for Blend rewards
+    /// to be minted.
+    minimum_network_size: u64,
+}
+
+pub type FfiBlendRequirementsResult = FfiStatusResult<*mut c_char>;
+
+/// Gets the rules for joining the Blend network as a core node, as a JSON
+/// string.
+///
+/// This reads the deployment configuration directly and does not need a running
+/// node, so an onboarding flow can show the join rules before start-up. It
+/// mirrors [`get_deployment_info`](super::deployment::get_deployment_info) in
+/// how it resolves the configuration.
+///
+/// # Arguments
+///
+/// - `config_path`: A non-null pointer to a string holding the path to the user
+///   configuration file.
+/// - `custom_deployment_path`: An optional pointer to a string holding the path
+///   to a custom deployment file. If null, the `DEPLOYMENT` environment
+///   variable is used, falling back to the embedded default deployment.
+///
+/// # Returns
+///
+/// A [`FfiBlendRequirementsResult`] containing a pointer to an allocated C
+/// string (the JSON-serialized requirements) on success, or an
+/// [`OperationStatus`] error on failure.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers. The caller
+/// must ensure that `config_path` is a valid NUL-terminated C string, and that
+/// `custom_deployment_path` is either null or one as well.
+///
+/// # Memory Management
+///
+/// This function allocates memory for the output C string. The caller must
+/// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[must_use]
+#[panic_to_error]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn blend_requirements(
+    config_path: *const c_char,
+    custom_deployment_path: *const c_char,
+) -> FfiBlendRequirementsResult {
+    return_error_if_null_pointer!(config_path);
+
+    let run_config =
+        unwrap_or_return_error!(unsafe { resolve_run_config(config_path, custom_deployment_path) });
+
+    let era_parameters = run_config.deployment.genesis_era_parameters();
+    let sdp_config = &era_parameters.cryptarchia.sdp_config;
+
+    let service_parameters = unwrap_or_return_error!(
+        sdp_config
+            .service_params
+            .get(&sdp::ServiceType::BlendNetwork)
+            .ok_or_else(|| OperationStatus::error(
+                OperationStatusCode::NotFound,
+                "Deployment has no Blend network service parameters.",
+            ))
+    );
+
+    let requirements = BlendRequirements {
+        min_stake: sdp_config.min_stake.threshold,
+        inactivity_period: service_parameters.inactivity_period.into_inner().into_inner(),
+        activation_delay_epochs: sdp::SNAPSHOT_FINALIZATION_DELAY.into_inner(),
+        minimum_network_size: run_config
+            .deployment
+            .genesis_blend_reward_params()
+            .minimum_network_size
+            .get(),
+    };
+
+    FfiBlendRequirementsResult::ok(unwrap_or_return_error!(to_json_cstring(&requirements)))
 }
