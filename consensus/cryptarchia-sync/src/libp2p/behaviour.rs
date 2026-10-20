@@ -128,17 +128,17 @@ pub struct Behaviour {
     /// Futures for reading incoming requests. This is common to both tip and
     /// block because initially we don't know which request we receive over
     /// stream. After reading the request, we use dedicated `FuturesUnordered`,
-    /// either `sending_block_responses` or `sending_tip_responses`.
+    /// either `sending_blocks_responses` or `sending_tip_responses`.
     receiving_requests: FuturesUnordered<ReceivingRequestFuture>,
     /// Futures for sending block download requests. After the request is
-    /// sent, the response is handled by `receiving_block_responses`.
-    sending_block_requests: FuturesUnordered<SendingBlocksRequestFuture>,
+    /// sent, the response is handled by `receiving_blocks_responses`.
+    sending_blocks_requests: FuturesUnordered<SendingBlocksRequestFuture>,
     /// Futures for handing the blocks response of locally initiated block
     /// downloads to the requester, as a stream read lazily from the peer.
-    receiving_block_responses: FuturesUnordered<ReceivingBlocksResponseFuture>,
+    receiving_blocks_responses: FuturesUnordered<ReceivingBlocksResponseFuture>,
     /// Futures for managing the progress of externally initiated block
     /// downloads.
-    sending_block_responses: FuturesUnordered<SendingBlocksResponseFuture>,
+    sending_blocks_responses: FuturesUnordered<SendingBlocksResponseFuture>,
     /// Futures for sending tip requests. After the request is
     /// sent, the response is handled by `receiving_tip_responses`.
     sending_tip_requests: FuturesUnordered<SendingTipRequestFuture>,
@@ -171,11 +171,11 @@ impl Behaviour {
             stream_behaviour,
             control,
             incoming_streams,
-            receiving_block_responses: FuturesUnordered::new(),
-            sending_block_responses: FuturesUnordered::new(),
+            receiving_blocks_responses: FuturesUnordered::new(),
+            sending_blocks_responses: FuturesUnordered::new(),
             receiving_requests: FuturesUnordered::new(),
             incoming_streams_to_close: FuturesUnordered::new(),
-            sending_block_requests: FuturesUnordered::new(),
+            sending_blocks_requests: FuturesUnordered::new(),
             sending_tip_requests: FuturesUnordered::new(),
             receiving_tip_responses: FuturesUnordered::new(),
             sending_tip_responses: FuturesUnordered::new(),
@@ -224,7 +224,7 @@ impl Behaviour {
         );
         let protocol_name = self.protocol_name.clone();
 
-        self.sending_block_requests.push(
+        self.sending_blocks_requests.push(
             Downloader::send_blocks_request(peer_id, control, request, protocol_name, reply_sender)
                 .boxed(),
         );
@@ -265,7 +265,7 @@ impl Behaviour {
 
         let (reply_sender, reply_receiver) = mpsc::channel(1);
 
-        self.sending_block_responses.push(
+        self.sending_blocks_responses.push(
             async move { Provider::provide_blocks(reply_receiver, peer_id, stream).await }.boxed(),
         );
 
@@ -280,7 +280,7 @@ impl Behaviour {
 
     fn handle_incoming_stream(&self, peer_id: PeerId, mut stream: Libp2pStream) {
         let concurrent_requests = self.receiving_requests.len()
-            + self.sending_block_responses.len()
+            + self.sending_blocks_responses.len()
             + self.sending_tip_responses.len();
 
         if concurrent_requests >= self.config.max_inbound_requests.into() {
@@ -317,7 +317,7 @@ impl Behaviour {
     /// Called once our blocks request has been written to the peer. Hands the
     /// caller of `request_blocks` a stream that receives the blocks response.
     fn on_blocks_request_sent(&self, blocks_response_reader: BlocksResponseReader) {
-        self.receiving_block_responses.push(
+        self.receiving_blocks_responses.push(
             ready(Downloader::receive_blocks_response(
                 blocks_response_reader,
                 self.config.peer_response_timeout,
@@ -456,7 +456,7 @@ impl NetworkBehaviour for Behaviour {
             debug!(target: LOG_TARGET, "Incoming stream closed");
         }
 
-        if let Poll::Ready(Some(result)) = self.sending_block_requests.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.sending_blocks_requests.poll_next_unpin(cx) {
             match result {
                 Ok(blocks_response_reader) => {
                     self.on_blocks_request_sent(blocks_response_reader);
@@ -482,7 +482,7 @@ impl NetworkBehaviour for Behaviour {
             return Poll::Pending;
         }
 
-        if let Poll::Ready(Some(_)) = self.receiving_block_responses.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(_)) = self.receiving_blocks_responses.poll_next_unpin(cx) {
             return Poll::Pending;
         }
 
@@ -490,7 +490,7 @@ impl NetworkBehaviour for Behaviour {
             return Poll::Pending;
         }
 
-        if let Poll::Ready(Some(result)) = self.sending_block_responses.poll_next_unpin(cx) {
+        if let Poll::Ready(Some(result)) = self.sending_blocks_responses.poll_next_unpin(cx) {
             if let Err(e) = result {
                 error!(target: LOG_TARGET, "Sending response failed: {}", e);
             }
