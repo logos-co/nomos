@@ -74,7 +74,9 @@ struct ScannerInitialState {
     applied_tip: Option<HeaderId>,
     applied_slot: Option<u64>,
     source_node_names: Vec<String>,
-    seed_fallbacks: VecDeque<ScannerStateCheckpoint>,
+    // TODO(RFC-480): UTXO test wallet. A snapshot checkpoint holds no
+    // commitment MMR to reseed the scanner from.
+    // seed_fallbacks: VecDeque<ScannerStateCheckpoint>,
 }
 
 #[derive(Debug)]
@@ -205,10 +207,16 @@ fn initialize_scanner_from_seed(
     config: &ForkGroupScannerConfig,
 ) -> Result<ScannerInitialState, StepError> {
     match &config.seed {
-        ScannerSeed::Genesis => {
+        // TODO(RFC-480): UTXO test wallet. A snapshot holds the notes but not
+        // the commitment MMRs their paths follow, so a restored scanner
+        // replays the chain from genesis.
+        // ScannerSeed::Genesis => {
+        ScannerSeed::Genesis | ScannerSeed::Snapshot { .. } => {
             let accounting = ScannerAccounting::new(
                 config.wallet_keys.clone(),
-                &config.genesis_utxos,
+                // TODO(RFC-480): UTXO test wallet.
+                // &config.genesis_utxos,
+                &config.genesis_notes,
             )
             .map_err(|error| StepError::LogicalError {
                 message: format!("wallet scanner accounting initialization failed: {error}"),
@@ -219,38 +227,39 @@ fn initialize_scanner_from_seed(
                 applied_tip: None,
                 applied_slot: None,
                 source_node_names: Vec::new(),
-                seed_fallbacks: VecDeque::new(),
+                // TODO(RFC-480): UTXO test wallet.
+                // seed_fallbacks: VecDeque::new(),
             })
         }
-        ScannerSeed::Snapshot {
-            wallet_utxos,
-            tip,
-            height,
-            slot,
-            source_node_names,
-            fallback_checkpoints,
-            ..
-        } => {
-            let accounting = ScannerAccounting::from_wallet_utxos(
-                config.wallet_keys.clone(),
-                wallet_utxos.clone(),
-            )
-            .map_err(|error| StepError::LogicalError {
-                message: format!("wallet scanner accounting initialization failed: {error}"),
-            })?;
-            Ok(ScannerInitialState {
-                accounting,
-                applied_height: *height,
-                applied_tip: Some(*tip),
-                applied_slot: Some(*slot),
-                source_node_names: source_node_names.clone(),
-                seed_fallbacks: fallback_checkpoints
-                    .iter()
-                    .filter(|checkpoint| checkpoint.tip != *tip)
-                    .cloned()
-                    .collect(),
-            })
-        }
+        // ScannerSeed::Snapshot {
+        //     wallet_utxos,
+        //     tip,
+        //     height,
+        //     slot,
+        //     source_node_names,
+        //     fallback_checkpoints,
+        //     ..
+        // } => {
+        //     let accounting = ScannerAccounting::from_wallet_utxos(
+        //         config.wallet_keys.clone(),
+        //         wallet_utxos.clone(),
+        //     )
+        //     .map_err(|error| StepError::LogicalError {
+        //         message: format!("wallet scanner accounting initialization failed: {error}"),
+        //     })?;
+        //     Ok(ScannerInitialState {
+        //         accounting,
+        //         applied_height: *height,
+        //         applied_tip: Some(*tip),
+        //         applied_slot: Some(*slot),
+        //         source_node_names: source_node_names.clone(),
+        //         seed_fallbacks: fallback_checkpoints
+        //             .iter()
+        //             .filter(|checkpoint| checkpoint.tip != *tip)
+        //             .cloned()
+        //             .collect(),
+        //     })
+        // }
     }
 }
 
@@ -308,12 +317,14 @@ async fn run_group_scanner(config: ForkGroupScannerConfig, shutdown_requested: A
     let mut applied_tip = initial_state.applied_tip;
     let mut applied_slot = initial_state.applied_slot;
     let source_node_names = initial_state.source_node_names;
-    let mut seed_fallbacks = initial_state.seed_fallbacks;
+    // TODO(RFC-480): UTXO test wallet. A snapshot checkpoint holds no
+    // commitment MMR to reseed the scanner from.
+    // let mut seed_fallbacks = initial_state.seed_fallbacks;
     let mut snapshot_rescan = snapshot_rescan_from_seed(&config.seed);
-    let seed_rescan_blocks = match &config.seed {
-        ScannerSeed::Snapshot { rescan_blocks, .. } => *rescan_blocks,
-        ScannerSeed::Genesis => 0,
-    };
+    // let seed_rescan_blocks = match &config.seed {
+    //     ScannerSeed::Snapshot { rescan_blocks, .. } => *rescan_blocks,
+    //     ScannerSeed::Genesis => 0,
+    // };
     let mut checkpoints = VecDeque::new();
     let mut last_msg = String::new();
     if let Some(applied_tip) = applied_tip
@@ -370,38 +381,40 @@ async fn run_group_scanner(config: ForkGroupScannerConfig, shutdown_requested: A
                 group.last_error = Some(scanner_iteration_error_message(&error));
             });
             let error = if let ScannerIterationError::SeedTipNotFound(step_error) = error {
-                let reseeded = reseed_from_fallback_checkpoint(
-                    &config,
-                    &mut seed_fallbacks,
-                    seed_rescan_blocks,
-                    &source_node_names,
-                    &mut accounting,
-                    &mut applied_height,
-                    &mut applied_tip,
-                    &mut applied_slot,
-                    &mut checkpoints,
-                    &mut snapshot_rescan,
-                )
-                .unwrap_or_else(|reseed_error| {
-                    warn!(
-                        target: TARGET,
-                        "wallet scanner group '{}' fallback checkpoint reseed failed: {reseed_error}",
-                        display_group_key(&config.group_id),
-                    );
-                    false
-                });
-                if reseeded {
-                    if sleep_or_shutdown(
-                        &shutdown_requested,
-                        config.poll_interval,
-                        &config.group_id,
-                    )
-                    .await
-                    {
-                        return;
-                    }
-                    continue;
-                }
+                // TODO(RFC-480): UTXO test wallet. A snapshot checkpoint holds
+                // no commitment MMR to reseed the scanner from.
+                // let reseeded = reseed_from_fallback_checkpoint(
+                //     &config,
+                //     &mut seed_fallbacks,
+                //     seed_rescan_blocks,
+                //     &source_node_names,
+                //     &mut accounting,
+                //     &mut applied_height,
+                //     &mut applied_tip,
+                //     &mut applied_slot,
+                //     &mut checkpoints,
+                //     &mut snapshot_rescan,
+                // )
+                // .unwrap_or_else(|reseed_error| {
+                //     warn!(
+                //         target: TARGET,
+                //         "wallet scanner group '{}' fallback checkpoint reseed failed: {reseed_error}",
+                //         display_group_key(&config.group_id),
+                //     );
+                //     false
+                // });
+                // if reseeded {
+                //     if sleep_or_shutdown(
+                //         &shutdown_requested,
+                //         config.poll_interval,
+                //         &config.group_id,
+                //     )
+                //     .await
+                //     {
+                //         return;
+                //     }
+                //     continue;
+                // }
                 ScannerIterationError::Continuity(step_error)
             } else {
                 error
@@ -494,6 +507,9 @@ fn check_shutdown(shutdown_requested: &Arc<AtomicBool>, group_id: &str) -> bool 
     false
 }
 
+// TODO(RFC-480): UTXO test wallet. A snapshot checkpoint holds no commitment
+// MMR to reseed the scanner from.
+/*
 /// Re-seed the scanner from the next restored fallback checkpoint.
 ///
 /// Returns `Ok(true)` when a fallback was applied, `Ok(false)` when no
@@ -574,6 +590,7 @@ fn reseed_from_fallback_checkpoint(
 
     Ok(true)
 }
+*/
 
 fn reset_scanner_to_genesis(
     config: &ForkGroupScannerConfig,
@@ -590,7 +607,9 @@ fn reset_scanner_to_genesis(
         display_group_key(&config.group_id),
     );
 
-    *accounting = ScannerAccounting::new(config.wallet_keys.clone(), &config.genesis_utxos)
+    // TODO(RFC-480): UTXO test wallet.
+    // *accounting = ScannerAccounting::new(config.wallet_keys.clone(), &config.genesis_utxos)
+    *accounting = ScannerAccounting::new(config.wallet_keys.clone(), &config.genesis_notes)
         .map_err(|error| StepError::LogicalError {
             message: format!("wallet scanner accounting reset to genesis failed: {error}"),
         })?;
@@ -687,7 +706,9 @@ async fn scan_group_once(
     let mut connected_to_tip = applied_tip.is_none();
     let initial_applied_tip = *applied_tip;
 
-    let streamed_block_count = stream_blocks_range(client, from_slot, best_node.slot, |block| {
+    // TODO(RFC-480): UTXO test wallet, the note sets updates are block events.
+    // let streamed_block_count = stream_blocks_range(client, from_slot, best_node.slot, |block| {
+    let streamed_block_count = stream_blocks_range(client, from_slot, best_node.slot, |block, events| {
         if continuity_error.is_some() {
             return Ok(());
         }
@@ -710,7 +731,11 @@ async fn scan_group_once(
         }
 
         connected_to_tip = true;
-        accounting.apply_block(&block);
+        // TODO(RFC-480): UTXO test wallet, the note sets updates are block events.
+        // accounting.apply_block(&block);
+        accounting
+            .apply_block(&block, &events)
+            .map_err(|error| ScannerError::Logical(error.to_string()))?;
         *applied_height = applied_height.saturating_add(1);
         *applied_tip = Some(block.header.id);
         *applied_slot = Some(u64::from(block.header.slot));
@@ -908,7 +933,7 @@ async fn verify_snapshot_rescan(
 
     let slot_from = rescan.slot.saturating_sub(rescan.blocks);
     let mut found_seed_tip = rescan.slot == 0;
-    let streamed_block_count = stream_blocks_range(client, slot_from, rescan.slot, |block| {
+    let streamed_block_count = stream_blocks_range(client, slot_from, rescan.slot, |block, _| {
         accounting.observe_block_transactions(&block);
         found_seed_tip |= block.header.id == rescan.tip;
         Ok(())
@@ -1067,7 +1092,9 @@ fn publish_wallet_state(
     source_node_names: &[String],
     height: u64,
     header_id: String,
-    wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<lb_core::mantle::Utxo>)>,
+    // TODO(RFC-480): UTXO test wallet.
+    // wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<lb_core::mantle::Utxo>)>,
+    wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<lb_wallet::OwnedNote>)>,
 ) -> Result<(), StepError> {
     let wallet_utxos = wallet_utxos.into_iter().collect::<Vec<_>>();
     let mut wallets = wallets.lock().map_err(|_| StepError::LogicalError {

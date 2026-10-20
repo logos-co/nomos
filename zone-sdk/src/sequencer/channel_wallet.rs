@@ -1,3 +1,8 @@
+// TODO(RFC-480): channel notes are private and move by steps; the bridge is
+// rebuilt on ChannelStep. This module is no longer compiled (`mod
+// channel_wallet` is commented in `sequencer/mod.rs`): it tracks transparent
+// channel notes by `NoteId`, which the private ledger no longer exposes.
+
 //! Tracks the channel's note set (the ledger's `channel_notes` entries for
 //! our channel) from block data.
 //!

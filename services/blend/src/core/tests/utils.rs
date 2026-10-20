@@ -447,7 +447,7 @@ pub fn new_epoch_info<BackendSettings>(
             quota: core_quota,
         },
         poq_leadership_public_inputs: LeaderInputs {
-            pol_ledger_aged: ZkHash::ZERO,
+            pol_eligible_aged: ZkHash::ZERO,
             pol_epoch_nonce: fr_from_bytes_unchecked(&epoch.into_inner().to_le_bytes()),
             message_quota: settings.epoch_leadership_quota(),
             lottery_0: Fr::ZERO,
@@ -459,12 +459,22 @@ pub fn new_epoch_info<BackendSettings>(
 /// Dummy secret `PoL` leadership inputs, for tests that exercise the
 /// secret/public epoch-info coordination without needing valid proofs.
 pub fn dummy_pol_private_inputs() -> ProofOfLeadershipQuotaInputs {
+    // TODO(RFC-480): depth 32 UTXO tree witness
+    // ProofOfLeadershipQuotaInputs {
+    //     slot: 1,
+    //     note_value: 1,
+    //     transaction_hash: ZkHash::ZERO,
+    //     output_number: 1,
+    //     aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+    //     secret_key: ZkHash::ZERO,
+    // }
     ProofOfLeadershipQuotaInputs {
         slot: 1,
         note_value: 1,
-        transaction_hash: ZkHash::ZERO,
-        output_number: 1,
-        aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+        note_nonce: ZkHash::ZERO,
+        cm_aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+        nf_root_aged: ZkHash::ZERO,
+        set_aged_path_and_selectors: [(ZkHash::ZERO, false); _],
         secret_key: ZkHash::ZERO,
     }
 }

@@ -286,10 +286,12 @@ where
                 .iter()
                 .filter_map(|o| match o {
                     ChannelUpdateTx::Inscription(i) => Some(i.clone()),
-                    ChannelUpdateTx::AtomicWithdraw(_)
-                    | ChannelUpdateTx::PinDeposit(_)
-                    | ChannelUpdateTx::Custom(_)
-                    | ChannelUpdateTx::Config(_) => None,
+                    // TODO(RFC-480): the zone bridge is suspended.
+                    // ChannelUpdateTx::AtomicWithdraw(_)
+                    // | ChannelUpdateTx::PinDeposit(_)
+                    // | ChannelUpdateTx::Custom(_)
+                    // | ChannelUpdateTx::Config(_) => None,
+                    ChannelUpdateTx::Custom(_) | ChannelUpdateTx::Config(_) => None,
                 })
                 .collect();
             for info in orphaned_inscriptions {
@@ -352,10 +354,12 @@ where
             .iter()
             .filter_map(|o| match o {
                 ChannelUpdateTx::Inscription(i) => Some(i),
-                ChannelUpdateTx::AtomicWithdraw(_)
-                | ChannelUpdateTx::PinDeposit(_)
-                | ChannelUpdateTx::Custom(_)
-                | ChannelUpdateTx::Config(_) => None,
+                // TODO(RFC-480): the zone bridge is suspended.
+                // ChannelUpdateTx::AtomicWithdraw(_)
+                // | ChannelUpdateTx::PinDeposit(_)
+                // | ChannelUpdateTx::Custom(_)
+                // | ChannelUpdateTx::Config(_) => None,
+                ChannelUpdateTx::Custom(_) | ChannelUpdateTx::Config(_) => None,
             })
             .collect();
 

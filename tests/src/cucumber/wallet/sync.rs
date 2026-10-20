@@ -4,8 +4,13 @@ use std::{
     time::Duration,
 };
 
-use lb_core::mantle::{NoteId, Utxo};
-use lb_key_management_system_service::keys::ZkPublicKey;
+// TODO(RFC-480): UTXO test wallet, the scanner derives nullifiers and proves
+// with the secret key.
+// use lb_core::mantle::{NoteId, Utxo};
+// use lb_key_management_system_service::keys::ZkPublicKey;
+use lb_core::mantle::notes::NoteNf;
+use lb_key_management_system_service::keys::UnsecuredZkKey;
+use lb_wallet::OwnedNote;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
@@ -20,7 +25,7 @@ use crate::{
             TARGET, WalletStateView,
             best_node::{BestNodeInfo, get_best_node_info},
         },
-        world::{CucumberWorld, WalletInfo},
+        world::{CucumberWorld, WalletInfo, WalletType},
     },
 };
 
@@ -51,7 +56,7 @@ pub async fn current_available_utxos_for_wallet(
     world: &mut CucumberWorld,
     step: &str,
     wallet_name: &str,
-) -> Result<Vec<Utxo>, StepError> {
+) -> Result<Vec<OwnedNote>, StepError> {
     Ok(current_wallet_state(world, step, wallet_name)
         .await?
         .into_available_utxos())
@@ -163,9 +168,11 @@ async fn current_wallet_state_for_wallet(
 pub async fn current_wallet_state_for_key(
     world: &mut CucumberWorld,
     wallet_name: &str,
-    wallet_pk: ZkPublicKey,
+    // TODO(RFC-480): UTXO test wallet.
+    // wallet_pk: ZkPublicKey,
+    wallet_key: UnsecuredZkKey,
 ) -> Result<WalletStateView, StepError> {
-    let wallet_keys = tracked_wallet_keys_for_all_active_sources(world, wallet_name, wallet_pk);
+    let wallet_keys = tracked_wallet_keys_for_all_active_sources(world, wallet_name, &wallet_key);
 
     current_wallet_state_for_keys(world, wallet_name, &wallet_keys).await
 }
@@ -224,7 +231,24 @@ fn build_tracked_wallet_keys(
             warn!(target: TARGET, "Step `{}` error: {e}", step);
         })?;
 
-        wallet_keys.add_wallet(group_key, wallet.wallet_name.clone(), wallet_pk);
+        // TODO(RFC-480): UTXO test wallet, the scanner derives nullifiers and
+        // proves with the secret key, so node funding wallets are not tracked.
+        // wallet_keys.add_wallet(group_key, wallet.wallet_name.clone(), wallet_pk);
+        let WalletType::User { wallet_account } = &wallet.wallet_type else {
+            warn!(
+                target: TARGET,
+                "Step `{}`: node wallet `{}` ({wallet_pk:?}) is not tracked by the scanner",
+                step,
+                wallet.wallet_name
+            );
+            continue;
+        };
+
+        wallet_keys.add_wallet(
+            group_key,
+            wallet.wallet_name.clone(),
+            UnsecuredZkKey::new(*wallet_account.secret_key.as_fr()),
+        );
     }
 
     Ok(wallet_keys)
@@ -233,16 +257,18 @@ fn build_tracked_wallet_keys(
 fn tracked_wallet_keys_for_all_active_sources(
     world: &CucumberWorld,
     wallet_name: &str,
-    wallet_pk: ZkPublicKey,
+    // TODO(RFC-480): UTXO test wallet.
+    // wallet_pk: ZkPublicKey,
+    wallet_key: &UnsecuredZkKey,
 ) -> TrackedWalletKeysBySource {
     let mut wallet_keys = TrackedWalletKeysBySource::new();
 
     for source_id in active_wallet_feed_source_ids(world) {
-        wallet_keys.add_wallet(source_id, wallet_name, wallet_pk);
+        wallet_keys.add_wallet(source_id, wallet_name, wallet_key.clone());
     }
 
     if wallet_keys.batches().next().is_none() {
-        wallet_keys.add_wallet("", wallet_name, wallet_pk);
+        wallet_keys.add_wallet("", wallet_name, wallet_key.clone());
     }
 
     wallet_keys
@@ -272,8 +298,13 @@ fn add_scenario_fee_wallet_keys(
         return;
     };
 
-    wallet_keys
-        .add_wallet_for_each_source(SCENARIO_FEE_ACCOUNT_NAME, fee_wallet_account.public_key());
+    // TODO(RFC-480): UTXO test wallet.
+    // wallet_keys
+    //     .add_wallet_for_each_source(SCENARIO_FEE_ACCOUNT_NAME, fee_wallet_account.public_key());
+    wallet_keys.add_wallet_for_each_source(
+        SCENARIO_FEE_ACCOUNT_NAME,
+        &UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr()),
+    );
 }
 
 fn apply_scenario_fee_observations(
@@ -316,7 +347,7 @@ pub async fn wait_wallet_send_ready<S: BuildHasher + Sync>(
     required_available: u64,
     readiness: WalletSendReadiness,
     available_utxos: &mut WalletUtxos,
-    used_input_note_ids: &HashSet<NoteId, S>,
+    used_input_note_ids: &HashSet<NoteNf, S>,
 ) -> Result<BestNodeInfo, StepError> {
     let start = tokio::time::Instant::now();
 
@@ -337,7 +368,9 @@ pub async fn wait_wallet_send_ready<S: BuildHasher + Sync>(
         let raw_available_utxos = fresh_wallet_state.into_available_utxos();
         let filtered_count = raw_available_utxos
             .iter()
-            .filter(|utxo| used_input_note_ids.contains(&utxo.id()))
+            // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+            // .filter(|utxo| used_input_note_ids.contains(&utxo.id()))
+            .filter(|utxo| used_input_note_ids.contains(&utxo.nullifier))
             .count();
         if filtered_count > 0 {
             warn!(
@@ -348,7 +381,8 @@ pub async fn wait_wallet_send_ready<S: BuildHasher + Sync>(
         }
         let mut fresh_available_utxos = raw_available_utxos
             .into_iter()
-            .filter(|utxo| !used_input_note_ids.contains(&utxo.id()))
+            // .filter(|utxo| !used_input_note_ids.contains(&utxo.id()))
+            .filter(|utxo| !used_input_note_ids.contains(&utxo.nullifier))
             .collect::<Vec<_>>();
 
         // Prefer smaller UTXOs first. The transaction builder selects sufficient

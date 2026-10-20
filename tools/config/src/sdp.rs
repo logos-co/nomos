@@ -15,7 +15,15 @@ pub fn create_sdp_configs(genesis_tx: &GenesisTx, count: usize) -> Vec<GeneralSd
         .into_iter()
         .filter_map(|op| match op {
             OpRef::SDPDeclare(declaration) => Some(GeneralSdpConfig {
-                declaration: Some(declaration.into()),
+                // TODO(RFC-480): the declaration message no longer converts into
+                // its config.
+                // declaration: Some(declaration.into()),
+                declaration: Some(DeclarationConfig {
+                    provider_id: declaration.provider_id,
+                    zk_id: declaration.zk_id,
+                    locators: declaration.locators.clone(),
+                    service_type: declaration.service_type,
+                }),
             }),
             _ => None,
         })

@@ -30,10 +30,14 @@ pub enum VerificationError {
     ChannelVerificationError(#[from] crate::mantle::channel::Error),
     #[error("Transfer verification error: {0}")]
     TransferVerificationError(#[from] crate::mantle::ops::transfer::TransferError),
+    #[error("ProgramRegister verification error: {0}")]
+    ProgramRegisterError(#[from] crate::mantle::ops::program::ProgramRegisterError),
     #[error("SDP verification error: {0}")]
     SDPVerificationError(#[from] crate::mantle::ops::sdp::SdpError),
-    #[error("LeaderClaim verification error: {0}")]
-    LeaderClaimVerificationError(#[from] crate::mantle::ops::leader_claim::LeaderClaimError),
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // #[error("LeaderClaim verification error: {0}")]
+    // LeaderClaimVerificationError(#[from] crate::mantle::ops::leader_claim::LeaderClaimError),
     #[error("ClaimPoWReward verification error: {0}")]
     ClaimPowRewardError(#[from] crate::mantle::ops::pow::ClaimPowRewardError),
     #[error(transparent)]

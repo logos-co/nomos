@@ -1,15 +1,25 @@
 use std::ptr;
 
+// TODO(RFC-480): notes are private, named by their commitment.
+// use crate::api::{
+//     cryptarchia::{HeaderId, NoteId},
+//     types::value::Value,
+// };
 use crate::api::{
-    cryptarchia::{HeaderId, NoteId},
+    cryptarchia::{HeaderId, NoteCm},
     types::value::Value,
 };
 
-/// One wallet-owned UTXO old enough to take part in the leadership lottery.
+/// One wallet-owned note old enough to take part in the leadership lottery.
 #[repr(C)]
 pub struct LeaderAgedNote {
-    /// The note ID, as 32 little-endian bytes.
-    pub id: NoteId,
+    // TODO(RFC-480): notes are private, named by their commitment.
+    // /// The note ID, as 32 little-endian bytes.
+    // pub id: NoteId,
+    /// The note commitment, as 32 little-endian bytes.
+    pub commitment: NoteCm,
+    /// The note set holding the note.
+    pub note_set: u64,
     /// The value staked by the note.
     pub value: Value,
     /// The wallet address holding the note, as 32 little-endian bytes.

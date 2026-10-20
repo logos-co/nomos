@@ -1,3 +1,7 @@
+// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed; the leader reward
+// is a note of the block. This bench is no longer built (its `[[bench]]` entry
+// is commented in `tests/Cargo.toml`).
+/*
 //! Benchmark MMR vs [`DynamicMerkleTree`] for voucher insertion during a single
 //! epoch transition.
 //!
@@ -125,3 +129,4 @@ fn bench_tree_epoch(bencher: Bencher, initial_size: u64) {
 fn main() {
     divan::main();
 }
+*/

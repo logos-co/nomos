@@ -368,10 +368,10 @@ where
         }
         .await;
 
-        let PublicKeyEncoding::Zk(zk_public_key) = kms_api
-            .public_key(blend_config.zk.secret_key_kms_id.clone())
-            .await
-            .expect("ZK public key for provided ID should be stored in KMS.")
+        let PublicKeyEncoding::Zk(zk_public_key) =
+            Box::pin(kms_api.public_key(blend_config.zk.secret_key_kms_id.clone()))
+                .await
+                .expect("ZK public key for provided ID should be stored in KMS.")
         else {
             panic!("Key with specified ID is not a ZK key.");
         };
@@ -380,13 +380,12 @@ where
         // anymore, i.e., when we have libp2p integration with KMS.
         let non_ephemeral_signing_key = {
             let (sender, receiver) = oneshot::channel();
-            kms_api
-                .execute(
-                    blend_config.non_ephemeral_signing_key_id.clone(),
-                    KeyOperators::Ed25519(Box::new(LeakSecretKeyOperator::new(sender))),
-                )
-                .await
-                .expect("Failed to interact with KMS to fetch non-ephemeral signing key.");
+            Box::pin(kms_api.execute(
+                blend_config.non_ephemeral_signing_key_id.clone(),
+                KeyOperators::Ed25519(Box::new(LeakSecretKeyOperator::new(sender))),
+            ))
+            .await
+            .expect("Failed to interact with KMS to fetch non-ephemeral signing key.");
             receiver
                 .await
                 .expect("Failed to retrieve non-ephemeral signing key from KMS.")
@@ -621,7 +620,7 @@ where
                         membership,
                         epoch,
                         poq_leadership_public_inputs: LeaderInputs {
-                            pol_ledger_aged: aged,
+                            pol_eligible_aged: aged,
                             pol_epoch_nonce: nonce,
                             message_quota: config.epoch_leadership_quota(),
                             lottery_0,

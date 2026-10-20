@@ -13,12 +13,13 @@ version     = { workspace = true }
 workspace = true
 
 [dependencies]
-async-trait                   = { workspace = true }
-futures                       = { workspace = true }
-lb-binary-codec               = { workspace = true }
-lb-blend-service              = { workspace = true }
-lb-chain-broadcast-service    = { workspace = true }
-lb-chain-leader-service       = { workspace = true }
+async-trait                = { workspace = true }
+futures                    = { workspace = true }
+lb-binary-codec            = { workspace = true }
+lb-blend-service           = { workspace = true }
+lb-chain-broadcast-service = { workspace = true }
+# TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the block.
+# lb-chain-leader-service       = { workspace = true }
 lb-chain-service              = { features = ["openapi"], workspace = true }
 lb-core                       = { features = ["openapi"], workspace = true }
 lb-key-management-system-keys = { features = ["openapi"], workspace = true }

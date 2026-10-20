@@ -27,16 +27,17 @@ impl PoCWitnessInputs {
         }
     }
 }
-impl TryFrom<PoCWitnessInputs> for lbc_poc_sys::PocWitnessInput<'_> {
-    type Error = lbp_error::Error;
-
-    fn try_from(value: PoCWitnessInputs) -> Result<Self, Self::Error> {
-        let inputs_json: PoCInputsJson = value.into();
-        let inputs_str: String = serde_json::to_string(&inputs_json)?;
-        let witness_input = lbc_poc_sys::PocWitnessInput::new(inputs_str)?;
-        Ok(witness_input)
-    }
-}
+// TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+// impl TryFrom<PoCWitnessInputs> for lbc_poc_sys::PocWitnessInput<'_> {
+//     type Error = lbp_error::Error;
+//
+//     fn try_from(value: PoCWitnessInputs) -> Result<Self, Self::Error> {
+//         let inputs_json: PoCInputsJson = value.into();
+//         let inputs_str: String = serde_json::to_string(&inputs_json)?;
+//         let witness_input = lbc_poc_sys::PocWitnessInput::new(inputs_str)?;
+//         Ok(witness_input)
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub struct PoCWitnessInputsData {

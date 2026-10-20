@@ -10,15 +10,24 @@ use std::{
 };
 
 use futures::{StreamExt as _, stream::FuturesUnordered};
+// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+// use lb_core::mantle::{
+//     NoteId, SignedOps, TxHash, Utxo,
+//     ledger::{MAX_TRANSACTION_INPUTS, verification_mode::StandardMode},
+//     transactions::{GasPrices, OpProofs, states::Preverified},
+// };
 use lb_core::mantle::{
-    NoteId, SignedOps, TxHash, Utxo,
-    ledger::{MAX_TRANSACTION_INPUTS, verification_mode::StandardMode},
+    SignedOps, TxHash,
+    ledger::verification_mode::StandardMode,
+    notes::NoteNf,
     transactions::{GasPrices, OpProofs, states::Preverified},
 };
 use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_testing_framework::{NodeHttpClient, configs::wallet::WalletAccount, is_truthy_env};
-use lb_wallet::WalletError;
+use lb_wallet::{OwnedNote, WalletError};
+// TODO(RFC-480): a ZkTransfer spends at most four notes.
+use lb_zktransfer::MAX_INPUTS as MAX_TRANSACTION_INPUTS;
 use tokio::{task::JoinSet, time::timeout};
 use tracing::{debug, info, warn};
 
@@ -112,21 +121,21 @@ const fn continuous_workload_sender_fee_requirement(base_tx_fee: u64, fee_sponso
 /// reserved note ID.
 #[derive(Debug, Default)]
 struct WorkloadUtxoPool {
-    by_value: BTreeMap<u64, BTreeMap<NoteId, Utxo>>,
-    value_by_note_id: HashMap<NoteId, u64>,
+    by_value: BTreeMap<u64, BTreeMap<NoteNf, OwnedNote>>,
+    value_by_note_id: HashMap<NoteNf, u64>,
     candidate_count: usize,
 }
 
 impl WorkloadUtxoPool {
-    fn new(utxos: &[Utxo]) -> Self {
+    fn new(utxos: &[OwnedNote]) -> Self {
         let mut pool = Self::default();
         for utxo in utxos {
-            let note_id = utxo.id();
+            let note_id = utxo.nullifier;
             let value = utxo.note.value;
             pool.by_value
                 .entry(value)
                 .or_default()
-                .insert(note_id, *utxo);
+                .insert(note_id, utxo.clone());
             pool.value_by_note_id.insert(note_id, value);
             pool.candidate_count += 1;
         }
@@ -137,7 +146,7 @@ impl WorkloadUtxoPool {
         self.candidate_count
     }
 
-    fn remove(&mut self, note_id: NoteId) {
+    fn remove(&mut self, note_id: NoteNf) {
         if let Some(value) = self.value_by_note_id.remove(&note_id) {
             let remove_value_bucket = self.by_value.get_mut(&value).is_some_and(|bucket| {
                 bucket.remove(&note_id);
@@ -150,19 +159,19 @@ impl WorkloadUtxoPool {
         }
     }
 
-    fn primary_candidates(&self) -> Vec<Utxo> {
+    fn primary_candidates(&self) -> Vec<OwnedNote> {
         self.by_value
             .iter()
             .rev()
             .flat_map(|(_, bucket)| bucket.values().rev())
             .take(MAX_TRANSACTION_INPUTS)
-            .copied()
+            .cloned()
             .collect()
     }
 
     #[cfg(test)]
-    fn primary(&self) -> Option<Utxo> {
-        self.primary_candidates().first().copied()
+    fn primary(&self) -> Option<OwnedNote> {
+        self.primary_candidates().first().cloned()
     }
 
     #[cfg(test)]
@@ -173,13 +182,16 @@ impl WorkloadUtxoPool {
 
     fn candidates_for_primary(
         &self,
-        primary_inputs: &[Utxo],
+        primary_inputs: &[OwnedNote],
         output_value: u64,
         sender_fee_requirement: u64,
     ) -> WorkloadCandidateSet {
         let dust_threshold =
             continuous_workload_dust_threshold(output_value, sender_fee_requirement);
-        let primary_note_ids = primary_inputs.iter().map(Utxo::id).collect::<HashSet<_>>();
+        let primary_note_ids = primary_inputs
+            .iter()
+            .map(|utxo| utxo.nullifier)
+            .collect::<HashSet<_>>();
         let dust_input_limit = MAX_CONTINUOUS_WORKLOAD_DUST_INPUTS
             .min(MAX_TRANSACTION_INPUTS.saturating_sub(primary_inputs.len()));
         let mut dust = Vec::with_capacity(dust_input_limit);
@@ -188,9 +200,9 @@ impl WorkloadUtxoPool {
             self.by_value
                 .range(..=dust_threshold)
                 .flat_map(|(_, bucket)| bucket.values())
-                .filter(|utxo| !primary_note_ids.contains(&utxo.id()))
+                .filter(|utxo| !primary_note_ids.contains(&utxo.nullifier))
                 .take(dust_input_limit)
-                .copied(),
+                .cloned(),
         );
 
         WorkloadCandidateSet {
@@ -203,8 +215,8 @@ impl WorkloadUtxoPool {
 
 #[derive(Debug)]
 struct WorkloadCandidateSet {
-    primary_inputs: Vec<Utxo>,
-    dust: Vec<Utxo>,
+    primary_inputs: Vec<OwnedNote>,
+    dust: Vec<OwnedNote>,
     dust_threshold: u64,
 }
 
@@ -217,7 +229,7 @@ impl WorkloadCandidateSet {
             .sum()
     }
 
-    fn inputs(&self, dust_count: usize) -> Vec<Utxo> {
+    fn inputs(&self, dust_count: usize) -> Vec<OwnedNote> {
         let dust_count = dust_count.min(self.dust.len());
         let mut inputs = Vec::with_capacity(dust_count + self.primary_inputs.len());
         inputs.extend_from_slice(&self.primary_inputs);
@@ -231,7 +243,7 @@ impl WorkloadCandidateSet {
 #[derive(Debug, Default)]
 pub struct WorkloadUtxoPools {
     by_wallet: HashMap<WalletId, WorkloadUtxoPool>,
-    cache_positions: HashMap<NoteId, (WalletId, usize)>,
+    cache_positions: HashMap<NoteNf, (WalletId, usize)>,
 }
 
 impl WorkloadUtxoPools {
@@ -245,7 +257,7 @@ impl WorkloadUtxoPools {
             for (index, utxo) in utxos.iter().enumerate() {
                 pools
                     .cache_positions
-                    .insert(utxo.id(), (wallet_name.clone(), index));
+                    .insert(utxo.nullifier, (wallet_name.clone(), index));
             }
         }
         pools
@@ -257,7 +269,7 @@ impl WorkloadUtxoPools {
             .map_or(0, WorkloadUtxoPool::len)
     }
 
-    fn primary_candidates(&self, wallet_name: &str) -> Vec<Utxo> {
+    fn primary_candidates(&self, wallet_name: &str) -> Vec<OwnedNote> {
         self.by_wallet
             .get(wallet_name)
             .map_or_else(Vec::new, WorkloadUtxoPool::primary_candidates)
@@ -266,7 +278,7 @@ impl WorkloadUtxoPools {
     fn candidates(
         &self,
         wallet_name: &str,
-        primary_inputs: &[Utxo],
+        primary_inputs: &[OwnedNote],
         output_value: u64,
         sender_fee_requirement: u64,
     ) -> Option<WorkloadCandidateSet> {
@@ -285,7 +297,7 @@ impl WorkloadUtxoPools {
         let (sender_inputs, fee_sponsor_inputs) =
             reserved_inputs.into_sender_and_fee_sponsor_inputs();
         for input in sender_inputs.into_iter().chain(fee_sponsor_inputs) {
-            let note_id = input.id();
+            let note_id = input.nullifier;
             let Some((wallet_name, index)) = self.cache_positions.remove(&note_id) else {
                 continue;
             };
@@ -296,7 +308,10 @@ impl WorkloadUtxoPools {
                     ),
                 });
             };
-            if utxos.get(index).is_none_or(|cached| cached.id() != note_id) {
+            if utxos
+                .get(index)
+                .is_none_or(|cached| cached.nullifier != note_id)
+            {
                 return Err(StepError::LogicalError {
                     message: format!(
                         "Workload reservation index is stale for wallet '{wallet_name}' and input {note_id:?}"
@@ -307,10 +322,10 @@ impl WorkloadUtxoPools {
             let removed = utxos.swap_remove(index);
             if let Some(moved) = utxos.get(index) {
                 self.cache_positions
-                    .insert(moved.id(), (wallet_name.clone(), index));
+                    .insert(moved.nullifier, (wallet_name.clone(), index));
             }
             if let Some(pool) = self.by_wallet.get_mut(&wallet_name) {
-                pool.remove(removed.id());
+                pool.remove(removed.nullifier);
             }
         }
         Ok(())
@@ -1368,7 +1383,7 @@ async fn reserve_user_wallet_transaction_submission(
     sender_wallet_name: &str,
     transaction_intent: WalletTransactionIntent,
     in_memory_available_utxos: Option<&WalletUtxos>,
-    sender_candidate_utxos: Option<&[Utxo]>,
+    sender_candidate_utxos: Option<&[OwnedNote]>,
     change_public_key: Option<ZkPublicKey>,
     input_selection_strategy: WalletInputSelectionStrategy,
     gas_prices: Option<GasPrices>,
@@ -1468,7 +1483,7 @@ async fn submit_user_wallet_transaction(
 
 fn user_wallet_funding_resources(
     wallet_account: &WalletAccount,
-    sender_available_utxos: &[Utxo],
+    sender_available_utxos: &[OwnedNote],
     scenario_fee_funds: Option<WalletFundingSource>,
     change_public_key: Option<ZkPublicKey>,
     input_selection_strategy: WalletInputSelectionStrategy,
@@ -1501,7 +1516,10 @@ fn user_wallet_funding_resources(
 fn wallet_transaction_error(error: WalletTransactionError) -> StepError {
     match error {
         WalletTransactionError::Funding(error) => StepError::WalletError(error),
-        WalletTransactionError::Signing(error) => StepError::ZkSignError(error),
+        // TODO(RFC-480): the ZkSignature scheme is removed, transfers are
+        // proven by ZkTransfers.
+        // WalletTransactionError::Signing(error) => StepError::ZkSignError(error),
+        WalletTransactionError::Proving(error) => StepError::ProvingError(error),
         WalletTransactionError::Verification(error) => StepError::VerificationError(error),
         WalletTransactionError::Gas(error) => StepError::LogicalError {
             message: error.to_string(),
@@ -1592,11 +1610,11 @@ pub fn apply_reserved_inputs_to_utxo_cache(
     let spent_note_ids = sender_inputs
         .into_iter()
         .chain(fee_sponsor_inputs)
-        .map(|utxo| utxo.id())
+        .map(|utxo| utxo.nullifier)
         .collect::<HashSet<_>>();
 
     for utxos in cache.values_mut() {
-        utxos.retain(|utxo| !spent_note_ids.contains(&utxo.id()));
+        utxos.retain(|utxo| !spent_note_ids.contains(&utxo.nullifier));
     }
 }
 
@@ -1614,15 +1632,18 @@ fn apply_reserved_inputs_to_wallet_utxo_cache(
             && let Some(sender_utxos) = cache.get_mut(sender_wallet_name)
             && sender_utxos
                 .get(index)
-                .is_some_and(|cached_input| cached_input.id() == reserved_input.id())
+                .is_some_and(|cached_input| cached_input.nullifier == reserved_input.nullifier)
         {
             sender_utxos.remove(index);
             return;
         }
 
-        let spent_note_ids = sender_inputs.iter().map(Utxo::id).collect::<HashSet<_>>();
+        let spent_note_ids = sender_inputs
+            .iter()
+            .map(|utxo| utxo.nullifier)
+            .collect::<HashSet<_>>();
         if let Some(sender_utxos) = cache.get_mut(sender_wallet_name) {
-            sender_utxos.retain(|utxo| !spent_note_ids.contains(&utxo.id()));
+            sender_utxos.retain(|utxo| !spent_note_ids.contains(&utxo.nullifier));
         }
         return;
     }
@@ -1630,11 +1651,11 @@ fn apply_reserved_inputs_to_wallet_utxo_cache(
     let spent_note_ids = sender_inputs
         .into_iter()
         .chain(fee_sponsor_inputs)
-        .map(|utxo| utxo.id())
+        .map(|utxo| utxo.nullifier)
         .collect::<HashSet<_>>();
 
     for utxos in cache.values_mut() {
-        utxos.retain(|utxo| !spent_note_ids.contains(&utxo.id()));
+        utxos.retain(|utxo| !spent_note_ids.contains(&utxo.nullifier));
     }
 }
 
@@ -1673,19 +1694,37 @@ fn group_key_for_wallet(world: &CucumberWorld, wallet_name: &str) -> Result<Stri
 #[cfg(test)]
 mod cache_removal_tests {
     use lb_chain_service::Epoch;
-    use lb_core::{header::HeaderId, mantle::Note};
+    use lb_core::{
+        header::HeaderId,
+        mantle::{Note, note_set::LEDGER_SET},
+    };
+    use lb_groth16::Fr;
+    use lb_mmr::MerklePath;
     use rand::{SeedableRng as _, seq::SliceRandom as _};
     use rand_chacha::ChaCha8Rng;
 
     use super::*;
     use crate::common::wallet::TransactionFeeHorizon;
 
-    fn utxo(value: u64, output_index: usize) -> Utxo {
-        Utxo::new(
-            [output_index as u8; 32],
-            output_index,
-            Note::new(value, ZkPublicKey::new(1u8.into())),
-        )
+    // TODO(RFC-480): UTXO test wallet, a note is named by its nullifier.
+    // fn utxo(value: u64, output_index: usize) -> Utxo {
+    //     Utxo::new(
+    //         [output_index as u8; 32],
+    //         output_index,
+    //         Note::new(value, ZkPublicKey::new(1u8.into())),
+    //     )
+    // }
+    fn utxo(value: u64, output_index: usize) -> OwnedNote {
+        owned_note(value, output_index as u64, ZkPublicKey::new(1u8.into()))
+    }
+
+    fn owned_note(value: u64, nullifier: u64, public_key: ZkPublicKey) -> OwnedNote {
+        OwnedNote {
+            note: Note::new(value, Fr::from(nullifier), public_key),
+            note_set: LEDGER_SET,
+            nullifier: NoteNf(Fr::from(nullifier)),
+            path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
+        }
     }
 
     #[test]
@@ -1890,7 +1929,7 @@ mod cache_removal_tests {
             ),
             (WalletId::from("other"), vec![utxo(40, 3), utxo(50, 4)]),
         ]);
-        let reserved_input = cache["sender"][1];
+        let reserved_input = cache["sender"][1].clone();
 
         apply_reserved_inputs_to_wallet_utxo_cache(
             &mut cache,
@@ -1920,17 +1959,18 @@ mod cache_removal_tests {
             .expect("workload test account should build")
     }
 
-    fn workload_utxo(value: u64, output_index: usize) -> Utxo {
+    fn workload_utxo(value: u64, output_index: usize) -> OwnedNote {
         let account = workload_account();
-        Utxo::new(
-            [output_index as u8; 32],
-            output_index,
-            Note::new(value, account.public_key()),
-        )
+        // Utxo::new(
+        //     [output_index as u8; 32],
+        //     output_index,
+        //     Note::new(value, account.public_key()),
+        // )
+        owned_note(value, output_index as u64, account.public_key())
     }
 
     fn prepare_all_provided(
-        utxos: &[Utxo],
+        utxos: &[OwnedNote],
         output_value: u64,
         gas_prices: GasPrices,
         priority_fee_percent: u64,
@@ -1953,8 +1993,8 @@ mod cache_removal_tests {
     }
 
     fn prepare_fee_sponsored_all_provided(
-        sender_utxos: &[Utxo],
-        fee_sponsor_utxos: &[Utxo],
+        sender_utxos: &[OwnedNote],
+        fee_sponsor_utxos: &[OwnedNote],
         output_value: u64,
     ) -> Result<PreparedWalletTransactionWorkItem, WalletTransactionError> {
         let sender_account = workload_account();
@@ -2279,7 +2319,7 @@ mod cache_removal_tests {
         let dust = (1..=10)
             .map(|index| workload_utxo(1, index))
             .collect::<Vec<_>>();
-        let mut all_utxos = vec![primary];
+        let mut all_utxos = vec![primary.clone()];
         all_utxos.extend_from_slice(&dust);
         let pool = WorkloadUtxoPool::new(&all_utxos);
 
@@ -2288,7 +2328,14 @@ mod cache_removal_tests {
         let mut high = primary.note.value;
         while low < high {
             let output_value = low + (high - low).div_ceil(2);
-            if prepare_all_provided(&[primary], output_value, gas_prices.clone(), 200).is_ok() {
+            if prepare_all_provided(
+                std::slice::from_ref(&primary),
+                output_value,
+                gas_prices.clone(),
+                200,
+            )
+            .is_ok()
+            {
                 low = output_value;
             } else {
                 high = output_value - 1;
@@ -2323,7 +2370,7 @@ mod cache_removal_tests {
         assert!(successful_dust_count < candidates.dust.len());
         let dropped_dust_ids = candidates.dust[successful_dust_count..]
             .iter()
-            .map(Utxo::id)
+            .map(|utxo| utxo.nullifier)
             .collect::<HashSet<_>>();
 
         let mut cache = HashMap::from([(WalletId::from("sender"), all_utxos)]);
@@ -2335,7 +2382,10 @@ mod cache_removal_tests {
             )
             .expect("reserved inputs should be removed from indexed cache");
 
-        let remaining_ids = cache["sender"].iter().map(Utxo::id).collect::<HashSet<_>>();
+        let remaining_ids = cache["sender"]
+            .iter()
+            .map(|utxo| utxo.nullifier)
+            .collect::<HashSet<_>>();
         assert!(dropped_dust_ids.is_subset(&remaining_ids));
         assert_eq!(pools.candidate_count("sender"), remaining_ids.len());
     }
@@ -2376,7 +2426,7 @@ mod cache_removal_tests {
                 .collect::<Vec<_>>(),
             vec![10_000, 1, 10, 100]
         );
-        assert!(pool.value_by_note_id.contains_key(&utxos[1].id()));
+        assert!(pool.value_by_note_id.contains_key(&utxos[1].nullifier));
     }
 
     #[test]
@@ -2404,7 +2454,10 @@ mod cache_removal_tests {
             let (sender_inputs, fee_sponsor_inputs) = reserved.into_sender_and_fee_sponsor_inputs();
             assert_eq!(fee_sponsor_inputs, Vec::new());
             for input in &sender_inputs {
-                assert!(reserved_ids.insert(input.id()), "workload input was reused");
+                assert!(
+                    reserved_ids.insert(input.nullifier),
+                    "workload input was reused"
+                );
             }
             pools
                 .remove_reserved_inputs(
@@ -2436,7 +2489,7 @@ mod cache_removal_tests {
             ),
         ]);
         let mut pools = WorkloadUtxoPools::from_cache(&cache);
-        let sender_a_primary = pools.primary_candidates("sender_a")[0];
+        let sender_a_primary = pools.primary_candidates("sender_a")[0].clone();
         pools
             .remove_reserved_inputs(
                 &mut cache,
@@ -2452,7 +2505,7 @@ mod cache_removal_tests {
         pools
             .remove_reserved_inputs(
                 &mut cache,
-                WalletReservedInputs::new(vec![sender_b_primary_candidates[0]], Vec::new()),
+                WalletReservedInputs::new(vec![sender_b_primary_candidates[0].clone()], Vec::new()),
             )
             .expect("sender B input should be removed through the same shared index");
         assert_eq!(pools.candidate_count("sender_b"), cache["sender_b"].len());
@@ -2509,11 +2562,12 @@ mod cache_removal_tests {
         let fee_sponsor_account = WalletAccount::deterministic(101, 1_000_000, false)
             .expect("fee sponsor test account should build");
         let mut remaining_sponsor_utxos = (0..11).map(|index| {
-            Utxo::new(
-                [0xFE; 32],
-                index,
-                Note::new(10_000_000, fee_sponsor_account.public_key()),
-            )
+            // Utxo::new(
+            //     [0xFE; 32],
+            //     index,
+            //     Note::new(10_000_000, fee_sponsor_account.public_key()),
+            // )
+            owned_note(10_000_000, 0xFE00 + index, fee_sponsor_account.public_key())
         });
 
         for transaction_index in 0..11 {
@@ -2538,7 +2592,7 @@ mod cache_removal_tests {
             assert_eq!(sender_inputs.len(), 1, "transaction {transaction_index}");
             assert_eq!(sender_inputs[0].note.value, 1);
             assert_ne!(fee_sponsor_inputs.len(), 0);
-            pool.remove(sender_inputs[0].id());
+            pool.remove(sender_inputs[0].nullifier);
         }
 
         assert_eq!(pool.len(), 0, "all eleven sender outputs funded a transfer");

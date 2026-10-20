@@ -1,3 +1,6 @@
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+/*
 use generic_array::{
     GenericArray,
     typenum::{U32, U64},
@@ -169,6 +172,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn zk_signature_json_roundtrip() {
         let sig = sig_generator();
 
@@ -179,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn zk_signature_yaml_roundtrip() {
         let sig = sig_generator();
 
@@ -213,3 +218,4 @@ mod tests {
         Signature::new(proof)
     }
 }
+*/

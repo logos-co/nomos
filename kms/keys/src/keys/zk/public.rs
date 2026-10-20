@@ -1,22 +1,32 @@
-use lb_groth16::{AdditiveGroup as _, Fr, Groth16Input};
-use lb_log_targets::kms;
-use lb_utils::bounded::UpperBoundedVec;
-use lb_zksign::{ZkSignError, ZkSignVerifierInputs};
+use lb_groth16::{AdditiveGroup as _, Fr};
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+// use lb_groth16::Groth16Input;
+// use lb_log_targets::kms;
+// TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
+// use lb_utils::bounded::UpperBoundedVec;
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+// use lb_zksign::{ZkSignError, ZkSignVerifierInputs};
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use tracing::error;
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+// use tracing::error;
+//
+// use crate::keys::zk::{private::SecretKey, signature::Signature};
+//
+// const LOG_TARGET: &str = kms::keys::ZK;
 
-use crate::keys::zk::{private::SecretKey, signature::Signature};
-
-const LOG_TARGET: &str = kms::keys::ZK;
-
-pub const MAX_ZK_SIGNING_KEYS: usize = 32;
+// TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
+// pub const MAX_ZK_SIGNING_KEYS: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(transparent)]
 pub struct PublicKey(#[serde(with = "lb_groth16::serde::serde_fr")] Fr);
 
-pub type PublicKeys = UpperBoundedVec<PublicKey, MAX_ZK_SIGNING_KEYS>;
+// TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
+// pub type PublicKeys = UpperBoundedVec<PublicKey, MAX_ZK_SIGNING_KEYS>;
 // Encoded through `serde_fr`, which routes to
 // `lb_utils::serde::serialize_bytes_array`, so the key documents itself with
 // that encoding's schema rather than restating it at each use site.
@@ -51,6 +61,9 @@ impl PublicKey {
         self.0
     }
 
+    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+    // Components 1.3.0).
+    /*
     #[must_use]
     pub fn verify_multi(pks: &[Self], data: &Fr, signature: &Signature) -> bool {
         let inputs = match inputs_from_pks((*data).into(), pks) {
@@ -66,6 +79,7 @@ impl PublicKey {
             false
         })
     }
+    */
 }
 
 impl From<PublicKey> for Fr {
@@ -86,6 +100,9 @@ impl From<Fr> for PublicKey {
     }
 }
 
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+/*
 pub fn inputs_from_pks(
     msg: Groth16Input,
     pks: &[PublicKey],
@@ -108,3 +125,4 @@ pub fn inputs_from_pks(
 
     Ok(ZkSignVerifierInputs { public_keys, msg })
 }
+*/

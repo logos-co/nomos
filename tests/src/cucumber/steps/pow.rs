@@ -1,14 +1,20 @@
 use std::{collections::HashSet, time::Duration};
 
 use cucumber::{gherkin::Step, then, when};
-use lb_core::mantle::{OpRef, traits::Hashable as _, transactions::hash::TxHash};
+use lb_core::{
+    events::{Event, TxEvent, TxEventPayload},
+    mantle::{OpRef, traits::Hashable as _, transactions::hash::TxHash},
+};
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_testing_framework::NodeHttpClient;
 use tokio::time::{Instant, sleep};
 use tracing::{info, warn};
 
 use crate::{
-    common::{chain::scan_chain_until, wallet::WalletOutputState},
+    common::{
+        chain::scan_chain_until,
+        wallet::{WalletOutputState, scanner::block_source::block_events},
+    },
     cucumber::{
         error::{StepError, StepResult},
         steps::TARGET,
@@ -329,26 +335,54 @@ async fn claim_reward_credited_to(
             let node = node.clone();
             async move { node.block(&header_id).await.ok().flatten() }
         },
+        // TODO(RFC-480): the reward is a private note of the ledger set; its
+        // opening is revealed by the claim's event.
+        // |block| {
+        //     let tx = block.transactions.iter().find(|tx| tx.hash() == tx_hash)?;
+        //     let credited = tx
+        //         .op_refs_iter()
+        //         .filter_map(|op| match op {
+        //             OpRef::Transfer(transfer) => Some(transfer),
+        //             _ => None,
+        //         })
+        //         .flat_map(|transfer| transfer.outputs.iter())
+        //         .filter(|note| note.pk == claim_address)
+        //         .map(|note| note.value)
+        //         .sum::<u64>();
+        //     Some(credited)
+        // },
         |block| {
-            let tx = block.transactions.iter().find(|tx| tx.hash() == tx_hash)?;
-            let credited = tx
-                .op_refs_iter()
-                .filter_map(|op| match op {
-                    OpRef::Transfer(transfer) => Some(transfer),
-                    _ => None,
-                })
-                .flat_map(|transfer| transfer.outputs.iter())
-                .filter(|note| note.pk == claim_address)
-                .map(|note| note.value)
-                .sum::<u64>();
-            Some(credited)
+            block
+                .transactions
+                .iter()
+                .any(|tx| tx.hash() == tx_hash)
+                .then_some(block.header.id)
         },
     )
     .await;
 
-    credited.ok_or_else(|| StepError::LogicalError {
+    // credited.ok_or_else(|| StepError::LogicalError {
+    //     message: format!("claim transaction {tx_hash:?} was not found on the chain"),
+    // })
+    let block_id = credited.ok_or_else(|| StepError::LogicalError {
         message: format!("claim transaction {tx_hash:?} was not found on the chain"),
-    })
+    })?;
+    let events = block_events(node, block_id)
+        .await
+        .map_err(|error| StepError::LogicalError {
+            message: format!("events of the claim block {block_id} not readable: {error}"),
+        })?;
+    Ok(events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Tx(TxEvent {
+                tx_hash: event_tx_hash,
+                payload: TxEventPayload::PoWRewardClaimed { note, .. },
+                ..
+            }) if *event_tx_hash == tx_hash && note.public_key == claim_address => Some(note.value),
+            _ => None,
+        })
+        .sum())
 }
 
 /// Counts the `ClaimPowReward` ops the landed claim transaction carried.

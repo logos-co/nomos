@@ -167,6 +167,10 @@ pub enum Query {
     Info {
         reply_channel: oneshot::Sender<ChainServiceInfo>,
     },
+    /// Returns the genesis block of the starting state.
+    GetGenesisBlock {
+        reply_channel: oneshot::Sender<GenesisBlock>,
+    },
     NewBlockSubscribe {
         sender: oneshot::Sender<broadcast::Receiver<ProcessedBlockEvent>>,
     },
@@ -492,7 +496,9 @@ impl Cryptarchia {
         }
 
         let block_uncle_headers_slots = block.uncle_headers().slots();
-        let leader_proof = header.leader_proof().clone();
+        // TODO(RFC-480): the header is the proof the ledger verifies, bound by pol_msg.
+        // let leader_proof = header.leader_proof().clone();
+        let leader_header = header.clone();
 
         let transactions = block.into_transactions();
 
@@ -505,7 +511,7 @@ impl Cryptarchia {
                 id,
                 parent,
                 slot,
-                &leader_proof,
+                &leader_header,
                 &block_uncle_headers_slots,
                 transactions.into_iter(),
             )

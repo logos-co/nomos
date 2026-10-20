@@ -1,47 +1,82 @@
 use core::ptr;
-use std::{
-    ffi::{CStr, CString, c_char},
-    time::Duration,
-};
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+// use std::{
+//     ffi::{CStr, CString, c_char},
+//     time::Duration,
+// };
+use std::ffi::{CStr, CString, c_char};
 
 use lb_api_service::http::mempool;
 use lb_c_macros::panic_to_error;
+// TODO(RFC-480): notes are private; Operations are proven by ZkTransfers.
+// use lb_core::{
+//     header::HeaderId as CoreHeaderId,
+//     mantle::{
+//         Note, NoteId as CoreNoteId, Op, OpProof, SignedOps,
+//         gas::GasCost,
+//         ledger::{BoundedInputs, Inputs, Outputs, verification_mode::StandardMode},
+//         ops::{
+//             channel::{
+//                 ChannelId,
+//                 deposit::{DepositOp, Metadata},
+//             },
+//             transfer::TransferOp,
+//         },
+//         traits::Hashable,
+//         transactions::{
+//             MantleTxBuilder, OpProofs, Ops,
+//             states::{Preverified, Unverified},
+//         },
+//     },
+// };
+// use lb_groth16::{fr_from_bytes, fr_to_bytes};
 use lb_core::{
     header::HeaderId as CoreHeaderId,
     mantle::{
-        Note, NoteId as CoreNoteId, Op, OpProof, SignedOps,
-        gas::GasCost,
-        ledger::{BoundedInputs, Inputs, Outputs, verification_mode::StandardMode},
-        ops::{
-            channel::{
-                ChannelId,
-                deposit::{DepositOp, Metadata},
-            },
-            transfer::TransferOp,
+        Note, Op, SignedOps,
+        ledger::verification_mode::StandardMode,
+        notes::NoteCm as CoreNoteCm,
+        ops::channel::{
+            ChannelId,
+            deposit::{DepositOp, Metadata},
         },
         traits::Hashable,
         transactions::{
-            MantleTxBuilder, OpProofs, Ops,
+            MantleTxBuilder,
+            builder::ZkTransferOpening,
             states::{Preverified, Unverified},
         },
     },
 };
-use lb_groth16::{fr_from_bytes, fr_to_bytes};
+use lb_groth16::{fr_from_bytes, fr_from_mod_bytes, fr_to_bytes};
 use lb_http_api_common::bodies::wallet::fund::{WalletFundRequestBody, WalletFundResponseBody};
 use lb_key_management_system_keys::keys::ZkPublicKey;
+// TODO(RFC-480): the exact deposit note is split by the wallet.
+// use lb_node::{
+//     RuntimeServiceId,
+//     generic_services::{CryptarchiaService, WalletService as NodeWalletService},
+// };
 use lb_node::{
     RuntimeServiceId,
-    generic_services::{CryptarchiaService, WalletService as NodeWalletService},
+    generic_services::{
+        CryptarchiaService, WalletService as NodeWalletService, sdp::wallet::split_root,
+    },
 };
-use lb_wallet_service::{ClaimableVouchersInfo, LeaderAgedNotesInfo, TipResponse, api::WalletApi};
-use overwatch::services::status::ServiceStatus;
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+// use lb_wallet_service::{ClaimableVouchersInfo, LeaderAgedNotesInfo, TipResponse, api::WalletApi};
+// use overwatch::services::status::ServiceStatus;
+use lb_wallet_service::{LeaderAgedNotesInfo, TipResponse, api::WalletApi};
+use rand::{RngCore as _, rngs::OsRng};
 
+// TODO(RFC-480): `NoteId` (notes are private, named by their commitment) and
+// `claimable_vouchers` (LEADER_CLAIM is removed) are no longer imported.
 use crate::{
     LogosBlockchainNode,
     api::{
-        cryptarchia::{Hash, HeaderId, NoteId, get_cryptarchia_info_sync},
+        cryptarchia::{Hash, HeaderId, get_cryptarchia_info_sync},
         types::{
-            claimable_vouchers::{ClaimableVoucher, ClaimableVouchers},
             known_addresses::KnownAddresses,
             leader_aged_notes::{LeaderAgedNote, LeaderAgedNotes},
             value::Value,
@@ -53,12 +88,17 @@ use crate::{
     return_error_if_null_pointer, unwrap_or_return_error,
 };
 
-pub type FfiClaimableVouchersResult = FfiStatusResult<ClaimableVouchers>;
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+// pub type FfiClaimableVouchersResult = FfiStatusResult<ClaimableVouchers>;
 
 type WalletService = NodeWalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>;
 
-/// Resolved tip plus the `(note ID, value)` pairs for a wallet address.
-type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteId, Value)>);
+// TODO(RFC-480): notes are private, named by their commitment.
+// /// Resolved tip plus the `(note ID, value)` pairs for a wallet address.
+// type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteId, Value)>);
+/// Resolved tip plus the `(note commitment, value)` pairs for a wallet address.
+type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteCm, Value)>);
 
 /// Gets the known wallet addresses from the wallet service.
 ///
@@ -259,6 +299,9 @@ pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> Oper
     OperationStatus::OK
 }
 
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+/*
 /// Gets the claimable vouchers tracked by the wallet.
 ///
 /// This is a synchronous wrapper around [`WalletApi::get_claimable_vouchers`].
@@ -398,6 +441,7 @@ pub unsafe extern "C" fn free_claimable_vouchers(vouchers: ClaimableVouchers) ->
     drop(vouchers);
     OperationStatus::OK
 }
+*/
 
 /// Get the balance of a wallet address
 ///
@@ -501,8 +545,7 @@ pub unsafe extern "C" fn get_balance(
 ///
 /// This is a synchronous wrapper around [`WalletApi::get_balance`] that, unlike
 /// [`get_balance_sync`], preserves the individual notes rather than collapsing
-/// them into a single total. Callers need the note IDs to build operations that
-/// consume specific notes (e.g. [`channel_deposit_with_notes`]).
+/// them into a single total.
 ///
 /// # Arguments
 ///
@@ -512,9 +555,9 @@ pub unsafe extern "C" fn get_balance(
 ///
 /// # Returns
 ///
-/// A [`Result`] containing the resolved tip and the `(note ID, value)` pairs on
-/// success (or `None` if the address is unknown), or an [`OperationStatus`]
-/// error on failure.
+/// A [`Result`] containing the resolved tip and the `(note commitment, value)`
+/// pairs on success (or `None` if the address is unknown), or an
+/// [`OperationStatus`] error on failure.
 pub(crate) fn get_wallet_notes_sync(
     node: &LogosBlockchainNode,
     tip: lb_core::header::HeaderId,
@@ -559,7 +602,7 @@ pub type FfiWalletNotesResult = FfiStatusResult<WalletNotes>;
 /// # Returns
 ///
 /// A [`FfiWalletNotesResult`] containing the tip and the array of notes on
-/// success, or an [`OperationStatus`] error on failure. Note IDs are in
+/// success, or an [`OperationStatus`] error on failure. Note commitments are in
 /// little-endian format.
 ///
 /// # Safety
@@ -598,10 +641,18 @@ pub unsafe extern "C" fn get_wallet_notes(
 
     match get_wallet_notes_sync(node, tip, wallet_address) {
         Ok(Some((resolved_tip, notes))) => {
+            // TODO(RFC-480): notes are private, named by their commitment.
+            // let notes: Vec<WalletNote> = notes
+            //     .into_iter()
+            //     .map(|(id, value)| WalletNote {
+            //         id: fr_to_bytes(id.as_fr()),
+            //         value,
+            //     })
+            //     .collect();
             let notes: Vec<WalletNote> = notes
                 .into_iter()
-                .map(|(id, value)| WalletNote {
-                    id: fr_to_bytes(id.as_fr()),
+                .map(|(commitment, value)| WalletNote {
+                    commitment: fr_to_bytes(&commitment.0),
                     value,
                 })
                 .collect();
@@ -669,8 +720,8 @@ pub type FfiLeaderAgedNotesResult = FfiStatusResult<LeaderAgedNotes>;
 ///
 /// A [`FfiLeaderAgedNotesResult`] containing the tip and the eligible notes on
 /// success, or an [`OperationStatus`] error on failure. A successful result
-/// with `len == 0` means the node has no eligible notes at that tip. Note IDs
-/// and public keys are in little-endian format.
+/// with `len == 0` means the node has no eligible notes at that tip. Note
+/// commitments and public keys are in little-endian format.
 ///
 /// # Safety
 ///
@@ -698,7 +749,10 @@ pub unsafe extern "C" fn get_leader_aged_notes(
         .notes
         .into_iter()
         .map(|note| LeaderAgedNote {
-            id: fr_to_bytes(note.note_id.as_fr()),
+            // TODO(RFC-480): notes are private, named by their commitment.
+            // id: fr_to_bytes(note.note_id.as_fr()),
+            commitment: fr_to_bytes(&note.commitment.0),
+            note_set: note.note_set,
             value: note.value,
             public_key: fr_to_bytes(&note.public_key.into()),
         })
@@ -829,8 +883,8 @@ impl TransferFundsArguments {
 ///
 /// # Returns
 ///
-/// A `Result` containing a [`SignedOps`] on success, or an
-/// [`OperationStatus`] error on failure.
+/// A `Result` containing a [`SignedOps`] and the recipient [`Note`] it creates
+/// on success, or an [`OperationStatus`] error on failure.
 pub(crate) fn transfer_funds_sync(
     node: &LogosBlockchainNode,
     tip: lb_core::header::HeaderId,
@@ -838,7 +892,7 @@ pub(crate) fn transfer_funds_sync(
     funding_public_keys: Vec<ZkPublicKey>,
     recipient_public_key: ZkPublicKey,
     amount: u64,
-) -> StatusResult<SignedOps<Preverified, StandardMode>> {
+) -> StatusResult<(SignedOps<Preverified, StandardMode>, Note)> {
     let runtime_handle = node.get_runtime_handle()?;
     runtime_handle.block_on(async {
         let handle = node.get_overwatch_handle();
@@ -846,7 +900,9 @@ pub(crate) fn transfer_funds_sync(
 
         // The following calls are a rough copy-pate of
         // `post_transactions_transfer_funds`. TODO: Abstract into a common API
-        let signed_tx = api
+        // The created recipient note is returned with the transfer: only the
+        // wallet's own recipient keys adopt it, another recipient imports it.
+        let (signed_tx, recipient_note) = api
             .transfer_funds(
                 Some(tip),
                 change_public_key,
@@ -869,11 +925,26 @@ pub(crate) fn transfer_funds_sync(
                 format!("Failed to add transaction to mempool: {error}"),
             ));
         }
-        Ok(signed_tx)
+        Ok((signed_tx, recipient_note))
     })
 }
 
-pub type FfiTransferFundsResult = FfiStatusResult<Hash>;
+// TODO(RFC-480): the recipient needs the nonce of its note to import it.
+// pub type FfiTransferFundsResult = FfiStatusResult<Hash>;
+
+/// A submitted transfer and the nonce of the note it creates for the
+/// recipient, who needs it, with the amount and its public key, to import
+/// the note.
+#[repr(C)]
+#[derive(Default)]
+pub struct TransferFunds {
+    /// The transaction hash, in little-endian format.
+    pub hash: Hash,
+    /// The recipient note's nonce, a little-endian field element.
+    pub recipient_note_nonce: Hash,
+}
+
+pub type FfiTransferFundsResult = FfiStatusResult<TransferFunds>;
 
 /// Transfer funds from some addresses to another.
 ///
@@ -885,9 +956,9 @@ pub type FfiTransferFundsResult = FfiStatusResult<Hash>;
 ///
 /// # Returns
 ///
-/// A [`FfiTransferFundsResult`] containing the transaction [`Hash`] on success,
-/// or an [`OperationStatus`] error on failure. The hash is in little-endian
-/// format.
+/// A [`FfiTransferFundsResult`] containing the transaction [`Hash`] and the
+/// recipient note's nonce on success, or an [`OperationStatus`] error on
+/// failure. Both are in little-endian format.
 ///
 /// # Safety
 ///
@@ -934,7 +1005,7 @@ pub unsafe extern "C" fn transfer_funds(
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.recipient_public_key) });
     let amount = Value::from(arguments.amount);
 
-    let transaction = unwrap_or_return_error!(transfer_funds_sync(
+    let (transaction, recipient_note) = unwrap_or_return_error!(transfer_funds_sync(
         node,
         tip,
         change_public_key,
@@ -942,7 +1013,12 @@ pub unsafe extern "C" fn transfer_funds(
         recipient_public_key,
         amount,
     ));
-    FfiTransferFundsResult::ok(transaction.hash().0)
+    // TODO(RFC-480): the recipient note's nonce is returned with the hash.
+    // FfiTransferFundsResult::ok(transaction.hash().0)
+    FfiTransferFundsResult::ok(TransferFunds {
+        hash: transaction.hash().0,
+        recipient_note_nonce: fr_to_bytes(&recipient_note.nonce),
+    })
 }
 
 /// Parses a 32-byte little-endian buffer into a [`ZkPublicKey`].
@@ -966,6 +1042,8 @@ pub(crate) unsafe fn parse_public_key(pointer: *const u8) -> StatusResult<ZkPubl
 
 pub type FfiChannelDepositResult = FfiStatusResult<Hash>;
 
+// TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
+/*
 /// Arguments for [`channel_deposit_with_notes`].
 ///
 /// Mirrors the node's `POST /channel/deposit` request body: the caller supplies
@@ -1273,7 +1351,10 @@ pub unsafe extern "C" fn channel_deposit_with_notes(
     ));
     FfiChannelDepositResult::ok(transaction.hash().0)
 }
+*/
 
+// TODO(RFC-480): the wallet splits the exact deposit note.
+/*
 /// Selects notes (largest-first) whose combined value covers `amount`.
 ///
 /// Returns the selected note IDs and their combined value, or `None` if the
@@ -1294,13 +1375,13 @@ fn select_notes_covering(
     }
     (total >= amount).then_some((selected, total))
 }
+*/
 
 /// Arguments for [`channel_deposit`].
 ///
-/// The binding selects funding notes itself and, when no exact-value note
-/// exists, splits one via a transfer so the channel receives exactly `amount`.
-/// The `funding_public_key` owns the funding notes, the deposit note and any
-/// change.
+/// The node's wallet splits a note of exactly `amount` from the notes of
+/// `funding_public_key` (which owns them and any change), and the deposit
+/// moves it into the channel as a note of `holder_public_key`.
 #[repr(C)]
 pub struct ChannelDepositArguments {
     /// Optional pointer to the header ID to build against. If null, the current
@@ -1308,9 +1389,14 @@ pub struct ChannelDepositArguments {
     pub optional_tip: *const HeaderId,
     /// The 32-byte channel ID to deposit into.
     pub channel_id: *const u8,
-    /// The 32-byte public key funding the deposit (owns the funding notes, the
-    /// deposit note and any change).
+    // TODO(RFC-480): the deposited note is held by `holder_public_key`.
+    // /// The 32-byte public key funding the deposit (owns the funding notes, the
+    // /// deposit note and any change).
+    /// The 32-byte public key funding the deposit (owns the funding notes and
+    /// any change).
     pub funding_public_key: *const u8,
+    /// The 32-byte public key holding the deposited note in the channel.
+    pub holder_public_key: *const u8,
     /// The exact amount to deposit into the channel.
     pub amount: u64,
     /// Optional metadata bytes attached to the deposit. May be null iff
@@ -1338,6 +1424,12 @@ impl ChannelDepositArguments {
                 "ChannelDeposit contains a null `funding_public_key` pointer.",
             ));
         }
+        if self.holder_public_key.is_null() {
+            return Err(OperationStatus::error(
+                OperationStatusCode::NullPointer,
+                "ChannelDeposit contains a null `holder_public_key` pointer.",
+            ));
+        }
         if self.metadata.is_null() && self.metadata_len != 0 {
             return Err(OperationStatus::error(
                 OperationStatusCode::NullPointer,
@@ -1354,6 +1446,9 @@ impl ChannelDepositArguments {
     }
 }
 
+// TODO(RFC-480): the wallet splits the exact deposit note and proves both
+// Operations with ZkTransfers.
+/*
 /// Builds, signs and submits an amount-based channel deposit, splitting a note
 /// via a transfer when no exact-value note is available.
 ///
@@ -1505,11 +1600,151 @@ pub(crate) fn channel_deposit_sync(
         Ok(signed_tx)
     })
 }
+*/
+
+/// Builds, signs and submits a channel deposit of exactly `amount`.
+///
+/// This mirrors the node's `channel_deposit` HTTP handler: the wallet splits a
+/// note of exactly `amount` from the notes of `funding_public_key` (change to
+/// the same key), and the [`DepositOp`] spends it to a note of
+/// `holder_public_key`. Gas is not funded because the platform gas price is
+/// currently 0.
+///
+/// # Arguments
+///
+/// - `node`: A [`LogosBlockchainNode`] instance.
+/// - `tip`: The header ID to split the note and sign against.
+/// - `channel_id`: The channel to deposit into.
+/// - `funding_public_key`: Owns the funding notes and the change.
+/// - `holder_public_key`: Holds the deposited note.
+/// - `amount`: The exact amount to deposit.
+/// - `metadata`: Metadata attached to the deposit.
+///
+/// # Returns
+///
+/// A [`Result`] containing the submitted [`SignedOps`] on success, or
+/// an [`OperationStatus`] error on failure.
+pub(crate) fn channel_deposit_sync(
+    node: &LogosBlockchainNode,
+    tip: lb_core::header::HeaderId,
+    channel_id: ChannelId,
+    funding_public_key: ZkPublicKey,
+    holder_public_key: ZkPublicKey,
+    amount: Value,
+    metadata: Metadata,
+) -> StatusResult<SignedOps<Preverified, StandardMode>> {
+    let runtime_handle = node.get_runtime_handle()?;
+    runtime_handle.block_on(async {
+        let handle = node.get_overwatch_handle();
+        let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
+
+        // 1. The wallet splits a note of exactly `amount`, change to the funding key.
+        let TipResponse {
+            tip: split_tip,
+            response: (split_builder, exact),
+        } = api
+            .prepare_exact_note(
+                Some(tip),
+                MantleTxBuilder::new(),
+                amount,
+                funding_public_key,
+                vec![funding_public_key],
+            )
+            .await
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::DynError,
+                    format!("Failed to split the deposit note: {error}"),
+                )
+            })?;
+        let cm_merkle_root = split_root(&split_builder).map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RuntimeError,
+                format!("Failed to read the split root: {error}"),
+            )
+        })?;
+
+        // 2. The deposit spends the exact note to a note of the holder, which the
+        //    wallet adopts when it owns the holder key.
+        let mut nonce = [0u8; 32];
+        OsRng.fill_bytes(&mut nonce);
+        let holder_note = Note::new(amount, fr_from_mod_bytes(&nonce), holder_public_key);
+        let known_addresses = api.get_known_addresses().await.map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::DynError,
+                format!("Failed to get known addresses: {error}"),
+            )
+        })?;
+        if known_addresses.contains(&holder_public_key)
+            && let Some(note_set) =
+                lb_api_service::http::mantle::channel_state::<RuntimeServiceId>(handle, channel_id)
+                    .await
+                    .map_err(|error| {
+                        OperationStatus::error(
+                            OperationStatusCode::ServiceError,
+                            format!("Failed to get channel state: {error}"),
+                        )
+                    })?
+                    .and_then(|channel| channel.note_set)
+        {
+            api.import_note(holder_note, note_set)
+                .await
+                .map_err(|error| {
+                    OperationStatus::error(
+                        OperationStatusCode::DynError,
+                        format!("Failed to import the holder note: {error}"),
+                    )
+                })?;
+        }
+        let tx_builder = split_builder
+            .push_op_with_opening(
+                Op::ChannelDeposit(DepositOp {
+                    channel_id,
+                    inputs: [exact.nullifier].into(),
+                    cm_merkle_root,
+                    outputs: [holder_note.commitment()].into(),
+                    excess_value: 0,
+                    metadata,
+                }),
+                ZkTransferOpening {
+                    inputs: vec![exact.note],
+                    outputs: vec![holder_note],
+                },
+            )
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::DynError,
+                    format!("Failed to push deposit op: {error}"),
+                )
+            })?;
+
+        // 3. Sign against the tip the split is proven at.
+        let signed_tx = api
+            .sign_tx(Some(split_tip), tx_builder)
+            .await
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::DynError,
+                    format!("Failed to sign deposit tx: {error}"),
+                )
+            })?
+            .response;
+
+        // 4. Submit to the mempool.
+        if let Err(error) = mempool::add_tx(handle, signed_tx.clone(), Hashable::hash).await {
+            return Err(OperationStatus::error(
+                OperationStatusCode::DynError,
+                format!("Failed to add transaction to mempool: {error}"),
+            ));
+        }
+        Ok(signed_tx)
+    })
+}
 
 /// Submits an amount-based channel deposit.
 ///
-/// The binding selects the funding notes itself and splits one via a transfer
-/// when no exact-value note exists, so the channel receives exactly `amount`.
+/// The node's wallet splits a note of exactly `amount` from the funding notes,
+/// so the channel receives exactly `amount`, held by `holder_public_key`.
 ///
 /// # Arguments
 ///
@@ -1557,6 +1792,8 @@ pub unsafe extern "C" fn channel_deposit(
     };
     let funding_public_key =
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.funding_public_key) });
+    let holder_public_key =
+        unwrap_or_return_error!(unsafe { parse_public_key(arguments.holder_public_key) });
     let amount = Value::from(arguments.amount);
 
     let metadata_bytes = if arguments.metadata_len == 0 {
@@ -1576,6 +1813,7 @@ pub unsafe extern "C" fn channel_deposit(
         tip,
         channel_id,
         funding_public_key,
+        holder_public_key,
         amount,
         metadata,
     ));
@@ -1633,35 +1871,47 @@ pub(crate) fn wallet_fund_tx_sync(
             ));
         }
 
-        // Owners of the funding inputs, in input order — the ledger verifies
-        // the transfer proof against this exact list.
-        let funding_note_pks: Vec<ZkPublicKey> = funded_tx_builder
-            .ledger_inputs()
-            .iter()
-            .map(|utxo| utxo.note.pk)
-            .collect();
-
-        let funded_tx = funded_tx_builder.build().map_err(|error| {
-            OperationStatus::error(
-                OperationStatusCode::DynError,
-                format!("Failed to build funded tx: {error}"),
-            )
-        })?;
-        let transfer_proof = if funding_note_pks.is_empty() {
-            None
-        } else {
-            let tx_hash = funded_tx.hash();
-            let signature = api
-                .sign_tx_with_zk(tx_hash, funding_note_pks)
-                .await
-                .map_err(|error| {
-                    OperationStatus::error(
-                        OperationStatusCode::DynError,
-                        format!("Failed to sign fee transfer: {error}"),
-                    )
-                })?;
-            Some(OpProof::ZkSig(signature))
-        };
+        // TODO(RFC-480): the ZkSignature scheme is removed; the wallet proves
+        // the funding ZkTransfer.
+        // // Owners of the funding inputs, in input order — the ledger verifies
+        // // the transfer proof against this exact list.
+        // let funding_note_pks: Vec<ZkPublicKey> = funded_tx_builder
+        //     .ledger_inputs()
+        //     .iter()
+        //     .map(|utxo| utxo.note.pk)
+        //     .collect();
+        //
+        // let funded_tx = funded_tx_builder.build().map_err(|error| {
+        //     OperationStatus::error(
+        //         OperationStatusCode::DynError,
+        //         format!("Failed to build funded tx: {error}"),
+        //     )
+        // })?;
+        // let transfer_proof = if funding_note_pks.is_empty() {
+        //     None
+        // } else {
+        //     let tx_hash = funded_tx.hash();
+        //     let signature = api
+        //         .sign_tx_with_zk(tx_hash, funding_note_pks)
+        //         .await
+        //         .map_err(|error| {
+        //             OperationStatus::error(
+        //                 OperationStatusCode::DynError,
+        //                 format!("Failed to sign fee transfer: {error}"),
+        //             )
+        //         })?;
+        //     Some(OpProof::ZkSig(signature))
+        // };
+        let (funded_tx, transfer_proof) = api
+            .prove_funding(Some(tip), funded_tx_builder)
+            .await
+            .map_err(|error| {
+                OperationStatus::error(
+                    OperationStatusCode::DynError,
+                    format!("Failed to prove fee transfer: {error}"),
+                )
+            })?
+            .response;
 
         Ok(WalletFundResponseBody {
             tip,

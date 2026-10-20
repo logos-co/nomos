@@ -4,16 +4,23 @@ use std::{
     time::Duration,
 };
 
+// TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
+// Dropped imports: Utxo, MAX_TRANSACTION_INPUTS.
 use lb_core::mantle::{
-    Note, Utxo,
+    Note,
     gas::{GasCost, MainnetGasProfile},
-    ledger::MAX_TRANSACTION_INPUTS,
+    note_set::LEDGER_SET,
+    notes::NoteNf,
     transactions::{
         GENESIS_EXECUTION_GAS_PRICE, GasPrices, MantleTxBuilder, OpProofs,
         tx_list::ops::{OpsContext, OpsGasContext},
     },
 };
+use lb_groth16::Fr;
 use lb_key_management_system_service::keys::ZkPublicKey;
+use lb_mmr::MerklePath;
+use lb_wallet::OwnedNote;
+use lb_zktransfer::MAX_INPUTS;
 use tracing::{info, warn};
 
 use crate::{
@@ -39,12 +46,13 @@ use crate::{
     },
 };
 
-const DRAIN_MAX_INPUTS_PER_TRANSACTION: usize = MAX_TRANSACTION_INPUTS;
+// const DRAIN_MAX_INPUTS_PER_TRANSACTION: usize = MAX_TRANSACTION_INPUTS;
+const DRAIN_MAX_INPUTS_PER_TRANSACTION: usize = MAX_INPUTS;
 const DRAIN_TRANSACTION_TIMEOUT: Duration = Duration::from_mins(3);
 
 // Select the smallest low-value-first tranche that can pay its own fee,
 // otherwise best effort.
-fn select_tranche_utxos(utxos: &[Utxo]) -> Result<(Vec<Utxo>, u64, u64), StepError> {
+fn select_tranche_utxos(utxos: &[OwnedNote]) -> Result<(Vec<OwnedNote>, u64, u64), StepError> {
     let mut fee_estimate;
     if utxos.len() <= DRAIN_MAX_INPUTS_PER_TRANSACTION {
         fee_estimate = estimate_drain_fee_with_inputs(utxos)?;
@@ -80,7 +88,9 @@ fn select_tranche_utxos(utxos: &[Utxo]) -> Result<(Vec<Utxo>, u64, u64), StepErr
             .saturating_sub(selected_set[selected_index].note.value)
             .saturating_add(replacement.note.value);
 
-        selected_set[selected_index] = *replacement;
+        // TODO(RFC-480): UTXO test wallet.
+        // selected_set[selected_index] = *replacement;
+        selected_set[selected_index] = replacement.clone();
 
         fee_estimate = estimate_drain_fee_with_inputs(&selected_set)?;
         if selected_value > fee_estimate {
@@ -426,20 +436,29 @@ fn drain_amount(total: u64, tranches: usize, fee: u64) -> Result<u64, StepError>
 
 fn estimate_drain_fee_with_values(input_count: NonZeroUsize, value: u64) -> Result<u64, StepError> {
     let input_value = value / input_count.get() as u64;
+    // TODO(RFC-480): UTXO test wallet, the estimate spends placeholder notes.
+    // let input_utxos = (0..input_count.get())
+    //     .map(|index| {
+    //         Utxo::new(
+    //             [index as u8; 32],
+    //             index,
+    //             Note::new(input_value, ZkPublicKey::zero()),
+    //         )
+    //     })
+    //     .collect::<Vec<_>>();
     let input_utxos = (0..input_count.get())
-        .map(|index| {
-            Utxo::new(
-                [index as u8; 32],
-                index,
-                Note::new(input_value, ZkPublicKey::zero()),
-            )
+        .map(|index| OwnedNote {
+            note: Note::new(input_value, Fr::from(index as u64), ZkPublicKey::zero()),
+            note_set: LEDGER_SET,
+            nullifier: NoteNf(Fr::from(index as u64)),
+            path: MerklePath::try_new(index, Vec::new()).expect("an empty path is bounded"),
         })
         .collect::<Vec<_>>();
 
     estimate_drain_fee_with_inputs(&input_utxos)
 }
 
-fn estimate_drain_fee_with_inputs(input_utxos: &[Utxo]) -> Result<u64, StepError> {
+fn estimate_drain_fee_with_inputs(input_utxos: &[OwnedNote]) -> Result<u64, StepError> {
     let builder = fee_estimate_builder()?;
     let builder = extend_wallet_funding_inputs(&builder, input_utxos).map_err(|error| {
         StepError::LogicalError {
@@ -453,7 +472,9 @@ fn fee_estimate_builder() -> Result<MantleTxBuilder, StepError> {
     MantleTxBuilder::new()
         // Simulate the receiver output. A correctly estimated drain consumes
         // the remaining input value as its fee and therefore has no change.
-        .add_ledger_output(Note::new(0, ZkPublicKey::zero()))
+        // TODO(RFC-480): a note carries a nonce.
+        // .add_ledger_output(Note::new(0, ZkPublicKey::zero()))
+        .add_ledger_output(Note::new(0, Fr::from(0u64), ZkPublicKey::zero()))
         .map_err(|error| StepError::LogicalError {
             message: error.to_string(),
         })
@@ -461,15 +482,18 @@ fn fee_estimate_builder() -> Result<MantleTxBuilder, StepError> {
 
 fn finalize_fee(builder: &MantleTxBuilder) -> Result<u64, StepError> {
     let context = OpsContext {
+        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
+        // own channel notes.
         gas_context: OpsGasContext::new(
             HashMap::new(),
-            HashMap::new(),
+            // HashMap::new(),
             GasPrices::new(
                 GENESIS_EXECUTION_GAS_PRICE.into_inner(),
                 DEFAULT_STORAGE_GAS_PRICE,
             ),
         ),
-        ..OpsContext::default()
+        // TODO(RFC-480): the gas context is the only field left.
+        // ..OpsContext::default()
     };
     builder
         .minimum_gas_cost::<MainnetGasProfile>(&context)

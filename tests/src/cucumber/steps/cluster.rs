@@ -156,7 +156,9 @@ fn prepare_devnet_manual_cluster_deployment(
     // Wallet keys are derived later, and node startup may switch deployment
     // settings, so locally generated genesis outputs are not meaningful for
     // wallet tracking.
-    world.chain.genesis_block_utxos.clear();
+    // TODO(RFC-480): UTXO test wallet.
+    // world.chain.genesis_block_utxos.clear();
+    world.chain.genesis_block_utxos = crate::common::wallet::GenesisNotes::default();
     world.chain.genesis_block_id = None;
     world.wallet_registry.wallet_accounts.clear();
     world.wallet_registry.node_provisioned_wallet_pks.clear();

@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use lb_core::mantle::{
     OpProof,
     ops::{
-        Op,
+        ChannelInscribeProof, Op,
         channel::{
             ChannelId, MsgId,
-            inscribe::{Inscription, InscriptionOp},
+            inscribe::{ChannelSteps, Inscription, InscriptionOp},
         },
     },
     transactions::{
@@ -24,15 +24,24 @@ pub fn build_inscription_tx_builder(
     parent: Option<MsgId>,
 ) -> (MantleTxBuilder, OpsContext) {
     let tx_context = OpsContext {
+        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
+        // own channel notes.
+        // gas_context: OpsGasContext::new(
+        //     HashMap::new(),
+        //     HashMap::new(),
+        //     GasPrices {
+        //         execution_base_gas_price: GENESIS_EXECUTION_GAS_PRICE,
+        //         storage_gas_price: GENESIS_STORAGE_GAS_PRICE,
+        //     },
+        // ),
+        // leader_reward_amount: 0,
         gas_context: OpsGasContext::new(
-            HashMap::new(),
             HashMap::new(),
             GasPrices {
                 execution_base_gas_price: GENESIS_EXECUTION_GAS_PRICE,
                 storage_gas_price: GENESIS_STORAGE_GAS_PRICE,
             },
         ),
-        leader_reward_amount: 0,
     };
 
     let tx_builder = MantleTxBuilder::new()
@@ -41,6 +50,7 @@ pub fn build_inscription_tx_builder(
             inscription,
             parent: parent.unwrap_or_else(MsgId::root),
             signer: signing_key.public_key().into_unverified(),
+            steps: ChannelSteps::default(),
         }))
         .expect("inscription test builder should fit op bounds");
 
@@ -49,10 +59,18 @@ pub fn build_inscription_tx_builder(
 
 #[must_use]
 pub fn inscription_signature_proof(tx_hash: TxHash, signing_key: &Ed25519Key) -> OpProof {
-    OpProof::Ed25519Sig(Ed25519Signature::from_bytes(
-        &signing_key
-            .sign_payload(tx_hash.as_signing_bytes())
-            .to_bytes(),
+    // TODO(RFC-480): an inscription carries the proofs of its steps.
+    // OpProof::Ed25519Sig(Ed25519Signature::from_bytes(
+    //     &signing_key
+    //         .sign_payload(tx_hash.as_signing_bytes())
+    //         .to_bytes(),
+    // ))
+    OpProof::ChannelInscribe(ChannelInscribeProof::without_steps(
+        Ed25519Signature::from_bytes(
+            &signing_key
+                .sign_payload(tx_hash.as_signing_bytes())
+                .to_bytes(),
+        ),
     ))
 }
 

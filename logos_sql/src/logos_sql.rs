@@ -132,7 +132,9 @@ impl LogosSql {
                 signing_key: Ed25519Key::generate(&mut OsRng),
                 funding: FundingConfig {
                     funding_pk: ZkPublicKey::zero(),
-                    change_pk: None,
+                    // TODO(RFC-480): channel notes are private and move by
+                    // steps; the bridge is rebuilt on ChannelStep.
+                    // change_pk: None,
                     max_tx_fee: 0u64.into(),
                     priority_fee_percent: 0,
                 },

@@ -3,28 +3,46 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+// use lb_core::{
+//     header::HeaderId,
+//     mantle::{
+//         GasProfile, NoteId,
+//         ops::leader_claim::{VoucherCm, VoucherNullifier},
+//         transactions::{MantleTxBuilder, tx_list::ops::OpsContext},
+//     },
+// };
 use lb_core::{
     header::HeaderId,
     mantle::{
-        GasProfile, NoteId,
-        ops::leader_claim::{VoucherCm, VoucherNullifier},
-        transactions::{MantleTxBuilder, tx_list::ops::OpsContext},
+        GasProfile, Note, Value,
+        notes::NoteNf,
+        ops::transfer::TransferOp,
+        transactions::{MantleTxBuilder, builder::ZkTransferOpening, tx_list::ops::OpsContext},
     },
 };
+use lb_groth16::Fr;
 use lb_key_management_system_service::keys::ZkPublicKey;
-use lb_ledger::LedgerState;
+// TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
+// use lb_ledger::LedgerState;
 use lb_log_targets::wallet;
-use lb_wallet::{Voucher, Vouchers, WalletBlock, WalletError, WalletState};
+// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+// use lb_wallet::{Voucher, Vouchers, WalletBlock, WalletError, WalletState};
+use lb_wallet::{KnownNote, KnownNotes, WalletBlock, WalletError, WalletState};
 use overwatch::services::state::StateUpdater;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::{KeyId, WalletServiceError, WalletServiceSettings};
 
-type VoucherIndex = u64;
-type VoucherId = (KeyId, VoucherIndex);
-pub type Wallet = lb_wallet::Wallet<KeyId, VoucherId>;
+// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+// type VoucherIndex = u64;
+// type VoucherId = (KeyId, VoucherIndex);
+// pub type Wallet = lb_wallet::Wallet<KeyId, VoucherId>;
+pub type Wallet = lb_wallet::Wallet<KeyId>;
 
+// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+/*
 pub struct ClaimableVouchers {
     pub available: Vec<Voucher>,
     pub pending: Vec<Voucher>,
@@ -115,6 +133,7 @@ impl PendingClaims {
         }
     }
 }
+*/
 
 /// Notes handed out as funding for transactions that have been built but not
 /// yet observed on chain. Ephemeral: rebuilt empty on restart; entries are
@@ -128,34 +147,34 @@ impl PendingClaims {
 /// having no reservation at all.
 #[derive(Debug, Default)]
 struct PendingNotes {
-    notes: HashMap<NoteId, u64>,
+    notes: HashMap<NoteNf, u64>,
 }
 
 impl PendingNotes {
-    fn reserve(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
-        for note_id in note_ids {
+    fn reserve(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+        for nullifier in nullifiers {
             debug!(
                 target: wallet::SERVICE,
-                ?note_id,
+                ?nullifier,
                 "Reserved pending note"
             );
-            self.notes.insert(note_id, 0);
+            self.notes.insert(nullifier, 0);
         }
     }
 
-    fn release(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
-        for note_id in note_ids {
-            if self.notes.remove(&note_id).is_some() {
+    fn release(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+        for nullifier in nullifiers {
+            if self.notes.remove(&nullifier).is_some() {
                 debug!(
                     target: wallet::SERVICE,
-                    ?note_id,
+                    ?nullifier,
                     "Released pending note reservation"
                 );
             }
         }
     }
 
-    fn note_ids(&self) -> HashSet<NoteId> {
+    fn nullifiers(&self) -> HashSet<NoteNf> {
         self.notes.keys().copied().collect()
     }
 
@@ -174,7 +193,7 @@ impl PendingNotes {
         }
 
         self.notes
-            .retain(|note_id, immutable_blocks_since_reservation| {
+            .retain(|nullifier, immutable_blocks_since_reservation| {
                 *immutable_blocks_since_reservation =
                     immutable_blocks_since_reservation.saturating_add(new_immutable_blocks_count);
 
@@ -184,7 +203,7 @@ impl PendingNotes {
                 if expired {
                     debug!(
                         target: wallet::SERVICE,
-                        ?note_id,
+                        ?nullifier,
                         immutable_blocks_since_reservation,
                         max_immutable_blocks_since_reservation,
                         "Removing pending note reservation after LIB progress"
@@ -198,15 +217,27 @@ impl PendingNotes {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveryState {
-    next_new_voucher_index: VoucherIndex,
-    vouchers: Vouchers<VoucherId>,
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    // next_new_voucher_index: VoucherIndex,
+    // vouchers: Vouchers<VoucherId>,
     /// [`WalletState`] at the last known LIB.
     /// `None` on fresh start; populated after the first LIB update.
     lib_wallet_state: Option<(HeaderId, WalletState)>,
-    /// Voucher reservations for claim transactions that were built/submitted
-    /// but have not reached LIB yet. Stale reservations are bounded by
-    /// LIB-progress expiry after recovery.
-    pending_claims: PendingClaims,
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    // /// Voucher reservations for claim transactions that were built/submitted
+    // /// but have not reached LIB yet. Stale reservations are bounded by
+    // /// LIB-progress expiry after recovery.
+    // pending_claims: PendingClaims,
+    // openings the wallet adopts once their commitments are appended
+    known_notes: KnownNotes,
+    // the reward keys `0..next_reward_key_index` are derived again at start
+    next_reward_key_index: u64,
+}
+
+impl RecoveryState {
+    pub const fn take_lib_wallet_state(&mut self) -> Option<(HeaderId, WalletState)> {
+        self.lib_wallet_state.take()
+    }
 }
 
 impl overwatch::services::state::ServiceState for RecoveryState {
@@ -214,28 +245,111 @@ impl overwatch::services::state::ServiceState for RecoveryState {
     type Error = WalletServiceError;
 
     fn from_settings(_settings: &Self::Settings) -> Result<Self, Self::Error> {
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // Ok(Self {
+        //     next_new_voucher_index: 0,
+        //     vouchers: Vouchers::default(),
+        //     lib_wallet_state: None,
+        //     pending_claims: PendingClaims::default(),
+        // })
         Ok(Self {
-            next_new_voucher_index: 0,
-            vouchers: Vouchers::default(),
             lib_wallet_state: None,
-            pending_claims: PendingClaims::default(),
+            known_notes: KnownNotes::new(),
+            next_reward_key_index: 0,
         })
     }
 }
 
 /// Provides operations on the states that must be synced to [`RecoveryState`].
 pub struct ServiceState<'u> {
-    next_new_voucher_index: VoucherIndex,
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    // next_new_voucher_index: VoucherIndex,
+    next_reward_key_index: u64,
     wallet: Wallet,
     lib: HeaderId,
     updater: &'u StateUpdater<Option<RecoveryState>>,
-    pending_claims: PendingClaims,
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    // pending_claims: PendingClaims,
     pending_notes: PendingNotes,
     pending_note_expiry_blocks: u64,
-    security_param: u64,
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    // security_param: u64,
 }
 
 impl<'u> ServiceState<'u> {
+    // Restores the wallet persisted at its LIB.
+    pub fn from_lib_wallet_state(
+        state: RecoveryState,
+        lib: HeaderId,
+        wallet_state: WalletState,
+        settings: &WalletServiceSettings,
+        updater: &'u StateUpdater<Option<RecoveryState>>,
+    ) -> Self {
+        let RecoveryState {
+            known_notes,
+            next_reward_key_index,
+            ..
+        } = state;
+        let wallet =
+            Wallet::from_lib_wallet_state(known_keys(settings), known_notes, lib, wallet_state);
+        Self::with_wallet(wallet, lib, next_reward_key_index, settings, updater)
+    }
+
+    // A fresh wallet follows the note sets from the genesis block.
+    pub fn from_genesis(
+        state: RecoveryState,
+        settings: &WalletServiceSettings,
+        genesis: HeaderId,
+        genesis_notes: &[Note],
+        genesis_service_notes: &[Note],
+        genesis_known_notes: impl IntoIterator<Item = KnownNote>,
+        updater: &'u StateUpdater<Option<RecoveryState>>,
+    ) -> Result<Self, WalletError> {
+        let RecoveryState {
+            mut known_notes,
+            next_reward_key_index,
+            ..
+        } = state;
+        known_notes.extend(
+            genesis_known_notes
+                .into_iter()
+                .map(|known_note| (known_note.note.commitment(), known_note)),
+        );
+        let wallet = Wallet::from_genesis(
+            known_keys(settings),
+            known_notes,
+            genesis,
+            genesis_notes,
+            genesis_service_notes,
+        )?;
+        Ok(Self::with_wallet(
+            wallet,
+            genesis,
+            next_reward_key_index,
+            settings,
+            updater,
+        ))
+    }
+
+    fn with_wallet(
+        wallet: Wallet,
+        lib: HeaderId,
+        next_reward_key_index: u64,
+        settings: &WalletServiceSettings,
+        updater: &'u StateUpdater<Option<RecoveryState>>,
+    ) -> Self {
+        Self {
+            next_reward_key_index,
+            wallet,
+            lib,
+            updater,
+            pending_notes: PendingNotes::default(),
+            pending_note_expiry_blocks: settings.pending_note_expiry_blocks,
+        }
+    }
+
+    // TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
+    /*
     pub fn new(
         state: RecoveryState,
         settings: &WalletServiceSettings,
@@ -279,11 +393,14 @@ impl<'u> ServiceState<'u> {
             security_param,
         }
     }
+    */
 
     pub const fn lib(&self) -> HeaderId {
         self.lib
     }
 
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    /*
     pub const fn next_new_voucher_index(&self) -> VoucherIndex {
         self.next_new_voucher_index
     }
@@ -292,6 +409,28 @@ impl<'u> ServiceState<'u> {
         let id = (key_id, self.next_new_voucher_index);
         self.next_new_voucher_index += 1;
         self.wallet.add_known_voucher(cm, nf, id);
+        self.update_state();
+    }
+    */
+
+    // the number of reward keys derived so far
+    pub const fn reward_key_count(&self) -> u64 {
+        self.next_reward_key_index
+    }
+
+    pub fn next_reward_key_index(&mut self) -> u64 {
+        let index = self.next_reward_key_index;
+        self.next_reward_key_index = index.saturating_add(1);
+        self.update_state();
+        index
+    }
+
+    pub fn add_known_key(&mut self, pk: ZkPublicKey, key_id: KeyId) {
+        self.wallet.add_known_key(pk, key_id);
+    }
+
+    pub fn add_known_notes(&mut self, notes: impl IntoIterator<Item = KnownNote>) {
+        self.wallet.add_known_notes(notes);
         self.update_state();
     }
 
@@ -308,7 +447,8 @@ impl<'u> ServiceState<'u> {
         new_lib: HeaderId,
         pruned_blocks: impl IntoIterator<Item = HeaderId>,
         new_immutable_blocks_count: u64,
-        pruned_nullifiers: impl IntoIterator<Item = VoucherNullifier>,
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // pruned_nullifiers: impl IntoIterator<Item = VoucherNullifier>,
     ) {
         // The wallet must already hold a `WalletState` for `new_lib`, otherwise
         // `update_state` cannot persist the recovery state. The service backfills
@@ -328,9 +468,10 @@ impl<'u> ServiceState<'u> {
 
         self.lib = new_lib;
         self.wallet.prune_states(pruned_blocks);
-        self.wallet.prune_vouchers(pruned_nullifiers);
-        self.pending_claims
-            .evict_expired(new_immutable_blocks_count, self.security_param);
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // self.wallet.prune_vouchers(pruned_nullifiers);
+        // self.pending_claims
+        //     .evict_expired(new_immutable_blocks_count, self.security_param);
         self.pending_notes
             .evict_expired(new_immutable_blocks_count, self.pending_note_expiry_blocks);
         self.update_state();
@@ -340,6 +481,8 @@ impl<'u> ServiceState<'u> {
         &self.wallet
     }
 
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    /*
     pub fn claimable_vouchers(
         &self,
         tip: HeaderId,
@@ -372,17 +515,23 @@ impl<'u> ServiceState<'u> {
     pub fn release_claim_reservation(&mut self, nullifier: VoucherNullifier) {
         self.pending_claims.release(nullifier);
     }
+    */
 
-    /// Fund `tx_builder` from the wallet's UTXOs at `tip`, excluding notes
+    /// Fund `tx_builder` from the wallet's notes at `tip`, excluding notes
     /// already reserved for in-flight transactions. `priority_fee_percent`
     /// reserves that percentage of the final mandatory fee, including both
     /// execution and storage cost. Only the unused reserve becomes an
     /// effective priority tip, and the percentage is not capped at 100.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "thin passthrough to `Wallet::fund_tx` plus the reservations"
+    )]
     pub fn fund_tx<G: GasProfile>(
         &self,
         tip: HeaderId,
         tx_builder: &MantleTxBuilder,
         change_pk: ZkPublicKey,
+        change_nonce: Fr,
         funding_pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
         context: &OpsContext,
         priority_fee_percent: u64,
@@ -391,19 +540,52 @@ impl<'u> ServiceState<'u> {
             tip,
             tx_builder,
             change_pk,
+            change_nonce,
             funding_pks,
             context,
-            &self.pending_notes.note_ids(),
+            &self.pending_notes.nullifiers(),
             priority_fee_percent,
         )
     }
 
-    pub fn reserve_pending_notes(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
-        self.pending_notes.reserve(note_ids);
+    // A Transfer giving `owner` a note of exactly `value` and the rest back to
+    // `owner`, from the wallet's notes at `tip` that neither `tx_builder` nor
+    // an in flight transaction spends.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "thin passthrough to `WalletState::exact_note_split` plus the reservations"
+    )]
+    pub fn exact_note_split(
+        &self,
+        tip: HeaderId,
+        tx_builder: &MantleTxBuilder,
+        value: Value,
+        owner: ZkPublicKey,
+        nonce: Fr,
+        change_nonce: Fr,
+        funding_pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+    ) -> Result<(TransferOp, ZkTransferOpening), WalletError> {
+        let excluded = tx_builder
+            .nullifiers_consumed()
+            .chain(self.pending_notes.nullifiers())
+            .collect::<HashSet<_>>();
+        self.wallet.wallet_state_at(tip)?.exact_note_split(
+            value,
+            owner,
+            nonce,
+            owner,
+            change_nonce,
+            funding_pks,
+            &excluded,
+        )
     }
 
-    pub fn release_pending_notes(&mut self, note_ids: impl IntoIterator<Item = NoteId>) {
-        self.pending_notes.release(note_ids);
+    pub fn reserve_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+        self.pending_notes.reserve(nullifiers);
+    }
+
+    pub fn release_pending_notes(&mut self, nullifiers: impl IntoIterator<Item = NoteNf>) {
+        self.pending_notes.release(nullifiers);
     }
 
     fn update_state(&self) {
@@ -412,23 +594,57 @@ impl<'u> ServiceState<'u> {
             .wallet_state_at(self.lib)
             .expect("WalletState at LIB must exist");
 
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // self.updater.update(Some(RecoveryState {
+        //     next_new_voucher_index: self.next_new_voucher_index,
+        //     vouchers: self.wallet.vouchers().clone(),
+        //     lib_wallet_state: Some((self.lib, lib_wallet_state)),
+        //     pending_claims: self.pending_claims.clone(),
+        // }));
         self.updater.update(Some(RecoveryState {
-            next_new_voucher_index: self.next_new_voucher_index,
-            vouchers: self.wallet.vouchers().clone(),
             lib_wallet_state: Some((self.lib, lib_wallet_state)),
-            pending_claims: self.pending_claims.clone(),
+            known_notes: self.wallet.known_notes().clone(),
+            next_reward_key_index: self.next_reward_key_index,
         }));
     }
 }
 
+fn known_keys(settings: &WalletServiceSettings) -> impl Iterator<Item = (ZkPublicKey, KeyId)> {
+    settings
+        .known_keys
+        .iter()
+        .map(|(key_id, pk)| (*pk, key_id.clone()))
+}
+
 #[cfg(test)]
 mod tests {
-    use lb_groth16::{Field as _, Fr};
+    use lb_core::mantle::note_set::LEDGER_SET;
+    use lb_groth16::Field as _;
 
     use super::*;
 
     const EXPIRY_BLOCKS: u64 = 4;
 
+    #[test]
+    fn recovery_state_keeps_the_known_notes_and_the_reward_key_index() {
+        let note = KnownNote {
+            note: Note::new(10, Fr::ONE, ZkPublicKey::new(Fr::from(2u64))),
+            note_set: LEDGER_SET,
+            nullifier: NoteNf(Fr::from(3u64)),
+        };
+        let state = RecoveryState {
+            lib_wallet_state: None,
+            known_notes: HashMap::from([(note.note.commitment(), note)]),
+            next_reward_key_index: 4,
+        };
+        let decoded: RecoveryState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert_eq!(decoded.known_notes, state.known_notes);
+        assert_eq!(decoded.next_reward_key_index, 4);
+    }
+
+    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+    /*
     #[test]
     fn pending_claim_does_not_expire_without_lib_progress() {
         let nullifier = VoucherNullifier::default();
@@ -452,42 +668,45 @@ mod tests {
         pending_claims.evict_expired(1, EXPIRY_BLOCKS);
         assert!(!pending_claims.is_reserved(&nullifier));
     }
+    */
 
     #[test]
     fn pending_note_does_not_expire_without_lib_progress() {
-        let note_id = NoteId::from(Fr::ONE);
+        let nullifier = NoteNf(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
-        pending_notes.reserve([note_id]);
+        pending_notes.reserve([nullifier]);
         pending_notes.evict_expired(0, EXPIRY_BLOCKS);
 
-        assert!(pending_notes.note_ids().contains(&note_id));
+        assert!(pending_notes.nullifiers().contains(&nullifier));
     }
 
     #[test]
     fn pending_note_expires_after_enough_lib_progress() {
-        let note_id = NoteId::from(Fr::ONE);
+        let nullifier = NoteNf(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
-        pending_notes.reserve([note_id]);
+        pending_notes.reserve([nullifier]);
         pending_notes.evict_expired(EXPIRY_BLOCKS - 1, EXPIRY_BLOCKS);
-        assert!(pending_notes.note_ids().contains(&note_id));
+        assert!(pending_notes.nullifiers().contains(&nullifier));
 
         pending_notes.evict_expired(1, EXPIRY_BLOCKS);
-        assert!(!pending_notes.note_ids().contains(&note_id));
+        assert!(!pending_notes.nullifiers().contains(&nullifier));
     }
 
     #[test]
     fn released_pending_note_becomes_available() {
-        let note_id = NoteId::from(Fr::ONE);
+        let nullifier = NoteNf(Fr::ONE);
         let mut pending_notes = PendingNotes::default();
 
-        pending_notes.reserve([note_id]);
-        pending_notes.release([note_id]);
+        pending_notes.reserve([nullifier]);
+        pending_notes.release([nullifier]);
 
-        assert!(pending_notes.note_ids().is_empty());
+        assert!(pending_notes.nullifiers().is_empty());
     }
 
+    // TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
+    /*
     fn ledger_config() -> lb_ledger::Config {
         use std::{
             num::{NonZero, NonZeroU64},
@@ -572,6 +791,7 @@ mod tests {
             },
         }
     }
+    */
 
     /// Regression test for the wallet-service crash seen the first time a
     /// bootstrapping node switches to Online:
@@ -601,30 +821,44 @@ mod tests {
             pending_note_expiry_blocks: 10,
         };
 
-        // Fresh wallet: initialized from the LIB ledger state at genesis.
+        // Fresh wallet: initialized from the genesis note sets.
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // let recovery = RecoveryState {
+        //     next_new_voucher_index: 0,
+        //     vouchers: Vouchers::default(),
+        //     lib_wallet_state: None,
+        //     pending_claims: PendingClaims::default(),
+        // };
         let recovery = RecoveryState {
-            next_new_voucher_index: 0,
-            vouchers: Vouchers::default(),
             lib_wallet_state: None,
-            pending_claims: PendingClaims::default(),
+            known_notes: HashMap::new(),
+            next_reward_key_index: 0,
         };
 
         let genesis = HeaderId::from([0; 32]);
-        let ledger = LedgerState::from_utxos([], &ledger_config());
+        // TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
+        // let ledger = LedgerState::from_utxos([], &ledger_config());
         let (sender, _receiver) = tokio::sync::watch::channel(None);
         let updater = StateUpdater::new(Arc::new(sender));
 
-        let mut state = ServiceState::new(recovery, &settings, genesis, &ledger, &updater, 5);
+        // TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
+        // let mut state = ServiceState::new(recovery, &settings, genesis, &ledger,
+        // &updater, 5);
+        let mut state =
+            ServiceState::from_genesis(recovery, &settings, genesis, &[], &[], [], &updater)
+                .unwrap();
 
         // The first post-online LibUpdate delivers a new_lib the wallet never
         // applied (the silent bootstrap->online LIB jump outran the wallet).
         let unseen_lib = HeaderId::from([42; 32]);
-        state.advance_lib(
-            unseen_lib,
-            Vec::<HeaderId>::new(),
-            1,
-            Vec::<VoucherNullifier>::new(),
-        );
+        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
+        // state.advance_lib(
+        //     unseen_lib,
+        //     Vec::<HeaderId>::new(),
+        //     1,
+        //     Vec::<VoucherNullifier>::new(),
+        // );
+        state.advance_lib(unseen_lib, Vec::<HeaderId>::new(), 1);
 
         // No panic: the advance is skipped and the LIB stays at a block whose
         // WalletState exists.

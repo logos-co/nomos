@@ -1,11 +1,13 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-use lb_core::{header::HeaderId, mantle::Utxo};
+// TODO(RFC-480): UTXO test wallet.
+// use lb_core::{header::HeaderId, mantle::Utxo};
+use lb_core::header::HeaderId;
 use lb_testing_framework::NodeHttpClient;
 
 use super::state::{ScannerStateCheckpoint, SharedWalletScannerState};
 use crate::{
-    common::wallet::{TrackedWalletKeys, WalletUtxos},
+    common::wallet::{GenesisNotes, TrackedWalletKeys, WalletUtxos},
     cucumber::{
         error::StepError,
         wallet::best_node::{BestNodeInfo, display_group_key},
@@ -141,8 +143,11 @@ pub struct ForkGroupScannerConfig {
     pub poll_interval: Duration,
     /// Number of applied blocks between intermediate wallet-state publications.
     pub range_batch_size: u64,
-    /// Genesis UTXOs used to initialize scanner accounting.
-    pub genesis_utxos: Vec<Utxo>,
+    // TODO(RFC-480): UTXO test wallet.
+    // /// Genesis UTXOs used to initialize scanner accounting.
+    // pub genesis_utxos: Vec<Utxo>,
+    /// Genesis notes used to initialize scanner accounting.
+    pub genesis_notes: GenesisNotes,
     /// Optional restored snapshot seed for scanner startup.
     pub seed: ScannerSeed,
     /// Best-node selector used on each scanner iteration.

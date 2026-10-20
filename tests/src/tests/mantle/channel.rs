@@ -2,22 +2,20 @@ use std::{num::NonZero, path::PathBuf, time::Duration};
 
 use futures::StreamExt as _;
 use lb_common_http_client::ProcessedBlockEvent;
+// TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
+// Dropped imports: NoteId, BoundedInputs, DepositOp,
+// WalletBalanceResponseBody.
 use lb_core::{
     events::{Event, Events, TxEvent, TxEventPayload},
     header::HeaderId,
     mantle::{
-        NoteId,
         gas::GasCost,
-        ledger::BoundedInputs,
-        ops::channel::{ChannelId, deposit::DepositOp},
+        ops::channel::{ChannelId, deposit::Metadata},
         traits::Hashable as _,
         transactions::hash::TxHash,
     },
 };
-use lb_http_api_common::bodies::{
-    channel::{ChannelDepositRequestBody, ChannelDepositResponseBody},
-    wallet::balance::WalletBalanceResponseBody,
-};
+use lb_http_api_common::bodies::channel::{ChannelDepositRequestBody, ChannelDepositResponseBody};
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
@@ -113,20 +111,36 @@ async fn channel_deposit() {
     // deposit tx and then query its events via the HTTP API.
     let mut block_stream = validator.client.blocks_stream().await.unwrap();
 
-    let (note_id, selected_deposit_amount) =
-        get_wallet_note(&validator.client, funding_pk, deposit_amount).await;
-    assert_eq!(selected_deposit_amount, deposit_amount);
-    let deposit_op = DepositOp {
-        channel_id,
-        inputs: BoundedInputs::from(note_id).into(),
-        metadata: format!("Mint {deposit_amount} to Alice in Zone")
-            .into_bytes()
-            .try_into()
-            .expect("Metadata too large for deposit op."),
-    };
+    // TODO(RFC-480): a client cannot name nullifiers; the node splits the exact
+    // deposit note and builds the deposit.
+    // let (note_id, selected_deposit_amount) =
+    //     get_wallet_note(&validator.client, funding_pk, deposit_amount).await;
+    // assert_eq!(selected_deposit_amount, deposit_amount);
+    // let deposit_op = DepositOp {
+    //     channel_id,
+    //     inputs: BoundedInputs::from(note_id).into(),
+    //     metadata: format!("Mint {deposit_amount} to Alice in Zone")
+    //         .into_bytes()
+    //         .try_into()
+    //         .expect("Metadata too large for deposit op."),
+    // };
+    // let body = ChannelDepositRequestBody {
+    //     tip: None,
+    //     deposit: deposit_op.clone(),
+    //     change_public_key: funding_pk,
+    //     funding_public_keys: vec![funding_pk],
+    //     max_tx_fee: GasCost::new(MAX_CHANNEL_TX_FEE),
+    // };
+    let deposit_metadata: Metadata = format!("Mint {deposit_amount} to Alice in Zone")
+        .into_bytes()
+        .try_into()
+        .expect("Metadata too large for deposit op.");
     let body = ChannelDepositRequestBody {
         tip: None,
-        deposit: deposit_op.clone(),
+        channel_id,
+        amount: deposit_amount,
+        holder_public_key: funding_pk,
+        metadata: deposit_metadata.clone(),
         change_public_key: funding_pk,
         funding_public_keys: vec![funding_pk],
         max_tx_fee: GasCost::new(MAX_CHANNEL_TX_FEE),
@@ -145,11 +159,18 @@ async fn channel_deposit() {
         response.text().await.unwrap_or_default(),
     );
 
-    let deposit_tx_hash = response
+    // let deposit_tx_hash = response
+    //     .json::<ChannelDepositResponseBody>()
+    //     .await
+    //     .expect("deposit response should be valid JSON")
+    //     .hash;
+    let ChannelDepositResponseBody {
+        hash: deposit_tx_hash,
+        holder_note,
+    } = response
         .json::<ChannelDepositResponseBody>()
         .await
-        .expect("deposit response should be valid JSON")
-        .hash;
+        .expect("deposit response should be valid JSON");
 
     let deposit_block_id = timeout(Duration::from_mins(5), async {
         while let Some(event) = block_stream.next().await {
@@ -168,7 +189,36 @@ async fn channel_deposit() {
     .expect("timed out waiting for the deposit tx to be included in a block");
 
     let events = fetch_block_events(&validator.client, deposit_block_id).await;
-    let (channel_id, amount, metadata, notes) = events
+    // TODO(RFC-480): a deposit creates commitments of the channel note set; the
+    // node returns the opening of the holder note.
+    // let (channel_id, amount, metadata, notes) = events
+    //     .iter()
+    //     .find_map(|event| match event {
+    //         Event::Tx(TxEvent {
+    //             tx_hash,
+    //             payload:
+    //                 TxEventPayload::Deposit {
+    //                     channel_id,
+    //                     amount,
+    //                     metadata,
+    //                     notes,
+    //                 },
+    //             ..
+    //         }) if tx_hash == &deposit_tx_hash => {
+    //             Some((*channel_id, *amount, metadata.clone(), notes.clone()))
+    //         }
+    //         _ => None,
+    //     })
+    //     .expect("block events should include the deposit event");
+    // assert_eq!(channel_id, deposit_op.channel_id);
+    // assert_eq!(amount, deposit_amount);
+    // assert_eq!(metadata, deposit_op.metadata);
+    // // The deposit consumes its inputs and re-creates them as channel notes,
+    // // one per input. The event carries each re-created note's id, value, and
+    // // owning key, so the per-note values sum back to the deposit amount.
+    // assert_eq!(notes.len(), deposit_op.inputs.len());
+    // assert_eq!(notes.iter().map(|note| note.value).sum::<u64>(), amount);
+    let (event_channel_id, metadata, outputs) = events
         .iter()
         .find_map(|event| match event {
             Event::Tx(TxEvent {
@@ -176,25 +226,22 @@ async fn channel_deposit() {
                 payload:
                     TxEventPayload::Deposit {
                         channel_id,
-                        amount,
                         metadata,
-                        notes,
+                        outputs,
                     },
                 ..
             }) if tx_hash == &deposit_tx_hash => {
-                Some((*channel_id, *amount, metadata.clone(), notes.clone()))
+                Some((*channel_id, metadata.clone(), outputs.clone()))
             }
             _ => None,
         })
         .expect("block events should include the deposit event");
-    assert_eq!(channel_id, deposit_op.channel_id);
-    assert_eq!(amount, deposit_amount);
-    assert_eq!(metadata, deposit_op.metadata);
-    // The deposit consumes its inputs and re-creates them as channel notes,
-    // one per input. The event carries each re-created note's id, value, and
-    // owning key, so the per-note values sum back to the deposit amount.
-    assert_eq!(notes.len(), deposit_op.inputs.len());
-    assert_eq!(notes.iter().map(|note| note.value).sum::<u64>(), amount);
+    assert_eq!(event_channel_id, channel_id);
+    assert_eq!(metadata, deposit_metadata);
+    // The deposit creates the holder note in the channel note set.
+    assert_eq!(outputs.as_slice(), [holder_note.commitment()]);
+    assert_eq!(holder_note.value, deposit_amount);
+    assert_eq!(holder_note.public_key, funding_pk);
 
     let balance_after = get_wallet_balance(&validator.client, funding_pk).await;
     let spent = balance_before - balance_after;
@@ -428,6 +475,9 @@ fn channel_test_config(mut config: RunConfig) -> RunConfig {
     config
 }
 
+// TODO(RFC-480): a client cannot name nullifiers; the node splits the exact
+// deposit note and builds the deposit. Rebuild with the withdraw scenario.
+/*
 #[expect(
     dead_code,
     reason = "Used by `channel_withdraw_updates_wallet_balance`, restore when wallet tracks channel notes."
@@ -478,6 +528,7 @@ async fn submit_channel_deposit(
 
     (deposit_op, deposit_tx_hash)
 }
+*/
 
 #[expect(
     dead_code,
@@ -505,6 +556,8 @@ async fn wait_for_tx_inclusion(
     .unwrap_or_else(|_| panic!("timed out waiting for the {label} tx to be included in a block"))
 }
 
+// TODO(RFC-480): a client cannot name nullifiers; the deposit names an amount.
+/*
 async fn get_wallet_note(node: &NodeHttpClient, pk: ZkPublicKey, min_value: u64) -> (NoteId, u64) {
     let pk_hex = hex::encode(lb_groth16::fr_to_bytes(&pk.into()));
     let url = api_url(node, &format!("wallet/{pk_hex}/balance"));
@@ -532,6 +585,7 @@ async fn get_wallet_note(node: &NodeHttpClient, pk: ZkPublicKey, min_value: u64)
         .min_by_key(|(_, value)| *value)
         .expect("should find a note with sufficient balance for deposit")
 }
+*/
 
 #[expect(
     dead_code,

@@ -122,9 +122,15 @@ async fn drip_with_retries(faucet: &Faucet, recipient_pk: ZkPublicKey) {
 
         match faucet.transfer_to_pk(recipient_pk).await {
             Ok(response) => {
+                // TODO(RFC-480): the response carries the recipient note, whose
+                // opening the recipient needs to spend it.
+                // println!(
+                //     "Drip submitted for {recipient_pk:?}, hash: {:?}",
+                //     response.hash
+                // );
                 println!(
-                    "Drip submitted for {recipient_pk:?}, hash: {:?}",
-                    response.hash
+                    "Drip submitted for {recipient_pk:?}, hash: {:?}, note: {:?}",
+                    response.tx_hash, response.recipient_note
                 );
                 faucet.wait_for_confirmation(balance_before).await;
                 return;

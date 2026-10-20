@@ -1,13 +1,15 @@
+// TODO(RFC-480): the zone bridge is suspended. Dropped imports: BundleAnnounce,
+// MultiSigBus, initialize_zone_indexer, start_deposit_lifecycle_policy,
+// start_deposit_withdraw_policy, start_multisig_lifecycle_policy.
 use super::{
-    BundleAnnounce, CommonHttpClient, CucumberWorld, DiscardedPayloads, DriveMode, Elapsed,
-    FundingConfig, GasCost, MultiSigBus, NodeHttpClient, PolicyRuntime,
-    SEQUENCER_READY_HEIGHT_ADVANCE_TIMEOUT, SEQUENCER_READY_POLL_TIMEOUT, SEQUENCER_READY_TIMEOUT,
-    SequencerCheckpoint, StartedSequencerRuntime, Step, StepError, StepResult,
-    ZONE_TEST_PRIORITY_FEE_PERCENT, ZoneNodeHttpClient, ZoneSequencer, initialize_zone_indexer,
-    log_step_error, sequencer_config, sequencer_config_with_pending_submit_depth,
-    start_balance_aware_policy, start_custom_republish_policy, start_deposit_lifecycle_policy,
-    start_deposit_withdraw_policy, start_multisig_lifecycle_policy, start_republish_lineage_policy,
-    start_sequencer_event_loop, start_sorted_conflict_policy, timeout, wait_for_height,
+    CommonHttpClient, CucumberWorld, DiscardedPayloads, DriveMode, Elapsed, FundingConfig, GasCost,
+    NodeHttpClient, PolicyRuntime, SEQUENCER_READY_HEIGHT_ADVANCE_TIMEOUT,
+    SEQUENCER_READY_POLL_TIMEOUT, SEQUENCER_READY_TIMEOUT, SequencerCheckpoint,
+    StartedSequencerRuntime, Step, StepError, StepResult, ZONE_TEST_PRIORITY_FEE_PERCENT,
+    ZoneNodeHttpClient, ZoneSequencer, log_step_error, sequencer_config,
+    sequencer_config_with_pending_submit_depth, start_balance_aware_policy,
+    start_custom_republish_policy, start_republish_lineage_policy, start_sequencer_event_loop,
+    start_sorted_conflict_policy, timeout, wait_for_height,
 };
 
 pub(in super::super) async fn start_named_sequencer(
@@ -38,7 +40,9 @@ fn sequencer_funding(
     let funding_pk = world.funding_wallet(node_name)?.public_key()?;
     Ok(FundingConfig {
         funding_pk,
-        change_pk: None,
+        // TODO(RFC-480): the zone bridge is suspended, change_pk only paid an
+        // atomic withdraw's change.
+        // change_pk: None,
         max_tx_fee: GasCost::new(u64::MAX),
         priority_fee_percent: ZONE_TEST_PRIORITY_FEE_PERCENT,
     })
@@ -58,6 +62,9 @@ pub(in super::super) async fn start_named_sequencer_with_pending_submit_depth(
     start_named_sequencer_with_config(world, step, sequencer_alias, checkpoint, mode, config).await
 }
 
+// TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
+// bundles) is suspended.
+/*
 /// Start `sequencer_alias` with the deposit-lifecycle policy and an indexer.
 pub(in super::super) async fn start_deposit_reaction_sequencer(
     world: &mut CucumberWorld,
@@ -133,6 +140,7 @@ pub(in super::super) async fn start_multisig_lifecycle_sequencer(
     .await?;
     initialize_zone_indexer(world, step, sequencer_alias)
 }
+*/
 
 async fn start_named_sequencer_with_config(
     world: &mut CucumberWorld,
@@ -273,38 +281,39 @@ fn start_sequencer_runtime(
         ),
         DriveMode::CustomRepublish { deps } => {
             from_policy_runtime(start_custom_republish_policy(sequencer, *deps), None)
-        }
-        DriveMode::DepositReaction {
-            withdraw_outputs,
-            recipient,
-        } => from_policy_runtime(
-            start_deposit_lifecycle_policy(sequencer, withdraw_outputs, recipient),
-            None,
-        ),
-        DriveMode::DepositWithdraw {
-            target_amount,
-            withdraw_outputs,
-            recipient,
-        } => from_policy_runtime(
-            start_deposit_withdraw_policy(sequencer, target_amount, withdraw_outputs, recipient),
-            None,
-        ),
-        DriveMode::MultiSigLifecycle {
-            withdraw_outputs,
-            recipient,
-            bus,
-            announce,
-            signing_key,
-        } => from_policy_runtime(
-            start_multisig_lifecycle_policy(
-                sequencer,
-                withdraw_outputs,
-                recipient,
-                bus,
-                announce,
-                *signing_key,
-            ),
-            None,
-        ),
+        } // TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
+          // bundles) is suspended.
+          // DriveMode::DepositReaction {
+          //     withdraw_outputs,
+          //     recipient,
+          // } => from_policy_runtime(
+          //     start_deposit_lifecycle_policy(sequencer, withdraw_outputs, recipient),
+          //     None,
+          // ),
+          // DriveMode::DepositWithdraw {
+          //     target_amount,
+          //     withdraw_outputs,
+          //     recipient,
+          // } => from_policy_runtime(
+          //     start_deposit_withdraw_policy(sequencer, target_amount, withdraw_outputs, recipient),
+          //     None,
+          // ),
+          // DriveMode::MultiSigLifecycle {
+          //     withdraw_outputs,
+          //     recipient,
+          //     bus,
+          //     announce,
+          //     signing_key,
+          // } => from_policy_runtime(
+          //     start_multisig_lifecycle_policy(
+          //         sequencer,
+          //         withdraw_outputs,
+          //         recipient,
+          //         bus,
+          //         announce,
+          //         *signing_key,
+          //     ),
+          //     None,
+          // ),
     }
 }

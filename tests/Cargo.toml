@@ -14,24 +14,27 @@ version     = { workspace = true }
 workspace = true
 
 [dev-dependencies]
-divan       = { workspace = true }
-lb-core     = { features = ["test-utils"], workspace = true }
-lb-groth16  = { workspace = true }
-lb-mmr      = { workspace = true }
-lb-utxotree = { workspace = true }
+# TODO(RFC-480): only the voucher bench used divan.
+# divan       = { workspace = true }
+lb-core    = { features = ["test-utils"], workspace = true }
+lb-groth16 = { workspace = true }
+lb-mmr     = { workspace = true }
+# TODO(RFC-480): UTXO test wallet.
+# lb-utxotree = { workspace = true }
 
 [dependencies]
-async-trait                      = { workspace = true }
-axum                             = { features = ["http1", "json", "tokio"], workspace = true }
-bincode                          = { workspace = true }
-blockchain-test-support          = { workspace = true }
-cucumber                         = { features = ["macros", "output-junit"], workspace = true }
-ed25519                          = { workspace = true }
-educe                            = { features = ["Default"], workspace = true }
-futures                          = { workspace = true }
-futures-util                     = { workspace = true }
-hex                              = { workspace = true }
-lb-api-service                   = { workspace = true }
+async-trait             = { workspace = true }
+axum                    = { features = ["http1", "json", "tokio"], workspace = true }
+bincode                 = { workspace = true }
+blockchain-test-support = { workspace = true }
+cucumber                = { features = ["macros", "output-junit"], workspace = true }
+ed25519                 = { workspace = true }
+educe                   = { features = ["Default"], workspace = true }
+futures                 = { workspace = true }
+futures-util            = { workspace = true }
+hex                     = { workspace = true }
+# TODO(RFC-480): LEADER_CLAIM is removed; its response body was the only use.
+# lb-api-service                   = { workspace = true }
 lb-binary-codec                  = { workspace = true }
 lb-chain-service                 = { workspace = true }
 lb-common-http-client            = { workspace = true }
@@ -46,36 +49,42 @@ lb-log-targets                   = { workspace = true }
 lb-mmr                           = { workspace = true }
 lb-node                          = { features = ["testing"], workspace = true }
 lb-pow-service                   = { workspace = true }
+lb-sdp-service                   = { workspace = true }
 lb-storage-service               = { workspace = true }
 lb-testing-framework             = { workspace = true }
 lb-tx-service                    = { workspace = true }
 lb-utils                         = { workspace = true }
 lb-wallet                        = { workspace = true }
-lb-zksign                        = { workspace = true }
-lb-zone-sdk                      = { workspace = true }
-libp2p                           = { workspace = true }
-logos-sql                        = { workspace = true }
-num-bigint                       = { workspace = true }
-rand                             = { workspace = true }
-rand_chacha                      = { workspace = true }
-reqwest                          = { features = ["json"], workspace = true }
-rpds                             = { workspace = true }
-rusqlite                         = { workspace = true }
-serde                            = { features = ["derive"], workspace = true }
-serde_json                       = { workspace = true }
-serde_yaml                       = { workspace = true }
-serial_test                      = { workspace = true }
-strum                            = { features = ["derive", "std"], workspace = true }
-strum_macros                     = { workspace = true }
-tempfile                         = { workspace = true }
-testing-framework-app            = { workspace = true }
-testing-framework-core           = { workspace = true }
-testing-framework-runner-local   = { workspace = true }
-thiserror                        = { workspace = true }
-time                             = { workspace = true }
-tokio                            = { workspace = true }
-tracing                          = { workspace = true }
-tracing-subscriber               = { features = ["env-filter", "fmt"], workspace = true }
+# TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+# Components 1.3.0).
+# lb-zksign                        = { workspace = true }
+lb-zktransfer = { workspace = true }
+lb-zone-sdk   = { workspace = true }
+libp2p        = { workspace = true }
+logos-sql     = { workspace = true }
+# TODO(RFC-480): the SDP scenario's provider ZK key was its only use.
+# num-bigint                     = { workspace = true }
+rand        = { workspace = true }
+rand_chacha = { workspace = true }
+reqwest     = { features = ["json"], workspace = true }
+# TODO(RFC-480): UTXO test wallet; the wallet funding no longer builds rpds maps.
+# rpds                           = { workspace = true }
+rusqlite                       = { workspace = true }
+serde                          = { features = ["derive"], workspace = true }
+serde_json                     = { workspace = true }
+serde_yaml                     = { workspace = true }
+serial_test                    = { workspace = true }
+strum                          = { features = ["derive", "std"], workspace = true }
+strum_macros                   = { workspace = true }
+tempfile                       = { workspace = true }
+testing-framework-app          = { workspace = true }
+testing-framework-core         = { workspace = true }
+testing-framework-runner-local = { workspace = true }
+thiserror                      = { workspace = true }
+time                           = { workspace = true }
+tokio                          = { workspace = true }
+tracing                        = { workspace = true }
+tracing-subscriber             = { features = ["env-filter", "fmt"], workspace = true }
 
 [features]
 cucumber             = []
@@ -159,6 +168,8 @@ name              = "cucumber"
 path              = "cucumber_tests/cucumber.rs"
 required-features = ["cucumber"]
 
-[[bench]]
-harness = false
-name    = "voucher"
+# TODO(RFC-480): LEADER_CLAIM and the vouchers are removed; the leader reward is
+# a note of the block.
+# [[bench]]
+# harness = false
+# name    = "voucher"

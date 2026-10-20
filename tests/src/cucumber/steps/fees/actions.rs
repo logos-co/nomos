@@ -101,7 +101,8 @@ pub async fn prepare_wallet_funded_self_transfer_with_priority_fee(
         fund_self_transfer(&client, step, funding_pk, priority_fee_percent).await?;
     let signed_tx = assemble_funded_transaction(response, step)?;
     let prepared_fee =
-        record_prepared_priority_fee(world, step, &signed_tx, &prices, priority_fee_percent)?;
+        // record_prepared_priority_fee(world, step, &signed_tx, &prices, priority_fee_percent)?;
+        record_prepared_priority_fee(step, &signed_tx, &prices, priority_fee_percent)?;
 
     info!(
         target: TARGET,
@@ -193,13 +194,17 @@ fn assemble_funded_transaction(
 }
 
 fn record_prepared_priority_fee(
-    world: &CucumberWorld,
+    // TODO(RFC-480): the burned amount no longer needs the genesis notes.
+    // world: &CucumberWorld,
     step: &Step,
     signed_tx: &SignedOps<Preverified, StandardMode>,
     prices: &GasPrices,
     priority_fee_percent: u64,
 ) -> Result<PreparedPriorityFee, StepError> {
-    let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
+    // TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
+    // channel notes.
+    // let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
+    let gas_context = OpsGasContext::new(HashMap::new(), prices.clone());
     let initial_mandatory_fee = signed_tx
         .op_refs()
         .total_gas_cost::<MainnetGasProfile>(&gas_context)
@@ -216,10 +221,14 @@ fn record_prepared_priority_fee(
                 message: format!("Step `{}` error: {message}", step.value),
             },
         )?;
-    let funded_fee = fee_spec::net_balance_against(&world.chain.genesis_block_utxos, signed_tx)
-        .map_err(|message| StepError::StepFail {
-            message: format!("Step `{}` error: {message}", step.value),
-        })?;
+    // TODO(RFC-480): a Transfer's excess is the amount it burns.
+    // let funded_fee = fee_spec::net_balance_against(&world.chain.genesis_block_utxos, signed_tx)
+    //     .map_err(|message| StepError::StepFail {
+    //         message: format!("Step `{}` error: {message}", step.value),
+    //     })?;
+    let funded_fee = fee_spec::net_balance(signed_tx).map_err(|message| StepError::StepFail {
+        message: format!("Step `{}` error: {message}", step.value),
+    })?;
     let expected_funded_fee = initial_mandatory_fee
         .checked_add(initial_reserve)
         .ok_or_else(|| StepError::StepFail {
@@ -563,7 +572,9 @@ pub async fn concurrently_fund_transfers(
                     step.value
                 ),
             })?
-            .hash;
+            // TODO(RFC-480): the response also carries the recipient note.
+            // .hash;
+            .tx_hash;
 
         if !hashes.insert(hash) {
             return Err(StepError::StepFail {

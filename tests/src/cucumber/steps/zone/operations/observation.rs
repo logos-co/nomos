@@ -152,7 +152,9 @@ pub async fn replay_finalized_history(
     // turn-gated), so the funding wallet is never exercised.
     let funding = FundingConfig {
         funding_pk: lb_groth16::Fr::from(1u64).into(),
-        change_pk: None,
+        // TODO(RFC-480): the zone bridge is suspended, change_pk only paid an
+        // atomic withdraw's change.
+        // change_pk: None,
         max_tx_fee: GasCost::new(u64::MAX),
         priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
     };
@@ -292,6 +294,9 @@ async fn count_indexed_payload(
     )
 }
 
+// TODO(RFC-480): the zone bridge (channel wallet, deposits, withdrawals,
+// channel transfers) is suspended.
+/*
 /// Polls until the wallet holds exactly the given number of finalized and
 /// unfinalized notes — an exact-count check that catches double-counting.
 pub async fn wait_for_channel_wallet_counts(
@@ -502,6 +507,7 @@ async fn poll_sequencer_finalized_until(
     .await
     .map_err(|_| timeout_error)?
 }
+*/
 
 /// Waits until node mempool/chain observation confirms the submitted zone
 /// transactions reached the canonical chain.

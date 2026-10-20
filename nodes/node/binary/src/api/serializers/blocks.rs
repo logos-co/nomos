@@ -1,7 +1,18 @@
 use lb_api_service::http::mantle::BlockWithChainState;
 use lb_chain_service::Slot;
+// TODO(RFC-480): uncle headers are not signed.
+// use lb_core::{
+//     block::{Block, SignedHeader},
+//     header::{ContentId, Header, HeaderId},
+//     mantle::{
+//         SignedOps, ledger::verification_mode::VerificationMode,
+//         transactions::states::VerificationState,
+//     },
+//     proofs::leader_proof::Groth16LeaderProof,
+// };
+// use lb_key_management_system_service::keys::Ed25519Signature;
 use lb_core::{
-    block::{Block, SignedHeader},
+    block::Block,
     header::{ContentId, Header, HeaderId},
     mantle::{
         SignedOps, ledger::verification_mode::VerificationMode,
@@ -9,7 +20,6 @@ use lb_core::{
     },
     proofs::leader_proof::Groth16LeaderProof,
 };
-use lb_key_management_system_service::keys::Ed25519Signature;
 use serde::Serialize;
 
 use crate::api::serializers::transactions::ApiSignedTransaction;
@@ -18,7 +28,9 @@ use crate::api::serializers::transactions::ApiSignedTransaction;
 pub struct ApiBlock<'block> {
     #[serde(with = "ApiHeaderSerializer")]
     header: &'block Header,
-    uncle_headers: Vec<ApiSignedHeader<'block>>,
+    // TODO(RFC-480): uncle headers are not signed.
+    // uncle_headers: Vec<ApiSignedHeader<'block>>,
+    uncle_headers: Vec<ApiUncleHeader<'block>>,
     transactions: Vec<ApiSignedTransaction<'block>>,
 }
 
@@ -45,28 +57,36 @@ impl<'block, State: VerificationState, Mode: VerificationMode>
             .collect();
         Self {
             header: value.header(),
-            uncle_headers: value.uncle_headers().iter().map(Into::into).collect(),
+            // TODO(RFC-480): uncle headers are not signed.
+            // uncle_headers: value.uncle_headers().iter().map(Into::into).collect(),
+            uncle_headers: value.uncle_headers().iter().map(ApiUncleHeader).collect(),
             transactions,
         }
     }
 }
 
-/// The signed header of an uncle a block references.
-#[derive(Serialize)]
-pub struct ApiSignedHeader<'block> {
-    #[serde(with = "ApiHeaderSerializer")]
-    header: &'block Header,
-    signature: &'block Ed25519Signature,
-}
+// TODO(RFC-480): uncle headers are not signed.
+// /// The signed header of an uncle a block references.
+// #[derive(Serialize)]
+// pub struct ApiSignedHeader<'block> {
+//     #[serde(with = "ApiHeaderSerializer")]
+//     header: &'block Header,
+//     signature: &'block Ed25519Signature,
+// }
+//
+// impl<'block> From<&'block SignedHeader> for ApiSignedHeader<'block> {
+//     fn from(value: &'block SignedHeader) -> Self {
+//         Self {
+//             header: value.header(),
+//             signature: value.signature(),
+//         }
+//     }
+// }
 
-impl<'block> From<&'block SignedHeader> for ApiSignedHeader<'block> {
-    fn from(value: &'block SignedHeader) -> Self {
-        Self {
-            header: value.header(),
-            signature: value.signature(),
-        }
-    }
-}
+/// The header of an uncle a block references.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub struct ApiUncleHeader<'block>(#[serde(with = "ApiHeaderSerializer")] &'block Header);
 
 #[derive(Serialize)]
 #[serde(transparent)]

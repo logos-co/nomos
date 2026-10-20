@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::{
-    BTreeMap, BuildHasher, CucumberWorld, Duration, HashSet, ManualCommand, NoteId, StepError,
+    BTreeMap, BuildHasher, CucumberWorld, Duration, HashSet, ManualCommand, NoteNf, StepError,
     TARGET, TxHash, WalletOutputState, WalletSendReadiness, WalletUtxos, all_user_wallets,
     build_cycle_fee_policy, clear_all_wallet_encumbrances, clear_wallet_encumbrances,
     create_snapshot_all_nodes_with_wallet_state, create_snapshot_node_with_wallet_state,
@@ -598,10 +598,10 @@ async fn execute_ring_send_round_with_utxo_cache<S: BuildHasher + Sync>(
     round_number: usize,
     epochs_headroom: u32,
     available_utxos: &mut WalletUtxos,
-    used_input_note_ids: &HashSet<NoteId, S>,
+    used_input_note_ids: &HashSet<NoteNf, S>,
     dependent_state: Option<&DependentTransactionLoadState>,
     mempool_diagnostics: bool,
-) -> Result<(HashSet<TxHash>, HashSet<NoteId>), StepError> {
+) -> Result<(HashSet<TxHash>, HashSet<NoteNf>), StepError> {
     let policy = build_cycle_fee_policy(world, step, &wallet_names[0], epochs_headroom).await?;
     let mode = if dependent_state.is_some() {
         "CONTINUOUS DEPENDENT NEXT WALLET"
@@ -694,7 +694,7 @@ async fn execute_ring_send_round_with_utxo_cache<S: BuildHasher + Sync>(
         "Built next-wallet workload UTXO indexes once for the round"
     );
 
-    let mut cycle_used_input_note_ids: HashSet<NoteId> = HashSet::new();
+    let mut cycle_used_input_note_ids: HashSet<NoteNf> = HashSet::new();
     for submission in &signed_submissions {
         extend_note_id_set(
             &mut cycle_used_input_note_ids,

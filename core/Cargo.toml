@@ -22,16 +22,22 @@ hex                           = { features = ["alloc"], workspace = true }
 lb-binary-codec               = { workspace = true }
 lb-blend-proofs               = { workspace = true }
 lb-cryptarchia-engine         = { workspace = true }
+lb-dynamic-merkle             = { workspace = true }
 lb-groth16                    = { workspace = true }
+lb-imt                        = { workspace = true }
 lb-key-management-system-keys = { workspace = true }
 lb-log-targets                = { workspace = true }
 lb-mmr                        = { workspace = true }
-lb-poc                        = { workspace = true }
+# TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader reward is a note in the block.
+# lb-poc                        = { workspace = true }
 lb-pol                        = { workspace = true }
 lb-poseidon2                  = { workspace = true }
+lb-program-spend              = { workspace = true }
 lb-utils                      = { workspace = true }
 lb-utxotree                   = { workspace = true }
-lb-zksign                     = { workspace = true }
+# TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
+# lb-zksign                     = { workspace = true }
+lb-zktransfer                 = { workspace = true }
 multiaddr                     = { workspace = true }
 num-bigint                    = { workspace = true }
 rpds                          = { workspace = true }
@@ -43,12 +49,16 @@ tracing                       = { workspace = true }
 utoipa                        = { features = ["macros"], optional = true, workspace = true }
 
 [dev-dependencies]
-boon       = { workspace = true }
-divan      = { workspace = true }
-hasher     = { workspace = true }
-rand       = { workspace = true }
-serde_json = { features = ["alloc"], workspace = true }
-tokio      = { workspace = true }
+ark-groth16      = { workspace = true }
+boon             = { workspace = true }
+divan            = { workspace = true }
+hasher           = { workspace = true }
+lb-groth16       = { features = ["test-utils"], workspace = true }
+lb-program-spend = { features = ["test-utils"], workspace = true }
+lb-zktransfer    = { features = ["test-utils"], workspace = true }
+rand             = { workspace = true }
+serde_json       = { features = ["alloc"], workspace = true }
+tokio            = { workspace = true }
 
 [[bench]]
 harness = false

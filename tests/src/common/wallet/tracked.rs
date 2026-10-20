@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use lb_core::mantle::{TxHash, Utxo};
+// TODO(RFC-480): UTXO test wallet.
+// use lb_core::mantle::{TxHash, Utxo};
+use lb_core::mantle::TxHash;
+use lb_wallet::OwnedNote;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -50,7 +53,7 @@ impl TrackedWallets {
         &mut self,
         wallet_id: impl Into<WalletId>,
         submissions: impl IntoIterator<Item = (TxHash, WalletReservedInputs, u64)>,
-    ) -> Vec<Utxo> {
+    ) -> Vec<OwnedNote> {
         let wallet_id = wallet_id.into();
         let mut sender_inputs = Vec::new();
         let mut fee_sponsor_inputs = Vec::new();
@@ -195,7 +198,7 @@ impl TrackedWallets {
     pub(crate) fn record_observed_wallets_utxos(
         &mut self,
         header_id: String,
-        wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<Utxo>)>,
+        wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<OwnedNote>)>,
     ) {
         let wallet_utxos = wallet_utxos.into_iter().collect::<Vec<_>>();
 
@@ -215,7 +218,7 @@ impl TrackedWallets {
 
     pub(crate) fn replace_current_wallets_utxos(
         &mut self,
-        wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<Utxo>)>,
+        wallet_utxos: impl IntoIterator<Item = (WalletId, Vec<OwnedNote>)>,
     ) {
         for (wallet_id, utxos) in wallet_utxos {
             self.ensure_wallet(wallet_id.clone());
@@ -269,7 +272,7 @@ impl TrackedWallets {
     fn reserve_wallet_inputs(
         &mut self,
         wallet_id: impl Into<WalletId>,
-        reserved_utxos: impl IntoIterator<Item = Utxo>,
+        reserved_utxos: impl IntoIterator<Item = OwnedNote>,
     ) {
         let wallet_id = wallet_id.into();
         self.ensure_wallet(wallet_id.clone());
@@ -318,23 +321,23 @@ impl TrackedWallets {
 }
 
 pub struct RecordedWalletSubmission {
-    sender_reserved_inputs: Vec<Utxo>,
-    fee_sponsor_reserved_inputs: Vec<Utxo>,
+    sender_reserved_inputs: Vec<OwnedNote>,
+    fee_sponsor_reserved_inputs: Vec<OwnedNote>,
 }
 
 impl RecordedWalletSubmission {
     #[must_use]
-    pub fn sender_reserved_inputs(&self) -> &[Utxo] {
+    pub fn sender_reserved_inputs(&self) -> &[OwnedNote] {
         &self.sender_reserved_inputs
     }
 
     #[must_use]
-    pub fn fee_sponsor_reserved_inputs(&self) -> &[Utxo] {
+    pub fn fee_sponsor_reserved_inputs(&self) -> &[OwnedNote] {
         &self.fee_sponsor_reserved_inputs
     }
 
     #[must_use]
-    pub fn into_fee_sponsor_reserved_inputs(self) -> Vec<Utxo> {
+    pub fn into_fee_sponsor_reserved_inputs(self) -> Vec<OwnedNote> {
         self.fee_sponsor_reserved_inputs
     }
 }
@@ -425,17 +428,28 @@ pub struct WalletUtxoSnapshotDiagnostics {
 
 #[cfg(test)]
 mod tests {
-    use lb_core::mantle::Note;
+    use lb_core::mantle::{Note, note_set::LEDGER_SET, notes::NoteNf};
+    use lb_groth16::Fr;
     use lb_key_management_system_service::keys::ZkPublicKey;
+    use lb_mmr::MerklePath;
 
     use super::*;
 
-    fn utxo(value: u64, output_index: usize) -> Utxo {
-        Utxo::new(
-            [output_index as u8; 32],
-            output_index,
-            Note::new(value, ZkPublicKey::zero()),
-        )
+    // TODO(RFC-480): UTXO test wallet.
+    // fn utxo(value: u64, output_index: usize) -> Utxo {
+    //     Utxo::new(
+    //         [output_index as u8; 32],
+    //         output_index,
+    //         Note::new(value, ZkPublicKey::zero()),
+    //     )
+    // }
+    fn utxo(value: u64, output_index: u64) -> OwnedNote {
+        OwnedNote {
+            note: Note::new(value, Fr::from(output_index), ZkPublicKey::zero()),
+            note_set: LEDGER_SET,
+            nullifier: NoteNf(Fr::from(output_index)),
+            path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
+        }
     }
 
     fn reserved_count(wallets: &TrackedWallets) -> usize {
@@ -458,7 +472,7 @@ mod tests {
         let submissions = vec![
             (
                 TxHash([1; 32]),
-                WalletReservedInputs::new(vec![sender_a, sender_b], vec![sponsor_a]),
+                WalletReservedInputs::new(vec![sender_a, sender_b.clone()], vec![sponsor_a]),
                 7,
             ),
             (
@@ -498,8 +512,14 @@ mod tests {
         assert_eq!(reserved_count(&per_submission), 3);
         assert_eq!(reserved_count(&batched), 3);
         assert_eq!(
-            expected_sponsors.iter().map(Utxo::id).collect::<Vec<_>>(),
-            actual_sponsors.iter().map(Utxo::id).collect::<Vec<_>>()
+            expected_sponsors
+                .iter()
+                .map(|utxo| utxo.nullifier)
+                .collect::<Vec<_>>(),
+            actual_sponsors
+                .iter()
+                .map(|utxo| utxo.nullifier)
+                .collect::<Vec<_>>()
         );
     }
 }

@@ -26,9 +26,11 @@ use std::{num::NonZero, sync::Arc};
 use lb_core::{
     crypto::{Digest as _, Hasher},
     mantle::{
-        Note, SignedOps, Utxo, Value,
+        SignedOps, Utxo, Value,
         gas::MainnetGasProfile,
-        ledger::verification_mode::StandardMode,
+        ledger::{Note, verification_mode::StandardMode},
+        note_set::NoteSets,
+        ops::channel::withdraw::PendingWithdrawals,
         transactions::{
             GENESIS_EXECUTION_GAS_PRICE, GENESIS_STORAGE_GAS_PRICE, states::Preverified,
         },
@@ -42,10 +44,15 @@ use lb_utils::math::NonNegativeRatio;
 use num_bigint::BigUint;
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 
+// TODO(RFC-480): the window of pooled fees is part of the block reward state.
+// use crate::WINDOW_SIZE;
+// TODO(RFC-480): no Operation reads legacy UTXOs since M9. `UtxoTree` left the
+// `cryptarchia` imports.
 use crate::{
-    Config, Ledger, WINDOW_SIZE,
+    Config, Ledger,
+    block_rewards::BlockRewards,
     cryptarchia::{
-        EpochState, LedgerState, UtxoTree,
+        EpochState, LedgerState,
         block_density::BlockDensity,
         stake::StakeInference,
         tests::{config, generate_proof},
@@ -206,11 +213,12 @@ fn genesis_ledger(config: &Config, leader_utxo: Utxo) -> Ledger<HeaderId> {
     let (lottery_0, lottery_1) = config
         .lottery_constants()
         .compute_lottery_values(total_stake);
-    let utxos: UtxoTree = std::iter::once((leader_utxo.id(), leader_utxo)).collect();
+    // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
+    // let utxos: UtxoTree = std::iter::once((leader_utxo.id(), leader_utxo)).collect();
     let epoch_state = EpochState {
         epoch: 0.into(),
         nonce: Fr::ZERO,
-        utxos: utxos.clone(),
+        note_sets: NoteSets::new(),
         total_stake,
         lottery_0,
         lottery_1,
@@ -218,7 +226,10 @@ fn genesis_ledger(config: &Config, leader_utxo: Utxo) -> Ledger<HeaderId> {
         blend_pow_difficulty: Fr::ZERO,
     };
     let cryptarchia_ledger = LedgerState {
-        utxos,
+        // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
+        // utxos,
+        note_sets: NoteSets::new(),
+        pending_withdrawals: PendingWithdrawals::new(),
         nonce: Fr::ZERO,
         previous_epoch_nonce: Fr::ZERO,
         slot: 0.into(),
@@ -233,7 +244,9 @@ fn genesis_ledger(config: &Config, leader_utxo: Utxo) -> Ledger<HeaderId> {
         )),
         block_density: BlockDensity::new(config.epoch(0.into()), config),
         epoch_state,
-        fee_window: [0.into(); WINDOW_SIZE],
+        // TODO(RFC-480): the window of pooled fees is part of the block reward state.
+        // fee_window: [0.into(); WINDOW_SIZE],
+        block_rewards: BlockRewards::genesis(),
         average_execution_gas: 0.into(),
         execution_base_fee: GENESIS_EXECUTION_GAS_PRICE,
         storage_gas_ema: 0.into(),

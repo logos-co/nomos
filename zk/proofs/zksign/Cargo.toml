@@ -14,7 +14,8 @@ lb-circuits-prover = { workspace = true }
 lb-groth16         = { workspace = true }
 lb-log-targets     = { workspace = true }
 lb-poseidon2       = { workspace = true }
-lbc-signature-sys  = { features = ["prebuilt"], workspace = true }
+# TODO(RFC-480): the ZkSignature circuit is retired in circuits v0.6.0.
+# lbc-signature-sys  = { features = ["prebuilt"], workspace = true }
 lbc-types          = { workspace = true }
 lbp-error          = { workspace = true }
 num-bigint         = { workspace = true }

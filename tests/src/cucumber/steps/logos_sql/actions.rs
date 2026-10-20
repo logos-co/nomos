@@ -69,7 +69,9 @@ pub(super) async fn start_instances(
                     signing_key: world.zone.sequencer_signing_key(&row.sequencer)?.clone(),
                     funding: FundingConfig {
                         funding_pk,
-                        change_pk: None,
+                        // TODO(RFC-480): the zone bridge is suspended, change_pk
+                        // only paid an atomic withdraw's change.
+                        // change_pk: None,
                         max_tx_fee: GasCost::new(u64::MAX),
                         priority_fee_percent,
                     },

@@ -31,9 +31,11 @@ use lb_core::{
         ops::pow::{ClaimPowRewardOp, PowTarget},
     },
 };
+use lb_groth16::fr_from_mod_bytes;
 use lb_key_management_system_keys::keys::UnsecuredZkKey;
 use lb_ledger::LedgerState;
 use lb_log_targets::pow;
+use rand::Rng as _;
 use rayon::ThreadPool;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -249,7 +251,7 @@ fn new_block_search_stream(
 
 /// Runs a single ticket-search attempt for a block.
 ///
-/// Generates a random key, builds the reward claim, and validates its puzzle
+/// Generates a random key and nonce, builds the reward claim, and validates its puzzle
 /// ticket against `difficulty`. The heavy computation is off-loaded to the
 /// dedicated `pool` so it does not stall Tokio's runtime threads. Returns the
 /// winning `(key, claim)` when the ticket meets the difficulty target,
@@ -265,10 +267,12 @@ async fn search_winner_ticket(
         let mut rng = rand::thread_rng();
         let sk = UnsecuredZkKey::from_rng(&mut rng);
         let pk = sk.to_public_key();
+        let nonce = fr_from_mod_bytes(&rng.r#gen::<[u8; 32]>());
         let claim = ClaimPowRewardOp {
             epoch_nonce,
             block_hash: block_header.into(),
             public_key: pk,
+            nonce,
         };
         let ticket = claim.get_puzzle_ticket();
         let result = ticket
@@ -595,6 +599,7 @@ mod tests {
             epoch_nonce: zero_fr(),
             block_hash: [0u8; 32],
             public_key: secret_key.to_public_key(),
+            nonce: Fr::from(rand::random::<u64>()),
         };
         (secret_key, claim)
     }

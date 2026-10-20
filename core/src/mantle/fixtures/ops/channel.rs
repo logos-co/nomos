@@ -1,4 +1,5 @@
 use lb_binary_codec::canonical::codec_fixtures;
+use lb_groth16::{AdditiveGroup as _, Field as _, Fr};
 use lb_key_management_system_keys::keys::{
     Ed25519PublicKey, Ed25519Signature, UnverifiedEd25519PublicKey,
 };
@@ -7,17 +8,21 @@ use crate::{
     mantle::{
         channel::{SlotTimeframe, SlotTimeout},
         fixtures::ops::op_values::{
-            CHANNEL_CONFIG, CHANNEL_CONFIG_PAYLOAD_HEX, CHANNEL_TRANSFER,
-            CHANNEL_TRANSFER_PAYLOAD_HEX, CHANNEL_WITHDRAW, CHANNEL_WITHDRAW_PAYLOAD_HEX, DEPOSIT,
-            DEPOSIT_PAYLOAD_HEX, INSCRIPTION, INSCRIPTION_PAYLOAD_HEX,
+            CHANNEL_CONFIG, CHANNEL_CONFIG_PAYLOAD_HEX, CHANNEL_WITHDRAW,
+            CHANNEL_WITHDRAW_PAYLOAD_HEX, DEPOSIT, DEPOSIT_PAYLOAD_HEX, INSCRIPTION,
+            INSCRIPTION_PAYLOAD_HEX,
         },
-        ledger::{Inputs, Outputs},
+        notes::{InputNfs, NoteNf, OutputCms},
         ops::channel::{
-            ChannelId, MsgId,
-            channel_transfer::ChannelTransferOp,
+            ChannelId,
+            MsgId,
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // channel_transfer::ChannelTransferOp,
             config::ChannelConfigOp,
             deposit::{DepositOp, Metadata},
-            inscribe::InscriptionOp,
+            inscribe::{ChannelStep, ChannelSteps, InscriptionOp, Step},
+            program_step::{Payment, ProgramOutputs, ProgramStep},
             withdraw::ChannelWithdrawOp,
         },
     },
@@ -35,17 +40,22 @@ codec_fixtures!(
         posting_timeframe: SlotTimeframe::from(0u32),
         posting_timeout: SlotTimeout::from(0u32),
         configuration_threshold: 0u16,
-        transfer_threshold: 0u16,
-    } => "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000101010101010101010101010101010101010101010101010101010101010101000000000000000000000000",
+        // TODO(RFC-480): transfer_threshold is removed, holders
+        // withdraw their own channel notes.
+        // transfer_threshold: 0u16,
+    } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100010101010101010101010101010101010101010101010101010101010101010100000000000000000000",
     CHANNEL_CONFIG.clone() => CHANNEL_CONFIG_PAYLOAD_HEX,
 );
 codec_fixtures!(
     DepositOp,
     Self {
         channel_id: ChannelId::from([0u8; 32]),
-        inputs: Inputs::empty(),
+        inputs: InputNfs::default(),
+        cm_merkle_root: Fr::ZERO,
+        outputs: OutputCms::default(),
+        excess_value: 0,
         metadata: Metadata::empty(),
-    } => "00000000000000000000000000000000000000000000000000000000000000000000000000",
+    } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     DEPOSIT.clone() => DEPOSIT_PAYLOAD_HEX,
 );
 codec_fixtures!(
@@ -55,26 +65,50 @@ codec_fixtures!(
         inscription: b"genesis".into(),
         parent: MsgId::from([0u8; 32]),
         signer: UnverifiedEd25519PublicKey::from_bytes(&[0u8; _]).unwrap(),
-    } => "00000000000000000000000000000000000000000000000000000000000000000700000067656e6573697300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        steps: ChannelSteps::default(),
+    } => "00000000000000000000000000000000000000000000000000000000000000000700000067656e65736973000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     INSCRIPTION.clone() => INSCRIPTION_PAYLOAD_HEX,
+);
+codec_fixtures!(
+    ChannelStep,
+    Self { inputs: [NoteNf(Fr::ONE)].into(), outputs: OutputCms::default(), cm_merkle_root: Fr::ZERO, buffered: 2 }
+        => "0101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200",
+);
+codec_fixtures!(
+    Payment,
+    Payment::sample() => "0135000000000000000000000000000000000000000000000000000000000000000136000000000000000000000000000000000000000000000000000000000000003700000000000000000000000000000000000000000000000000000000000000470038000000000000003900000000000000000000000000000000000000000000000000000000000000",
+);
+codec_fixtures!(ProgramOutputs, ProgramOutputs(0b101) => "05");
+codec_fixtures!(
+    ProgramStep,
+    ProgramStep::sample() => "3400000000000000000000000000000000000000000000000000000000000000010135000000000000000000000000000000000000000000000000000000000000000136000000000000000000000000000000000000000000000000000000000000003700000000000000000000000000000000000000000000000000000000000000470038000000000000003900000000000000000000000000000000000000000000000000000000000000013a00000000000000000000000000000000000000000000000000000000000000013b00000000000000000000000000000000000000000000000000000000000000013c000000000000000000000000000000000000000000000000000000000000003d00000000000000000000000000000000000000000000000000000000000000",
+);
+codec_fixtures!(
+    Step,
+    Step::User(ChannelStep { inputs: [NoteNf(Fr::ONE)].into(), outputs: OutputCms::default(), cm_merkle_root: Fr::ZERO, buffered: 2 })
+        => "000101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200",
 );
 codec_fixtures!(
     ChannelWithdrawOp,
     Self {
         channel_id: ChannelId::from([0u8; 32]),
-        inputs: Inputs::empty(),
-    } => "000000000000000000000000000000000000000000000000000000000000000000",
+        inputs: InputNfs::default(),
+        cm_merkle_root: Fr::ZERO,
+        outputs: OutputCms::default(),
+    } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     CHANNEL_WITHDRAW.clone() => CHANNEL_WITHDRAW_PAYLOAD_HEX,
 );
-codec_fixtures!(
-    ChannelTransferOp,
-    Self {
-        channel_id: ChannelId::from([0u8; 32]),
-        inputs: Inputs::empty(),
-        outputs: Outputs::empty(),
-    } => "00000000000000000000000000000000000000000000000000000000000000000000",
-    CHANNEL_TRANSFER.clone() => CHANNEL_TRANSFER_PAYLOAD_HEX,
-);
+// TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+// the steps of CHANNEL_INSCRIBE.
+// codec_fixtures!(
+//     ChannelTransferOp,
+//     Self {
+//         channel_id: ChannelId::from([0u8; 32]),
+//         inputs: Inputs::empty(),
+//         outputs: Outputs::empty(),
+//     } => "00000000000000000000000000000000000000000000000000000000000000000000",
+//     CHANNEL_TRANSFER.clone() => CHANNEL_TRANSFER_PAYLOAD_HEX,
+// );
 
 codec_fixtures!(ChannelMultiSigProof,
     Self::empty() => "0000",

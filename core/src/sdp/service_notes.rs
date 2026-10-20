@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    mantle::{Note, NoteId},
+    mantle::{NoteId, ledger::Note},
     sdp::{MinStake, ServiceType},
 };
 

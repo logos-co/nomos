@@ -265,7 +265,9 @@ mod schema_conformance_tests {
         );
     }
 
-    /// Covers `Locator` and `NoteId`, both documented as `String`.
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // /// Covers `Locator` and `NoteId`, both documented as `String`.
+    /// Covers `Locator`, documented as `String`, and the stake amount.
     #[test]
     fn join_blend_request_body_matches_its_schema() {
         assert_round_trip_matches_component::<
@@ -274,7 +276,9 @@ mod schema_conformance_tests {
             "JoinBlendRequestBody",
             serde_json::json!({
                 "locator": "/ip4/127.0.0.1/tcp/3000",
-                "service_note_id": HASH,
+                // TODO(RFC-480): the wallet funds the declaration stake.
+                // "service_note_id": HASH,
+                "amount": 1000,
             }),
         );
     }

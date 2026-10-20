@@ -1,14 +1,27 @@
 //! Orchestrates wallet funding, transfer proofs, and reserved-input extraction.
 
-use std::collections::HashMap;
+// TODO(RFC-480): UTXO test wallet.
+// use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+// TODO(RFC-480): UTXO test wallet.
+// use lb_core::mantle::{
+//     NoteId, Op, Utxo,
+//     ops::OpRef,
+//     traits::{Hashable as _, MantleTx},
+//     transactions::{MantleTxBuilder, hash::TxHash, tx_list::ops::OpsContext},
+// };
 use lb_core::mantle::{
-    NoteId, Op, Utxo,
+    Op,
+    notes::NoteNf,
     ops::OpRef,
     traits::{Hashable as _, MantleTx},
-    transactions::{MantleTxBuilder, hash::TxHash, tx_list::ops::OpsContext},
+    transactions::{
+        MantleTxBuilder, builder::ZkTransferOpening, hash::TxHash, tx_list::ops::OpsContext,
+    },
 };
 use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey};
+use lb_wallet::OwnedNote;
 
 use super::{
     builder_funding::fund_wallet_transaction,
@@ -17,7 +30,9 @@ use super::{
     prepared::PreparedWalletTransaction,
     signing::{WalletTransferSigners, build_leading_inscription_proofs, build_transfer_proofs},
 };
-use crate::common::wallet::{WalletFundingResources, WalletFundingSource, WalletReservedInputs};
+use crate::common::wallet::{
+    WalletFundingResources, WalletFundingSource, WalletReservedInputs, record_note_openings,
+};
 
 /// Intermediate transaction state after funding/input reservation but before
 /// proof generation.
@@ -29,6 +44,8 @@ pub struct PreparedWalletTransactionWorkItem {
     context: OpsContext,
     tx_hash: TxHash,
     ops: Vec<Op>,
+    // the notes each ZkTransfer spends and creates, by Operation index
+    openings: BTreeMap<usize, ZkTransferOpening>,
     transfer_signers: WalletTransferSigners,
     leading_inscription_signers: Vec<Ed25519Key>,
     reserved_inputs: WalletReservedInputs,
@@ -70,6 +87,14 @@ pub fn prepare_wallet_transaction_work_item(
 
     let (funded_builder, context, leading_inscription_signers) =
         fund_wallet_transaction(intent, resources, priority_fee_percent)?;
+    let openings = funded_builder.openings();
+    // A scanner adopts the notes of its keys the transaction creates once
+    // their commitments are appended.
+    record_note_openings(
+        openings
+            .values()
+            .flat_map(|opening| opening.outputs.iter().copied()),
+    );
     let mantle_tx = funded_builder.clone().build()?;
     let tx_hash = mantle_tx.hash();
     let funding_inputs = funding_inputs_from_transfers(&mantle_tx, &input_utxos_by_note_id)?;
@@ -85,6 +110,7 @@ pub fn prepare_wallet_transaction_work_item(
         context,
         tx_hash,
         ops,
+        openings,
         transfer_signers,
         leading_inscription_signers,
         reserved_inputs,
@@ -100,11 +126,14 @@ pub fn finalize_prepared_wallet_transaction(
         context,
         tx_hash,
         ops,
+        openings,
         transfer_signers,
         leading_inscription_signers,
         reserved_inputs,
     } = work_item;
-    let transfer_proofs = build_transfer_proofs(&ops, &tx_hash, &transfer_signers)?;
+    // TODO(RFC-480): UTXO test wallet.
+    // let transfer_proofs = build_transfer_proofs(&ops, &tx_hash, &transfer_signers)?;
+    let transfer_proofs = build_transfer_proofs(&ops, &openings, &tx_hash, &transfer_signers)?;
     let leading_op_proofs =
         build_leading_inscription_proofs(&ops, &tx_hash, &leading_inscription_signers)?;
 
@@ -121,47 +150,70 @@ pub fn finalize_prepared_wallet_transaction(
 fn transfer_signers_for_funding(resources: &WalletFundingResources) -> WalletTransferSigners {
     let mut transfer_signers = HashMap::new();
 
+    // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier and
+    // proven with its path.
+    // for utxo in resources.sender().available_utxos() {
+    //     transfer_signers.insert(utxo.id(), resources.sender().signing_key().clone());
+    // }
+    //
+    // if let Some(fee_sponsor) = resources.fee_sponsor() {
+    //     for utxo in fee_sponsor.available_utxos() {
+    //         transfer_signers.insert(utxo.id(), fee_sponsor.signing_key().clone());
+    //     }
+    // }
     for utxo in resources.sender().available_utxos() {
-        transfer_signers.insert(utxo.id(), resources.sender().signing_key().clone());
+        transfer_signers.insert(
+            utxo.nullifier,
+            (utxo.clone(), resources.sender().signing_key().clone()),
+        );
     }
 
     if let Some(fee_sponsor) = resources.fee_sponsor() {
         for utxo in fee_sponsor.available_utxos() {
-            transfer_signers.insert(utxo.id(), fee_sponsor.signing_key().clone());
+            transfer_signers.insert(
+                utxo.nullifier,
+                (utxo.clone(), fee_sponsor.signing_key().clone()),
+            );
         }
     }
 
     transfer_signers
 }
 
-fn input_utxos_by_note_id(resources: &WalletFundingResources) -> HashMap<NoteId, Utxo> {
+fn input_utxos_by_note_id(resources: &WalletFundingResources) -> HashMap<NoteNf, OwnedNote> {
     resources
         .sender()
         .available_utxos()
         .iter()
-        .copied()
+        .cloned()
         .chain(
             resources
                 .fee_sponsor()
                 .into_iter()
-                .flat_map(|fee_sponsor| fee_sponsor.available_utxos().iter().copied()),
+                .flat_map(|fee_sponsor| fee_sponsor.available_utxos().iter().cloned()),
         )
-        .map(|utxo| (utxo.id(), utxo))
+        // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+        // .map(|utxo| (utxo.id(), utxo))
+        .map(|utxo| (utxo.nullifier, utxo))
         .collect()
 }
 
 fn wallet_reserved_inputs_from_inputs(
-    inputs: &[Utxo],
+    inputs: &[OwnedNote],
     wallet_pk: ZkPublicKey,
     fee_sponsor_pk: ZkPublicKey,
 ) -> WalletReservedInputs {
     let mut sender = Vec::new();
     let mut fee_sponsor = Vec::new();
 
-    for utxo in inputs.iter().copied() {
-        if utxo.note.pk == wallet_pk {
+    for utxo in inputs.iter().cloned() {
+        // TODO(RFC-480): UTXO test wallet.
+        // if utxo.note.pk == wallet_pk {
+        //     sender.push(utxo);
+        // } else if utxo.note.pk == fee_sponsor_pk {
+        if utxo.note.public_key == wallet_pk {
             sender.push(utxo);
-        } else if utxo.note.pk == fee_sponsor_pk {
+        } else if utxo.note.public_key == fee_sponsor_pk {
             fee_sponsor.push(utxo);
         }
     }
@@ -171,8 +223,8 @@ fn wallet_reserved_inputs_from_inputs(
 
 fn funding_inputs_from_transfers(
     mantle_tx: &impl MantleTx,
-    input_utxos_by_note_id: &HashMap<NoteId, Utxo>,
-) -> Result<Vec<Utxo>, WalletTransactionError> {
+    input_utxos_by_note_id: &HashMap<NoteNf, OwnedNote>,
+) -> Result<Vec<OwnedNote>, WalletTransactionError> {
     mantle_tx
         .op_refs()
         .into_iter()
@@ -181,11 +233,19 @@ fn funding_inputs_from_transfers(
             _ => None,
         })
         .flat_map(|transfer_op| transfer_op.inputs.iter())
-        .map(|note_id| {
-            input_utxos_by_note_id
-                .get(note_id)
-                .copied()
-                .ok_or(WalletTransactionError::MissingFundingInput { note_id: *note_id })
+        // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+        // .map(|note_id| {
+        //     input_utxos_by_note_id
+        //         .get(note_id)
+        //         .copied()
+        //         .ok_or(WalletTransactionError::MissingFundingInput { note_id: *note_id })
+        // })
+        .map(|nullifier| {
+            input_utxos_by_note_id.get(nullifier).cloned().ok_or(
+                WalletTransactionError::MissingFundingInput {
+                    nullifier: *nullifier,
+                },
+            )
         })
         .collect()
 }

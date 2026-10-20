@@ -1,26 +1,35 @@
 use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
-use lb_key_management_system_keys::keys::{Ed25519Signature, ZkSignature};
+use lb_key_management_system_keys::keys::Ed25519Signature;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     mantle::{
         Op,
         ledger::ProvableOperation,
-        ops::{NoOpProof, OpProofRef, ZkAndEd25519Proof},
+        ops::{
+            ChannelInscribeProof, NoOpProof, OpProofRef, ZkAndEd25519Proof, ZkTransferProof,
+            channel::inscribe::Step,
+        },
     },
-    proofs::{
-        channel_multi_sig_proof::ChannelMultiSigProof, leader_claim_proof::Groth16LeaderClaimProof,
-    },
+    proofs::channel_multi_sig_proof::ChannelMultiSigProof,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // proofs::leader_claim_proof::Groth16LeaderClaimProof,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OpProof {
     Ed25519Sig(Ed25519Signature),
-    ZkSig(ZkSignature),
+    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
+    // ZkSig(ZkSignature),
+    ZkTransfer(ZkTransferProof),
     ZkAndEd25519Sigs(ZkAndEd25519Proof),
-    PoC(Groth16LeaderClaimProof),
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // PoC(Groth16LeaderClaimProof),
     ChannelMultiSigProof(ChannelMultiSigProof),
     None(NoOpProof),
+    ChannelInscribe(ChannelInscribeProof),
 }
 
 impl OpProof {
@@ -32,17 +41,26 @@ impl OpProof {
     /// Helper to decode an `OpProof` for a given `Op`
     pub fn decode_for_op<'i>(input: &'i [u8], op: &Op) -> Result<(&'i [u8], Self), DecodeError> {
         match op {
-            Op::ChannelInscribe(op) => decode_proof_for(op, input),
+            Op::ChannelInscribe(op) => ChannelInscribeProof::decode(
+                input,
+                &op.steps.iter().map(Step::proof_shape).collect(),
+            )
+            .map(|(rest, proof)| (rest, proof.into())),
             Op::ChannelConfig(op) => decode_proof_for(op, input),
             Op::ChannelDeposit(op) => decode_proof_for(op, input),
             Op::ChannelWithdraw(op) => decode_proof_for(op, input),
-            Op::ChannelTransfer(op) => decode_proof_for(op, input),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Op::ChannelTransfer(op) => decode_proof_for(op, input),
             Op::SDPDeclare(op) => decode_proof_for(op, input),
             Op::SDPWithdraw(op) => decode_proof_for(op, input),
             Op::SDPActive(op) => decode_proof_for(op, input),
-            Op::LeaderClaim(op) => decode_proof_for(op, input),
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Op::LeaderClaim(op) => decode_proof_for(op, input),
             Op::Transfer(op) => decode_proof_for(op, input),
             Op::ClaimPowReward(op) => decode_proof_for(op, input),
+            Op::ProgramRegister(op) => decode_proof_for(op, input),
         }
     }
 }
@@ -83,11 +101,16 @@ macro_rules! impl_from_proof {
 
 impl_from_proof! {
     Ed25519Signature => Ed25519Sig,
-    ZkSignature => ZkSig,
+    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
+    // ZkSignature => ZkSig,
+    ZkTransferProof => ZkTransfer,
     ZkAndEd25519Proof => ZkAndEd25519Sigs,
-    Groth16LeaderClaimProof => PoC,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // Groth16LeaderClaimProof => PoC,
     ChannelMultiSigProof => ChannelMultiSigProof,
     NoOpProof => None,
+    ChannelInscribeProof => ChannelInscribe,
 }
 
 macro_rules! impl_try_from_op_proof_for_proof {
@@ -109,17 +132,24 @@ macro_rules! impl_try_from_op_proof_for_proof {
 
 impl_try_from_op_proof_for_proof! {
     Ed25519Sig => Ed25519Signature,
-    ZkSig => ZkSignature,
+    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
+    // ZkSig => ZkSignature,
+    ZkTransfer => ZkTransferProof,
     ZkAndEd25519Sigs => ZkAndEd25519Proof,
-    PoC => Groth16LeaderClaimProof,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // PoC => Groth16LeaderClaimProof,
     ChannelMultiSigProof => ChannelMultiSigProof,
     None => NoOpProof,
+    ChannelInscribe => ChannelInscribeProof,
 }
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod samples {
-    use lb_groth16::{COMPRESSED_PROOF_SIZE, CompressedGroth16Proof};
-    use lb_key_management_system_keys::keys::{Ed25519Signature, ZkSignature};
+    // TODO(RFC-480): no Operation is proven by a ZkSignature.
+    // use lb_groth16::{COMPRESSED_PROOF_SIZE, CompressedGroth16Proof};
+    // use lb_key_management_system_keys::keys::{Ed25519Signature, ZkSignature};
+    use lb_key_management_system_keys::keys::Ed25519Signature;
 
     use crate::mantle::{OpProof, ledger::ProvableOperation};
 
@@ -133,13 +163,14 @@ pub mod samples {
         }
     }
 
-    impl SampleProof for ZkSignature {
-        fn sample() -> Self {
-            Self::new(CompressedGroth16Proof::from_bytes(
-                &[0u8; COMPRESSED_PROOF_SIZE],
-            ))
-        }
-    }
+    // TODO(RFC-480): no Operation is proven by a ZkSignature.
+    // impl SampleProof for ZkSignature {
+    //     fn sample() -> Self {
+    //         Self::new(CompressedGroth16Proof::from_bytes(
+    //             &[0u8; COMPRESSED_PROOF_SIZE],
+    //         ))
+    //     }
+    // }
 
     pub fn sample_proof_for<T>(_op: &T) -> OpProof
     where

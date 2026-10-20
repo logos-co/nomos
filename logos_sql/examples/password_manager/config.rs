@@ -66,7 +66,9 @@ pub fn from_args() -> AppResult<(LogosSqlConfig, Encryption)> {
             signing_key: options.signing_key,
             funding: FundingConfig {
                 funding_pk: options.funding_key,
-                change_pk: None,
+                // TODO(RFC-480): channel notes are private and move by steps;
+                // the bridge is rebuilt on ChannelStep.
+                // change_pk: None,
                 max_tx_fee: options.max_tx_fee.into(),
                 priority_fee_percent: options.priority_fee_percent,
             },

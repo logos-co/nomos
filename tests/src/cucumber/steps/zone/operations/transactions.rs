@@ -1,11 +1,11 @@
-use lb_core::mantle::{
-    SignedOps,
-    ledger::{BoundedInputs, verification_mode::StandardMode},
-    transactions::OpProofs,
-};
+// TODO(RFC-480): the zone bridge is suspended. Dropped import: BoundedInputs.
+use lb_core::mantle::{SignedOps, ledger::verification_mode::StandardMode, transactions::OpProofs};
 
 use super::*;
 
+// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
+// transfers, atomic deposits) is suspended.
+/*
 /// Builds a regular channel deposit for an existing funding note with the
 /// exact deposit value.
 pub fn build_zone_deposit(
@@ -248,6 +248,7 @@ pub async fn submit_atomic_zone_deposit(
         reserved_inputs,
     })
 }
+*/
 
 pub(super) async fn build_funded_custom_tx(
     node_client: &NodeHttpClient,
@@ -265,6 +266,7 @@ pub(super) async fn build_funded_custom_tx(
             inscription: payload.clone(),
             parent,
             signer,
+            steps: ChannelSteps::default(),
         };
         parent = op.id();
         tx_builder = tx_builder
@@ -292,10 +294,17 @@ pub(super) async fn build_funded_custom_tx(
     // proven by the sequencer key over the funded tx hash.
     let funded_tx = response.funded_tx;
     let signature = signing_key.sign_payload(funded_tx.hash().as_signing_bytes());
-    let mut op_proofs = OpProofs::try_from(vec![OpProof::Ed25519Sig(signature); payloads.len()])
-        .map_err(|error| ZoneTestError::BuildCustomTx {
-            message: format!("too many operation proofs: {error:?}"),
-        })?;
+    // TODO(RFC-480): an inscription carries the proofs of its steps.
+    // let mut op_proofs = OpProofs::try_from(vec![OpProof::Ed25519Sig(signature); payloads.len()])
+    let mut op_proofs = OpProofs::try_from(vec![
+        OpProof::ChannelInscribe(
+            ChannelInscribeProof::without_steps(signature)
+        );
+        payloads.len()
+    ])
+    .map_err(|error| ZoneTestError::BuildCustomTx {
+        message: format!("too many operation proofs: {error:?}"),
+    })?;
 
     if let Some(proof) = response.transfer_proof {
         op_proofs

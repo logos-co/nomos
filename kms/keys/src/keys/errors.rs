@@ -13,8 +13,12 @@ pub enum KeyError {
     UnsupportedKey(String),
     #[error("Multisignature support only {0} keys, got {1}")]
     UnsupportedMultisignatureSize(usize, usize),
-    #[error(transparent)]
-    ZkSignError(#[from] lb_zksign::ZkSignError),
+    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+    // Components 1.3.0).
+    // #[error(transparent)]
+    // ZkSignError(#[from] lb_zksign::ZkSignError),
+    #[error("ZkTransfer proving failed: {0}")]
+    ZkTransferProve(String),
     #[error("Unsupported operator `{operator}` for key type `{key}`")]
     UnsupportedKeyOperator { operator: String, key: String },
     #[error(transparent)]

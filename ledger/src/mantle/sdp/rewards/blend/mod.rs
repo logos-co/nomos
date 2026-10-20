@@ -10,9 +10,11 @@ use lb_blend_proofs::quota::{
     Quota,
     inputs::prove::public::{LeaderInputs, PowInputs},
 };
+// TODO(RFC-480): reward notes are private notes of the ledger note set; `Utxo` left the
+// imports.
 use lb_core::{
     blend::core_quota,
-    mantle::{Utxo, Value},
+    mantle::{Value, notes::Note},
     sdp::{ActivityMetadata, ProviderId, ServiceParameters},
 };
 use lb_log_targets::ledger;
@@ -122,7 +124,7 @@ where
         next_epoch_state: &EpochState,
         _config: &ServiceParameters,
         params: &Self::Params,
-    ) -> (Self, Vec<Utxo>) {
+    ) -> (Self, Vec<Note>) {
         match self {
             Self::WithoutTargetEpoch {
                 current_epoch_state,
@@ -183,6 +185,23 @@ where
                 current_epoch_state: current_epoch_state.clone(),
                 current_epoch_tracker: current_epoch_tracker.add_block_rewards(income),
             },
+        }
+    }
+
+    fn pending_income(&self) -> Value {
+        match self {
+            Self::WithoutTargetEpoch {
+                current_epoch_tracker,
+                ..
+            } => current_epoch_tracker.epoch_income(),
+            Self::WithTargetEpoch {
+                target_epoch_state,
+                current_epoch_tracker,
+                ..
+            } => target_epoch_state
+                .epoch_income()
+                .checked_add(current_epoch_tracker.epoch_income())
+                .expect("the Blend income of two epochs fits in a Value"),
         }
     }
 }
@@ -270,7 +289,7 @@ impl RewardsParameters {
 
     fn leader_inputs(&self, epoch_state: &EpochState) -> LeaderInputs {
         LeaderInputs {
-            pol_ledger_aged: epoch_state.utxos.root(),
+            pol_eligible_aged: epoch_state.eligible_root(),
             pol_epoch_nonce: epoch_state.nonce,
             message_quota: self.encapsulations_per_message(),
             lottery_0: epoch_state.lottery_0,
@@ -492,11 +511,11 @@ mod tests {
             .collect::<HashMap<_, _>>();
         let rewards: HashMap<ProviderId, u64> = reward_utxos
             .iter()
-            .map(|utxo| {
+            .map(|note| {
                 let provider_id = zk_id_to_provider_id
-                    .get(&utxo.note.pk)
+                    .get(&note.public_key)
                     .expect("provider should exist");
-                (*provider_id, utxo.note.value)
+                (*provider_id, note.value)
             })
             .collect();
 
@@ -743,6 +762,7 @@ mod tests {
             .unwrap();
         let epoch1_income: Value = 500;
         let rewards_tracker = rewards_tracker.add_income(epoch1_income);
+        assert_eq!(rewards_tracker.pending_income(), 1500);
 
         // Transition 1 → 2: WithTargetEpoch → WithoutTargetEpoch
         // because epoch 1 snapshot has only 1 provider.
@@ -753,10 +773,12 @@ mod tests {
             rewards_tracker,
             Rewards::WithoutTargetEpoch { .. }
         ));
+        // The forfeited `epoch1_income` is settled with the paid epoch.
+        assert_eq!(rewards_tracker.pending_income(), 0);
 
         // Rewards for epoch0 activities must be distributed.
         assert_eq!(rewards.len(), 1); // only for provider 1
-        let total_paid: Value = rewards.iter().map(|utxo| utxo.note.value).sum();
+        let total_paid: Value = rewards.iter().map(|note| note.value).sum();
         assert_eq!(total_paid, epoch0_income);
     }
 
@@ -832,7 +854,7 @@ mod tests {
         let epoch3 = new_epoch_state_with_same_snapshot(3, 3, &epoch2);
         let (_, rewards) = rewards_tracker.update_epoch(&epoch2, &epoch3, &config, &params);
         assert_eq!(rewards.len(), 1); // only for provider 1
-        let total_paid: Value = rewards.iter().map(|utxo| utxo.note.value).sum();
+        let total_paid: Value = rewards.iter().map(|note| note.value).sum();
         assert_eq!(total_paid, epoch1_income);
     }
 
@@ -917,7 +939,7 @@ mod tests {
 
         // Rewards earned during epoch 1 must be distributed from epoch 0's income pool.
         assert_eq!(rewards.len(), 1);
-        let total_paid: Value = rewards.iter().map(|utxo| utxo.note.value).sum();
+        let total_paid: Value = rewards.iter().map(|note| note.value).sum();
         assert_eq!(total_paid, epoch0_income);
 
         // No new target epoch is set up.
@@ -937,6 +959,48 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(err, Error::TargetEpochNotSet);
+    }
+
+    #[test]
+    fn test_pending_income_holds_the_income_not_yet_settled() {
+        let provider1 = create_provider_id(1);
+        let config = create_service_parameters();
+        let params = create_blend_rewards_params(86_400, 1);
+        let epoch0 =
+            create_epoch_state(&[provider1], ServiceType::BlendNetwork, 0.into(), Fr::ZERO);
+        let rewards_tracker =
+            Rewards::<AlwaysSuccessProofsVerifier>::new(&params, &epoch0).add_income(1001);
+        assert_eq!(rewards_tracker.pending_income(), 1001);
+
+        let epoch1 = new_epoch_state_with_same_snapshot(1, 1, &epoch0);
+        let (rewards_tracker, rewards) =
+            rewards_tracker.update_epoch(&epoch0, &epoch1, &config, &params);
+        assert_eq!(rewards, []);
+        let rewards_tracker = rewards_tracker
+            .update_active(
+                provider1,
+                &ActivityMetadata::Blend(Box::new(blend::ActivityProof {
+                    epoch: 0.into(),
+                    proof_of_quota: new_proof_of_quota_unchecked(1),
+                    signing_key: new_signing_key(1),
+                    proof_of_selection: new_proof_of_selection_unchecked(1),
+                })),
+                &params,
+            )
+            .unwrap()
+            .add_income(7);
+        assert_eq!(rewards_tracker.pending_income(), 1008);
+
+        let epoch2 = new_epoch_state_with_same_snapshot(2, 2, &epoch1);
+        let (rewards_tracker, rewards) =
+            rewards_tracker.update_epoch(&epoch1, &epoch2, &config, &params);
+        // One provider, base and premium: floor(1001 / 2) * 2 = 1000; the remainder 1
+        // is settled, not paid.
+        assert_eq!(
+            rewards.iter().map(|note| note.value).collect::<Vec<_>>(),
+            vec![1000]
+        );
+        assert_eq!(rewards_tracker.pending_income(), 7);
     }
 
     /// Any activity message with a Hamming distance larger than the activity

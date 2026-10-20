@@ -1,65 +1,112 @@
 pub mod error;
-mod voucher;
+pub mod transaction;
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+// mod voucher;
 
 use std::{
     borrow::Borrow,
     cmp::Ordering,
     collections::{BTreeMap, HashMap, HashSet},
-    fmt::Debug,
+    // fmt::Debug,
 };
 
 pub use error::WalletError;
 use lb_core::{
-    block::{Block, BlockTransactions},
-    crypto::{Hash, ZkHasher},
-    events::{Event, Events, HeaderEvent, TxEvent, TxEventPayload},
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // block::{Block, BlockTransactions},
+    // crypto::{Hash, ZkHasher},
+    // events::{Event, Events, HeaderEvent, TxEvent, TxEventPayload},
+    block::Block,
+    events::{BlockEvent, Event, Events, HeaderEvent, TxEvent, TxEventPayload},
     header::HeaderId,
     mantle::{
-        GasProfile, NoteId, TxHash, Utxo, Value,
+        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+        // GasProfile, NoteId, TxHash, Utxo, Value,
+        GasProfile, Note, TxHash, Value,
+        gas::GasOverflow,
         ledger::verification_mode::StandardMode,
-        ops::{
-            OpId as _, OpRef,
-            channel::{
-                channel_transfer::ChannelTransferOp, deposit::DepositOp,
-                withdraw::ChannelWithdrawOp,
-            },
-            leader_claim::{VoucherCm, VoucherNullifier},
-            transfer::TransferOp,
-        },
-        traits::SignedMantleTx,
+        note_set::{CommitmentMmr, LEDGER_SET, NoteSetIndex, NoteSetUpdate, SDP_SET},
+        notes::{InputNfs, NoteCm, NoteNf, OutputCms},
+        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+        // ops::{
+        //     OpId as _, OpRef,
+        //     channel::{
+        //         channel_transfer::ChannelTransferOp, deposit::DepositOp,
+        //         withdraw::ChannelWithdrawOp,
+        //     },
+        //     leader_claim::{VoucherCm, VoucherNullifier},
+        //     transfer::TransferOp,
+        // },
+        // traits::SignedMantleTx,
+        // transactions::{
+        //     MAX_OPS_PER_TX, builder::MantleTxBuilder, states::Preverified,
+        // tx_list::ops::OpsContext, },
+        ops::{OpRef, transfer::TransferOp},
+        traits::{MantleTx, SignedMantleTx},
         transactions::{
-            MAX_OPS_PER_TX, builder::MantleTxBuilder, states::Preverified, tx_list::ops::OpsContext,
+            builder::{FundingNote, MantleTxBuilder, ZkTransferOpening},
+            states::Preverified,
+            tx_list::ops::OpsContext,
         },
     },
-    proofs::leader_proof::LeaderProof as _,
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // proofs::leader_proof::LeaderProof as _,
 };
 use lb_cryptarchia_engine::Epoch;
+use lb_groth16::Fr;
 use lb_key_management_system_keys::keys::ZkPublicKey;
-use lb_ledger::LedgerState;
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+// use lb_ledger::LedgerState;
 use lb_log_targets::wallet;
-use lb_mmr::{MerkleMountainRange, MerklePath};
-use lb_utils::bounded::UpperBoundedVec;
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+// use lb_mmr::{MerkleMountainRange, MerklePath};
+// use lb_utils::bounded::UpperBoundedVec;
+use lb_mmr::{MerklePath, PushWithPathsError};
+use lb_zktransfer::MAX_INPUTS;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-pub use crate::voucher::{Voucher, Vouchers};
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+// pub use crate::voucher::{Voucher, Vouchers};
 
 const LOG_TARGET: &str = wallet::CORE;
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnedNote {
+    pub note: Note,
+    pub note_set: NoteSetIndex,
+    pub nullifier: NoteNf,
+    // path to the current root of its set
+    pub path: MerklePath,
+}
+
+// An opening the wallet adopts once its commitment is appended to its set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownNote {
+    pub note: Note,
+    pub note_set: NoteSetIndex,
+    pub nullifier: NoteNf,
+}
+
+pub type KnownNotes = HashMap<NoteCm, KnownNote>;
+
 /// A lightweight projection of a `Block<Tx>` carrying only what the wallet
-/// needs to mirror the ledger's effect on UTXOs and the SDP service notes.
-///
-/// `header_ops` are applied first, then `txs`, matching the ledger's
-/// header -> contents processing order.
+/// needs to follow the note sets the block changed.
 pub struct WalletBlock {
     pub id: HeaderId,
     pub parent: HeaderId,
     pub epoch: Epoch,
-    pub voucher_cm: VoucherCm,
-    pub header_ops: Vec<HeaderOp>,
-    pub txs: BlockTransactions<WalletTx>,
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // pub voucher_cm: VoucherCm,
+    // pub header_ops: Vec<HeaderOp>,
+    // pub txs: BlockTransactions<WalletTx>,
+    pub updates: Vec<NoteSetUpdate>,
+    // openings the block reveals, adopted only once registered as known notes
+    pub revealed: Vec<(NoteSetIndex, Note)>,
 }
 
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+/*
 /// Wallet-relevant content of one transaction, in source order.
 #[derive(Clone, Debug, Default)]
 pub struct WalletTx {
@@ -111,6 +158,7 @@ pub enum WalletOp {
     /// Unmark the input channel notes, so they become spendable.
     ChannelWithdraw(ChannelWithdrawOp),
 }
+*/
 
 impl WalletBlock {
     #[must_use]
@@ -118,18 +166,37 @@ impl WalletBlock {
     where
         Tx: SignedMantleTx<Preverified, StandardMode, Hash = TxHash> + Clone,
     {
-        // TODO: devise a better way to mirror ledger's execution always correctly: https://github.com/logos-blockchain/logos-blockchain/issues/2627
-        let (header_events, tx_events) = group_events(events);
+        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+        // // TODO: devise a better way to mirror ledger's execution always correctly: https://github.com/logos-blockchain/logos-blockchain/issues/2627
+        // let (header_events, tx_events) = group_events(events);
+        // Self {
+        //     id: block.header().id(),
+        //     parent: block.header().parent(),
+        //     epoch,
+        //     voucher_cm: *block.header().leader_proof().voucher_cm(),
+        //     header_ops: header_events.iter().map(Into::into).collect(),
+        //     txs: transform_txs(block.transactions(), tx_events),
+        // }
         Self {
             id: block.header().id(),
             parent: block.header().parent(),
             epoch,
-            voucher_cm: *block.header().leader_proof().voucher_cm(),
-            header_ops: header_events.iter().map(Into::into).collect(),
-            txs: transform_txs(block.transactions(), tx_events),
+            updates: events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::Block(BlockEvent::NoteSetUpdated(update)) => Some(update.clone()),
+                    _ => None,
+                })
+                .collect(),
+            revealed: revealed_notes(
+                events,
+                block.transactions_iter().flat_map(MantleTx::op_refs_iter),
+            ),
         }
     }
 
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     /// Note IDs this block spends or locks.
     #[must_use]
     pub fn spent_note_ids(&self) -> HashSet<NoteId> {
@@ -147,31 +214,334 @@ impl WalletBlock {
             })
             .collect()
     }
+    */
+}
+
+// The openings a block reveals: the leader, PoW and Blend reward notes from
+// the events, then the service note of each SDP_DECLARE.
+#[must_use]
+pub fn revealed_notes<'a>(
+    events: &Events,
+    ops: impl Iterator<Item = OpRef<'a>>,
+) -> Vec<(NoteSetIndex, Note)> {
+    let rewards = events.iter().filter_map(|event| match event {
+        Event::Block(BlockEvent::LeaderRewardPaid { note })
+        | Event::Header(HeaderEvent::SdpRewardDistributed { note, .. })
+        | Event::Tx(TxEvent {
+            payload: TxEventPayload::PoWRewardClaimed { note, .. },
+            ..
+        }) => Some((LEDGER_SET, *note)),
+        _ => None,
+    });
+    let service_notes = ops.filter_map(|op| match op {
+        OpRef::SDPDeclare(declaration) => Some((SDP_SET, declaration.service_note())),
+        _ => None,
+    });
+    rewards.chain(service_notes).collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalletState {
-    pub utxos: rpds::HashTrieMapSync<NoteId, Utxo>,
-    pub pk_index: rpds::HashTrieMapSync<ZkPublicKey, rpds::HashTrieSetSync<NoteId>>,
-    pub service_notes: rpds::HashTrieSetSync<NoteId>,
-    /// Notes known by the wallet but currently owned by a channel. They stay
-    /// in `utxos` and are still eligible for `PoL`, but must be gated out of
-    /// wallet-driven spending.
-    #[serde(default)]
-    pub channel_notes: rpds::HashTrieSetSync<NoteId>,
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // pub utxos: rpds::HashTrieMapSync<NoteId, Utxo>,
+    // pub pk_index: rpds::HashTrieMapSync<ZkPublicKey, rpds::HashTrieSetSync<NoteId>>,
+    // pub service_notes: rpds::HashTrieSetSync<NoteId>,
+    // /// Notes known by the wallet but currently owned by a channel. They stay
+    // /// in `utxos` and are still eligible for `PoL`, but must be gated out of
+    // /// wallet-driven spending.
+    // #[serde(default)]
+    // pub channel_notes: rpds::HashTrieSetSync<NoteId>,
+    // pub epoch: Epoch,
+    // /// MMR of all voucher commitments included in the chain
+    // pub vouchers: MerkleMountainRange<VoucherCm, ZkHasher>,
+    // /// All **tracked** voucher merkle paths up to the current block
+    // pub voucher_paths: VoucherPaths,
+    // /// A snapshot of **tracked** voucher merkle paths,
+    // /// updated at the first block of each epoch.
+    // pub voucher_paths_snapshot: VoucherPaths,
+    pub commitments: rpds::HashTrieMapSync<NoteSetIndex, CommitmentMmr>,
+    pub notes: rpds::HashTrieMapSync<NoteCm, OwnedNote>,
+    // C_LEAD snapshot of the current epoch
+    pub aged_paths: rpds::HashTrieMapSync<NoteCm, MerklePath>,
+    // snapshot the next epoch will use
+    pub next_aged_paths: rpds::HashTrieMapSync<NoteCm, MerklePath>,
     pub epoch: Epoch,
-    /// MMR of all voucher commitments included in the chain
-    pub vouchers: MerkleMountainRange<VoucherCm, ZkHasher>,
-    /// All **tracked** voucher merkle paths up to the current block
-    pub voucher_paths: VoucherPaths,
-    /// A snapshot of **tracked** voucher merkle paths,
-    /// updated at the first block of each epoch.
-    pub voucher_paths_snapshot: VoucherPaths,
 }
 
-pub type VoucherPaths = rpds::HashTrieMapSync<VoucherCm, MerklePath>;
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+// pub type VoucherPaths = rpds::HashTrieMapSync<VoucherCm, MerklePath>;
 
 impl WalletState {
+    pub fn from_genesis(
+        known: &KnownNotes,
+        genesis_notes: &[Note],
+        genesis_service_notes: &[Note],
+        epoch: Epoch,
+    ) -> Result<Self, WalletError> {
+        let mut commitments = rpds::HashTrieMapSync::new_sync();
+        let mut notes = rpds::HashTrieMapSync::new_sync();
+        for (note_set, set_notes) in [
+            (LEDGER_SET, genesis_notes),
+            (SDP_SET, genesis_service_notes),
+        ] {
+            commitments.insert_mut(note_set, CommitmentMmr::new());
+            let update = NoteSetUpdate {
+                note_set,
+                nullifiers: vec![],
+                commitments: set_notes.iter().map(Note::commitment).collect(),
+            };
+            apply_update(&mut commitments, &mut notes, known, &update)?;
+        }
+        // both genesis epoch states hold the genesis sets
+        let paths = current_paths(&notes);
+        Ok(Self {
+            commitments,
+            notes,
+            aged_paths: paths.clone(),
+            next_aged_paths: paths,
+            epoch,
+        })
+    }
+
+    #[must_use]
+    pub fn notes_owned_by_pks(
+        &self,
+        pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+    ) -> Vec<OwnedNote> {
+        let pks = pks.into_iter().map(|pk| *pk.borrow()).collect::<HashSet<_>>();
+        self.notes
+            .values()
+            .filter(|owned| owned.note_set == LEDGER_SET && pks.contains(&owned.note.public_key))
+            .cloned()
+            .collect()
+    }
+
+    #[must_use]
+    pub fn balance(&self, pk: ZkPublicKey) -> Option<WalletBalance> {
+        let notes = self
+            .notes_owned_by_pks([pk])
+            .into_iter()
+            .map(|owned| (owned.note.commitment(), owned.note.value))
+            .collect::<HashMap<_, _>>();
+        if notes.is_empty() {
+            return None;
+        }
+        Some(WalletBalance {
+            balance: notes.values().sum(),
+            notes,
+        })
+    }
+
+    // The owned notes of every set together with their path in the aged
+    // snapshot.
+    #[must_use]
+    pub fn aged_notes(&self) -> Vec<(OwnedNote, MerklePath)> {
+        self.notes
+            .iter()
+            .filter_map(|(cm, owned)| {
+                self.aged_paths
+                    .get(cm)
+                    .map(|path| (owned.clone(), path.clone()))
+            })
+            .collect()
+    }
+
+    pub fn apply_block(&self, known: &KnownNotes, block: &WalletBlock) -> Result<Self, WalletError> {
+        // The ledger snapshots the sets of the parent, before any update of
+        // the block.
+        let (aged_paths, next_aged_paths) = match block
+            .epoch
+            .into_inner()
+            .checked_sub(self.epoch.into_inner())
+        {
+            None | Some(0) => (self.aged_paths.clone(), self.next_aged_paths.clone()),
+            Some(1) => (self.next_aged_paths.clone(), current_paths(&self.notes)),
+            Some(_) => {
+                let paths = current_paths(&self.notes);
+                (paths.clone(), paths)
+            }
+        };
+
+        let mut commitments = self.commitments.clone();
+        let mut notes = self.notes.clone();
+        for update in &block.updates {
+            apply_update(&mut commitments, &mut notes, known, update)?;
+        }
+
+        Ok(Self {
+            commitments,
+            notes,
+            aged_paths,
+            next_aged_paths,
+            epoch: block.epoch,
+        })
+    }
+
+    /// Funds the transaction so its excess balance is exactly the requested
+    /// percentage of the final mandatory fee. Only the unused reserve becomes
+    /// the transaction's effective priority tip. `0` funds to the exact
+    /// minimum.
+    #[expect(clippy::too_many_arguments, reason = "the funding inputs")]
+    pub fn fund_tx<G: GasProfile>(
+        &self,
+        tx_builder: &MantleTxBuilder,
+        change_pk: ZkPublicKey,
+        change_nonce: Fr,
+        pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+        context: &OpsContext,
+        excluded: &HashSet<NoteNf>,
+        priority_fee_percent: u64,
+    ) -> Result<MantleTxBuilder, WalletError> {
+        // Get the ledger notes owned by the provided PKs, excluding the ones
+        // the tx already consumes and the ones excluded by the caller (e.g.
+        // reserved for in flight txs). Service and channel notes are in
+        // other sets.
+        let excluded = tx_builder
+            .nullifiers_consumed()
+            .chain(excluded.iter().copied())
+            .collect::<HashSet<_>>();
+        let mut notes = self.funding_candidates(pks, &excluded);
+        // A ZkTransfer spends at most four notes.
+        notes.truncate(MAX_INPUTS.saturating_sub(tx_builder.funding_inputs().len()));
+        let funding_root = self.ledger_root();
+
+        // The transaction may already be funded before we add any of the
+        // wallet's notes, for example when it pays no fee or the caller already
+        // supplied inputs. In that case we must not pull in an extra input (and
+        // the change note it would require).
+        match tx_builder
+            .funding_delta_with_priority_fee::<G>(context, priority_fee_percent)?
+            .cmp(&0)
+        {
+            Ordering::Equal => return Ok(tx_builder.clone()),
+            Ordering::Greater => {
+                if let Some(tx_with_change) = tx_builder.clone().return_change::<G>(
+                    context,
+                    change_pk,
+                    change_nonce,
+                    priority_fee_percent,
+                )? {
+                    return Ok(tx_with_change);
+                }
+                // The change note costs more than the surplus covers, so fall
+                // through and pull in more notes below.
+            }
+            Ordering::Less => {}
+        }
+
+        for i in 0..notes.len() {
+            let funded_tx_builder = tx_builder.clone().extend_funding_inputs(
+                funding_root,
+                notes[..=i].iter().map(|owned| FundingNote {
+                    note: owned.note,
+                    nullifier: owned.nullifier,
+                }),
+            )?;
+
+            let funding_delta = funded_tx_builder
+                .funding_delta_with_priority_fee::<G>(context, priority_fee_percent)?;
+
+            match funding_delta.cmp(&0) {
+                Ordering::Less => {
+                    // Insufficient funds, need more notes.
+                }
+                Ordering::Equal => {
+                    // We can exactly pay the tx cost plus the tip, no change
+                    // note needed.
+                    return Ok(funded_tx_builder);
+                }
+                Ordering::Greater => {
+                    // We have enough balance, but we need to introduce a change note.
+                    // The change note will slightly increase the storage cost of the tx so there is
+                    // a chance that we will not be able to fund the tx with the change note.
+                    if let Some(tx_with_change) = funded_tx_builder.return_change::<G>(
+                        context,
+                        change_pk,
+                        change_nonce,
+                        priority_fee_percent,
+                    )? {
+                        // We were able to fund the tx with change note added.
+                        return Ok(tx_with_change);
+                    }
+                    // Otherwise, need more notes.
+                }
+            }
+        }
+
+        Err(WalletError::InsufficientFunds {
+            available: total_value(&notes)?,
+        })
+    }
+
+    // A Transfer of excess 0 giving `owner` a note of exactly `value` (output
+    // 0) and the rest back to `change_pk` (output 1).
+    #[expect(clippy::too_many_arguments, reason = "the two notes it creates")]
+    pub fn exact_note_split(
+        &self,
+        value: Value,
+        owner: ZkPublicKey,
+        nonce: Fr,
+        change_pk: ZkPublicKey,
+        change_nonce: Fr,
+        pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+        excluded: &HashSet<NoteNf>,
+    ) -> Result<(TransferOp, ZkTransferOpening), WalletError> {
+        let candidates = self.funding_candidates(pks, excluded);
+        let mut inputs = Vec::new();
+        let mut total: Value = 0;
+        for owned in candidates.into_iter().take(MAX_INPUTS) {
+            if total >= value {
+                break;
+            }
+            total = total.checked_add(owned.note.value).ok_or(GasOverflow)?;
+            inputs.push(owned);
+        }
+        let Some(rest) = total.checked_sub(value) else {
+            return Err(WalletError::InsufficientFunds { available: total });
+        };
+
+        let mut outputs = vec![Note::new(value, nonce, owner)];
+        if rest > 0 {
+            outputs.push(Note::new(rest, change_nonce, change_pk));
+        }
+        let op = TransferOp::new(
+            InputNfs::try_from_iter(inputs.iter().map(|owned| owned.nullifier))?,
+            OutputCms::try_from_iter(outputs.iter().map(Note::commitment))?,
+            self.ledger_root(),
+            0,
+        );
+        let opening = ZkTransferOpening {
+            inputs: inputs.iter().map(|owned| owned.note).collect(),
+            outputs,
+        };
+        Ok((op, opening))
+    }
+
+    // The spendable ledger notes of `pks`, largest first.
+    fn funding_candidates(
+        &self,
+        pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+        excluded: &HashSet<NoteNf>,
+    ) -> Vec<OwnedNote> {
+        let mut notes = self
+            .notes_owned_by_pks(pks)
+            .into_iter()
+            .filter(|owned| !excluded.contains(&owned.nullifier))
+            .collect::<Vec<_>>();
+        // Consume large valued notes first to ensure we converge.
+        notes.sort_by_key(|owned| -i128::from(owned.note.value));
+        notes
+    }
+
+    fn ledger_root(&self) -> Fr {
+        self.commitments.get(&LEDGER_SET).map_or_else(
+            || CommitmentMmr::new().frontier_root(),
+            CommitmentMmr::frontier_root,
+        )
+    }
+
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     pub fn from_ledger<KeyId>(
         known_keys: &HashMap<ZkPublicKey, KeyId>,
         ledger: &LedgerState,
@@ -504,8 +874,90 @@ impl WalletState {
 
         Ok((vouchers, voucher_paths, snapshot))
     }
+    */
 }
 
+fn total_value(notes: &[OwnedNote]) -> Result<Value, WalletError> {
+    notes
+        .iter()
+        .try_fold(0, |total: Value, owned| total.checked_add(owned.note.value))
+        .ok_or_else(|| GasOverflow.into())
+}
+
+fn current_paths(
+    notes: &rpds::HashTrieMapSync<NoteCm, OwnedNote>,
+) -> rpds::HashTrieMapSync<NoteCm, MerklePath> {
+    notes
+        .iter()
+        .map(|(cm, owned)| (*cm, owned.path.clone()))
+        .collect()
+}
+
+// Append the commitments of `update` to its set, keeping the paths of the
+// owned notes of the set valid and adopting the known ones, then drop the
+// owned notes whose nullifier it inserted.
+fn apply_update(
+    commitments: &mut rpds::HashTrieMapSync<NoteSetIndex, CommitmentMmr>,
+    notes: &mut rpds::HashTrieMapSync<NoteCm, OwnedNote>,
+    known: &KnownNotes,
+    update: &NoteSetUpdate,
+) -> Result<(), WalletError> {
+    let note_set = update.note_set;
+    let mut mmr = commitments.get(&note_set).cloned().unwrap_or_default();
+    let (mut owned, mut paths): (Vec<KnownNote>, Vec<MerklePath>) = notes
+        .values()
+        .filter(|owned| owned.note_set == note_set)
+        .map(|owned| {
+            (
+                KnownNote {
+                    note: owned.note,
+                    note_set,
+                    nullifier: owned.nullifier,
+                },
+                owned.path.clone(),
+            )
+        })
+        .unzip();
+
+    for cm in &update.commitments {
+        let (next, path) = mmr
+            .push_with_paths(*cm, &mut paths)
+            .map_err(|error| match error {
+                PushWithPathsError::MmrFull(_) => WalletError::MmrFull(note_set),
+                PushWithPathsError::InvalidTrackedPath(error) => error.into(),
+            })?;
+        mmr = next;
+        if let Some(known_note) = known.get(cm).filter(|known| known.note_set == note_set) {
+            owned.push(*known_note);
+            paths.push(path);
+        }
+    }
+    commitments.insert_mut(note_set, mmr);
+
+    let mut by_nullifier = HashMap::new();
+    for (known_note, path) in owned.into_iter().zip(paths) {
+        let cm = known_note.note.commitment();
+        by_nullifier.insert(known_note.nullifier, cm);
+        notes.insert_mut(
+            cm,
+            OwnedNote {
+                note: known_note.note,
+                note_set,
+                nullifier: known_note.nullifier,
+                path,
+            },
+        );
+    }
+    for nullifier in &update.nullifiers {
+        if let Some(cm) = by_nullifier.get(nullifier) {
+            notes.remove_mut(cm);
+        }
+    }
+    Ok(())
+}
+
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+/*
 /// Insert `utxo` into `utxos`/`pk_index` if the wallet owns its key.
 /// Returns whether the insertion happened.
 fn insert_utxo_if_owned<KeyId>(
@@ -641,18 +1093,51 @@ fn remove_spent_utxo(
         pk_index.insert_mut(pk, updated_set);
     }
 }
+*/
 
 #[derive(Clone)]
-pub struct Wallet<KeyId, VoucherId> {
+pub struct Wallet<KeyId> {
     known_keys: HashMap<ZkPublicKey, KeyId>,
-    known_vouchers: Vouchers<VoucherId>,
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // known_vouchers: Vouchers<VoucherId>,
+    known_notes: KnownNotes,
     wallet_states: BTreeMap<HeaderId, WalletState>,
 }
 
-impl<KeyId, VoucherId> Wallet<KeyId, VoucherId>
-where
-    VoucherId: Debug,
-{
+impl<KeyId> Wallet<KeyId> {
+    pub fn from_genesis(
+        known_keys: impl IntoIterator<Item = (ZkPublicKey, KeyId)>,
+        known_notes: KnownNotes,
+        genesis: HeaderId,
+        genesis_notes: &[Note],
+        genesis_service_notes: &[Note],
+    ) -> Result<Self, WalletError> {
+        let known_keys = known_keys.into_iter().collect::<HashMap<_, _>>();
+        let wallet_state = WalletState::from_genesis(
+            &known_notes,
+            genesis_notes,
+            genesis_service_notes,
+            Epoch::new(0),
+        )?;
+
+        info!(
+            target: LOG_TARGET,
+            ?genesis,
+            n_known_keys = known_keys.len(),
+            n_known_notes = known_notes.len(),
+            n_owned_notes = wallet_state.notes.size(),
+            "initializing wallet with genesis note sets"
+        );
+
+        Ok(Self {
+            known_keys,
+            known_notes,
+            wallet_states: [(genesis, wallet_state)].into(),
+        })
+    }
+
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     /// Initialize [`Wallet`] from a given [`LedgerState`] at LIB.
     ///
     /// It initializes empty Merkle paths for all known vouchers,
@@ -681,18 +1166,20 @@ where
             wallet_states: [(lib, wallet_state)].into(),
         }
     }
+    */
 
     /// Initialize [`Wallet`] from a given [`WalletState`] at LIB
     /// (e.g., restored from persisted state).
     ///
-    /// Tracking of Merkle paths  for known vouchers starts from the paths
+    /// Tracking of the paths of the owned notes starts from the paths
     /// stored in the [`WalletState`]. Persisted Merkle paths are globally
     /// bounded during deserialization. Compatibility with the production
-    /// MMR height is validated when active paths are updated, and `PoC`
-    /// compatibility is validated during witness construction.
+    /// MMR height is validated when active paths are updated.
     pub fn from_lib_wallet_state(
         known_keys: impl IntoIterator<Item = (ZkPublicKey, KeyId)>,
-        known_vouchers: Vouchers<VoucherId>,
+        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+        // known_vouchers: Vouchers<VoucherId>,
+        known_notes: KnownNotes,
         lib: HeaderId,
         wallet_state: WalletState,
     ) -> Self {
@@ -702,16 +1189,20 @@ where
             target: LOG_TARGET,
             ?lib,
             n_known_keys = known_keys.len(),
-            n_known_vouchers = known_vouchers.count(),
-            n_all_vouchers = wallet_state.vouchers.len(),
-            n_voucher_paths = wallet_state.voucher_paths.size(),
-            n_snapshotted_voucher_paths = wallet_state.voucher_paths_snapshot.size(),
+            // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+            // n_known_vouchers = known_vouchers.count(),
+            // n_all_vouchers = wallet_state.vouchers.len(),
+            // n_voucher_paths = wallet_state.voucher_paths.size(),
+            // n_snapshotted_voucher_paths = wallet_state.voucher_paths_snapshot.size(),
+            n_known_notes = known_notes.len(),
+            n_owned_notes = wallet_state.notes.size(),
+            n_aged_paths = wallet_state.aged_paths.size(),
             "initializing wallet with LIB wallet state"
         );
 
         Self {
             known_keys,
-            known_vouchers,
+            known_notes,
             wallet_states: [(lib, wallet_state)].into(),
         }
     }
@@ -721,6 +1212,25 @@ where
         &self.known_keys
     }
 
+    pub fn add_known_key(&mut self, pk: ZkPublicKey, key_id: KeyId) {
+        self.known_keys.insert(pk, key_id);
+    }
+
+    pub fn add_known_notes(&mut self, notes: impl IntoIterator<Item = KnownNote>) {
+        self.known_notes.extend(
+            notes
+                .into_iter()
+                .map(|known_note| (known_note.note.commitment(), known_note)),
+        );
+    }
+
+    #[must_use]
+    pub const fn known_notes(&self) -> &KnownNotes {
+        &self.known_notes
+    }
+
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     pub fn add_known_voucher(&mut self, cm: VoucherCm, nf: VoucherNullifier, id: VoucherId) {
         self.known_vouchers.insert(cm, nf, id);
     }
@@ -738,6 +1248,7 @@ where
     pub const fn vouchers(&self) -> &Vouchers<VoucherId> {
         &self.known_vouchers
     }
+    */
 
     #[must_use]
     pub fn has_processed_block(&self, block_id: HeaderId) -> bool {
@@ -750,15 +1261,21 @@ where
             return Ok(());
         }
 
-        let block_wallet_state = self.wallet_state_at(block.parent)?.apply_block(
-            &self.known_keys,
-            &self.known_vouchers,
-            block,
-        )?;
+        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+        // let block_wallet_state = self.wallet_state_at(block.parent)?.apply_block(
+        //     &self.known_keys,
+        //     &self.known_vouchers,
+        //     block,
+        // )?;
+        let block_wallet_state = self
+            .wallet_state_at(block.parent)?
+            .apply_block(&self.known_notes, block)?;
         self.wallet_states.insert(block.id, block_wallet_state);
         Ok(())
     }
 
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     /// Get the snapshotted Merkle path for a voucher.
     pub fn voucher_path_snapshot(
         &self,
@@ -782,6 +1299,7 @@ where
     ) -> Result<Option<MerklePath>, WalletError> {
         Ok(self.wallet_state_at(tip)?.voucher_paths.get(cm).cloned())
     }
+    */
 
     pub fn balance(
         &self,
@@ -791,6 +1309,8 @@ where
         Ok(self.wallet_state_at(tip)?.balance(pk))
     }
 
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     #[expect(
         clippy::too_many_arguments,
         reason = "thin passthrough to `WalletState::fund_tx` plus the tip"
@@ -811,6 +1331,33 @@ where
             funding_pks,
             context,
             excluded_notes,
+            priority_fee_percent,
+        )
+    }
+    */
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "thin passthrough to `WalletState::fund_tx` plus the tip"
+    )]
+    pub fn fund_tx<G: GasProfile>(
+        &self,
+        tip: HeaderId,
+        tx_builder: &MantleTxBuilder,
+        change_pk: ZkPublicKey,
+        change_nonce: Fr,
+        funding_pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
+        context: &OpsContext,
+        excluded: &HashSet<NoteNf>,
+        priority_fee_percent: u64,
+    ) -> Result<MantleTxBuilder, WalletError> {
+        self.wallet_state_at(tip)?.fund_tx::<G>(
+            tx_builder,
+            change_pk,
+            change_nonce,
+            funding_pks,
+            context,
+            excluded,
             priority_fee_percent,
         )
     }
@@ -846,6 +1393,8 @@ where
         }
     }
 
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    /*
     pub fn prune_vouchers(
         &mut self,
         immutable_transactions: impl IntoIterator<Item = VoucherNullifier>,
@@ -856,16 +1405,234 @@ where
             }
         }
     }
+    */
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletBalance {
     pub balance: Value,
-    pub notes: HashMap<NoteId, Value>,
+    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+    // pub notes: HashMap<NoteId, Value>,
+    pub notes: HashMap<NoteCm, Value>,
+}
+
+#[cfg(test)]
+pub(crate) mod test_utils {
+    use super::*;
+
+    pub fn pk(v: u64) -> ZkPublicKey {
+        ZkPublicKey::new(Fr::from(v))
+    }
+
+    pub fn nf(v: u64) -> NoteNf {
+        NoteNf(Fr::from(v))
+    }
+
+    pub fn known(entries: &[(Note, NoteSetIndex, NoteNf)]) -> KnownNotes {
+        entries
+            .iter()
+            .map(|&(note, note_set, nullifier)| {
+                (
+                    note.commitment(),
+                    KnownNote {
+                        note,
+                        note_set,
+                        nullifier,
+                    },
+                )
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use lb_core::{
+        crypto::ZkHasher,
+        mantle::ops::{pow::PowNullifier, sdp::SDPDeclareOp},
+    };
+    use lb_groth16::{AdditiveGroup as _, Field as _};
+
+    use super::*;
+    use crate::test_utils::{known, nf, pk};
+
+    fn cm(v: u64) -> NoteCm {
+        NoteCm(Fr::from(v))
+    }
+
+    fn block(id: u8, parent: u8, epoch: u32, updates: Vec<NoteSetUpdate>) -> WalletBlock {
+        WalletBlock {
+            id: HeaderId::from([id; 32]),
+            parent: HeaderId::from([parent; 32]),
+            epoch: Epoch::new(epoch),
+            updates,
+            revealed: vec![],
+        }
+    }
+
+    fn appended(note_set: NoteSetIndex, commitments: Vec<NoteCm>) -> NoteSetUpdate {
+        NoteSetUpdate {
+            note_set,
+            nullifiers: vec![],
+            commitments,
+        }
+    }
+
+    #[test]
+    fn apply_block_keeps_the_paths_of_owned_notes_valid() {
+        let genesis = Note::new(5, Fr::ZERO, pk(9));
+        let owned = Note::new(100, Fr::from(1u64), pk(1));
+        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        let state = WalletState::from_genesis(&known, &[genesis], &[], Epoch::new(0)).unwrap();
+        let state = state
+            .apply_block(
+                &known,
+                &block(
+                    1,
+                    0,
+                    0,
+                    vec![appended(LEDGER_SET, vec![owned.commitment(), cm(7), cm(8)])],
+                ),
+            )
+            .unwrap();
+        let root = CommitmentMmr::new()
+            .push(genesis.commitment())
+            .unwrap()
+            .push(owned.commitment())
+            .unwrap()
+            .push(cm(7))
+            .unwrap()
+            .push(cm(8))
+            .unwrap()
+            .frontier_root();
+        assert_eq!(state.commitments[&LEDGER_SET].frontier_root(), root);
+        assert!(
+            state.notes[&owned.commitment()]
+                .path
+                .verify::<ZkHasher>(owned.commitment().0, root)
+        );
+        assert_eq!(
+            state.balance(pk(1)),
+            Some(WalletBalance {
+                balance: 100,
+                notes: HashMap::from([(owned.commitment(), 100)])
+            })
+        );
+    }
+
+    #[test]
+    fn apply_block_drops_a_note_whose_nullifier_is_inserted() {
+        let owned = Note::new(100, Fr::from(1u64), pk(1));
+        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        let state = WalletState::from_genesis(&known, &[owned], &[], Epoch::new(0)).unwrap();
+        let spend = NoteSetUpdate {
+            note_set: LEDGER_SET,
+            nullifiers: vec![nf(1)],
+            commitments: vec![cm(7)],
+        };
+        let state = state.apply_block(&known, &block(1, 0, 0, vec![spend])).unwrap();
+        assert!(state.notes.is_empty());
+        assert_eq!(state.balance(pk(1)), None);
+    }
+
+    #[test]
+    fn epoch_change_rotates_the_aged_paths() {
+        let owned = Note::new(100, Fr::from(1u64), pk(1));
+        let known = known(&[(owned, LEDGER_SET, nf(1))]);
+        // root of the ledger set holding `owned` then cm(1)..=cm(n)
+        let root_at = |n: u64| {
+            (1..=n)
+                .fold(
+                    CommitmentMmr::new().push(owned.commitment()).unwrap(),
+                    |mmr, v| mmr.push(cm(v)).unwrap(),
+                )
+                .frontier_root()
+        };
+        let aged_root_is = |state: &WalletState, n: u64| {
+            state.aged_paths[&owned.commitment()]
+                .verify::<ZkHasher>(owned.commitment().0, root_at(n))
+        };
+        let append = |state: &WalletState, id: u8, epoch: u32, v: u64| {
+            state
+                .apply_block(
+                    &known,
+                    &block(id, id - 1, epoch, vec![appended(LEDGER_SET, vec![cm(v)])]),
+                )
+                .unwrap()
+        };
+
+        let state = WalletState::from_genesis(&known, &[owned], &[], Epoch::new(0)).unwrap();
+        let state = append(&state, 1, 0, 1);
+        assert!(aged_root_is(&state, 0));
+        let state = append(&state, 2, 1, 2); // epoch 1 uses the genesis sets
+        assert!(aged_root_is(&state, 0));
+        let state = append(&state, 3, 2, 3); // epoch 2 uses the sets after the last block of epoch 0
+        assert!(aged_root_is(&state, 1));
+        let state = append(&state, 4, 4, 4); // epochs skipped: the sets of the parent
+        assert!(aged_root_is(&state, 3));
+        assert_eq!(state.aged_notes().len(), 1);
+    }
+
+    #[test]
+    fn notes_of_a_new_channel_set_start_from_an_empty_mmr() {
+        let channel_note = Note::new(50, Fr::from(2u64), pk(1));
+        let known = known(&[(channel_note, 2, nf(2))]);
+        let state = WalletState::from_genesis(&known, &[], &[], Epoch::new(0)).unwrap();
+        let state = state
+            .apply_block(
+                &known,
+                &block(
+                    1,
+                    0,
+                    0,
+                    vec![appended(2, vec![cm(4), channel_note.commitment()])],
+                ),
+            )
+            .unwrap();
+        let root = CommitmentMmr::new()
+            .push(cm(4))
+            .unwrap()
+            .push(channel_note.commitment())
+            .unwrap()
+            .frontier_root();
+        assert!(
+            state.notes[&channel_note.commitment()]
+                .path
+                .verify::<ZkHasher>(channel_note.commitment().0, root)
+        );
+        assert_eq!(state.balance(pk(1)), None);
+    }
+
+    #[test]
+    fn revealed_notes_come_from_reward_events_and_declarations() {
+        let leader = Note::new(10, Fr::ZERO, pk(1));
+        let pow = Note::new(20, Fr::from(3u64), pk(2));
+        let events: Events = [
+            Event::from(BlockEvent::LeaderRewardPaid { note: leader }),
+            Event::from(TxEvent::new(
+                TxHash::from([1; 32]),
+                [2; 32],
+                TxEventPayload::PoWRewardClaimed {
+                    pow_nullifier: PowNullifier::from(Fr::ONE),
+                    note: pow,
+                },
+            )),
+        ]
+        .into_iter()
+        .collect();
+        let declaration = SDPDeclareOp::sample();
+        assert_eq!(
+            revealed_notes(&events, std::iter::once(OpRef::SDPDeclare(&declaration))),
+            vec![
+                (LEDGER_SET, leader),
+                (LEDGER_SET, pow),
+                (SDP_SET, declaration.service_note())
+            ]
+        );
+    }
+
+    // TODO(RFC-480): UTXO wallet tests; notes are tracked per note set.
+    /*
     use std::{
         iter::empty,
         num::{NonZero, NonZeroU64},
@@ -2389,4 +3156,5 @@ mod tests {
         )
         .unwrap()
     }
+    */
 }

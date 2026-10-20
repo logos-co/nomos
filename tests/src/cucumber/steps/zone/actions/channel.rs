@@ -1,11 +1,15 @@
+// TODO(RFC-480): the zone bridge is suspended. Dropped imports:
+// AtomicZoneDepositRequest, Metadata, PublishDeadline, Utxo,
+// WalletInfo, WalletReservedInputs, ZONE_CHANNEL_DEPOSIT_THRESHOLD, ZoneDeposit,
+// ZoneTestError, build_zone_deposit, build_zone_deposit_from_values,
+// current_available_utxos_for_wallet, make_inscription,
+// publish_atomic_zone_withdraw, submit_atomic_zone_deposit,
+// submit_zone_channel_split, submit_zone_deposit, submit_zone_withdraw,
+// zone_step_error.
 use super::{
-    AtomicZoneDepositRequest, CucumberWorld, Duration, Ed25519Key, Inscription, Metadata,
-    PublishDeadline, PublishResult, SequencerCheckpoint, Step, StepError, StepResult, TxHash, Utxo,
-    VerifiedChannelKeys, WalletInfo, WalletReservedInputs, ZONE_CHANNEL_DEPOSIT_THRESHOLD,
-    ZONE_CHANNEL_WITHDRAW_THRESHOLD, ZoneDeposit, ZoneTestError, build_zone_deposit,
-    build_zone_deposit_from_values, current_available_utxos_for_wallet, log_step_error,
-    make_inscription, publish_atomic_zone_withdraw, submit_atomic_zone_deposit,
-    submit_zone_channel_split, submit_zone_deposit, submit_zone_withdraw, timeout, zone_step_error,
+    CucumberWorld, Duration, Ed25519Key, Inscription, PublishResult, SequencerCheckpoint, Step,
+    StepError, StepResult, TxHash, VerifiedChannelKeys, ZONE_CHANNEL_WITHDRAW_THRESHOLD,
+    log_step_error, timeout,
 };
 
 pub(in super::super) async fn submit_zone_channel_config(
@@ -52,7 +56,9 @@ pub(in super::super) async fn submit_zone_channel_config(
             posting_timeframe.into(),
             posting_timeout.into(),
             ZONE_CHANNEL_WITHDRAW_THRESHOLD,
-            ZONE_CHANNEL_DEPOSIT_THRESHOLD,
+            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
+            // their own channel notes.
+            // ZONE_CHANNEL_DEPOSIT_THRESHOLD,
         )
         .await
         .map_err(|error| StepError::LogicalError {
@@ -94,7 +100,9 @@ pub(in super::super) async fn prepare_zone_channel_config(
             posting_timeframe.into(),
             0.into(),
             threshold,
-            threshold,
+            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
+            // their own channel notes.
+            // threshold,
         )
         .await
         .map_err(|error| StepError::LogicalError {
@@ -106,10 +114,13 @@ pub(in super::super) async fn prepare_zone_channel_config(
     // thresholds we requested — i.e. inspect the config before it is signed.
     let proposed = prepared.proposed_config();
     let proposed_keys = proposed.keys.iter().copied().collect::<Vec<_>>();
-    if proposed_keys != authorized_keys
-        || proposed.configuration_threshold != threshold
-        || proposed.transfer_threshold != threshold
-    {
+    // TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
+    // channel notes.
+    // if proposed_keys != authorized_keys
+    //     || proposed.configuration_threshold != threshold
+    //     || proposed.transfer_threshold != threshold
+    // {
+    if proposed_keys != authorized_keys || proposed.configuration_threshold != threshold {
         return Err(StepError::LogicalError {
             message: format!(
                 "prepared config '{transaction_alias}' does not match the requested keys/thresholds",
@@ -292,6 +303,9 @@ async fn wait_for_checkpoint_with_tx(
     }
 }
 
+// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
+// transfers, withdrawals, atomic bundles) is suspended.
+/*
 fn resolve_zone_wallet(
     world: &CucumberWorld,
     sequencer_alias: &str,
@@ -603,3 +617,4 @@ pub(in super::super) async fn publish_atomic_zone_withdraw_transaction(
 
     Ok(())
 }
+*/

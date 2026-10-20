@@ -1,25 +1,53 @@
 //! Applies wallet funding decisions to Mantle transaction builders.
 
-use std::{cmp::Ordering, collections::HashSet};
+// TODO(RFC-480): UTXO test wallet.
+// use std::{cmp::Ordering, collections::HashSet};
+use std::cmp::Ordering;
 
-use lb_core::mantle::{
-    Note, Op, Utxo,
-    gas::MainnetGasProfile,
-    ledger::{Inputs, Outputs},
-    ops::transfer::TransferOp,
-    transactions::{MantleTxBuilder, tx_list::ops::OpsContext},
+// TODO(RFC-480): UTXO test wallet.
+// use lb_core::mantle::{
+//     Note, Op, Utxo,
+//     gas::MainnetGasProfile,
+//     ledger::{Inputs, Outputs},
+//     ops::transfer::TransferOp,
+//     transactions::{MantleTxBuilder, tx_list::ops::OpsContext},
+// };
+// use lb_key_management_system_service::keys::{Ed25519Key, MAX_ZK_SIGNING_KEYS, ZkPublicKey};
+// use lb_mmr::MerkleMountainRange;
+// use lb_wallet::{WalletError, WalletState};
+// use rpds::{HashTrieMapSync, HashTrieSetSync};
+use lb_core::{
+    crypto::ZkHasher,
+    mantle::{
+        Note,
+        gas::MainnetGasProfile,
+        transactions::{MantleTxBuilder, builder::FundingNote, tx_list::ops::OpsContext},
+    },
 };
-use lb_key_management_system_service::keys::{Ed25519Key, MAX_ZK_SIGNING_KEYS, ZkPublicKey};
-use lb_mmr::MerkleMountainRange;
-use lb_wallet::{WalletError, WalletState};
-use rpds::{HashTrieMapSync, HashTrieSetSync};
+use lb_groth16::Fr;
+use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey};
+use lb_wallet::{OwnedNote, WalletError};
+use lb_zktransfer::MAX_INPUTS;
 
 use super::{error::WalletTransactionError, intent::WalletTransactionIntent};
 use crate::common::wallet::{
-    WalletFundingOutcome, WalletFundingPlan, WalletFundingResources, WalletFundingSource,
+    WalletFundingOutcome, WalletFundingPlan, WalletFundingResources,
+    // TODO(RFC-480): UTXO test wallet.
+    // WalletFundingSource,
     WalletFundingUtxos, WalletInputSelectionStrategy, WalletSelectedInputs,
 };
 
+// The nonce of a note the test wallet creates, drawn at random so that no two
+// notes of a key share a commitment.
+#[must_use]
+pub fn random_nonce() -> Fr {
+    Fr::from(rand::random::<u128>())
+}
+
+// TODO(RFC-480): UTXO test wallet. A funding source carries notes with paths
+// but no commitment MMR; `funded_signed_tx` funds with the `WalletState` it
+// follows the chain with.
+/*
 pub fn fund_builder_from_wallet_source(
     source: &WalletFundingSource,
     tx_builder: &MantleTxBuilder,
@@ -63,6 +91,7 @@ pub fn wallet_state_from_utxos(utxos: Vec<Utxo>) -> WalletState {
         voucher_paths_snapshot: HashTrieMapSync::new_sync(),
     }
 }
+*/
 
 pub(super) fn fund_wallet_transaction(
     intent: WalletTransactionIntent,
@@ -106,7 +135,7 @@ pub(super) fn fund_wallet_transaction(
 /// funding still goes through the normal transaction builder.
 pub fn estimate_workload_fee_requirements(
     intent: &WalletTransactionIntent,
-    candidate_inputs: &[Utxo],
+    candidate_inputs: &[OwnedNote],
     priority_fee_percent: u64,
 ) -> Result<(u64, u64), WalletTransactionError> {
     let (tx_builder, context, _, _) = intent.clone().into_parts();
@@ -117,8 +146,10 @@ pub fn estimate_workload_fee_requirements(
             .into_inner(),
         priority_fee_percent,
     )?;
-    let builder_with_change =
-        builder_with_inputs.add_ledger_output(Note::new(0, ZkPublicKey::zero()))?;
+    // TODO(RFC-480): UTXO test wallet.
+    // let builder_with_change =
+    //     builder_with_inputs.add_ledger_output(Note::new(0, ZkPublicKey::zero()))?;
+    let builder_with_change = builder_with_inputs.with_dummy_change_note()?;
     let fee_with_change = required_fee_with_priority(
         builder_with_change
             .minimum_gas_cost::<MainnetGasProfile>(&context)?
@@ -224,8 +255,11 @@ fn add_sender_change_output(
 ) -> Result<MantleTxBuilder, WalletError> {
     let change = input_total - output_total;
     if change > 0 {
+        // TODO(RFC-480): UTXO test wallet.
+        // tx_builder
+        //     .add_ledger_output(Note::new(change, change_pk))
         tx_builder
-            .add_ledger_output(Note::new(change, change_pk))
+            .add_ledger_output(Note::new(change, random_nonce(), change_pk))
             .map_err(Into::into)
     } else {
         Ok(tx_builder)
@@ -253,34 +287,53 @@ fn fund_builder_from_plan(
 /// Add wallet funding inputs using the same transfer layout used during
 /// transaction preparation.
 ///
-/// Input sets exceeding the ZK signing limit are split across transfer
-/// operations, leaving the final chunk on the pending transfer operation.
+/// The funding Transfer spends at most four notes, proven against the root
+/// their paths lead to: the notes of one wallet observation share it.
 pub fn extend_wallet_funding_inputs(
     tx_builder: &MantleTxBuilder,
-    funding_utxos: &[Utxo],
+    funding_utxos: &[OwnedNote],
 ) -> Result<MantleTxBuilder, WalletError> {
-    if funding_utxos.len() <= MAX_ZK_SIGNING_KEYS {
-        return tx_builder
-            .clone()
-            .extend_ledger_inputs(funding_utxos.iter().copied())
-            .map_err(Into::into);
-    }
-
-    with_transfer_input_chunks(tx_builder, funding_utxos)
+    // TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
+    // if funding_utxos.len() <= MAX_ZK_SIGNING_KEYS {
+    //     return tx_builder
+    //         .clone()
+    //         .extend_ledger_inputs(funding_utxos.iter().copied())
+    //         .map_err(Into::into);
+    // }
+    //
+    // with_transfer_input_chunks(tx_builder, funding_utxos)
+    let Some(first) = funding_utxos.first() else {
+        return Ok(tx_builder.clone());
+    };
+    let funding_root = first.path.root::<ZkHasher>(first.note.commitment().0);
+    tx_builder
+        .clone()
+        .extend_funding_inputs(
+            funding_root,
+            funding_utxos.iter().map(|utxo| FundingNote {
+                note: utxo.note,
+                nullifier: utxo.nullifier,
+            }),
+        )
+        .map_err(Into::into)
 }
 
 fn evaluate_funding_inputs(
     tx_builder: &MantleTxBuilder,
-    selected_inputs: &[Utxo],
+    selected_inputs: &[OwnedNote],
     change_pk: ZkPublicKey,
     context: &OpsContext,
     priority_fee_percent: u64,
 ) -> Result<WalletFundingOutcome<MantleTxBuilder>, WalletError> {
-    if selected_inputs.is_empty() && tx_builder.ledger_inputs().is_empty() {
+    // TODO(RFC-480): UTXO test wallet.
+    // if selected_inputs.is_empty() && tx_builder.ledger_inputs().is_empty() {
+    if selected_inputs.is_empty() && tx_builder.funding_inputs().is_empty() {
         return Ok(WalletFundingOutcome::NeedsMoreInputs);
     }
 
-    if selected_inputs.len() <= MAX_ZK_SIGNING_KEYS {
+    // TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
+    // if selected_inputs.len() <= MAX_ZK_SIGNING_KEYS {
+    if tx_builder.funding_inputs().len() + selected_inputs.len() <= MAX_INPUTS {
         return evaluate_standard_funding_inputs(
             tx_builder,
             selected_inputs,
@@ -290,22 +343,24 @@ fn evaluate_funding_inputs(
         );
     }
 
-    Ok(build_chunked_funded_tx(
-        tx_builder,
-        selected_inputs,
-        change_pk,
-        context,
-        priority_fee_percent,
-    )?
-    .map_or(
-        WalletFundingOutcome::NeedsMoreInputs,
-        WalletFundingOutcome::Funded,
-    ))
+    // TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
+    // Ok(build_chunked_funded_tx(
+    //     tx_builder,
+    //     selected_inputs,
+    //     change_pk,
+    //     context,
+    //     priority_fee_percent,
+    // )?
+    // .map_or(
+    //     WalletFundingOutcome::NeedsMoreInputs,
+    //     WalletFundingOutcome::Funded,
+    // ))
+    Ok(WalletFundingOutcome::NeedsMoreInputs)
 }
 
 fn evaluate_standard_funding_inputs(
     tx_builder: &MantleTxBuilder,
-    selected_inputs: &[Utxo],
+    selected_inputs: &[OwnedNote],
     change_pk: ZkPublicKey,
     context: &OpsContext,
     priority_fee_percent: u64,
@@ -318,8 +373,16 @@ fn evaluate_standard_funding_inputs(
     {
         Ordering::Less => Ok(WalletFundingOutcome::NeedsMoreInputs),
         Ordering::Equal => Ok(WalletFundingOutcome::Funded(funded_builder)),
+        // TODO(RFC-480): UTXO test wallet.
+        // Ordering::Greater => Ok(funded_builder
+        //     .return_change::<MainnetGasProfile>(context, change_pk, priority_fee_percent)?
         Ordering::Greater => Ok(funded_builder
-            .return_change::<MainnetGasProfile>(context, change_pk, priority_fee_percent)?
+            .return_change::<MainnetGasProfile>(
+                context,
+                change_pk,
+                random_nonce(),
+                priority_fee_percent,
+            )?
             .map_or(
                 WalletFundingOutcome::NeedsMoreInputs,
                 WalletFundingOutcome::Funded,
@@ -327,6 +390,8 @@ fn evaluate_standard_funding_inputs(
     }
 }
 
+// TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
+/*
 fn build_chunked_funded_tx(
     tx_builder: &MantleTxBuilder,
     funding_utxos: &[Utxo],
@@ -472,28 +537,37 @@ fn funding_delta_for_chunked_builder(
         })
         .expect("Chunked funding delta must fit in i128"))
 }
+*/
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
     use lb_core::mantle::{
+        Op,
+        note_set::LEDGER_SET,
+        notes::NoteNf,
         ops::channel::{
             ChannelId, MsgId,
-            inscribe::{Inscription, InscriptionOp},
+            inscribe::{ChannelSteps, Inscription, InscriptionOp},
         },
         transactions::{GasPrices, tx_list::ops::OpsGasContext},
     };
+    use lb_mmr::MerklePath;
     use lb_testing_framework::configs::wallet::WalletAccount;
 
     use super::*;
+    use crate::common::wallet::WalletFundingSource;
 
     #[test]
     fn zero_cost_wallet_transaction_still_uses_funding_input() {
         let signing_key = Ed25519Key::from_bytes(&[0u8; 32]);
         let context = OpsContext {
-            gas_context: OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::new(0, 0)),
-            leader_reward_amount: 0,
+            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
+            // their own channel notes.
+            // gas_context: OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::new(0, 0)),
+            // leader_reward_amount: 0,
+            gas_context: OpsGasContext::new(HashMap::new(), GasPrices::new(0, 0)),
         };
         let tx_builder = MantleTxBuilder::new()
             .push_op(Op::ChannelInscribe(InscriptionOp {
@@ -501,6 +575,7 @@ mod tests {
                 inscription: Inscription::new_unchecked(vec![0xab; 1024]),
                 parent: MsgId::root(),
                 signer: signing_key.public_key().into_unverified(),
+                steps: ChannelSteps::default(),
             }))
             .expect("inscription test builder should fit op bounds");
         assert_eq!(
@@ -512,8 +587,15 @@ mod tests {
 
         let account = WalletAccount::deterministic(1, 2_000_000, false)
             .expect("test wallet account should build");
-        let funding_utxo = Utxo::new([7u8; 32], 0, Note::new(2_000_000, account.public_key()));
-        let funding_source = WalletFundingSource::new(account, vec![funding_utxo]);
+        // TODO(RFC-480): UTXO test wallet.
+        // let funding_utxo = Utxo::new([7u8; 32], 0, Note::new(2_000_000, account.public_key()));
+        let funding_utxo = OwnedNote {
+            note: Note::new(2_000_000, Fr::from(7u64), account.public_key()),
+            note_set: LEDGER_SET,
+            nullifier: NoteNf(Fr::from(7u64)),
+            path: MerklePath::try_new(0, Vec::new()).expect("an empty path is bounded"),
+        };
+        let funding_source = WalletFundingSource::new(account, vec![funding_utxo.clone()]);
 
         let funded_builder = fund_unsponsored_wallet_transaction(
             &tx_builder,
@@ -524,7 +606,15 @@ mod tests {
         )
         .expect("zero-cost wallet transaction should still select a funding input");
 
-        assert_eq!(funded_builder.ledger_inputs(), &[funding_utxo]);
+        // TODO(RFC-480): UTXO test wallet.
+        // assert_eq!(funded_builder.ledger_inputs(), &[funding_utxo]);
+        assert_eq!(
+            funded_builder.funding_inputs(),
+            &[FundingNote {
+                note: funding_utxo.note,
+                nullifier: funding_utxo.nullifier,
+            }]
+        );
         assert_eq!(
             funded_builder
                 .funding_delta::<MainnetGasProfile>(&context)

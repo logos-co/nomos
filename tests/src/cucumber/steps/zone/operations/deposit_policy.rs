@@ -1,3 +1,6 @@
+// TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
+// bundles) is suspended; this module is no longer compiled (`mod
+// deposit_policy` is commented in `operations/mod.rs`).
 use std::sync::{Arc, Mutex};
 
 use lb_key_management_system_service::keys::Ed25519Key;

@@ -42,13 +42,15 @@ tracing-futures            = { features = ["std-future"], workspace = true }
 utoipa                     = { features = ["macros"], optional = true, workspace = true }
 
 [dev-dependencies]
-lb-core                       = { workspace = true }
+lb-core                       = { features = ["test-utils"], workspace = true }
 lb-key-management-system-keys = { workspace = true }
+lb-mmr                        = { workspace = true }
 lb-network-service            = { workspace = true }
 lb-storage-service            = { workspace = true }
-lb-utxotree                   = { workspace = true }
 rand                          = { workspace = true }
 tempfile                      = { workspace = true }
+# TODO(RFC-480): leader witnesses come from the note sets.
+# lb-utxotree                   = { workspace = true }
 
 [features]
 default = []

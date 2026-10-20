@@ -1,4 +1,6 @@
-use std::{collections::HashSet, slice::IterMut, sync::LazyLock};
+// TODO(RFC-480): channel notes live in their channel note set.
+// use std::{collections::HashSet, slice::IterMut, sync::LazyLock};
+use std::{slice::IterMut, sync::LazyLock};
 
 use ark_ff::PrimeField as _;
 use bytes::Bytes;
@@ -15,11 +17,16 @@ use crate::{
     crypto::{Hash, ZkHasher},
     events::TxEvent,
     mantle::{
-        channel::Channels,
+        // TODO(RFC-480): channel notes live in their channel note set.
+        // channel::Channels,
         ledger::verification_mode::VerificationMode,
-        ops::{OpId, channel::ChannelId},
+        // TODO(RFC-480): channel notes live in their channel note set.
+        // ops::{OpId, channel::ChannelId},
+        ops::OpId,
     },
-    sdp::{Declaration, DeclarationId, service_notes::ServiceNotes},
+    // TODO(RFC-480): channel notes live in their channel note set.
+    // sdp::{Declaration, DeclarationId, service_notes::ServiceNotes},
+    sdp::{Declaration, DeclarationId},
 };
 
 // ==============================================================================
@@ -34,8 +41,14 @@ use crate::{
 // allow 4MiB.
 pub const MAX_TRANSACTION_INPUTS: usize = u8::MAX as usize;
 const MAX_TRANSACTION_OUTPUTS: usize = u8::MAX as usize;
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 pub type BoundedUtxos = UpperBoundedVec<Utxo, MAX_TRANSACTION_INPUTS>;
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 pub type BoundedInputs = UpperBoundedOrderedSet<NoteId, MAX_TRANSACTION_INPUTS>;
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 pub type BoundedOutputs = UpperBoundedVec<Note, MAX_TRANSACTION_OUTPUTS>;
 
 pub mod verification_mode {
@@ -89,6 +102,8 @@ pub trait ExecutableOperation {
     ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error>;
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 pub type Utxos = UtxoTree<NoteId, Utxo, ZkHasher>;
 pub type Declarations = rpds::RedBlackTreeMapSync<DeclarationId, Declaration>;
 
@@ -98,8 +113,10 @@ pub type Value = u64;
 pub enum InputsError {
     #[error("Note: {0:?} isn't in the ledger")]
     InexistingNote(NoteId),
-    #[error("Service note: {0:?}")]
-    ServiceNote(NoteId),
+    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
+    // SDP_WITHDRAW.
+    // #[error("Service note: {0:?}")]
+    // ServiceNote(NoteId),
     #[error("Channel note: {0:?}")]
     ChannelNote(NoteId),
     #[error("Note is not a channel note of the expected channel: {0:?}")]
@@ -132,6 +149,8 @@ pub enum LedgerError {
     Outputs(#[from] OutputsError),
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 #[derive(Clone, Eq, Debug, PartialEq, Serialize, Deserialize, BinaryCodec)]
 pub struct Outputs(BoundedOutputs);
 
@@ -251,6 +270,8 @@ impl<'output> IntoIterator for &'output Outputs {
     }
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 #[derive(Clone, Eq, Debug, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
 pub struct Inputs(BoundedInputs);
 
@@ -301,74 +322,75 @@ impl Inputs {
         Ok(())
     }
 
-    /// Validates that every input is spendable as a regular note: unique,
-    /// not in service, not owned by a channel, and present in the ledger.
-    ///
-    /// This is the `assert_spendable(inputs, None)` case of the spec.
-    pub fn validate_not_in_channel(
-        &self,
-        service_notes: &ServiceNotes,
-        channels: &Channels,
-        utxos: &Utxos,
-    ) -> Result<(), InputsError> {
-        self.validate_uniqueness()?;
-        self.validate_not_in_service_and_present(service_notes, utxos)?;
-        for input in &self.0 {
-            // A channel note is owned by a channel and cannot be spent directly.
-            if channels.is_channel_note(input) {
-                return Err(InputsError::ChannelNote(*input));
-            }
-        }
-        Ok(())
-    }
-
-    /// Validates that every input is spendable as a channel note of
-    /// `channel_id`: unique, not in service, present in the ledger, and
-    /// registered as a channel note owned by `channel_id`.
-    ///
-    /// This is the `assert_spendable(inputs, channel_id)` case of the spec.
-    pub fn validate_in_channel(
-        &self,
-        service_notes: &ServiceNotes,
-        channels: &Channels,
-        channel_id: &ChannelId,
-        utxos: &Utxos,
-    ) -> Result<(), InputsError> {
-        self.validate_uniqueness()?;
-        self.validate_not_in_service_and_present(service_notes, utxos)?;
-        for input in &self.0 {
-            if !channels.is_channel_note_of(input, channel_id) {
-                return Err(InputsError::NotAChannelNote(*input));
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_uniqueness(&self) -> Result<(), InputsError> {
-        let unique: HashSet<_> = self.0.iter().collect();
-        if unique.len() != self.0.len() {
-            return Err(InputsError::DoubleSpend);
-        }
-        Ok(())
-    }
-
-    fn validate_not_in_service_and_present(
-        &self,
-        service_notes: &ServiceNotes,
-        utxos: &Utxos,
-    ) -> Result<(), InputsError> {
-        for input in &self.0 {
-            // Check the note isn't a service note
-            if service_notes.contains(input) {
-                return Err(InputsError::ServiceNote(*input));
-            }
-            // Check the note exist in the ledger
-            if !utxos.contains(input) {
-                return Err(InputsError::InexistingNote(*input));
-            }
-        }
-        Ok(())
-    }
+    // TODO(RFC-480): channel notes live in their channel note set.
+    // /// Validates that every input is spendable as a regular note: unique,
+    // /// not in service, not owned by a channel, and present in the ledger.
+    // ///
+    // /// This is the `assert_spendable(inputs, None)` case of the spec.
+    // pub fn validate_not_in_channel(
+    //     &self,
+    //     service_notes: &ServiceNotes,
+    //     channels: &Channels,
+    //     utxos: &Utxos,
+    // ) -> Result<(), InputsError> {
+    //     self.validate_uniqueness()?;
+    //     self.validate_not_in_service_and_present(service_notes, utxos)?;
+    //     for input in &self.0 {
+    //         // A channel note is owned by a channel and cannot be spent directly.
+    //         if channels.is_channel_note(input) {
+    //             return Err(InputsError::ChannelNote(*input));
+    //         }
+    //     }
+    //     Ok(())
+    // }
+    //
+    // /// Validates that every input is spendable as a channel note of
+    // /// `channel_id`: unique, not in service, present in the ledger, and
+    // /// registered as a channel note owned by `channel_id`.
+    // ///
+    // /// This is the `assert_spendable(inputs, channel_id)` case of the spec.
+    // pub fn validate_in_channel(
+    //     &self,
+    //     service_notes: &ServiceNotes,
+    //     channels: &Channels,
+    //     channel_id: &ChannelId,
+    //     utxos: &Utxos,
+    // ) -> Result<(), InputsError> {
+    //     self.validate_uniqueness()?;
+    //     self.validate_not_in_service_and_present(service_notes, utxos)?;
+    //     for input in &self.0 {
+    //         if !channels.is_channel_note_of(input, channel_id) {
+    //             return Err(InputsError::NotAChannelNote(*input));
+    //         }
+    //     }
+    //     Ok(())
+    // }
+    //
+    // fn validate_uniqueness(&self) -> Result<(), InputsError> {
+    //     let unique: HashSet<_> = self.0.iter().collect();
+    //     if unique.len() != self.0.len() {
+    //         return Err(InputsError::DoubleSpend);
+    //     }
+    //     Ok(())
+    // }
+    //
+    // fn validate_not_in_service_and_present(
+    //     &self,
+    //     service_notes: &ServiceNotes,
+    //     utxos: &Utxos,
+    // ) -> Result<(), InputsError> {
+    //     for input in &self.0 {
+    //         // Check the note isn't a service note
+    //         if service_notes.contains(input) {
+    //             return Err(InputsError::ServiceNote(*input));
+    //         }
+    //         // Check the note exist in the ledger
+    //         if !utxos.contains(input) {
+    //             return Err(InputsError::InexistingNote(*input));
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
     pub fn execute(&self, mut utxos: Utxos) -> Result<Utxos, InputsError> {
         // Remove notes from the ledger one by one
@@ -434,6 +456,8 @@ impl<'input> IntoIterator for &'input Inputs {
     }
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, BinaryCodec,
 )]
@@ -474,6 +498,8 @@ impl From<Fr> for NoteId {
     }
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize, BinaryCodec)]
 pub struct Note {
     pub value: Value,
@@ -487,6 +513,8 @@ impl Note {
     }
 }
 
+// TODO(RFC-480): transparent UTXO ledger, kept for the ledger test helpers and
+// error variants that still use it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Utxo {
     pub op_id: Hash,

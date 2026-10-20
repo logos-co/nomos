@@ -13,7 +13,8 @@ version     = { workspace = true }
 lb-circuits-prover = { workspace = true }
 lb-groth16         = { workspace = true }
 lb-log-targets     = { workspace = true }
-lbc-poc-sys        = { features = ["prebuilt"], workspace = true }
+# TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+# lbc-poc-sys        = { features = ["prebuilt"], workspace = true }
 lbc-types          = { workspace = true }
 lbp-error          = { workspace = true }
 num-bigint         = { workspace = true }

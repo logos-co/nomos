@@ -6,7 +6,7 @@ use lb_key_management_system_keys::keys::ZkPublicKey;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "test-utils")]
-use crate::mantle::{Note, NoteId};
+use crate::mantle::{NoteId, ledger::Note};
 use crate::{
     events::TxEvent,
     mantle::{
@@ -224,12 +224,12 @@ mod test {
 
     use crate::{
         mantle::{
-            Note, TxHash, Utxo, Value,
+            TxHash, Utxo, Value,
             channel::{Channels, Error},
             channel_notes,
             gas::{Gas, OpGasCalculator as _, test_utils::FixedThresholds},
             ledger::{
-                BoundedInputs, Inputs, InputsError, Outputs, OutputsError,
+                BoundedInputs, Inputs, InputsError, Note, Outputs, OutputsError,
                 PreverifiableOperation as _, Utxos, VerifiableOperation as _,
                 verification_mode::StandardMode,
             },

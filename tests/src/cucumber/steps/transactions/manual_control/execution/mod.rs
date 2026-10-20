@@ -46,12 +46,17 @@ use std::{
     time::Duration,
 };
 
+// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+// use lb_core::mantle::{
+//     NoteId, Utxo,
+//     transactions::{GasPrices, hash::TxHash},
+// };
 use lb_core::mantle::{
-    NoteId, Utxo,
+    notes::NoteNf,
     transactions::{GasPrices, hash::TxHash},
 };
 use lb_key_management_system_service::keys::ZkPublicKey;
-use lb_wallet::WalletError;
+use lb_wallet::{OwnedNote, WalletError};
 use serde::Serialize;
 use tokio::time::{Instant, sleep};
 use tracing::{info, warn};

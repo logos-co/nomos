@@ -1,18 +1,14 @@
 use std::{collections::HashSet, num::NonZero, path::PathBuf, time::Duration};
 
 use futures::StreamExt as _;
-use lb_api_service::http::consensus::leader::LeaderClaimResponseBody;
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block. Dropped imports: LeaderClaimResponseBody, TxHash,
+// WalletClaimableVouchersResponseBody, Hashable.
 use lb_common_http_client::ProcessedBlockEvent;
-use lb_core::mantle::transactions::hash::TxHash;
 use lb_groth16::fr_to_bytes;
-use lb_http_api_common::bodies::wallet::{
-    balance::WalletBalanceResponseBody, claimable_vouchers::WalletClaimableVouchersResponseBody,
-};
+use lb_http_api_common::bodies::wallet::balance::WalletBalanceResponseBody;
 use lb_key_management_system_service::keys::ZkPublicKey;
-use lb_node::{
-    Hashable as _,
-    config::{RunConfig, cryptarchia::deployment::EpochConfig},
-};
+use lb_node::config::{RunConfig, cryptarchia::deployment::EpochConfig};
 use lb_testing_framework::{
     DeploymentBuilder, LbcEnv, NodeHttpClient, TopologyConfig as TfTopologyConfig,
     configs::wallet::{WalletAccount, WalletConfig},
@@ -30,6 +26,84 @@ use tokio::time::{sleep, timeout};
 
 const NODE_COUNT: usize = 1;
 
+/// The leader reward is a note of each block, owned by the reward key the
+/// header carries; the leader's wallet adopts it.
+#[tokio::test]
+async fn leader_rewards_reach_the_leader_wallet() {
+    let (_base, nodes, _leader_funding_pk) =
+        setup_test_nodes("leader_rewards_reach_the_leader_wallet").await;
+    let node = &nodes[0];
+    let mut block_stream = node.client.blocks_stream().await.unwrap();
+    let mut leader_keys = HashSet::new();
+    collect_reward_keys(&mut block_stream, &mut leader_keys, 1).await;
+    let before = total_balance(&node.client, &leader_keys).await;
+    collect_reward_keys(&mut block_stream, &mut leader_keys, 5).await;
+    wait_for_total_balance_above(&node.client, &leader_keys, before, Duration::from_mins(1)).await;
+}
+
+async fn collect_reward_keys(
+    block_stream: &mut (impl futures::Stream<Item = ProcessedBlockEvent> + Unpin),
+    reward_keys: &mut HashSet<ZkPublicKey>,
+    blocks: usize,
+) {
+    timeout(Duration::from_mins(2), async {
+        for _ in 0..blocks {
+            let block = block_stream
+                .next()
+                .await
+                .expect("block stream should not close");
+            reward_keys.insert(*block.block.header.proof_of_leadership.reward_key());
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the node should produce {blocks} blocks"));
+}
+
+async fn total_balance(node: &NodeHttpClient, pks: &HashSet<ZkPublicKey>) -> u64 {
+    let mut total = 0;
+    for pk in pks {
+        let pk_hex = hex::encode(fr_to_bytes(&(*pk).into()));
+        let response = reqwest::Client::new()
+            .get(api_url(node, &format!("wallet/{pk_hex}/balance")))
+            .send()
+            .await
+            .expect("balance request should not fail");
+        // A key whose reward note the wallet has not adopted yet is not found.
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        assert!(
+            response.status().is_success(),
+            "balance request should succeed, got status: {}",
+            response.status()
+        );
+        let balance: WalletBalanceResponseBody = response
+            .json()
+            .await
+            .expect("balance response should be valid JSON");
+        total += balance.balance;
+    }
+    total
+}
+
+async fn wait_for_total_balance_above(
+    node: &NodeHttpClient,
+    pks: &HashSet<ZkPublicKey>,
+    before: u64,
+    duration: Duration,
+) {
+    timeout(duration, async {
+        while total_balance(node, pks).await <= before {
+            sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("the leader's wallet balance should grow above {before}"));
+}
+
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+/*
 /// End-to-end test for the leader claim flow:
 ///
 /// 1. Spawn a node that produce blocks.
@@ -55,6 +129,7 @@ async fn leader_claim() {
     // to track reward UTXOs in the wallet: https://github.com/logos-blockchain/logos-blockchain/issues/2627
     wait_for_tx_inclusion(&mut block_stream, tx_hash).await;
 }
+*/
 
 fn test_config(mut config: RunConfig, leader_funding_pk: ZkPublicKey) -> RunConfig {
     config
@@ -86,6 +161,9 @@ fn test_config(mut config: RunConfig, leader_funding_pk: ZkPublicKey) -> RunConf
     config
 }
 
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+/*
 async fn get_claimable_vouchers(node: &NodeHttpClient) -> WalletClaimableVouchersResponseBody {
     let response = reqwest::Client::new()
         .get(api_url(node, "leader/claim/vouchers"))
@@ -194,6 +272,7 @@ async fn submit_concurrent_leader_claims(
     .await
     .unwrap_or_else(|_| panic!("leader claim should become available within {duration:?}"))
 }
+*/
 
 async fn setup_test_nodes(
     test_context: &str,
@@ -241,6 +320,9 @@ fn leader_funding_wallet_config() -> (WalletConfig, ZkPublicKey) {
     (WalletConfig::new(accounts), funding_pk)
 }
 
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+/*
 async fn wait_for_tx_inclusion(
     block_stream: &mut (impl futures::Stream<Item = ProcessedBlockEvent> + Unpin),
     tx_hash: TxHash,
@@ -356,3 +438,4 @@ fn is_claim_temporarily_unavailable(status: reqwest::StatusCode, body: &str) -> 
         && (body.contains("No claimable voucher found")
             || body.contains("Wallet does not have enough funds"))
 }
+*/

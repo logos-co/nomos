@@ -36,6 +36,9 @@ impl ChannelNotes {
         self.channel_notes.contains_key(id)
     }
 
+    // TODO(RFC-480 M4): a deposit adds commitments to the channel note set, only
+    // tests still register channel notes until `ChannelNotes` is commented out.
+    #[cfg(test)]
     pub fn into_channel(mut self, note_id: &NoteId, channel_id: &ChannelId) -> Result<Self, Error> {
         if let Some(channel) = self.channel_notes.get(note_id) {
             return Err(Error::AlreadyAChannelNote {
@@ -53,17 +56,19 @@ impl ChannelNotes {
         self.channel_notes.get(note_id) == Some(channel_id)
     }
 
-    pub fn into_bedrock(mut self, note_id: &NoteId, channel_id: &ChannelId) -> Result<Self, Error> {
-        match self.channel_notes.get(note_id) {
-            Some(channel) if channel == channel_id => {
-                self.channel_notes = self.channel_notes.remove(note_id);
-                Ok(self)
-            }
-            Some(_) => Err(Error::NotAChannelNote {
-                note_id: *note_id,
-                channel_id: *channel_id,
-            }),
-            None => Err(Error::NotInChannel(*note_id)),
-        }
-    }
+    // TODO(RFC-480): a withdrawal is released from the channel note set, no note
+    // leaves a channel by its id.
+    // pub fn into_bedrock(mut self, note_id: &NoteId, channel_id: &ChannelId) -> Result<Self, Error> {
+    //     match self.channel_notes.get(note_id) {
+    //         Some(channel) if channel == channel_id => {
+    //             self.channel_notes = self.channel_notes.remove(note_id);
+    //             Ok(self)
+    //         }
+    //         Some(_) => Err(Error::NotAChannelNote {
+    //             note_id: *note_id,
+    //             channel_id: *channel_id,
+    //         }),
+    //         None => Err(Error::NotInChannel(*note_id)),
+    //     }
+    // }
 }

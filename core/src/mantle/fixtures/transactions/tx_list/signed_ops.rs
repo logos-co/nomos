@@ -3,29 +3,34 @@ use std::borrow::Cow;
 use ark_ff::AdditiveGroup as _;
 use lb_binary_codec::canonical::{CodecFixtures, decode_fixture_hex};
 use lb_groth16::{CompressedGroth16Proof, Fr};
-use lb_key_management_system_keys::keys::{
-    Ed25519Signature, UnverifiedEd25519PublicKey, ZkSignature,
-};
+use lb_key_management_system_keys::keys::{Ed25519Signature, UnverifiedEd25519PublicKey};
 
 use crate::mantle::{
-    NoteId,
     fixtures::{
         ops::op_values::{
-            ALL_OPS_COLUMN_HEX, CHANNEL_CONFIG, CHANNEL_TRANSFER, CHANNEL_WITHDRAW,
-            CLAIM_POW_REWARD, DEPOSIT, INSCRIPTION, LEADER_CLAIM, SDP_ACTIVE, SDP_DECLARE,
-            SDP_WITHDRAW, TRANSFER,
+            ALL_OPS_COLUMN_HEX, CHANNEL_CONFIG, CHANNEL_WITHDRAW, CLAIM_POW_REWARD, DEPOSIT,
+            INSCRIPTION,
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // LEADER_CLAIM,
+            SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, TRANSFER,
         },
         proofs::proof_values::{
-            CHANNEL_MULTI_SIG, CHANNEL_MULTI_SIG_HEX, ED25519_SIG, ED25519_SIG_HEX, POC, POC_HEX,
-            ZK_AND_ED25519_SIGS, ZK_AND_ED25519_SIGS_HEX, ZK_SIG, ZK_SIG_HEX,
+            CHANNEL_MULTI_SIG, CHANNEL_MULTI_SIG_HEX, ED25519_SIG, ED25519_SIG_HEX,
+            PROGRAM_STEP_PROOF, PROGRAM_STEP_PROOF_HEX,
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // POC, POC_HEX,
+            ZK_AND_ED25519_SIGS, ZK_AND_ED25519_SIGS_HEX, ZK_TRANSFER, ZK_TRANSFER_HEX,
         },
     },
-    ledger::{BoundedInputs, Outputs, verification_mode::VerificationMode},
+    ledger::verification_mode::VerificationMode,
+    notes::{NoteNf, OutputCms},
     ops::{
-        NoOpProof, SignedOp, SignedOperation,
+        ChannelInscribeProof, NoOpProof, SignedOp, SignedOperation, StepProof, ZkTransferProof,
         channel::{
             ChannelId, MsgId,
-            inscribe::{Inscription, InscriptionOp},
+            inscribe::{ChannelSteps, Inscription, InscriptionOp},
         },
         transfer::TransferOp,
     },
@@ -46,15 +51,18 @@ const TWO_OPS_HEX: &str = concat!(
     // Op 0: Transfer.
     "00",                                                               // code
     "01",                                                               // one input
-    "0000000000000000000000000000000000000000000000000000000000000000", // NoteId
+    "0000000000000000000000000000000000000000000000000000000000000000", // NoteNf
     "00",                                                               // no outputs
+    "0000000000000000000000000000000000000000000000000000000000000000", // CmMerkleRoot
+    "0000000000000000",                                                 // Value
     // Op 1: ChannelInscribe.
     "11",                                                               // code
     "0000000000000000000000000000000000000000000000000000000000000000", // channel_id
     "00000000",                                                         // empty inscription
     "0000000000000000000000000000000000000000000000000000000000000000", // parent
     "0101010101010101010101010101010101010101010101010101010101010101", // signer
-    // Proof 0: ZkSignature, for op 0.
+    "0000",                                                             // no steps
+    // Proof 0: ZkTransferProof, for op 0.
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -66,11 +74,13 @@ const TWO_OPS_HEX: &str = concat!(
 
 fn two_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<State, Mode> {
     let transfer = SignedOperation::<TransferOp, Unverified, Mode>::new(
-        TransferOp {
-            inputs: BoundedInputs::from(NoteId(Fr::ZERO)).into(),
-            outputs: Outputs::empty(),
-        },
-        ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0xAAu8; 128])),
+        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
+        // TransferOp {
+        //     inputs: BoundedInputs::from(NoteId(Fr::ZERO)).into(),
+        //     outputs: Outputs::empty(),
+        // },
+        TransferOp::new([NoteNf(Fr::ZERO)].into(), OutputCms::default(), Fr::ZERO, 0),
+        ZkTransferProof::new(CompressedGroth16Proof::from_bytes(&[0xAAu8; 128])),
     );
     let inscription = SignedOperation::<InscriptionOp, Unverified, Mode>::new(
         InscriptionOp {
@@ -78,8 +88,9 @@ fn two_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<Stat
             inscription: Inscription::default(),
             parent: MsgId::root(),
             signer: UnverifiedEd25519PublicKey::from_bytes(&[1u8; 32]).unwrap(),
+            steps: ChannelSteps::default(),
         },
-        Ed25519Signature::from_bytes(&[0xBBu8; 64]),
+        ChannelInscribeProof::without_steps(Ed25519Signature::from_bytes(&[0xBBu8; 64])),
     );
 
     SignedOps::from([
@@ -91,16 +102,32 @@ fn two_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<Stat
 fn all_ops_hex() -> String {
     [
         ALL_OPS_COLUMN_HEX,
-        ZK_SIG_HEX,
+        ZK_TRANSFER_HEX,
         CHANNEL_MULTI_SIG_HEX,
+        // TODO(RFC-480 M4): the inscription carries one step.
+        // ED25519_SIG_HEX,
+        // TODO(RFC-481): the inscription carries a user step and a program step.
+        // CHANNEL_INSCRIBE_PROOF_HEX,
         ED25519_SIG_HEX,
-        ZK_SIG_HEX,
-        CHANNEL_MULTI_SIG_HEX,
-        CHANNEL_MULTI_SIG_HEX,
+        ZK_TRANSFER_HEX,
+        PROGRAM_STEP_PROOF_HEX,
+        ZK_TRANSFER_HEX,
+        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
+        // ZkTransfer over the channel note set.
+        // CHANNEL_MULTI_SIG_HEX,
+        ZK_TRANSFER_HEX,
+        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+        // the steps of CHANNEL_INSCRIBE.
+        // CHANNEL_MULTI_SIG_HEX,
         ZK_AND_ED25519_SIGS_HEX,
-        ZK_SIG_HEX,
-        ZK_SIG_HEX,
-        POC_HEX,
+        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
+        // its commitment.
+        // ZK_SIG_HEX,
+        ZK_AND_ED25519_SIGS_HEX,
+        ED25519_SIG_HEX,
+        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
+        // the leader reward is a note in the block.
+        // POC_HEX,
     ]
     .concat()
 }
@@ -113,16 +140,44 @@ fn all_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<Stat
     }
 
     SignedOps::from([
-        signed!(Transfer, TRANSFER, ZK_SIG.clone()),
+        signed!(Transfer, TRANSFER, *ZK_TRANSFER),
         signed!(ChannelConfig, CHANNEL_CONFIG, CHANNEL_MULTI_SIG.clone()),
-        signed!(ChannelInscribe, INSCRIPTION, *ED25519_SIG),
-        signed!(ChannelDeposit, DEPOSIT, ZK_SIG.clone()),
-        signed!(ChannelWithdraw, CHANNEL_WITHDRAW, CHANNEL_MULTI_SIG.clone()),
-        signed!(ChannelTransfer, CHANNEL_TRANSFER, CHANNEL_MULTI_SIG.clone()),
+        // TODO(RFC-480 M4): the inscription carries one step.
+        // signed!(
+        //     ChannelInscribe,
+        //     INSCRIPTION,
+        //     ChannelInscribeProof::without_steps(*ED25519_SIG)
+        // ),
+        // TODO(RFC-481): the inscription carries a user step and a program step.
+        // signed!(ChannelInscribe, INSCRIPTION, CHANNEL_INSCRIBE_PROOF.clone()),
+        signed!(
+            ChannelInscribe,
+            INSCRIPTION,
+            ChannelInscribeProof::new(
+                *ED25519_SIG,
+                vec![
+                    StepProof::User(*ZK_TRANSFER),
+                    StepProof::Program(PROGRAM_STEP_PROOF.clone())
+                ]
+            )
+        ),
+        signed!(ChannelDeposit, DEPOSIT, *ZK_TRANSFER),
+        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
+        // ZkTransfer over the channel note set.
+        // signed!(ChannelWithdraw, CHANNEL_WITHDRAW, CHANNEL_MULTI_SIG.clone()),
+        signed!(ChannelWithdraw, CHANNEL_WITHDRAW, *ZK_TRANSFER),
+        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+        // the steps of CHANNEL_INSCRIBE.
+        // signed!(ChannelTransfer, CHANNEL_TRANSFER, CHANNEL_MULTI_SIG.clone()),
         signed!(SDPDeclare, SDP_DECLARE, ZK_AND_ED25519_SIGS.clone()),
-        signed!(SDPWithdraw, SDP_WITHDRAW, ZK_SIG.clone()),
-        signed!(SDPActive, SDP_ACTIVE, ZK_SIG.clone()),
-        signed!(LeaderClaim, LEADER_CLAIM, POC.clone()),
+        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
+        // its commitment.
+        // signed!(SDPWithdraw, SDP_WITHDRAW, ZK_SIG.clone()),
+        signed!(SDPWithdraw, SDP_WITHDRAW, ZK_AND_ED25519_SIGS.clone()),
+        signed!(SDPActive, SDP_ACTIVE, *ED25519_SIG),
+        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
+        // the leader reward is a note in the block.
+        // signed!(LeaderClaim, LEADER_CLAIM, POC.clone()),
         signed!(ClaimPowReward, CLAIM_POW_REWARD, NoOpProof),
     ])
 }

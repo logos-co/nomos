@@ -5,13 +5,17 @@ use lb_core::{
         ledger::verification_mode::StandardMode,
         transactions::{MantleTxBuilder, TxBuilderError, states::Preverified},
     },
-    sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
+    // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
+    // sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
+    sdp::{ActiveMessage, Nonce},
 };
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use overwatch::{
     DynError,
     services::{ServiceData, relay::OutboundRelay},
 };
+
+use crate::{DeclarationRequest, RuntimeDeclaration};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SdpWalletError {
@@ -44,7 +48,9 @@ pub trait SdpWalletAdapter {
     async fn declare_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        declaration: DeclarationMessage,
+        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
+        // declaration: DeclarationMessage,
+        declaration: DeclarationRequest,
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError>;
 
@@ -55,10 +61,15 @@ pub trait SdpWalletAdapter {
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError>;
 
+    // The wallet spends the service note `declaration.service_note` back to
+    // `config.funding_pk`.
     async fn withdraw_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        withdraw: WithdrawMessage,
+        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
+        // withdraw: WithdrawMessage,
+        declaration: &RuntimeDeclaration,
+        nonce: Nonce,
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError>;
 }

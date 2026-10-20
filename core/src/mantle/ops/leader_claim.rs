@@ -6,20 +6,24 @@ use lb_binary_codec::{
 };
 use lb_groth16::{FR_BYTES_SIZE, fr_from_bytes, fr_to_bytes, serde::serde_fr};
 use lb_key_management_system_keys::keys::ZkPublicKey;
-use lb_poc::PoCVerifierInput;
+// TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+// LEADER_CLAIM is retired.
+// use lb_poc::PoCVerifierInput;
 use lb_poseidon2::{Digest, Fr, ZkHash};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+// TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+// LEADER_CLAIM is retired.
+// use crate::mantle::batch::DeferredLeaderClaim;
 use crate::{
     crypto::ZkHasher,
     events::{TxEvent, TxEventPayload},
     mantle::{
-        Note, Utxo, Value,
-        batch::DeferredLeaderClaim,
+        Utxo, Value,
         gas::{Gas, MainnetGasProfile, OpGasCalculator, OperationGas},
         ledger::{
-            ExecutableOperation, PreverifiableOperation, ProvableOperation, Utxos,
+            ExecutableOperation, Note, PreverifiableOperation, ProvableOperation, Utxos,
             VerifiableOperation,
             verification_mode::{StandardMode, VerificationMode},
         },
@@ -207,7 +211,8 @@ pub struct LeaderClaimExecutionContext {
 
 impl ProvableOperation for LeaderClaimOp {
     type Proof = Groth16LeaderClaimProof;
-    const CODE: u8 = 0x30;
+    // TODO(RFC-480): LEADER_CLAIM is removed; 0x30 belongs to CLAIM_POW_REWARD.
+    const CODE: u8 = 0x40;
 }
 
 impl OperationGas<MainnetGasProfile> for LeaderClaimOp {
@@ -242,7 +247,10 @@ impl PreverifiableOperation<StandardMode>
 impl VerifiableOperation<StandardMode>
     for SignedOperation<LeaderClaimOp, Preverified, StandardMode>
 {
-    type DeferredProof = DeferredLeaderClaim;
+    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+    // LEADER_CLAIM is retired.
+    // type DeferredProof = DeferredLeaderClaim;
+    type DeferredProof = ();
     type Context<'a> = LeaderClaimVerificationContext<'a>;
     type Error = LeaderClaimError;
 
@@ -259,6 +267,9 @@ impl VerifiableOperation<StandardMode>
             return Err(LeaderClaimError::VouchersRootMismatch);
         }
 
+        // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+        // LEADER_CLAIM is retired.
+        /*
         // Defer the proof verification so that the caller can batch it.
         // TODO: Remove. Already checked in preverify.
         Ok(DeferredLeaderClaim::new(
@@ -269,6 +280,8 @@ impl VerifiableOperation<StandardMode>
                 *context.tx_hash_view.as_fr(),
             ),
         ))
+        */
+        Ok(())
     }
 }
 
@@ -311,15 +324,23 @@ impl<Mode: VerificationMode> ExecutableOperation
 
 #[cfg(test)]
 mod tests {
+    use lb_groth16::CompressedGroth16Proof;
     use lb_mmr::MerkleMountainRange;
 
     use super::*;
+    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+    // LEADER_CLAIM is retired.
+    /*
     use crate::{
         mantle::{
             batch::{DeferredProofs, Error as BatchError, test_utils::batch_verify},
             gas::test_utils::FixedThresholds,
         },
         proofs::leader_claim_proof::LeaderClaimPrivate,
+    };
+    */
+    use crate::{
+        mantle::gas::test_utils::FixedThresholds, proofs::leader_claim_proof::LeaderClaimPrivate,
     };
 
     /// Regression test for #2990 (reward double-claim).
@@ -330,6 +351,7 @@ mod tests {
     /// voucher under a different, unused nullifier to bypass the double-spend
     /// set: the op's dedup key is bound to the proven voucher.
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn preverify_rejects_a_nullifier_the_proof_does_not_prove() {
         let voucher_secret = VoucherSecret::from(Fr::from(7u64));
         let voucher_cm = VoucherCm::from_secret(voucher_secret);
@@ -376,6 +398,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn preverify_rejects_a_rewards_root_the_proof_does_not_prove() {
         let voucher_secret = VoucherSecret::from(Fr::from(7u64));
         let voucher_cm = VoucherCm::from_secret(voucher_secret);
@@ -418,6 +441,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn preverify_rejects_a_proof_over_another_transaction() {
         let voucher_secret = VoucherSecret::from(Fr::from(7u64));
         let voucher_cm = VoucherCm::from_secret(voucher_secret);
@@ -501,6 +525,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn verify_rejects_a_voucher_that_was_already_claimed() {
         let tx_hash = TxHash::from([11u8; 32]);
         let (voucher_root, voucher_nullifier, signed_operation) = preverified_claim(tx_hash);
@@ -520,6 +545,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn verify_rejects_a_claim_against_a_stale_rewards_root() {
         let tx_hash = TxHash::from([11u8; 32]);
         let (_, _, signed_operation) = preverified_claim(tx_hash);
@@ -539,6 +565,9 @@ mod tests {
         );
     }
 
+    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+    // LEADER_CLAIM is retired.
+    /*
     fn deferred_proof_verified_over(tx_hash: TxHash) -> DeferredLeaderClaim {
         let (rewards_root, _, signed_operation) = preverified_claim(TxHash::from([11u8; 32]));
 
@@ -563,8 +592,35 @@ mod tests {
             Err(BatchError::InvalidLeaderClaimProofs)
         ));
     }
+    */
 
     #[test]
+    fn verify_defers_no_proof() {
+        let rewards_root = RewardsRoot::from(Fr::from(5u64));
+        let operation = LeaderClaimOp {
+            rewards_root,
+            voucher_nullifier: VoucherNullifier::from_secret(VoucherSecret::from(Fr::from(7u64))),
+            pk: ZkPublicKey::zero(),
+        };
+        let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
+            operation,
+            Groth16LeaderClaimProof::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
+        )
+        .into_state_trusted::<Preverified>();
+        let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
+
+        assert!(matches!(
+            signed_operation.verify(&LeaderClaimVerificationContext {
+                nullifiers: &rpds::HashTrieSetSync::new_sync(),
+                claimable_vouchers_root: &rewards_root,
+                tx_hash_view: &tx_hash_view,
+            }),
+            Ok(())
+        ));
+    }
+
+    #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn execute_emits_leader_reward_claimed_event() {
         let voucher_secret = VoucherSecret::from(Fr::from(7u64));
         let voucher_cm = VoucherCm::from_secret(voucher_secret);
@@ -609,9 +665,12 @@ mod tests {
             .into_preverified(&preverify_context)
             .expect("preverify should accept a valid proof");
 
-        let mut batch = DeferredProofs::new();
+        // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
+        // LEADER_CLAIM is retired.
+        // let mut batch = DeferredProofs::new();
         let verified_signed_operation = preverified_signed_operation
-            .into_verified_deferred(&verify_context, &mut batch)
+            // .into_verified_deferred(&verify_context, &mut batch)
+            .into_verified(&verify_context)
             .expect("verify should accept a valid claim");
         let operation = verified_signed_operation.operation().clone();
 
@@ -660,6 +719,7 @@ mod tests {
     /// voucher under a different, unused nullifier to bypass the double-spend
     /// set: the op's dedup key is bound to the proven voucher.
     #[test]
+    #[ignore = "TODO(RFC-480): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
     fn validate_rejects_op_nullifier_not_matching_proof() {
         let voucher_secret = VoucherSecret::from(Fr::from(7u64));
         let voucher_cm = VoucherCm::from_secret(voucher_secret);

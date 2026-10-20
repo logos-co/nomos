@@ -30,7 +30,9 @@ use lb_core::{
     proofs::channel_multi_sig_proof::IndexedSignatures,
 };
 use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsRequestBody;
-use lb_key_management_system_service::keys::{Ed25519Key, Ed25519PublicKey, ZkPublicKey};
+use lb_key_management_system_service::keys::{
+    Ed25519Key, Ed25519PublicKey, UnsecuredZkKey, ZkPublicKey,
+};
 use lb_libp2p::{Multiaddr, PeerId};
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
@@ -51,7 +53,8 @@ use tracing::warn;
 use crate::{
     BIN_PATH_RELEASE,
     common::wallet::{
-        TrackedWalletKeys, TrackedWalletKeysBySource, TrackedWallets, WalletDiagnostics,
+        GenesisNotes, TrackedWalletKeys, TrackedWalletKeysBySource, TrackedWallets,
+        WalletDiagnostics,
         scanner::{
             ScannerSeed, SharedWalletScannerState, WalletScannerRuntime, WalletScannerState,
             build_fork_group_scanner_configs, start_wallet_scanners, wait_for_scanner_catch_up,
@@ -977,7 +980,9 @@ pub struct ScenarioLifecycle {
 pub struct ChainParameters {
     /// Manual: List of genesis block UTXOs allocated in the genesis
     /// configuration.
-    pub genesis_block_utxos: Vec<Utxo>,
+    // TODO(RFC-480): UTXO test wallet.
+    // pub genesis_block_utxos: Vec<Utxo>,
+    pub genesis_block_utxos: GenesisNotes,
     /// Manual: Header id of the locally generated genesis block, when the
     /// cluster deployment carries one.
     pub genesis_block_id: Option<HeaderId>,
@@ -2046,15 +2051,33 @@ impl CucumberWorld {
             .unwrap_or_default();
 
         let mut wallet_keys = TrackedWalletKeysBySource::new();
-        for (wallet_name, public_key) in wallets {
-            wallet_keys.add_wallet(&group_key, wallet_name, *public_key);
+        // TODO(RFC-480): UTXO test wallet, the scanner derives nullifiers and
+        // proves with the secret key, so node funding wallets are not tracked.
+        // for (wallet_name, public_key) in wallets {
+        //     wallet_keys.add_wallet(&group_key, wallet_name, *public_key);
+        // }
+        for (wallet_name, _public_key) in wallets {
+            let Some(WalletType::User { wallet_account }) = self
+                .wallet_registry
+                .wallet_info
+                .get(wallet_name)
+                .map(|wallet| &wallet.wallet_type)
+            else {
+                continue;
+            };
+            wallet_keys.add_wallet(
+                &group_key,
+                wallet_name,
+                UnsecuredZkKey::new(*wallet_account.secret_key.as_fr()),
+            );
         }
 
         if let Some(fee_wallet_account) = self.wallet_registry.fee_state.wallet_account.clone() {
             wallet_keys.add_wallet(
                 &group_key,
                 SCENARIO_FEE_ACCOUNT_NAME,
-                fee_wallet_account.public_key(),
+                // fee_wallet_account.public_key(),
+                UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr()),
             );
         }
 
@@ -2681,7 +2704,9 @@ impl CucumberWorld {
                     ),
                 })??;
 
-        Ok(response.hash)
+        // TODO(RFC-480): the response also carries the recipient note.
+        // Ok(response.hash)
+        Ok(response.tx_hash)
     }
 
     /// Helper to set the `deployment_config_override_path` in the world based

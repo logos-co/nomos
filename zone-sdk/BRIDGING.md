@@ -2,6 +2,8 @@
 
 A user guide for zone developers using the Zone SDK to move tokens between the Logos Blockchain and a zone over a channel.
 
+> **Status: suspended (RFC-480).** Channel notes are now private: a deposit creates commitments in the channel's note set, channel notes move only by the steps of `ChannelInscribe` (`ChannelStep`), each proven by the holder of the notes it spends, and a withdrawal is proven by the holder as well. `ChannelTransfer` and `transfer_threshold` are removed. The SDK's bridge (channel note tracking, atomic withdrawals, deposit pinning and the APIs built on them) is therefore commented out until it is rebuilt on channel steps. The sequencer keeps publishing inscriptions and still surfaces observed deposits, as the nullifiers they consume and the commitments they create. The rest of this guide describes the former transparent bridge.
+
 
 ## What "bridging" means here
 

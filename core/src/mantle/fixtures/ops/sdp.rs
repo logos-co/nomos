@@ -5,9 +5,12 @@ use lb_groth16::Fr;
 use lb_key_management_system_keys::keys::{Ed25519PublicKey, ZkPublicKey};
 
 use crate::{
-    mantle::fixtures::ops::op_values::{
-        SDP_ACTIVE, SDP_ACTIVE_PAYLOAD_HEX, SDP_DECLARE, SDP_DECLARE_PAYLOAD_HEX, SDP_WITHDRAW,
-        SDP_WITHDRAW_PAYLOAD_HEX,
+    mantle::{
+        fixtures::ops::op_values::{
+            SDP_ACTIVE, SDP_ACTIVE_PAYLOAD_HEX, SDP_DECLARE, SDP_DECLARE_PAYLOAD_HEX, SDP_WITHDRAW,
+            SDP_WITHDRAW_PAYLOAD_HEX,
+        },
+        notes::{InputNfs, NoteNf, OutputCms},
     },
     sdp::{
         ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, InactivityPeriod,
@@ -31,18 +34,25 @@ codec_fixtures!(
         locators: Locator::new_unchecked("/ip4/127.0.0.1/udp/3000/quic-v1".parse().unwrap()).into(),
         provider_id: ProviderId(Ed25519PublicKey::from_bytes(&[1u8; _]).unwrap()),
         zk_id: ZkPublicKey::new(Fr::from(1u64)),
-        service_note_id: Fr::from(0u64).into(),
-    } => "00010b00047f00000191020bb8cd03010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        inputs: InputNfs::default(),
+        cm_merkle_root: Fr::from(0u64),
+        amount: 0,
+    } => "00010b00047f00000191020bb8cd03010101010101010101010101010101010101010101010101010101010101010101000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     SDP_DECLARE.clone() => SDP_DECLARE_PAYLOAD_HEX,
 );
 codec_fixtures!(
     WithdrawMessage,
     Self {
         declaration_id: DeclarationId([0u8; _]),
-        service_note_id: Fr::from(1u64).into(),
-        nonce: 2u64
-    } => "000000000000000000000000000000000000000000000000000000000000000002000000000000000100000000000000000000000000000000000000000000000000000000000000",
-    *SDP_WITHDRAW => SDP_WITHDRAW_PAYLOAD_HEX,
+        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
+        // its commitment.
+        // service_note_id: Fr::from(1u64).into(),
+        nonce: 2u64,
+        service_note_nf: NoteNf(Fr::from(1u64)),
+        outputs: OutputCms::default(),
+        excess_value: 0,
+    } => "000000000000000000000000000000000000000000000000000000000000000002000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    SDP_WITHDRAW.clone() => SDP_WITHDRAW_PAYLOAD_HEX,
 );
 codec_fixtures!(
     ActiveMessage,

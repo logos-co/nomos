@@ -1,6 +1,8 @@
 use std::{collections::HashSet, num::NonZero};
 
-use lb_core::mantle::{NoteId, transactions::hash::TxHash};
+// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
+// use lb_core::mantle::{NoteId, transactions::hash::TxHash};
+use lb_core::mantle::{notes::NoteNf, transactions::hash::TxHash};
 use tracing::warn;
 
 pub use crate::cucumber::wallet::{
@@ -87,9 +89,9 @@ where
     }
 }
 
-pub(crate) fn extend_note_id_set<'a, I>(note_id_set: &mut HashSet<NoteId>, note_ids: I)
+pub(crate) fn extend_note_id_set<'a, I>(note_id_set: &mut HashSet<NoteNf>, note_ids: I)
 where
-    I: IntoIterator<Item = &'a NoteId>,
+    I: IntoIterator<Item = &'a NoteNf>,
 {
     for note_id in note_ids {
         let _unused = note_id_set.insert(*note_id);

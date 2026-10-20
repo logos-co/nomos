@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     num::NonZero,
     path::PathBuf,
     sync::{
@@ -11,21 +11,18 @@ use std::{
 
 use lb_chain_service::Epoch;
 use lb_common_http_client::Error;
+// TODO(RFC-480): the node's wallet builds the declaration and the withdrawal.
+// Dropped imports: HashSet, NoteId, OpProof, Utxo, Op, ZkAndEd25519Proof,
+// Hashable, DeclarationMessage, ProviderId, WithdrawMessage, Ed25519Key,
+// Ed25519Signature, ZkKey, genesis_wallet_utxos, funded_signed_tx, BigUint.
 use lb_core::{
-    mantle::{
-        NoteId, OpProof, Utxo,
-        ops::{Op, ZkAndEd25519Proof},
-        traits::Hashable as _,
-    },
-    sdp::{
-        Declaration, DeclarationId, DeclarationMessage, Locator, ProviderId, ServiceType,
-        WithdrawMessage,
-    },
+    mantle::Value,
+    sdp::{Declaration, DeclarationId, Locator, ServiceType},
 };
-use lb_key_management_system_service::keys::{Ed25519Key, Ed25519Signature, ZkKey};
 use lb_node::config::{
     RunConfig, blend::deployment::MinimumNetworkSize, cryptarchia::deployment::EpochConfig,
 };
+use lb_sdp_service::DeclarationRequest;
 use lb_testing_framework::{
     DeploymentBuilder, NodeHttpClient, TopologyConfig as TfTopologyConfig,
     configs::wallet::{WalletAccount, WalletConfig},
@@ -35,15 +32,12 @@ use logos_blockchain_tests::{
     common::{
         chain::wait_for_transactions_inclusion,
         manual_cluster::{
-            LocalManualClusterHarnessBase, build_local_manual_cluster, genesis_wallet_utxos,
-            read_manual_node_logs, wait_for_height as wait_for_manual_cluster_height,
-            wait_for_tip_slot,
+            LocalManualClusterHarnessBase, build_local_manual_cluster, read_manual_node_logs,
+            wait_for_height as wait_for_manual_cluster_height, wait_for_tip_slot,
         },
-        wallet::funded_signed_tx,
     },
     cucumber::defaults::E2E_ARTIFACTS_DIR,
 };
-use num_bigint::BigUint;
 use testing_framework_core::scenario::{DynError, StartNodeOptions};
 use tokio::time::{sleep, timeout};
 
@@ -62,10 +56,123 @@ use tokio::time::{sleep, timeout};
     clippy::large_futures,
     reason = "Manual-cluster startup futures are large in these integration tests; boxing would not improve readability"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "This test covers a full E2E flow with multiple steps, and breaking it up would not improve readability"
-)]
+// TODO(RFC-480): the node's wallet builds the declaration and the withdrawal,
+// so the flow fits.
+// #[expect(
+//     clippy::too_many_lines,
+//     reason = "This test covers a full E2E flow with multiple steps, and breaking it up would not improve readability"
+// )]
+async fn sdp_ops_e2e() {
+    let (_cluster, _node0_name, node0, min_stake, slots_per_epoch) =
+        start_sdp_manual_cluster("sdp-ops").await;
+
+    let inclusion_timeout = Duration::from_mins(1);
+
+    // The node's wallet funds the stake with an exact note and its KMS holds
+    // the provider key, so the new declaration reuses node-0's provider and
+    // zk keys with another locator. The SDP binds each id to one stored
+    // declaration per service, so node-0's genesis declaration is withdrawn
+    // and removed first.
+    let existing = wait_for_sdp_declarations(&node0, Duration::from_secs(30))
+        .await
+        .expect("fetching SDP declarations should succeed");
+    let (genesis_declaration_id, genesis_declaration) = existing
+        .into_iter()
+        .next()
+        .expect("node-0 should be declared at genesis");
+    withdraw_and_wait_for_removal(
+        &node0,
+        genesis_declaration_id,
+        inclusion_timeout,
+        slots_per_epoch,
+    )
+    .await;
+    let provider_id = genesis_declaration.provider_id;
+    let locator: Locator = "/ip4/127.0.0.1/tcp/9100"
+        .parse()
+        .expect("Valid locator multiaddr");
+
+    let declaration = DeclarationRequest {
+        service_type: ServiceType::BlendNetwork,
+        locators: locator.into(),
+        provider_id,
+        zk_id: genesis_declaration.zk_id,
+        amount: min_stake,
+    };
+    let declaration_id = declaration.id();
+
+    let declare_hash = node0
+        .post_declaration(&declaration)
+        .await
+        .expect("submit declare transaction")
+        .tx_id
+        .expect("the declaration should be submitted");
+
+    assert!(
+        wait_for_transactions_inclusion(&node0, &[declare_hash], inclusion_timeout).await,
+        "declare transaction should be included"
+    );
+
+    let declaration_created = get_declaration_by_id(&node0, &declaration_id)
+        .await
+        .expect("API must succeed")
+        .expect("declaration should appear after submission");
+    assert_eq!(declaration_created.provider_id, provider_id);
+
+    // Submit an withdraw tx immediately.
+    withdraw_and_wait_for_removal(&node0, declaration_id, inclusion_timeout, slots_per_epoch).await;
+}
+
+async fn withdraw_and_wait_for_removal(
+    node: &NodeHttpClient,
+    declaration_id: DeclarationId,
+    inclusion_timeout: Duration,
+    slots_per_epoch: u64,
+) {
+    // The node's wallet spends the service note.
+    let withdraw_hash = node
+        .post_withdrawal(declaration_id)
+        .await
+        .expect("submit withdraw transaction")
+        .tx_id
+        .expect("the withdrawal should be submitted");
+
+    assert!(
+        wait_for_transactions_inclusion(node, &[withdraw_hash], inclusion_timeout).await,
+        "withdraw transaction should be included"
+    );
+
+    let withdraw_epoch = get_declaration_by_id(node, &declaration_id)
+        .await
+        .expect("API must succeed")
+        .expect("declaration must still exist until the snapshot finalization delay has passed")
+        .withdraw_at
+        .expect("withdraw_at must be set after withdraw tx is accepted");
+
+    // Wait until the `withdraw_at + 1` epoch has started: in its first block
+    // the service note is unlocked and the declaration is removed.
+    wait_for_tip_slot(
+        node,
+        (u64::from(withdraw_epoch.strict_add(Epoch::new(2)).into_inner()) * slots_per_epoch).into(),
+        Duration::from_mins(3),
+    )
+    .await
+    .expect("timed out to wait until the snapshot finalization delay passes after withdraw");
+
+    // Check that the declaration has been removed
+    assert!(
+        !node
+            .get_sdp_declarations()
+            .await
+            .unwrap()
+            .contains_key(&declaration_id)
+    );
+}
+
+// TODO(RFC-480): the declaration and the withdrawal spend notes with
+// ZkTransfers; the node's wallet builds them from a `DeclarationRequest` and a
+// declaration id.
+/*
 async fn sdp_ops_e2e() {
     let (
         _cluster,
@@ -214,6 +321,7 @@ async fn sdp_ops_e2e() {
             .any(|declaration| declaration.provider_id == provider_id)
     );
 }
+*/
 
 /// Test that SDP declaration is correctly restored after validator restart.
 ///
@@ -238,7 +346,9 @@ async fn sdp_declaration_restoration_e2e() {
     );
 
     let initial_declaration = declarations.values().next().unwrap().clone();
-    let target_service_note = initial_declaration.service_note_id;
+    // TODO(RFC-480): the declaration creates its own service note.
+    // let target_service_note = initial_declaration.service_note_id;
+    let target_service_note = initial_declaration.service_note;
 
     cluster_harness
         .cluster()
@@ -262,7 +372,8 @@ async fn sdp_declaration_restoration_e2e() {
 
     let restored_declaration = post_restart_declarations
         .values()
-        .find(|d| d.service_note_id == target_service_note)
+        // .find(|d| d.service_note_id == target_service_note)
+        .find(|d| d.service_note == target_service_note)
         .expect("original declaration should still exist after restart");
 
     assert_eq!(
@@ -281,15 +392,23 @@ async fn sdp_declaration_restoration_e2e() {
     );
 }
 
-async fn get_declaration(
+// TODO(RFC-480): node-0's provider is declared twice over the test (genesis,
+// then another locator), so a declaration is found by its id.
+// async fn get_declaration(
+//     node: &NodeHttpClient,
+//     provider_id: &ProviderId,
+// ) -> Result<Option<Declaration>, Error> {
+//     Ok(node
+//         .get_sdp_declarations()
+//         .await?
+//         .into_values()
+//         .find(|declaration| &declaration.provider_id == provider_id))
+// }
+async fn get_declaration_by_id(
     node: &NodeHttpClient,
-    provider_id: &ProviderId,
+    declaration_id: &DeclarationId,
 ) -> Result<Option<Declaration>, Error> {
-    Ok(node
-        .get_sdp_declarations()
-        .await?
-        .into_values()
-        .find(|declaration| &declaration.provider_id == provider_id))
+    Ok(node.get_sdp_declarations().await?.remove(declaration_id))
 }
 
 async fn wait_for_sdp_declarations(
@@ -315,17 +434,27 @@ async fn wait_for_sdp_declarations(
 )]
 async fn start_sdp_manual_cluster(
     test_name: &str,
+// TODO(RFC-480): the node's wallet funds the declaration, so the scenario
+// keeps no genesis notes, funding wallet or spare note.
+// ) -> (
+//     LocalManualClusterHarnessBase,
+//     String,
+//     NodeHttpClient,
+//     Vec<Utxo>,
+//     WalletAccount,
+//     ZkKey,
+//     NoteId,
+//     u64,
+// ) {
 ) -> (
     LocalManualClusterHarnessBase,
     String,
     NodeHttpClient,
-    Vec<Utxo>,
-    WalletAccount,
-    ZkKey,
-    NoteId,
+    Value,
     u64,
 ) {
     let slots_per_epoch = Arc::new(AtomicU64::new(0));
+    let min_stake = Arc::new(AtomicU64::new(0));
     let funding_wallet =
         WalletAccount::deterministic(0, 2_000_000, false).expect("funding wallet should build");
 
@@ -354,6 +483,7 @@ async fn start_sdp_manual_cluster(
                 .with_persist_dir(node0_persist_dir)
                 .create_patch({
                     let slots_per_epoch = Arc::clone(&slots_per_epoch);
+                    let min_stake = Arc::clone(&min_stake);
                     move |config| {
                         let config = patch_sdp_manual_cluster_config(config);
                         slots_per_epoch.store(
@@ -362,6 +492,16 @@ async fn start_sdp_manual_cluster(
                                 .genesis_era_parameters()
                                 .cryptarchia
                                 .slots_per_epoch(),
+                            Ordering::Relaxed,
+                        );
+                        min_stake.store(
+                            config
+                                .deployment
+                                .genesis_era_parameters()
+                                .cryptarchia
+                                .sdp_config
+                                .min_stake
+                                .threshold,
                             Ordering::Relaxed,
                         );
                         Ok::<_, DynError>(config)
@@ -381,26 +521,33 @@ async fn start_sdp_manual_cluster(
         .await
         .expect("node-0 should produce the first block");
 
-    let genesis_utxos = genesis_wallet_utxos(&cluster_harness.deployment().config);
-
-    let spare_note_id = genesis_utxos
-        .iter()
-        .copied()
-        .find(|utxo| utxo.note.pk == spare_wallet.public_key())
-        .expect("wallet-backed spare note should exist at genesis")
-        .id();
+    // let genesis_utxos = genesis_wallet_utxos(&cluster_harness.deployment().config);
+    //
+    // let spare_note_id = genesis_utxos
+    //     .iter()
+    //     .copied()
+    //     .find(|utxo| utxo.note.pk == spare_wallet.public_key())
+    //     .expect("wallet-backed spare note should exist at genesis")
+    //     .id();
 
     let node0_name = node0.name;
     let node0_client = node0.client;
 
+    // (
+    //     cluster_harness,
+    //     node0_name,
+    //     node0_client,
+    //     genesis_utxos,
+    //     funding_wallet,
+    //     spare_wallet.secret_key,
+    //     spare_note_id,
+    //     slots_per_epoch.load(Ordering::Relaxed),
+    // )
     (
         cluster_harness,
         node0_name,
         node0_client,
-        genesis_utxos,
-        funding_wallet,
-        spare_wallet.secret_key,
-        spare_note_id,
+        min_stake.load(Ordering::Relaxed),
         slots_per_epoch.load(Ordering::Relaxed),
     )
 }

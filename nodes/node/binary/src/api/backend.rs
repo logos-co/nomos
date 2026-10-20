@@ -56,11 +56,13 @@ use super::handlers::{
 use crate::{
     BlendService, PoWService, TracingService, WalletService,
     api::{
+        // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of
+        // the block. `leader_claim` was imported here.
         handlers::{
-            blend_join_network, channel, channel_deposit, leader_claim, post_activity,
-            post_declaration, post_set_declaration_id, post_withdrawal, pow_claim,
-            pow_claimable_rewards, pow_start_auto_claim, pow_start_mining, pow_status,
-            pow_stop_auto_claim, pow_stop_mining,
+            blend_join_network, channel, channel_deposit, post_activity, post_declaration,
+            post_set_declaration_id, post_withdrawal, pow_claim, pow_claimable_rewards,
+            pow_start_auto_claim, pow_start_mining, pow_status, pow_stop_auto_claim,
+            pow_stop_mining,
         },
         openapi::ApiDoc,
         routes::api_routes,

@@ -10,7 +10,10 @@ use crate::header::HeaderId;
 /// Chain-derived state shared by the Chain Leader and Blend `PoL` APIs.
 pub struct PolEpochState {
     pub nonce: Fr,
-    pub aged_utxo_root: Fr,
+    // TODO(RFC-480): the PoL is proven against the eligible root.
+    // pub aged_utxo_root: Fr,
+    // The eligible root when the stake distribution was frozen (C_LEAD).
+    pub eligible_aged: Fr,
     pub lottery_0: Fr,
     pub lottery_1: Fr,
     pub source: PolEpochStateSource,

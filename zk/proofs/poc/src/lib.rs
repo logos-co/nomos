@@ -28,19 +28,23 @@
 
 mod chain_inputs;
 mod inputs;
-mod verification_key;
+// TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+// mod verification_key;
 mod wallet_inputs;
-mod witness;
+// TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+// mod witness;
 
 use core::fmt::Debug;
 use std::error::Error;
 
 pub use chain_inputs::{PoCChainInputs, PoCChainInputsData};
 pub use inputs::{PoCWitnessInputs, PoCWitnessInputsData};
-use lb_circuits_prover::Prover as _;
-use lb_groth16::{
-    CompressedGroth16Proof, Groth16Proof, Groth16ProofJsonDeser, groth16_batch_verify,
-};
+// TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+// use lb_circuits_prover::Prover as _;
+// use lb_groth16::{
+//     CompressedGroth16Proof, Groth16Proof, Groth16ProofJsonDeser, groth16_batch_verify,
+// };
+use lb_groth16::CompressedGroth16Proof;
 use lb_log_targets::proofs;
 use tracing::error;
 pub use wallet_inputs::{PoCWalletInputs, PoCWalletInputsData, VOUCHER_MERKLE_PATH_LEN};
@@ -51,6 +55,8 @@ pub type PoCProof = CompressedGroth16Proof;
 pub type ProveError = lbp_error::Error;
 
 const LOG_TARGET: &str = proofs::POC;
+
+const RETIRED: &str = "the PoC circuit is retired in circuits v0.6.0";
 
 ///
 /// This function generates a proof for the given set of inputs.
@@ -71,27 +77,29 @@ const LOG_TARGET: &str = proofs::POC;
 ///   witness or proving from contents.
 /// - Returns a `ProveError::Json` if there is an error during JSON
 ///   serialization or deserialization.
-pub fn prove(inputs: PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), ProveError> {
-    let witness = witness::generate_witness(inputs)?;
-    let result = lb_circuits_prover::Rapidsnark::prove(
-        lbc_poc_sys::artifacts::PROVING_KEY,
-        witness.as_ref(),
-    )?;
-    let proof: Groth16ProofJsonDeser = serde_json::from_str(&result.proof)?;
-    let verifier_inputs: PoCVerifierInputJson = serde_json::from_str(&result.public_signals)?;
-    let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
-    Ok((
-        CompressedGroth16Proof::try_from(&proof).unwrap_or_else(|e| {
-            error!(target: LOG_TARGET, "Fatal CompressedGroth16Proof::try_from: {e}");
-            // We panic here because this should never happen, and if it does, it's a
-            // critical error that we want to be immediately visible during
-            // development and testing.
-            panic!("Fatal CompressedGroth16Proof::try_from: {e}")
-        }),
-        verifier_inputs
-            .try_into()
-            .map_err(ProveError::Groth16JsonInput)?,
-    ))
+pub fn prove(_inputs: PoCWitnessInputs) -> Result<(PoCProof, PoCVerifierInput), ProveError> {
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    // let witness = witness::generate_witness(inputs)?;
+    // let result = lb_circuits_prover::Rapidsnark::prove(
+    //     lbc_poc_sys::artifacts::PROVING_KEY,
+    //     witness.as_ref(),
+    // )?;
+    // let proof: Groth16ProofJsonDeser = serde_json::from_str(&result.proof)?;
+    // let verifier_inputs: PoCVerifierInputJson = serde_json::from_str(&result.public_signals)?;
+    // let proof: Groth16Proof = proof.try_into().map_err(ProveError::Groth16JsonProof)?;
+    // Ok((
+    //     CompressedGroth16Proof::try_from(&proof).unwrap_or_else(|e| {
+    //         error!(target: LOG_TARGET, "Fatal CompressedGroth16Proof::try_from: {e}");
+    //         // We panic here because this should never happen, and if it does, it's a
+    //         // critical error that we want to be immediately visible during
+    //         // development and testing.
+    //         panic!("Fatal CompressedGroth16Proof::try_from: {e}")
+    //     }),
+    //     verifier_inputs
+    //         .try_into()
+    //         .map_err(ProveError::Groth16JsonInput)?,
+    // ))
+    Err(ProveError::Io(std::io::Error::other(RETIRED)))
 }
 
 #[derive(Debug)]
@@ -120,41 +128,52 @@ pub enum VerifyError {
 ///
 /// - Returns an error if there is an issue with the verification key or the
 ///   underlying verification process fails.
-pub fn verify(proof: &PoCProof, public_inputs: &PoCVerifierInput) -> Result<bool, VerifyError> {
-    let inputs = public_inputs.to_inputs();
-    let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
-    lb_groth16::groth16_verify(verification_key::POC_VK.as_ref(), &expanded_proof, &inputs)
-        .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+pub fn verify(_proof: &PoCProof, _public_inputs: &PoCVerifierInput) -> Result<bool, VerifyError> {
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    // let inputs = public_inputs.to_inputs();
+    // let expanded_proof = Groth16Proof::try_from(proof).map_err(|_| VerifyError::Expansion)?;
+    // lb_groth16::groth16_verify(verification_key::POC_VK.as_ref(), &expanded_proof, &inputs)
+    //     .map_err(|e| VerifyError::ProofVerify(Box::new(e)))
+    error!(target: LOG_TARGET, "{RETIRED}");
+    Ok(false)
 }
 
 pub fn batch_verify(
-    proofs_and_inputs: &[(PoCProof, PoCVerifierInput)],
+    _proofs_and_inputs: &[(PoCProof, PoCVerifierInput)],
 ) -> Result<bool, VerifyError> {
-    let inputs: Vec<Vec<_>> = proofs_and_inputs
-        .iter()
-        .map(|(_, pi)| pi.to_inputs().to_vec())
-        .collect();
-
-    let expanded_proofs: Vec<Groth16Proof> = proofs_and_inputs
-        .iter()
-        .map(|(p, _)| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
-        .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
-
-    Ok(groth16_batch_verify(
-        verification_key::POC_VK.as_ref(),
-        &expanded_proofs,
-        &inputs,
-    ))
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    // let inputs: Vec<Vec<_>> = proofs_and_inputs
+    //     .iter()
+    //     .map(|(_, pi)| pi.to_inputs().to_vec())
+    //     .collect();
+    //
+    // let expanded_proofs: Vec<Groth16Proof> = proofs_and_inputs
+    //     .iter()
+    //     .map(|(p, _)| Groth16Proof::try_from(p).map_err(|_| VerifyError::Expansion))
+    //     .collect::<Result<Vec<_>, _>>()?; // short-circuits on first failure
+    //
+    // Ok(groth16_batch_verify(
+    //     verification_key::POC_VK.as_ref(),
+    //     &expanded_proofs,
+    //     &inputs,
+    // ))
+    error!(target: LOG_TARGET, "{RETIRED}");
+    Ok(false)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr as _;
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    // use std::str::FromStr as _;
 
-    use num_bigint::BigUint;
+    use lb_groth16::{Field as _, Fr};
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    // use num_bigint::BigUint;
 
     use super::*;
 
+    // TODO(RFC-480 M6): the PoC circuit is retired in circuits v0.6.0.
+    /*
     #[test]
     #[expect(clippy::too_many_lines, reason = "Test function.")]
     fn test_full_flow() {
@@ -313,5 +332,14 @@ mod tests {
         let (proof, inputs) = prove(witness_inputs).unwrap();
         assert!(verify(&proof, &inputs).unwrap());
         assert!(batch_verify(&[(proof, inputs.clone()), (proof, inputs)]).unwrap());
+    }
+    */
+
+    #[test]
+    fn test_retired_circuit_fails_closed() {
+        let proof = PoCProof::from_bytes(&[0u8; 128]);
+        let inputs = PoCVerifierInput::new(Fr::ONE, Fr::ONE, Fr::ONE);
+        assert!(!verify(&proof, &inputs).unwrap());
+        assert!(!batch_verify(&[(proof, inputs)]).unwrap());
     }
 }

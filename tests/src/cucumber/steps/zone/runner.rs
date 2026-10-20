@@ -19,12 +19,14 @@ use std::{
 };
 
 use lb_core::mantle::{ops::channel::MsgId, transactions::hash::TxHash};
+// TODO(RFC-480): the zone bridge is suspended. Dropped re-exports:
+// AtomicWithdrawInfo, PreparedAtomicBundle, WithdrawArg, WithdrawInfo,
+// WithdrawInputs.
 pub use lb_zone_sdk::sequencer::{
-    AtomicWithdrawInfo, ChannelUpdate, ChannelUpdateTx, DepositInfo, Error, Event, FinalizedOp,
-    FinalizedTx, FundingConfig, IndexedSignature, InscriptionId, InscriptionInfo, PendingTx,
-    PreparedAtomicBundle, PreparedChannelConfig, PublishResult, SequencerChannelView,
-    SequencerCheckpoint, SequencerClient, SequencerConfig, TurnNotification, WithdrawArg,
-    WithdrawInfo, WithdrawInputs,
+    ChannelUpdate, ChannelUpdateTx, DepositInfo, Error, Event, FinalizedOp, FinalizedTx,
+    FundingConfig, IndexedSignature, InscriptionId, InscriptionInfo, PendingTx,
+    PreparedChannelConfig, PublishResult, SequencerChannelView, SequencerCheckpoint,
+    SequencerClient, SequencerConfig, TurnNotification,
 };
 use lb_zone_sdk::{adapter, sequencer::ZoneSequencer};
 use tokio::{

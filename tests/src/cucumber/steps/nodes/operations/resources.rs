@@ -1,17 +1,27 @@
-use super::*;
+// TODO(RFC-480): UTXO test wallet; the glob only imported `OpId as _` beyond
+// these.
+// use super::*;
+use super::{CucumberWorld, HashSet, StepError, StepResult, Table, WalletStartInfo};
 
+// TODO(RFC-480): UTXO test wallet.
+// #[must_use]
+// pub fn genesis_block_utxos(genesis_tx: &lb_core::mantle::transactions::GenesisTx) -> Vec<Utxo> {
+//     let transfer_signed_operation = genesis_tx.transfer();
+//     let transfer_id = transfer_signed_operation.operation().op_id();
+//
+//     transfer_signed_operation
+//         .operation()
+//         .outputs
+//         .iter()
+//         .enumerate()
+//         .map(|(idx, note)| Utxo::new(transfer_id, idx, *note))
+//         .collect()
+// }
 #[must_use]
-pub fn genesis_block_utxos(genesis_tx: &lb_core::mantle::transactions::GenesisTx) -> Vec<Utxo> {
-    let transfer_signed_operation = genesis_tx.transfer();
-    let transfer_id = transfer_signed_operation.operation().op_id();
-
-    transfer_signed_operation
-        .operation()
-        .outputs
-        .iter()
-        .enumerate()
-        .map(|(idx, note)| Utxo::new(transfer_id, idx, *note))
-        .collect()
+pub fn genesis_block_utxos(
+    genesis_tx: &lb_core::mantle::transactions::GenesisTx,
+) -> crate::common::wallet::GenesisNotes {
+    crate::common::wallet::GenesisNotes::from_genesis_tx(genesis_tx)
 }
 
 const ACCOUNT_INDEX: &str = "account_index";

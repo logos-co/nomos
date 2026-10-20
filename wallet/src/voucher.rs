@@ -1,3 +1,5 @@
+// TODO(RFC-480): UTXO wallet; notes are tracked per note set.
+/*
 use std::collections::HashMap;
 
 use lb_core::mantle::ops::leader_claim::{VoucherCm, VoucherNullifier};
@@ -66,3 +68,4 @@ impl<Id> Vouchers<Id> {
         self.vouchers.len()
     }
 }
+*/

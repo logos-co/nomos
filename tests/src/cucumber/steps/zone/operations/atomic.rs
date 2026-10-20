@@ -1,3 +1,6 @@
+// TODO(RFC-480): the zone bridge (atomic deposits and withdrawals) is
+// suspended; this module is no longer compiled (`mod atomic` is commented in
+// `operations/mod.rs`).
 use lb_core::mantle::{ledger::BoundedInputs, transactions::Ops};
 
 use super::*;

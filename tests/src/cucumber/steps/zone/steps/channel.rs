@@ -1,11 +1,12 @@
+// TODO(RFC-480): the zone bridge is suspended. Dropped imports:
+// publish_atomic_zone_withdraw_transaction,
+// submit_atomic_zone_deposit_transaction, submit_zone_channel_split_transaction,
+// submit_zone_deposit_transaction, submit_zone_multi_deposit_transaction,
+// submit_zone_withdraw_transaction, zone_atomic_withdraw_rows.
 use super::{
-    CucumberWorld, Step, StepResult, prepare_zone_channel_config,
-    publish_atomic_zone_withdraw_transaction, save_zone_checkpoint,
+    CucumberWorld, Step, StepResult, prepare_zone_channel_config, save_zone_checkpoint,
     sign_prepared_zone_channel_config, single_column_table, start_named_sequencer_with_startup,
-    submit_atomic_zone_deposit_transaction, submit_prepared_zone_channel_config,
-    submit_zone_channel_config, submit_zone_channel_split_transaction,
-    submit_zone_deposit_transaction, submit_zone_multi_deposit_transaction,
-    submit_zone_withdraw_transaction, when, zone_atomic_withdraw_rows, zone_config_row,
+    submit_prepared_zone_channel_config, submit_zone_channel_config, when, zone_config_row,
 };
 
 #[when(expr = "I save current checkpoint of sequencer {string} as {string}")]
@@ -185,6 +186,9 @@ async fn step_submit_zone_channel_config_transaction_from_table(
     .await
 }
 
+// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
+// transfers, withdrawals, atomic bundles) is suspended.
+/*
 #[when(
     expr = "I submit zone deposit transaction {string} into channel of {string} of {int} with metadata {string}"
 )]
@@ -355,3 +359,4 @@ async fn step_publish_atomic_zone_withdraw_transaction(
     )
     .await
 }
+*/

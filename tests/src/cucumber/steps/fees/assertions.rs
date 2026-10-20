@@ -88,18 +88,32 @@ pub async fn wallet_debited_exactly_fee(
     let client = world.resolve_node_http_client(&wallet_info.node_name.clone())?;
     let signed_tx = world.resolve_prepared_transaction(transaction_alias)?;
 
+    // TODO(RFC-480): genesis notes are private notes; a Transfer's excess is
+    // the amount it burns.
+    // let genesis_funds: u64 = world
+    //     .chain
+    //     .genesis_block_utxos
+    //     .iter()
+    //     .filter(|utxo| utxo.note.pk == account.public_key())
+    //     .map(|utxo| utxo.note.value)
+    //     .sum();
+    //
+    // let burned = fee_spec::net_balance_against(&world.chain.genesis_block_utxos, &signed_tx)
+    //     .map_err(|message| StepError::StepFail {
+    //         message: format!("Step `{}` error: {message}", step.value),
+    //     })?;
     let genesis_funds: u64 = world
         .chain
         .genesis_block_utxos
+        .notes
         .iter()
-        .filter(|utxo| utxo.note.pk == account.public_key())
-        .map(|utxo| utxo.note.value)
+        .filter(|note| note.public_key == account.public_key())
+        .map(|note| note.value)
         .sum();
 
-    let burned = fee_spec::net_balance_against(&world.chain.genesis_block_utxos, &signed_tx)
-        .map_err(|message| StepError::StepFail {
-            message: format!("Step `{}` error: {message}", step.value),
-        })?;
+    let burned = fee_spec::net_balance(&signed_tx).map_err(|message| StepError::StepFail {
+        message: format!("Step `{}` error: {message}", step.value),
+    })?;
 
     let expected = genesis_funds - burned;
 
@@ -144,12 +158,17 @@ pub async fn prepared_transaction_tip_absorbed_fee_increase(
     let signed_tx = world.resolve_prepared_transaction(transaction_alias)?;
     let client = world.resolve_node_http_client(node_name)?;
     let prices = actions::live_gas_prices(&client, step).await?;
+    // TODO(RFC-480): a Transfer's excess is the amount it burns.
+    // let remaining_tip =
+    //     fee_spec::fee_surplus_at(&world.chain.genesis_block_utxos, &signed_tx, &prices).map_err(
+    //         |message| StepError::StepFail {
+    //             message: format!("Step `{}` error: {message}", step.value),
+    //         },
+    //     )?;
     let remaining_tip =
-        fee_spec::fee_surplus_at(&world.chain.genesis_block_utxos, &signed_tx, &prices).map_err(
-            |message| StepError::StepFail {
-                message: format!("Step `{}` error: {message}", step.value),
-            },
-        )?;
+        fee_spec::fee_surplus_at(&signed_tx, &prices).map_err(|message| StepError::StepFail {
+            message: format!("Step `{}` error: {message}", step.value),
+        })?;
 
     if !(0 < remaining_tip && remaining_tip < i128::from(original_tip)) {
         return Err(StepError::StepFail {
@@ -195,7 +214,10 @@ pub async fn prepared_transaction_percentage_reserve_absorbed_fee_increase(
     let signed_tx = world.resolve_prepared_transaction(transaction_alias)?;
     let client = world.resolve_node_http_client(node_name)?;
     let prices = actions::live_gas_prices(&client, step).await?;
-    let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
+    // TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
+    // channel notes.
+    // let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
+    let gas_context = OpsGasContext::new(HashMap::new(), prices.clone());
     let current_mandatory_fee = signed_tx
         .op_refs()
         .total_gas_cost::<MainnetGasProfile>(&gas_context)

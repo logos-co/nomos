@@ -3,14 +3,17 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
 use lb_common_http_client::{BasicAuthCredentials, CommonHttpClient};
-use lb_core::{mantle::NoteId, sdp::Locator};
+// TODO(RFC-480): the wallet funds the declaration stake.
+// use lb_core::{mantle::NoteId, sdp::Locator};
+use lb_core::{mantle::Value, sdp::Locator};
 use lb_http_api_common::bodies::{
     blend::JoinBlendRequestBody, wallet::balance::WalletBalanceResponseBody,
 };
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_node::config::UserConfig;
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_at_path};
-use serde::{Deserialize, de::IntoDeserializer as _};
+// TODO(RFC-480): the wallet funds the declaration stake, no note ID is parsed.
+// use serde::{Deserialize, de::IntoDeserializer as _};
 use url::Url;
 
 #[tokio::main]
@@ -56,13 +59,22 @@ impl CliCommand {
 
 #[derive(Debug, Subcommand)]
 enum SdpSubCommand {
-    /// Post a Blend SDP declaration using the specified locator address and ID
-    /// of a note to lock.
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // /// Post a Blend SDP declaration using the specified locator address and ID
+    // /// of a note to lock.
+    // ///
+    // ///
+    // /// The command validates that:
+    // /// - the SDP funding key has non-zero balance
+    // /// - `--service-note-id` exists for the Blend ZK key before submitting the
+    // ///   declaration.
+    /// Post a Blend SDP declaration using the specified locator address and
+    /// stake amount, which the node's wallet funds.
     ///
     ///
     /// The command validates that:
     /// - the SDP funding key has non-zero balance
-    /// - `--service-note-id` exists for the Blend ZK key before submitting the
+    /// - the Blend ZK key is a wallet known key before submitting the
     ///   declaration.
     PostBlendDeclaration(PostBlendDeclarationArgs),
 }
@@ -88,9 +100,13 @@ struct PostBlendDeclarationArgs {
     #[arg(long, value_name = "BLEND_ADDR")]
     blend_addr: Locator,
 
-    /// Note ID to lock for the Blend declaration (HEX-encoded field element).
-    #[arg(long, value_name = "NOTE_ID_HEX", value_parser = parse_hex_serde::<NoteId>)]
-    service_note_id: NoteId,
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // /// Note ID to lock for the Blend declaration (HEX-encoded field element).
+    // #[arg(long, value_name = "NOTE_ID_HEX", value_parser = parse_hex_serde::<NoteId>)]
+    // service_note_id: NoteId,
+    /// Stake of the Blend declaration. When omitted, the minimum stake.
+    #[arg(long, value_name = "AMOUNT")]
+    amount: Option<Value>,
 
     /// Base node URL, for example `http://localhost:8080`.
     #[arg(long, value_name = "NODE_URL", default_value = "http://localhost:8080")]
@@ -105,19 +121,22 @@ struct PostBlendDeclarationArgs {
     password: Option<String>,
 }
 
-fn parse_hex_serde<T>(input: &str) -> Result<T, String>
-where
-    T: for<'de> Deserialize<'de>,
-{
-    use serde::de::value::Error;
-
-    T::deserialize(input.into_deserializer())
-        .map_err(|e: Error| format!("Failed to parse input HEX string: {e}"))
-}
+// TODO(RFC-480): the wallet funds the declaration stake, no note ID is parsed.
+// fn parse_hex_serde<T>(input: &str) -> Result<T, String>
+// where
+//     T: for<'de> Deserialize<'de>,
+// {
+//     use serde::de::value::Error;
+//
+//     T::deserialize(input.into_deserializer())
+//         .map_err(|e: Error| format!("Failed to parse input HEX string: {e}"))
+// }
 
 async fn post_blend_declaration(
     PostBlendDeclarationArgs {
-        service_note_id,
+        // TODO(RFC-480): the wallet funds the declaration stake.
+        // service_note_id,
+        amount,
         blend_addr,
         node_address,
         user_config_path,
@@ -139,7 +158,9 @@ async fn post_blend_declaration(
         CommonHttpClient::new(credentials)
     };
 
-    validate_config_values(&client, node_address.clone(), &user_config, service_note_id)
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // validate_config_values(&client, node_address.clone(), &user_config, service_note_id)
+    validate_config_values(&client, node_address.clone(), &user_config)
         .await
         .with_context(|| "Failed to validate values from user config")?;
 
@@ -148,7 +169,9 @@ async fn post_blend_declaration(
             &node_address,
             JoinBlendRequestBody {
                 locator: blend_addr,
-                service_note_id: Some(service_note_id),
+                // TODO(RFC-480): the wallet funds the declaration stake.
+                // service_note_id: Some(service_note_id),
+                amount,
             },
         )
         .await
@@ -165,16 +188,22 @@ async fn validate_config_values(
     client: &CommonHttpClient,
     node_address: Url,
     config: &UserConfig,
-    service_note_id: NoteId,
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // service_note_id: NoteId,
 ) -> Result<()> {
     let sdp_wallet_funding_pk = config.sdp.wallet.funding_pk;
-    verify_sdp_wallet_funding_pk_balance(client, node_address.clone(), sdp_wallet_funding_pk)
+    // TODO(RFC-480): the wallet funds the declaration stake, the node address
+    // is only used once.
+    // verify_sdp_wallet_funding_pk_balance(client, node_address.clone(), sdp_wallet_funding_pk)
+    verify_sdp_wallet_funding_pk_balance(client, node_address, sdp_wallet_funding_pk)
         .await
         .context("Failed to verify balance for SDP wallet funding key")?;
 
-    let zk_id = extract_blend_zk_key(config)?;
-
-    verify_service_note_id_value(client, node_address, zk_id, service_note_id).await?;
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // let zk_id = extract_blend_zk_key(config)?;
+    //
+    // verify_service_note_id_value(client, node_address, zk_id, service_note_id).await?;
+    extract_blend_zk_key(config)?;
 
     Ok(())
 }
@@ -216,24 +245,25 @@ async fn verify_sdp_wallet_funding_pk_balance(
     Ok(())
 }
 
-async fn verify_service_note_id_value(
-    client: &CommonHttpClient,
-    node_address: Url,
-    zk_id: ZkPublicKey,
-    service_note_id: NoteId,
-) -> Result<()> {
-    let WalletBalanceResponseBody { notes, .. } = client
-        .get_wallet_balance(node_address, zk_id, None)
-        .await
-        .context("Failed to fetch wallet balance for Blend ZK ID")?;
-
-    // Preflight guard: fail early when the provided note does not belong to the
-    // declaration ZK key according to the wallet view at `node_address`.
-    // TODO: Also verify minimum stake amount once that threshold is exposed here.
-    if !notes.contains_key(&service_note_id) {
-        bail!(
-            "Service note ID '{service_note_id:?}' was not found in wallet notes for provided Blend ZK ID",
-        );
-    }
-    Ok(())
-}
+// TODO(RFC-480): the wallet funds the declaration stake.
+// async fn verify_service_note_id_value(
+//     client: &CommonHttpClient,
+//     node_address: Url,
+//     zk_id: ZkPublicKey,
+//     service_note_id: NoteId,
+// ) -> Result<()> {
+//     let WalletBalanceResponseBody { notes, .. } = client
+//         .get_wallet_balance(node_address, zk_id, None)
+//         .await
+//         .context("Failed to fetch wallet balance for Blend ZK ID")?;
+//
+//     // Preflight guard: fail early when the provided note does not belong to the
+//     // declaration ZK key according to the wallet view at `node_address`.
+//     // TODO: Also verify minimum stake amount once that threshold is exposed here.
+//     if !notes.contains_key(&service_note_id) {
+//         bail!(
+//             "Service note ID '{service_note_id:?}' was not found in wallet notes for provided Blend ZK ID",
+//         );
+//     }
+//     Ok(())
+// }

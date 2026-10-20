@@ -7,18 +7,28 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::mantle::ops::{
     channel::{
-        channel_transfer::ChannelTransferOp, config::ChannelConfigOp, deposit::DepositOp,
-        inscribe::InscriptionOp, withdraw::ChannelWithdrawOp,
+        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+        // the steps of CHANNEL_INSCRIBE.
+        // channel_transfer::ChannelTransferOp,
+        config::ChannelConfigOp,
+        deposit::DepositOp,
+        inscribe::InscriptionOp,
+        withdraw::ChannelWithdrawOp,
     },
-    leader_claim::LeaderClaimOp,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // leader_claim::LeaderClaimOp,
     pow::ClaimPowRewardOp,
+    program::ProgramRegisterOp,
     sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
     transfer::TransferOp,
 };
+// TODO(RFC-480): the leader reward is a note of the block. `mantle::Value`
+// typed `OpsContext::leader_reward_amount`.
 use crate::{
     block::MAX_BLOCK_TRANSACTIONS_SIZE,
     mantle::{
-        GasProfile, Op, OpRef, TxHash, Value,
+        GasProfile, Op, OpRef, TxHash,
         channel::Channels,
         gas::{Gas, GasCost, GasOverflow, TxGasCalculator},
         ops::channel::{ChannelId, ChannelKeyIndex},
@@ -38,7 +48,9 @@ use crate::{
 
 #[derive(Debug, Clone, Default)]
 pub struct OpsGasContext {
-    transfer_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
+    // TODO(RFC-480): transfer_threshold is removed, holders
+    // withdraw their own channel notes.
+    // transfer_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
     configuration_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
     gas_prices: GasPrices,
 }
@@ -46,21 +58,27 @@ pub struct OpsGasContext {
 impl OpsGasContext {
     #[must_use]
     pub const fn new(
-        transfer_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
+        // TODO(RFC-480): transfer_threshold is removed, holders
+        // withdraw their own channel notes.
+        // transfer_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
         configuration_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
         gas_prices: GasPrices,
     ) -> Self {
         Self {
-            transfer_thresholds,
+            // TODO(RFC-480): transfer_threshold is removed, holders
+            // withdraw their own channel notes.
+            // transfer_thresholds,
             configuration_thresholds,
             gas_prices,
         }
     }
 
-    #[must_use]
-    pub fn transfer_threshold(&self, channel_id: &ChannelId) -> Option<ChannelKeyIndex> {
-        self.transfer_thresholds.get(channel_id).copied()
-    }
+    // TODO(RFC-480): transfer_threshold is removed, holders
+    // withdraw their own channel notes.
+    // #[must_use]
+    // pub fn transfer_threshold(&self, channel_id: &ChannelId) -> Option<ChannelKeyIndex> {
+    //     self.transfer_thresholds.get(channel_id).copied()
+    // }
 
     #[must_use]
     pub fn configuration_threshold(&self, channel_id: &ChannelId) -> Option<ChannelKeyIndex> {
@@ -69,17 +87,22 @@ impl OpsGasContext {
 
     #[must_use]
     pub fn from_channels(value: &Channels, base_prices: GasPrices) -> Self {
-        let transfer_thresholds = value
-            .channels
-            .iter()
-            .map(|(channel_id, channel)| (*channel_id, channel.transfer_threshold))
-            .collect();
+        // TODO(RFC-480): transfer_threshold is removed, holders
+        // withdraw their own channel notes.
+        // let transfer_thresholds = value
+        //     .channels
+        //     .iter()
+        //     .map(|(channel_id, channel)| (*channel_id, channel.transfer_threshold))
+        //     .collect();
         let configuration_thresholds = value
             .channels
             .iter()
             .map(|(channel_id, channel)| (*channel_id, channel.configuration_threshold))
             .collect();
-        Self::new(transfer_thresholds, configuration_thresholds, base_prices)
+        // TODO(RFC-480): transfer_threshold is removed, holders
+        // withdraw their own channel notes.
+        // Self::new(transfer_thresholds, configuration_thresholds, base_prices)
+        Self::new(configuration_thresholds, base_prices)
     }
 
     #[must_use]
@@ -91,7 +114,8 @@ impl OpsGasContext {
 #[derive(Debug, Clone, Default)]
 pub struct OpsContext {
     pub gas_context: OpsGasContext,
-    pub leader_reward_amount: Value,
+    // TODO(RFC-480): the leader reward is a note of the block.
+    // pub leader_reward_amount: Value,
 }
 
 pub type Ops = TxList<Op>;
@@ -106,17 +130,22 @@ impl Ops {
     #[must_use]
     pub fn sample() -> Self {
         Self::from([
-            Op::Transfer(TransferOp::sample()),               // 0x00
-            Op::ChannelConfig(ChannelConfigOp::sample()),     // 0x10
-            Op::ChannelInscribe(InscriptionOp::sample()),     // 0x11
-            Op::ChannelDeposit(DepositOp::sample()),          // 0x12
-            Op::ChannelWithdraw(ChannelWithdrawOp::sample()), // 0x13
-            Op::ChannelTransfer(ChannelTransferOp::sample()), // 0x14
-            Op::SDPDeclare(SDPDeclareOp::sample()),           // 0x20
-            Op::SDPWithdraw(SDPWithdrawOp::sample()),         // 0x21
-            Op::SDPActive(SDPActiveOp::sample()),             // 0x22
-            Op::LeaderClaim(LeaderClaimOp::sample()),         // 0x30
-            Op::ClaimPowReward(ClaimPowRewardOp::sample()),   // 0x40
+            Op::Transfer(TransferOp::sample()),                     // 0x00
+            Op::ProgramRegister(ProgramRegisterOp::sample()),       // 0x01
+            Op::ChannelConfig(ChannelConfigOp::sample()),           // 0x10
+            Op::ChannelInscribe(InscriptionOp::sample_with_step()), // 0x11
+            Op::ChannelDeposit(DepositOp::sample()),                // 0x12
+            Op::ChannelWithdraw(ChannelWithdrawOp::sample()),       // 0x13
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Op::ChannelTransfer(ChannelTransferOp::sample()), // 0x14
+            Op::SDPDeclare(SDPDeclareOp::sample()),   // 0x20
+            Op::SDPWithdraw(SDPWithdrawOp::sample()), // 0x21
+            Op::SDPActive(SDPActiveOp::sample()),     // 0x22
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Op::LeaderClaim(LeaderClaimOp::sample()), // 0x40
+            Op::ClaimPowReward(ClaimPowRewardOp::sample()), // 0x30
         ])
     }
 }
@@ -338,16 +367,18 @@ mod tests {
     use crate::mantle::gas::MainnetGasProfile;
 
     const CONFIGURATION_THRESHOLD: ChannelKeyIndex = 3;
-    const TRANSFER_THRESHOLD: ChannelKeyIndex = 2;
+    // TODO(RFC-480): transfer_threshold is removed, holders
+    // withdraw their own channel notes.
+    // const TRANSFER_THRESHOLD: ChannelKeyIndex = 2;
 
     #[test]
     fn total_gas_cost_sums_execution_and_storage() {
         let ops = Ops::from([Op::ChannelInscribe(InscriptionOp::sample())]);
-        let context = OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::new(2, 3));
+        let context = OpsGasContext::new(HashMap::new(), GasPrices::new(2, 3));
 
         assert_eq!(
             ops.by_ref().total_gas_cost::<MainnetGasProfile>(&context),
-            Ok(GasCost::new(643))
+            Ok(GasCost::new(649))
         );
     }
 
@@ -359,7 +390,9 @@ mod tests {
             Op::ChannelWithdraw(ChannelWithdrawOp::sample()),
         ]);
         let context = OpsGasContext::new(
-            [(ChannelWithdrawOp::sample().channel_id, TRANSFER_THRESHOLD)].into(),
+            // TODO(RFC-480): transfer_threshold is removed, holders
+            // withdraw their own channel notes.
+            // [(ChannelWithdrawOp::sample().channel_id, TRANSFER_THRESHOLD)].into(),
             [(ChannelConfigOp::sample().channel, CONFIGURATION_THRESHOLD)].into(),
             GasPrices::new(1, 0),
         );
@@ -367,7 +400,10 @@ mod tests {
         assert_eq!(
             ops.by_ref()
                 .execution_gas_consumption::<MainnetGasProfile>(&context),
-            Ok(Gas::from(168 + 590 + 112))
+            // TODO(RFC-480): transfer_threshold is removed, holders
+            // withdraw their own channel notes.
+            // Ok(Gas::from(168 + 590 + 112))
+            Ok(Gas::from(177 + 619 + 619))
         );
     }
 
@@ -375,8 +411,12 @@ mod tests {
     fn execution_gas_consumption_charges_nothing_for_a_channel_the_context_does_not_hold() {
         let ops = Ops::from([
             Op::ChannelConfig(ChannelConfigOp::sample()),
-            Op::ChannelWithdraw(ChannelWithdrawOp::sample()),
-            Op::ChannelTransfer(ChannelTransferOp::sample()),
+            // TODO(RFC-480): a channel withdrawal is charged its flat
+            // EXECUTION_CHANNEL_WITHDRAW_GAS, known channel or not.
+            // Op::ChannelWithdraw(ChannelWithdrawOp::sample()),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Op::ChannelTransfer(ChannelTransferOp::sample()),
         ]);
 
         assert_eq!(
@@ -393,14 +433,14 @@ mod tests {
         assert_eq!(
             ops.by_ref()
                 .execution_gas_consumption::<MainnetGasProfile>(&OpsGasContext::default()),
-            Ok(Gas::from(590))
+            Ok(Gas::from(619))
         );
     }
 
     #[test]
     fn storage_gas_cost_prices_the_signed_size() {
         let ops = Ops::from([Op::ChannelInscribe(InscriptionOp::sample())]);
-        let context = OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::new(2, 3));
+        let context = OpsGasContext::new(HashMap::new(), GasPrices::new(2, 3));
 
         assert_eq!(
             ops.by_ref().storage_gas_cost(&context),

@@ -267,14 +267,14 @@ mod tests {
     use std::sync::Arc;
 
     use lb_core::{
-        mantle::{ledger::Utxos, transactions::hash::TxHash},
+        mantle::{note_set::NoteSets, transactions::hash::TxHash},
         sdp::Declarations,
     };
     use lb_groth16::{AdditiveGroup as _, Field as _, Fr, fr_to_bytes};
     use num_bigint::BigUint;
 
     use super::*;
-    use crate::{UtxoTree, config::ModulusShift};
+    use crate::config::ModulusShift;
 
     const SLOT_WINDOW: NonZeroU64 = NonZeroU64::new(100).expect("100 is not 0");
 
@@ -283,7 +283,7 @@ mod tests {
             epoch: epoch.into(),
             nonce: Fr::ZERO,
             blend_pow_difficulty: PowTarget::ZERO,
-            utxos: UtxoTree::default(),
+            note_sets: NoteSets::new(),
             total_stake: 0,
             lottery_0: Fr::ZERO,
             lottery_1: Fr::ZERO,
@@ -646,7 +646,7 @@ mod tests {
             epoch_reward: 0,
             nullifiers,
             tx_hash: TxHash::from([7u8; 32]),
-            utxos: Utxos::new(),
+            note_sets: NoteSets::new(),
             block_slots: HashTrieMapSync::new_sync(),
         });
 
@@ -679,7 +679,7 @@ mod tests {
             epoch_reward,
             nullifiers: nullifiers.clone(),
             tx_hash: TxHash::from([7u8; 32]),
-            utxos: Utxos::new(),
+            note_sets: NoteSets::new(),
             block_slots: HashTrieMapSync::new_sync(),
         };
 
@@ -703,7 +703,7 @@ mod tests {
             epoch_reward: 0,
             nullifiers: HashTrieMapSync::new_sync().insert(nullifier, Slot::from(7u64)),
             tx_hash: TxHash::from([7u8; 32]),
-            utxos: Utxos::new(),
+            note_sets: NoteSets::new(),
             block_slots: HashTrieMapSync::new_sync(),
         }
     }

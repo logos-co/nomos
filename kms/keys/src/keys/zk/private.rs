@@ -2,14 +2,23 @@ use std::sync::LazyLock;
 
 use lb_groth16::{AdditiveGroup as _, Field as _, Fr, fr_from_bytes_unchecked, fr_from_mod_bytes};
 use lb_poseidon2::{Digest, Poseidon2Bn254Hasher};
-use lb_zksign::{ZkSignError, ZkSignPrivateKeysData, ZkSignWitnessInputs};
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+// use lb_zksign::{ZkSignError, ZkSignPrivateKeysData, ZkSignWitnessInputs};
+use lb_zktransfer::ZkTransferProof;
 use num_bigint::BigUint;
 use rand_core::{CryptoRng, RngCore};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
 
-use crate::keys::zk::{public::PublicKey, signature::Signature};
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+// use crate::keys::zk::{public::PublicKey, signature::Signature};
+use crate::keys::{
+    errors::KeyError,
+    zk::{ZkTransferPayload, public::PublicKey},
+};
 
 static KDF: LazyLock<Fr> = LazyLock::new(|| fr_from_bytes_unchecked(b"KDF"));
 
@@ -47,6 +56,9 @@ impl SecretKey {
         self.0
     }
 
+    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+    // Components 1.3.0).
+    /*
     pub fn sign(&self, data: &Fr) -> Result<Signature, ZkSignError> {
         Self::multi_sign(std::slice::from_ref(self), data)
     }
@@ -57,6 +69,35 @@ impl SecretKey {
 
         let (signature, _) = lb_zksign::prove(inputs).expect("Signature should succeed");
         Ok(Signature::new(signature))
+    }
+    */
+
+    // keys[i] proves the i-th active input
+    pub fn prove_transfer(
+        keys: &[Self],
+        mut payload: ZkTransferPayload,
+    ) -> Result<ZkTransferProof, KeyError> {
+        let active = payload
+            .chain
+            .inputs_active
+            .iter()
+            .filter(|active| **active)
+            .count();
+        if keys.len() != active {
+            return Err(KeyError::UnsupportedMultisignatureSize(active, keys.len()));
+        }
+        let active_inputs = payload
+            .wallet
+            .inputs
+            .iter_mut()
+            .zip(payload.chain.inputs_active)
+            .filter_map(|(input, active)| active.then_some(input));
+        for (input, key) in active_inputs.zip(keys) {
+            input.secret_key = key.0;
+        }
+        lb_zktransfer::prove(payload.into())
+            .map(|(proof, _)| proof)
+            .map_err(|e| KeyError::ZkTransferProve(e.to_string()))
     }
 
     #[must_use]
@@ -86,6 +127,9 @@ impl From<BigUint> for SecretKey {
     }
 }
 
+// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
+// Components 1.3.0).
+/*
 fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkSignError> {
     let len = keys.len();
     if len > 32 {
@@ -97,3 +141,4 @@ fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkS
     }
     Ok(buff.into())
 }
+*/

@@ -1,19 +1,20 @@
-use lb_core::mantle::{
-    ledger::NoteId,
-    ops::{OpId as _, OpRef},
-};
+// TODO(RFC-480): a fee note is spent by its nullifier; the zone bridge is
+// suspended. Dropped imports: NoteId, OpId, pin_payload,
+// wait_for_channel_transfer_input_count, wait_for_channel_wallet_counts,
+// wait_for_channel_wallet_note, wait_for_deposit,
+// wait_for_finalized_deposit_via_sequencer,
+// wait_for_finalized_withdraw_via_sequencer, wait_for_withdraw,
+// withdraw_payload.
+use lb_core::mantle::{notes::NoteNf, ops::OpRef};
 
 use super::{
     CONCURRENT_DUPLICATE_SETTLE_SECS, CucumberWorld, DEFAULT_ZONE_SEQUENCER, Duration, HashMap,
     HashSet, Inscription, Step, StepError, StepResult, assert_sorted_outcome,
     collect_indexed_messages, collect_indexed_messages_exactly_once, ensure_zone_message_included,
     ensure_zone_transactions_included, log_step_error, make_inscription, parse_balance_payload,
-    pin_payload, replay_finalized_history, scan_indexer_for_payloads, single_column_table,
-    wait_for_channel_transfer_input_count, wait_for_channel_wallet_counts,
-    wait_for_channel_wallet_note, wait_for_deposit, wait_for_exact_indexed_payload_count,
-    wait_for_finalized_deposit_via_sequencer, wait_for_finalized_withdraw_via_sequencer,
-    wait_for_indexer_unordered, wait_for_transactions_finalized, wait_for_withdraw,
-    wait_until_sorted_conflict_settles, withdraw_payload, zone_step_error,
+    replay_finalized_history, scan_indexer_for_payloads, single_column_table,
+    wait_for_exact_indexed_payload_count, wait_for_indexer_unordered,
+    wait_for_transactions_finalized, wait_until_sorted_conflict_settles, zone_step_error,
 };
 
 #[cucumber::then("the channel view contract holds for all zone sequencers")]
@@ -253,6 +254,9 @@ async fn step_zone_transaction_is_finalized(
         .map_err(|error| zone_step_error(step, &error))
 }
 
+// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
+// transfers, withdrawals, channel wallet) is suspended.
+/*
 #[cucumber::then(expr = "the zone indexer returns finalized deposit {string} in {int} seconds")]
 #[expect(
     clippy::needless_pass_by_ref_mut,
@@ -443,6 +447,7 @@ async fn step_zone_sequencer_finalizes_withdraw(
     .map_err(|error| zone_step_error(step, &error))?;
     Ok(())
 }
+*/
 
 #[cucumber::then(
     expr = "the zone indexer returns all zone messages exactly once in any order in {int} seconds"
@@ -546,7 +551,8 @@ async fn step_double_handed_messages_are_refunded(
             .ok_or_else(|| StepError::LogicalError {
                 message: format!("Zone message '{alias}' has no submitted tx hash"),
             })?;
-        let fee_notes: HashSet<NoteId> = checkpoint
+        // let fee_notes: HashSet<NoteId> = checkpoint
+        let fee_notes: HashSet<NoteNf> = checkpoint
             .pending_txs
             .iter()
             .filter(|(hash, _)| *hash == submitted)
@@ -654,6 +660,8 @@ fn ensure_indexed_payloads_match_once(
     Ok(())
 }
 
+// TODO(RFC-480): the zone bridge (pin deposits, withdrawals) is suspended.
+/*
 #[cucumber::then(
     expr = "the zone indexer returns exactly one finalized pin and withdraw for deposit {string} in {int} seconds"
 )]
@@ -681,6 +689,7 @@ async fn step_zone_indexer_exact_reactive_lifecycle(
         .await
         .map_err(|error| zone_step_error(step, &error))
 }
+*/
 
 #[cucumber::then(
     expr = "the zone indexer returns {int} copies of zone message {string} in {int} seconds"

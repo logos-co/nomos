@@ -1,41 +1,103 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map::Entry};
+// TODO(RFC-480): UTXO test wallet.
+// use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, hash_map::Entry};
+use std::collections::{BTreeSet, HashMap, hash_map::Entry};
 
 use lb_common_http_client::ApiBlock;
-use lb_core::mantle::{
-    NoteId, SignedOps, TxHash, Utxo, ledger::verification_mode::StandardMode, ops::OpRef,
-    traits::Hashable as _, transactions::states::Unverified,
+// TODO(RFC-480): UTXO test wallet.
+// use lb_core::mantle::{
+//     NoteId, SignedOps, TxHash, Utxo, ledger::verification_mode::StandardMode, ops::OpRef,
+//     traits::Hashable as _, transactions::states::Unverified,
+// };
+// use lb_key_management_system_service::keys::ZkPublicKey;
+use lb_core::{
+    events::{BlockEvent, Event, Events},
+    mantle::{
+        Note, SignedOps, TxHash,
+        note_set::{LEDGER_SET, NoteSetIndex, SDP_SET},
+        notes::derive_note_nf,
+        traits::Hashable as _,
+    },
 };
-use lb_key_management_system_service::keys::ZkPublicKey;
+use lb_key_management_system_service::keys::{UnsecuredZkKey, ZkPublicKey};
+use lb_wallet::{KnownNote, KnownNotes, WalletBlock, WalletError, WalletState, revealed_notes};
+use thiserror::Error;
 
-#[cfg(test)]
-use crate::common::wallet::TrackedWallets;
-use crate::common::wallet::{TrackedWalletKeys, WalletId, WalletUtxos};
+// TODO(RFC-480): UTXO test wallet.
+// #[cfg(test)]
+// use crate::common::wallet::TrackedWallets;
+use crate::common::wallet::{
+    TrackedWalletKeys, TrackedWalletKeysError, WalletId, WalletUtxos,
+    chain::state::{GenesisNotes, note_opening},
+};
+
+#[derive(Debug, Error)]
+pub enum ScannerAccountingError {
+    #[error(transparent)]
+    TrackedKeys(#[from] TrackedWalletKeysError),
+    #[error(transparent)]
+    Wallet(#[from] WalletError),
+}
 
 #[derive(Clone)]
-/// Wallet UTXO accounting derived by replaying scanned chain blocks.
+/// Wallet note accounting derived by replaying scanned chain blocks.
 pub struct ScannerAccounting {
     tracked_wallets: Vec<TrackedWalletKeys>,
     public_key_to_wallet: HashMap<ZkPublicKey, WalletId>,
-    wallet_utxos: BTreeMap<WalletId, BTreeMap<NoteId, Utxo>>,
-    service_note_ids: HashSet<NoteId>,
+    // TODO(RFC-480): UTXO test wallet.
+    // wallet_utxos: BTreeMap<WalletId, BTreeMap<NoteId, Utxo>>,
+    // service_note_ids: HashSet<NoteId>,
+    secret_keys: HashMap<ZkPublicKey, UnsecuredZkKey>,
+    // the openings of the tracked keys, adopted once their commitment is
+    // appended
+    known_notes: KnownNotes,
+    // the note sets as the tracked keys see them; service notes are in the
+    // SDP set, so they are not spendable
+    state: WalletState,
     observed_transaction_hashes: BTreeSet<TxHash>,
 }
 
 impl ScannerAccounting {
-    /// Build accounting for tracked wallets seeded from genesis UTXOs.
+    /// Build accounting for tracked wallets seeded from the genesis notes.
     pub fn new(
         tracked_wallets: Vec<TrackedWalletKeys>,
-        genesis_utxos: &[Utxo],
-    ) -> Result<Self, crate::common::wallet::TrackedWalletKeysError> {
+        // TODO(RFC-480): UTXO test wallet.
+        // genesis_utxos: &[Utxo],
+        genesis: &GenesisNotes,
+    ) -> Result<Self, ScannerAccountingError> {
+        // TODO(RFC-480): UTXO test wallet.
+        // let mut accounting = Self::empty(tracked_wallets)?;
+        //
+        // for utxo in genesis_utxos {
+        //     accounting.add_owned_output(*utxo);
+        // }
+        //
+        // Ok(accounting)
         let mut accounting = Self::empty(tracked_wallets)?;
-
-        for utxo in genesis_utxos {
-            accounting.add_owned_output(*utxo);
+        for (note_set, notes) in [
+            (LEDGER_SET, &genesis.notes),
+            (SDP_SET, &genesis.service_notes),
+        ] {
+            for note in notes {
+                accounting.add_known_note(note_set, *note);
+            }
         }
+        // The genesis declarations spend their ledger notes.
+        accounting
+            .known_notes
+            .retain(|_, known| !genesis.spent.contains(&known.nullifier));
+        accounting.state = WalletState::from_genesis(
+            &accounting.known_notes,
+            &genesis.notes,
+            &genesis.service_notes,
+            0.into(),
+        )?;
 
         Ok(accounting)
     }
 
+    // TODO(RFC-480): UTXO test wallet. Restored notes carry no commitment MMR
+    // to follow the chain from.
+    /*
     /// Build accounting for tracked wallets seeded from restored wallet UTXOs.
     pub fn from_wallet_utxos(
         tracked_wallets: Vec<TrackedWalletKeys>,
@@ -49,31 +111,31 @@ impl ScannerAccounting {
 
         Ok(accounting)
     }
+    */
 
-    fn empty(
-        tracked_wallets: Vec<TrackedWalletKeys>,
-    ) -> Result<Self, crate::common::wallet::TrackedWalletKeysError> {
+    fn empty(tracked_wallets: Vec<TrackedWalletKeys>) -> Result<Self, ScannerAccountingError> {
         let mut public_key_to_wallet: HashMap<ZkPublicKey, WalletId> = HashMap::new();
-        let mut wallet_utxos = BTreeMap::new();
-
-        for tracked_wallet in &tracked_wallets {
-            wallet_utxos
-                .entry(tracked_wallet.wallet_id().clone())
-                .or_default();
-        }
+        // TODO(RFC-480): UTXO test wallet.
+        // let mut wallet_utxos = BTreeMap::new();
+        //
+        // for tracked_wallet in &tracked_wallets {
+        //     wallet_utxos
+        //         .entry(tracked_wallet.wallet_id().clone())
+        //         .or_default();
+        // }
+        let mut secret_keys = HashMap::new();
 
         for tracked_wallet in &tracked_wallets {
             let wallet_id = tracked_wallet.wallet_id().clone();
             for pk in tracked_wallet.wallet_pks() {
                 match public_key_to_wallet.entry(pk) {
                     Entry::Occupied(entry) if entry.get() != &wallet_id => {
-                        return Err(
-                            crate::common::wallet::TrackedWalletKeysError::DuplicatePublicKey {
-                                public_key: pk,
-                                first_wallet: entry.get().clone(),
-                                second_wallet: wallet_id,
-                            },
-                        );
+                        return Err(TrackedWalletKeysError::DuplicatePublicKey {
+                            public_key: pk,
+                            first_wallet: entry.get().clone(),
+                            second_wallet: wallet_id,
+                        }
+                        .into());
                     }
                     Entry::Occupied(_) => {}
                     Entry::Vacant(entry) => {
@@ -81,24 +143,75 @@ impl ScannerAccounting {
                     }
                 }
             }
+            secret_keys.extend(
+                tracked_wallet
+                    .wallet_keys()
+                    .map(|(pk, key)| (*pk, key.clone())),
+            );
         }
 
         Ok(Self {
             tracked_wallets,
             public_key_to_wallet,
-            wallet_utxos,
-            service_note_ids: HashSet::new(),
+            // TODO(RFC-480): UTXO test wallet.
+            // wallet_utxos,
+            // service_note_ids: HashSet::new(),
+            secret_keys,
+            known_notes: KnownNotes::new(),
+            state: WalletState::from_genesis(&KnownNotes::new(), &[], &[], 0.into())?,
             observed_transaction_hashes: BTreeSet::new(),
         })
     }
 
-    /// Apply one block's transactions to tracked wallet state.
-    pub fn apply_block(&mut self, block: &ApiBlock) {
+    /// Apply one block to tracked wallet state.
+    // TODO(RFC-480): UTXO test wallet.
+    // pub fn apply_block(&mut self, block: &ApiBlock) {
+    //     self.observe_block_transactions(block);
+    //
+    //     for tx in &block.transactions {
+    //         self.apply_transaction(tx);
+    //     }
+    // }
+    pub fn apply_block(&mut self, block: &ApiBlock, events: &Events) -> Result<(), WalletError> {
         self.observe_block_transactions(block);
 
-        for tx in &block.transactions {
-            self.apply_transaction(tx);
+        // The reward notes and the service notes the block reveals, then the
+        // notes the test wallets created, are adopted once appended.
+        let revealed = revealed_notes(
+            events,
+            block.transactions.iter().flat_map(SignedOps::op_refs_iter),
+        );
+        for (note_set, note) in &revealed {
+            self.add_known_note(*note_set, *note);
         }
+        let updates = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Block(BlockEvent::NoteSetUpdated(update)) => Some(update.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for update in &updates {
+            for commitment in &update.commitments {
+                if let Some(note) = note_opening(commitment) {
+                    self.add_known_note(update.note_set, note);
+                }
+            }
+        }
+
+        self.state = self.state.apply_block(
+            &self.known_notes,
+            &WalletBlock {
+                id: block.header.id,
+                parent: block.header.parent_block,
+                // The test wallets do not lead, so their aged paths are not
+                // rotated.
+                epoch: self.state.epoch,
+                updates,
+                revealed,
+            },
+        )?;
+        Ok(())
     }
 
     /// Record transaction hashes from a block without changing wallet UTXOs.
@@ -108,28 +221,62 @@ impl ScannerAccounting {
     }
 
     #[must_use]
-    /// Return currently unspent, unlocked UTXOs grouped by wallet id.
+    /// Return currently unspent ledger notes grouped by wallet id.
     pub fn wallet_utxos(&self) -> WalletUtxos {
-        self.wallet_utxos
+        // TODO(RFC-480): UTXO test wallet.
+        // self.wallet_utxos
+        //     .iter()
+        //     .map(|(wallet_id, utxos_by_note)| {
+        //         (
+        //             wallet_id.clone(),
+        //             utxos_by_note
+        //                 .iter()
+        //                 .filter_map(|(note_id, utxo)| {
+        //                     (!self.service_note_ids.contains(note_id)).then_some(*utxo)
+        //                 })
+        //                 .collect(),
+        //         )
+        //     })
+        //     .collect()
+        let mut wallet_utxos = self
+            .tracked_wallets
             .iter()
-            .map(|(wallet_id, utxos_by_note)| {
-                (
-                    wallet_id.clone(),
-                    utxos_by_note
-                        .iter()
-                        .filter_map(|(note_id, utxo)| {
-                            (!self.service_note_ids.contains(note_id)).then_some(*utxo)
-                        })
-                        .collect(),
-                )
-            })
-            .collect()
+            .map(|tracked_wallet| (tracked_wallet.wallet_id().clone(), Vec::new()))
+            .collect::<WalletUtxos>();
+        for owned in self
+            .state
+            .notes_owned_by_pks(self.public_key_to_wallet.keys())
+        {
+            if let Some(wallet_id) = self.public_key_to_wallet.get(&owned.note.public_key) {
+                wallet_utxos
+                    .entry(wallet_id.clone())
+                    .or_default()
+                    .push(owned);
+            }
+        }
+        wallet_utxos
     }
 
-    #[cfg(test)]
-    /// Publish the current scanner UTXO view into tracked wallets for tests.
-    pub fn publish_into(&self, wallets: &mut TrackedWallets) {
-        wallets.replace_current_wallets_utxos(self.wallet_utxos());
+    // TODO(RFC-480): UTXO test wallet.
+    // #[cfg(test)]
+    // /// Publish the current scanner UTXO view into tracked wallets for tests.
+    // pub fn publish_into(&self, wallets: &mut TrackedWallets) {
+    //     wallets.replace_current_wallets_utxos(self.wallet_utxos());
+    // }
+
+    #[must_use]
+    pub const fn wallet_state(&self) -> &WalletState {
+        &self.state
+    }
+
+    #[must_use]
+    pub const fn known_notes(&self) -> &KnownNotes {
+        &self.known_notes
+    }
+
+    #[must_use]
+    pub const fn secret_keys(&self) -> &HashMap<ZkPublicKey, UnsecuredZkKey> {
+        &self.secret_keys
     }
 
     #[must_use]
@@ -144,6 +291,24 @@ impl ScannerAccounting {
         self.tracked_wallets.len()
     }
 
+    // An opening of a tracked key, with the nullifier its secret key derives.
+    fn add_known_note(&mut self, note_set: NoteSetIndex, note: Note) {
+        let Some(secret_key) = self.secret_keys.get(&note.public_key) else {
+            return;
+        };
+        let commitment = note.commitment();
+        self.known_notes.insert(
+            commitment,
+            KnownNote {
+                note,
+                note_set,
+                nullifier: derive_note_nf(&commitment, secret_key.as_fr()),
+            },
+        );
+    }
+
+    // TODO(RFC-480): UTXO test wallet.
+    /*
     fn apply_transaction(&mut self, tx: &SignedOps<Unverified, StandardMode>) {
         for op in tx.op_refs() {
             match op {
@@ -214,8 +379,11 @@ impl ScannerAccounting {
     fn unlock_note(&mut self, note_id: NoteId) {
         self.service_note_ids.remove(&note_id);
     }
+    */
 }
 
+// TODO(RFC-480): UTXO test wallet.
+/*
 #[cfg(test)]
 mod tests {
     use lb_common_http_client::{ApiBlock, ApiHeader, Slot};
@@ -440,3 +608,4 @@ mod tests {
         );
     }
 }
+*/

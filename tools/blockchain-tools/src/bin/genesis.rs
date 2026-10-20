@@ -1,5 +1,6 @@
 use core::fmt::Debug;
 use std::{
+    collections::HashMap,
     fs,
     io::{self, Write as _},
     path::{Path, PathBuf},
@@ -11,10 +12,13 @@ use lb_core::{
     block::genesis::{GenesisBlock, GenesisBlockBuilder},
     crypto::ZkHasher,
     mantle::{
-        Note,
+        // TODO(RFC-480): the distribution is a list of genesis allocations.
+        // Note,
         ops::{channel::inscribe::InscriptionOp, sdp::SDPDeclareOp},
+        transactions::GenesisAllocation,
     },
 };
+use lb_key_management_system_keys::keys::{ZkKey, ZkPublicKey};
 use lb_node::config::deployment::DeploymentSettings;
 use lb_sdp_service::DeclarationConfig;
 use lb_utils::yaml::{OnUnknownKeys, deserialize_value_from_reader};
@@ -85,6 +89,11 @@ pub struct CeremonyArgs {
     #[arg(long, value_name = "FILE")]
     pub consensus_excluded_keys: PathBuf,
 
+    /// Secret stake keys proving the genesis declarations: a YAML map from
+    /// each provider's `zk_id` to the secret key of its stakeholder note.
+    #[arg(long, value_name = "FILE")]
+    pub stake_keys: PathBuf,
+
     /// The genesis template: the parameters of era zero. The ceremony
     /// generates the rest of the deployment config from it. Without it, the
     /// default deployment's era zero is used.
@@ -129,12 +138,19 @@ struct ConfigArgs {
 
 #[derive(Parser, Debug)]
 struct BlockArgs {
-    /// YAML file containing the list of genesis notes.
-    /// Each entry must have `value` (u64) and `pk` (hex-encoded `ZkPublicKey`).
-    /// At least one note is required.
+    // TODO(RFC-480): the distribution is a list of genesis allocations.
+    // /// YAML file containing the list of genesis notes.
+    // /// Each entry must have `value` (u64) and `pk` (hex-encoded `ZkPublicKey`).
+    // /// At least one note is required.
+    // ///
+    // /// Example:
+    // ///   - value: 100000 pk: eb3158fd...
+    /// YAML file containing the list of genesis allocations.
+    /// Each entry must have `value` (u64) and `public_key` (hex-encoded
+    /// `ZkPublicKey`). At least one allocation is required.
     ///
     /// Example:
-    ///   - value: 100000 pk: eb3158fd...
+    ///   - value: 100000 `public_key`: eb3158fd...
     #[arg(long, value_name = "FILE")]
     notes: PathBuf,
 
@@ -151,12 +167,22 @@ struct BlockArgs {
     #[arg(long, value_name = "FILE")]
     inscription: PathBuf,
 
+    // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
+    // /// YAML file containing the list of `SDPDeclareOps`.
+    // /// Each entry must have `service_type`, `locators`, `provider_id`,
+    // /// `zk_id`, and `service_note_id` fields.
+    // /// At least one declaration is required.
     /// YAML file containing the list of `SDPDeclareOps`.
     /// Each entry must have `service_type`, `locators`, `provider_id`,
-    /// `zk_id`, and `service_note_id` fields.
+    /// `zk_id`, `inputs`, `cm_merkle_root` and `amount` fields.
     /// At least one declaration is required.
     #[arg(long, value_name = "FILE")]
     declarations: PathBuf,
+
+    /// YAML map from each declaration's `zk_id` to the secret key of the
+    /// genesis note it spends.
+    #[arg(long, value_name = "FILE")]
+    stake_keys: PathBuf,
 
     /// Existing deployment config YAML to embed the genesis block into.
     /// When provided, the block is written into `genesis_block`
@@ -186,6 +212,11 @@ struct DistributeArgs {
     /// YAML file containing consensus-excluded key info.
     #[arg(long, value_name = "FILE")]
     consensus_excluded_keys: PathBuf,
+
+    /// YAML map from each provider's `zk_id` to the secret key of its
+    /// stakeholder note.
+    #[arg(long, value_name = "FILE")]
+    stake_keys: PathBuf,
 
     /// Write notes output to FILE instead of stdout.
     #[arg(long, short, value_name = "FILE")]
@@ -248,11 +279,17 @@ fn run_ceremony(args: &CeremonyArgs) -> Result<()> {
     let stakeholders: Vec<StakeHolderInfo> = load_yaml_file(&args.stake_holders)?;
     let providers: Vec<DeclarationConfig> = load_yaml_file(&args.providers)?;
     let excluded_key: ConsensusExcludedKey = load_yaml_file(&args.consensus_excluded_keys)?;
-    let (transfer_op, declarations) =
-        distribution::distribute(stakeholders, providers, &excluded_key)
+    let stake_keys: HashMap<ZkPublicKey, ZkKey> = load_yaml_file(&args.stake_keys)?;
+    // TODO(RFC-480): the distribution is a list of genesis allocations.
+    // let (transfer_op, declarations) =
+    //     distribution::distribute(stakeholders, providers, &excluded_key)
+    //         .map_err(|e| anyhow::anyhow!(e))
+    //         .context("Failed to calculate distribution during ceremony")?;
+    // let notes: Vec<Note> = transfer_op.notes().collect();
+    let (notes, declarations, keys) =
+        distribution::distribute(stakeholders, providers, &excluded_key, &stake_keys)
             .map_err(|e| anyhow::anyhow!(e))
             .context("Failed to calculate distribution during ceremony")?;
-    let notes: Vec<Note> = transfer_op.notes().collect();
 
     let mut config_value = load_genesis_template(args.template.as_ref())?;
     for raw in &args.overrides {
@@ -265,7 +302,9 @@ fn run_ceremony(args: &CeremonyArgs) -> Result<()> {
     if declarations.is_empty() {
         bail!("Ceremony failed: distribution resulted in zero declarations");
     }
-    let genesis_block = build_genesis_block(notes, inscription_op, declarations)?;
+    // TODO(RFC-480): the declarations are proven with their stake keys.
+    // let genesis_block = build_genesis_block(notes, inscription_op, declarations)?;
+    let genesis_block = build_genesis_block(notes, inscription_op, declarations, &keys)?;
 
     set_at_path(
         &mut config_value,
@@ -363,9 +402,12 @@ fn apply_override(config: &mut Value, s: &str) -> Result<()> {
 // ──────────────────────────────────────────────────────
 
 fn run_block(args: &BlockArgs) -> Result<()> {
-    let notes: Vec<Note> = load_yaml_file(&args.notes)?;
+    // TODO(RFC-480): the distribution is a list of genesis allocations.
+    // let notes: Vec<Note> = load_yaml_file(&args.notes)?;
+    let notes: Vec<GenesisAllocation> = load_yaml_file(&args.notes)?;
     let inscription: InscriptionOp = load_yaml_file(&args.inscription)?;
     let declarations: Vec<SDPDeclareOp> = load_yaml_file(&args.declarations)?;
+    let stake_keys: HashMap<ZkPublicKey, ZkKey> = load_yaml_file(&args.stake_keys)?;
 
     if notes.is_empty() {
         bail!("notes file must contain at least one Note");
@@ -374,7 +416,18 @@ fn run_block(args: &BlockArgs) -> Result<()> {
         bail!("declarations file must contain at least one SDPDeclareOp");
     }
 
-    let genesis_block = build_genesis_block(notes, inscription, declarations)?;
+    let keys = declarations
+        .iter()
+        .map(|declaration| {
+            stake_keys
+                .get(&declaration.zk_id)
+                .cloned()
+                .with_context(|| format!("no stake key for declaration {:?}", declaration.zk_id))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    // TODO(RFC-480): the declarations are proven with their stake keys.
+    // let genesis_block = build_genesis_block(notes, inscription, declarations)?;
+    let genesis_block = build_genesis_block(notes, inscription, declarations, &keys)?;
 
     let result = match args.embed_in {
         Some(ref embed_path) => {
@@ -396,16 +449,22 @@ fn run_block(args: &BlockArgs) -> Result<()> {
 /// Drive the [`GenesisBlockBuilder`] typestate machine with the supplied
 /// components and return the finished [`GenesisBlock`].
 fn build_genesis_block(
-    notes: Vec<Note>,
+    // TODO(RFC-480): the distribution is a list of genesis allocations.
+    // notes: Vec<Note>,
+    notes: Vec<GenesisAllocation>,
     inscription: InscriptionOp,
     declarations: Vec<SDPDeclareOp>,
+    stake_keys: &[ZkKey],
 ) -> Result<GenesisBlock> {
     let mut notes_iter = notes.into_iter();
     let mut decls_iter = declarations.into_iter();
 
-    // Non-emptiness is checked by the caller, so these unwraps are safe.
+    // TODO(RFC-480): a genesis block without declarations needs no stake key.
+    // // Non-emptiness is checked by the caller, so these unwraps are safe.
+    // let first_note = notes_iter.next().unwrap();
+    // let first_decl = decls_iter.next().unwrap();
+    // Non-emptiness of the notes is checked by the caller, so this unwrap is safe.
     let first_note = notes_iter.next().unwrap();
-    let first_decl = decls_iter.next().unwrap();
 
     // Accumulate additional notes into WithNotes state.
     let mut builder = GenesisBlockBuilder::new().add_note(first_note);
@@ -415,15 +474,26 @@ fn build_genesis_block(
             .context("failed to append note to genesis transfer")?;
     }
 
+    // TODO(RFC-480): a genesis block without declarations needs no stake key.
+    // // Transition: WithNotes → WithNotesAndInscription → WithAll.
+    // let mut builder = builder
+    //     .set_inscription(inscription)
+    //     .add_declaration(first_decl);
     // Transition: WithNotes → WithNotesAndInscription → WithAll.
-    let mut builder = builder
-        .set_inscription(inscription)
-        .add_declaration(first_decl);
+    let builder = builder.set_inscription(inscription);
+    let Some(first_decl) = decls_iter.next() else {
+        return builder.build().context("failed to build genesis block");
+    };
+    let mut builder = builder.add_declaration(first_decl);
     for decl in decls_iter {
         builder = builder.add_declaration(decl)?;
     }
 
-    builder.build().context("failed to build genesis block")
+    // TODO(RFC-480): the declarations are proven with their stake keys.
+    // builder.build().context("failed to build genesis block")
+    builder
+        .build_proven(stake_keys)
+        .context("failed to build genesis block")
 }
 
 // ── distribute implementation
@@ -433,12 +503,19 @@ fn run_distribute(args: &DistributeArgs) -> Result<()> {
     let stakeholders: Vec<StakeHolderInfo> = load_yaml_file(&args.stake_holders)?;
     let providers: Vec<DeclarationConfig> = load_yaml_file(&args.providers)?;
     let excluded_key: ConsensusExcludedKey = load_yaml_file(&args.consensus_excluded_keys)?;
+    let stake_keys: HashMap<ZkPublicKey, ZkKey> = load_yaml_file(&args.stake_keys)?;
 
-    let (transfer_op, declarations) =
-        distribution::distribute(stakeholders, providers, &excluded_key)
+    // TODO(RFC-480): the distribution is a list of genesis allocations.
+    // let (transfer_op, declarations) =
+    //     distribution::distribute(stakeholders, providers, &excluded_key)
+    //         .map_err(|e| anyhow::anyhow!(e))
+    //         .context("Failed to calculate distribution")?;
+    // let notes: Vec<Note> = transfer_op.notes().collect();
+    // The stake keys stay secret: `block` reads them from their own file.
+    let (notes, declarations, _keys) =
+        distribution::distribute(stakeholders, providers, &excluded_key, &stake_keys)
             .map_err(|e| anyhow::anyhow!(e))
             .context("Failed to calculate distribution")?;
-    let notes: Vec<Note> = transfer_op.notes().collect();
 
     let notes_value = struct_to_yaml_value(&notes)?;
     let declarations_value = struct_to_yaml_value(&declarations)?;

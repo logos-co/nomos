@@ -5,7 +5,9 @@ use crate::mantle::{
     ops::{
         OpProofRef, OpRef, SignedOperation,
         channel::{
-            channel_transfer::{ChannelTransferOp, ChannelTransferValidationContext},
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // channel_transfer::{ChannelTransferOp, ChannelTransferValidationContext},
             config::{ChannelConfigOp, ChannelConfigValidationContext},
             deposit::{DepositOp, DepositValidationContext},
             inscribe::{
@@ -13,10 +15,13 @@ use crate::mantle::{
             },
             withdraw::{ChannelWithdrawOp, WithdrawValidationContext},
         },
-        leader_claim::{
-            LeaderClaimOp, LeaderClaimPreverificationContext, LeaderClaimVerificationContext,
-        },
+        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
+        // the leader reward is a note in the block.
+        // leader_claim::{
+        //     LeaderClaimOp, LeaderClaimPreverificationContext, LeaderClaimVerificationContext,
+        // },
         pow::{ClaimPoWRewardVerificationContext, ClaimPowRewardOp},
+        program::ProgramRegisterOp,
         sdp::{
             SDPActiveOp, SDPActiveValidationContext, SDPDeclareOp, SDPDeclareVerificationContext,
             SDPWithdrawOp, SDPWithdrawValidationContext, declare::SDPDeclarePreverificationContext,
@@ -36,13 +41,18 @@ pub enum SignedOp<State: VerificationState, Mode: VerificationMode> {
     ChannelConfig(SignedOperation<ChannelConfigOp, State, Mode>),
     ChannelDeposit(SignedOperation<DepositOp, State, Mode>),
     ChannelWithdraw(SignedOperation<ChannelWithdrawOp, State, Mode>),
-    ChannelTransfer(SignedOperation<ChannelTransferOp, State, Mode>),
+    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+    // the steps of CHANNEL_INSCRIBE.
+    // ChannelTransfer(SignedOperation<ChannelTransferOp, State, Mode>),
     SDPDeclare(SignedOperation<SDPDeclareOp, State, Mode>),
     SDPWithdraw(SignedOperation<SDPWithdrawOp, State, Mode>),
     SDPActive(SignedOperation<SDPActiveOp, State, Mode>),
-    LeaderClaim(SignedOperation<LeaderClaimOp, State, Mode>),
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // LeaderClaim(SignedOperation<LeaderClaimOp, State, Mode>),
     Transfer(SignedOperation<TransferOp, State, Mode>),
     ClaimPowReward(SignedOperation<ClaimPowRewardOp, State, Mode>),
+    ProgramRegister(SignedOperation<ProgramRegisterOp, State, Mode>),
 }
 
 impl<State: VerificationState, Mode: VerificationMode> SignedOp<State, Mode> {
@@ -53,13 +63,18 @@ impl<State: VerificationState, Mode: VerificationMode> SignedOp<State, Mode> {
             Self::ChannelConfig(signed_operation) => signed_operation.operation().into(),
             Self::ChannelDeposit(signed_operation) => signed_operation.operation().into(),
             Self::ChannelWithdraw(signed_operation) => signed_operation.operation().into(),
-            Self::ChannelTransfer(signed_operation) => signed_operation.operation().into(),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Self::ChannelTransfer(signed_operation) => signed_operation.operation().into(),
             Self::SDPDeclare(signed_operation) => signed_operation.operation().into(),
             Self::SDPWithdraw(signed_operation) => signed_operation.operation().into(),
             Self::SDPActive(signed_operation) => signed_operation.operation().into(),
-            Self::LeaderClaim(signed_operation) => signed_operation.operation().into(),
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Self::LeaderClaim(signed_operation) => signed_operation.operation().into(),
             Self::Transfer(signed_operation) => signed_operation.operation().into(),
             Self::ClaimPowReward(signed_operation) => signed_operation.operation().into(),
+            Self::ProgramRegister(signed_operation) => signed_operation.operation().into(),
         }
     }
 
@@ -70,13 +85,18 @@ impl<State: VerificationState, Mode: VerificationMode> SignedOp<State, Mode> {
             Self::ChannelConfig(signed_operation) => signed_operation.proof().into(),
             Self::ChannelDeposit(signed_operation) => signed_operation.proof().into(),
             Self::ChannelWithdraw(signed_operation) => signed_operation.proof().into(),
-            Self::ChannelTransfer(signed_operation) => signed_operation.proof().into(),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Self::ChannelTransfer(signed_operation) => signed_operation.proof().into(),
             Self::SDPDeclare(signed_operation) => signed_operation.proof().into(),
             Self::SDPWithdraw(signed_operation) => signed_operation.proof().into(),
             Self::SDPActive(signed_operation) => signed_operation.proof().into(),
-            Self::LeaderClaim(signed_operation) => signed_operation.proof().into(),
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Self::LeaderClaim(signed_operation) => signed_operation.proof().into(),
             Self::Transfer(signed_operation) => signed_operation.proof().into(),
             Self::ClaimPowReward(signed_operation) => signed_operation.proof().into(),
+            Self::ProgramRegister(signed_operation) => signed_operation.proof().into(),
         }
     }
 
@@ -96,13 +116,18 @@ impl<State: VerificationState, Mode: VerificationMode> SignedOp<State, Mode> {
             Self::ChannelConfig(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::ChannelDeposit(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::ChannelWithdraw(signed_operation) => signed_operation.into_state_trusted().into(),
-            Self::ChannelTransfer(signed_operation) => signed_operation.into_state_trusted().into(),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Self::ChannelTransfer(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::SDPDeclare(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::SDPWithdraw(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::SDPActive(signed_operation) => signed_operation.into_state_trusted().into(),
-            Self::LeaderClaim(signed_operation) => signed_operation.into_state_trusted().into(),
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Self::LeaderClaim(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::Transfer(signed_operation) => signed_operation.into_state_trusted().into(),
             Self::ClaimPowReward(signed_operation) => signed_operation.into_state_trusted().into(),
+            Self::ProgramRegister(signed_operation) => signed_operation.into_state_trusted().into(),
         }
     }
 }
@@ -133,10 +158,12 @@ impl SignedOp<Unverified, StandardMode> {
                 .into_preverified(&())
                 .map(SignedOp::from)
                 .map_err(VerificationError::ChannelVerificationError),
-            Self::ChannelTransfer(op) => op
-                .into_preverified(&())
-                .map(SignedOp::from)
-                .map_err(VerificationError::ChannelVerificationError),
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Self::ChannelTransfer(op) => op
+            //     .into_preverified(&())
+            //     .map(SignedOp::from)
+            //     .map_err(VerificationError::ChannelVerificationError),
             Self::SDPDeclare(op) => {
                 let context = SDPDeclarePreverificationContext { tx_hash_view };
                 op.into_preverified(&context)
@@ -151,12 +178,14 @@ impl SignedOp<Unverified, StandardMode> {
                 .into_preverified(&())
                 .map(SignedOp::from)
                 .map_err(VerificationError::SDPVerificationError),
-            Self::LeaderClaim(op) => {
-                let context = LeaderClaimPreverificationContext { tx_hash_view };
-                op.into_preverified(&context)
-                    .map(SignedOp::from)
-                    .map_err(VerificationError::LeaderClaimVerificationError)
-            }
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Self::LeaderClaim(op) => {
+            //     let context = LeaderClaimPreverificationContext { tx_hash_view };
+            //     op.into_preverified(&context)
+            //         .map(SignedOp::from)
+            //         .map_err(VerificationError::LeaderClaimVerificationError)
+            // }
             Self::Transfer(op) => op
                 .into_preverified(&())
                 .map(SignedOp::from)
@@ -165,6 +194,10 @@ impl SignedOp<Unverified, StandardMode> {
                 .into_preverified(&())
                 .map(SignedOp::from)
                 .map_err(VerificationError::ClaimPowRewardError),
+            Self::ProgramRegister(op) => op
+                .into_preverified(&())
+                .map(SignedOp::from)
+                .map_err(VerificationError::ProgramRegisterError),
         }
     }
 }
@@ -191,7 +224,9 @@ impl SignedOp<Preverified, StandardMode> {
     )]
     pub(crate) fn into_verified(
         self,
-        op_index: usize,
+        // TODO(RFC-480): no Operation reads its index once the channel multi
+        // signatures of CHANNEL_WITHDRAW and CHANNEL_TRANSFER are gone.
+        _op_index: usize,
         tx_hash_view: &TxHashView,
         helper: &impl OperationVerificationHelper,
         deferred_proofs: &mut DeferredProofs,
@@ -200,9 +235,12 @@ impl SignedOp<Preverified, StandardMode> {
             Self::ChannelInscribe(op) => {
                 let channel_inscribe_context = InscriptionValidationContext {
                     channels: helper.get_channels(),
+                    note_sets: helper.get_note_sets(),
+                    programs: helper.get_programs(),
                     block_slot: helper.get_block_slot(),
+                    block_number: helper.get_block_number(),
                 };
-                op.into_verified(&channel_inscribe_context)
+                op.into_verified_deferred(&channel_inscribe_context, deferred_proofs)
                     .map(Into::into)
                     .map_err(map_verify_failure)
             }
@@ -218,8 +256,12 @@ impl SignedOp<Preverified, StandardMode> {
             Self::ChannelDeposit(op) => {
                 let channel_deposit_context = DepositValidationContext {
                     channels: helper.get_channels(),
-                    service_notes: helper.get_service_notes(),
-                    utxos: helper.get_utxos(),
+                    // TODO(RFC-480): inputs are nullifiers of the ledger set and outputs
+                    // commitments of the channel set.
+                    // service_notes: helper.get_service_notes(),
+                    // utxos: helper.get_utxos(),
+                    note_sets: helper.get_note_sets(),
+                    block_number: helper.get_block_number(),
                     tx_hash_view,
                 };
                 op.into_verified_deferred(&channel_deposit_context, deferred_proofs)
@@ -229,29 +271,35 @@ impl SignedOp<Preverified, StandardMode> {
             Self::ChannelWithdraw(op) => {
                 let channel_withdraw_context = WithdrawValidationContext {
                     channels: helper.get_channels(),
-                    service_notes: helper.get_service_notes(),
-                    utxos: helper.get_utxos(),
+                    // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
+                    // ZkTransfer over the channel note set.
+                    // service_notes: helper.get_service_notes(),
+                    // utxos: helper.get_utxos(),
+                    // helper,
+                    // op_index,
+                    note_sets: helper.get_note_sets(),
+                    block_number: helper.get_block_number(),
                     tx_hash_view,
-                    helper,
-                    op_index,
                 };
-                op.into_verified(&channel_withdraw_context)
+                op.into_verified_deferred(&channel_withdraw_context, deferred_proofs)
                     .map(Into::into)
                     .map_err(map_verify_failure)
             }
-            Self::ChannelTransfer(op) => {
-                let context = ChannelTransferValidationContext {
-                    service_notes: helper.get_service_notes(),
-                    channels: helper.get_channels(),
-                    utxos: helper.get_utxos(),
-                    tx_hash_view,
-                    op_index,
-                    helper,
-                };
-                op.into_verified(&context)
-                    .map(Into::into)
-                    .map_err(map_verify_failure)
-            }
+            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+            // the steps of CHANNEL_INSCRIBE.
+            // Self::ChannelTransfer(op) => {
+            //     let context = ChannelTransferValidationContext {
+            //         service_notes: helper.get_service_notes(),
+            //         channels: helper.get_channels(),
+            //         utxos: helper.get_utxos(),
+            //         tx_hash_view,
+            //         op_index,
+            //         helper,
+            //     };
+            //     op.into_verified(&context)
+            //         .map(Into::into)
+            //         .map_err(map_verify_failure)
+            // }
             Self::SDPDeclare(op) => {
                 let declarations =
                     match helper.get_declarations_by_service(op.operation().service_type) {
@@ -259,9 +307,12 @@ impl SignedOp<Preverified, StandardMode> {
                         Err(error) => return Err(map_verify_failure((op, error))),
                     };
                 let context = SDPDeclareVerificationContext {
-                    utxo_tree: helper.get_utxos(),
-                    channels: helper.get_channels(),
-                    service_notes: helper.get_service_notes(),
+                    // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
+                    // utxo_tree: helper.get_utxos(),
+                    // channels: helper.get_channels(),
+                    // service_notes: helper.get_service_notes(),
+                    note_sets: helper.get_note_sets(),
+                    block_number: helper.get_block_number(),
                     tx_hash_view,
                     declarations,
                     min_stake: helper.get_min_stake(),
@@ -279,7 +330,10 @@ impl SignedOp<Preverified, StandardMode> {
                 let context = SDPWithdrawValidationContext {
                     declarations,
                     epoch: helper.get_epoch(),
-                    service_notes: helper.get_service_notes(),
+                    // TODO(RFC-480): the service note is consumed by its nullifier against the
+                    // root of its commitment.
+                    // service_notes: helper.get_service_notes(),
+                    note_sets: helper.get_note_sets(),
                     tx_hash_view,
                 };
                 op.into_verified_deferred(&context, deferred_proofs)
@@ -297,25 +351,33 @@ impl SignedOp<Preverified, StandardMode> {
                     tx_hash_view,
                     epoch: helper.get_epoch(),
                 };
-                op.into_verified_deferred(&context, deferred_proofs)
+                op.into_verified(&context)
                     .map(Into::into)
                     .map_err(map_verify_failure)
             }
-            Self::LeaderClaim(op) => {
-                let context = LeaderClaimVerificationContext {
-                    nullifiers: helper.get_nullifiers(),
-                    claimable_vouchers_root: helper.get_claimable_vouchers_root(),
-                    tx_hash_view,
-                };
-                op.into_verified_deferred(&context, deferred_proofs)
-                    .map(Into::into)
-                    .map_err(map_verify_failure)
-            }
+            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
+            // retired; the leader reward is a note in the block.
+            // Self::LeaderClaim(op) => {
+            //     let context = LeaderClaimVerificationContext {
+            //         nullifiers: helper.get_nullifiers(),
+            //         claimable_vouchers_root: helper.get_claimable_vouchers_root(),
+            //         tx_hash_view,
+            //     };
+            //     // TODO(RFC-480): the PoC circuit is retired in circuits
+            //     // v0.6.0 and LEADER_CLAIM is retired.
+            //     // op.into_verified_deferred(&context, deferred_proofs)
+            //     op.into_verified(&context)
+            //         .map(Into::into)
+            //         .map_err(map_verify_failure)
+            // }
             Self::Transfer(op) => {
                 let context = TransferValidationContext {
-                    service_notes: helper.get_service_notes(),
-                    channels: helper.get_channels(),
-                    utxos: helper.get_utxos(),
+                    // TODO(RFC-480): inputs are nullifiers and outputs commitments.
+                    // service_notes: helper.get_service_notes(),
+                    // channels: helper.get_channels(),
+                    // utxos: helper.get_utxos(),
+                    note_sets: helper.get_note_sets(),
+                    block_number: helper.get_block_number(),
                     tx_hash_view,
                 };
                 op.into_verified_deferred(&context, deferred_proofs)
@@ -338,6 +400,10 @@ impl SignedOp<Preverified, StandardMode> {
                     .map(Into::into)
                     .map_err(map_verify_failure)
             }
+            Self::ProgramRegister(op) => op
+                .into_verified(&())
+                .map(Into::into)
+                .map_err(map_verify_failure),
         }
     }
 }
@@ -361,13 +427,18 @@ impl_from_signed_operation! {
     ChannelConfigOp => ChannelConfig,
     DepositOp => ChannelDeposit,
     ChannelWithdrawOp => ChannelWithdraw,
-    ChannelTransferOp => ChannelTransfer,
+    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+    // the steps of CHANNEL_INSCRIBE.
+    // ChannelTransferOp => ChannelTransfer,
     SDPDeclareOp => SDPDeclare,
     SDPWithdrawOp => SDPWithdraw,
     SDPActiveOp => SDPActive,
-    LeaderClaimOp => LeaderClaim,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // LeaderClaimOp => LeaderClaim,
     TransferOp => Transfer,
     ClaimPowRewardOp => ClaimPowReward,
+    ProgramRegisterOp => ProgramRegister,
 }
 
 macro_rules! impl_try_from_op_and_proof {
@@ -399,13 +470,18 @@ impl_try_from_op_and_proof! {
     ChannelConfig => ChannelConfigOp,
     ChannelDeposit => DepositOp,
     ChannelWithdraw => ChannelWithdrawOp,
-    ChannelTransfer => ChannelTransferOp,
+    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
+    // the steps of CHANNEL_INSCRIBE.
+    // ChannelTransfer => ChannelTransferOp,
     SDPDeclare => SDPDeclareOp,
     SDPWithdraw => SDPWithdrawOp,
     SDPActive => SDPActiveOp,
-    LeaderClaim => LeaderClaimOp,
+    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
+    // leader reward is a note in the block.
+    // LeaderClaim => LeaderClaimOp,
     Transfer => TransferOp,
     ClaimPowReward => ClaimPowRewardOp,
+    ProgramRegister => ProgramRegisterOp,
 }
 
 #[cfg(test)]

@@ -1,19 +1,20 @@
 use std::collections::{HashMap, HashSet};
 
 use lb_common_http_client::{ApiBlock, ProcessedBlockEvent, Slot};
+// TODO(RFC-480): channel notes are private and move by steps; the bridge is
+// rebuilt on ChannelStep.
+// use lb_core::mantle::{
+//     ledger::{Inputs, Outputs},
+//     ops::channel::channel_transfer::ChannelTransferOp,
+// };
 use lb_core::{
     header::HeaderId,
     mantle::{
         SignedOps,
-        ledger::{
-            Inputs, Outputs,
-            verification_mode::{StandardMode, VerificationMode},
-        },
+        ledger::verification_mode::{StandardMode, VerificationMode},
         ops::{
             OpId as _, OpRef,
-            channel::{
-                ChannelId, MsgId, channel_transfer::ChannelTransferOp, inscribe::Inscription,
-            },
+            channel::{ChannelId, MsgId, inscribe::Inscription},
         },
         traits::Hashable as _,
         transactions::{
@@ -24,19 +25,23 @@ use lb_core::{
 };
 use tracing::{debug, error};
 
+// TODO(RFC-480): channel notes are private and move by steps; the bridge is
+// rebuilt on ChannelStep.
+// use super::{
+//     channel_wallet::{NoteOp, note_ops_from_txs},
+//     types::{AtomicWithdrawInfo, ChannelTransferInfo, PinDepositInfo, WithdrawInfo},
+// };
 use super::{
     TARGET,
     block_states::BlockChannelTx,
-    channel_wallet::{NoteOp, note_ops_from_txs},
     state::{ChannelUpdateInfo, PendingBundle, TxState},
     types::{
-        AtomicWithdrawInfo, ChannelTransferInfo, ChannelUpdateTx, DepositInfo, Error, FinalizedOp,
-        FinalizedTx, InscriptionInfo, PendingTx, PinDepositInfo, WithdrawInfo,
+        ChannelUpdateTx, DepositInfo, Error, FinalizedOp, FinalizedTx, InscriptionInfo, PendingTx,
     },
 };
 use crate::{
     adapter,
-    adapter::{DepositEvents, DepositOpKey, build_deposit_events},
+    adapter::{DepositEvents, DepositOpKey, build_deposit_events, deposit_message},
 };
 
 /// Result of processing a block event.
@@ -64,16 +69,26 @@ struct PreparedBlockEvent<'a> {
     lib_slot: Slot,
     lib_advanced: bool,
     finalized: Vec<PreparedFinalizedBlock>,
-    /// Each canonical-backfill block paired with its (pre-computed, pure)
-    /// channel-note ops so the apply phase stays free of node fetches.
-    canonical_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // /// Each canonical-backfill block paired with its (pre-computed, pure)
+    // /// channel-note ops so the apply phase stays free of node fetches.
+    // canonical_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
+    // /// The reported tip's unknown branch, oldest first, prepared like
+    // /// `canonical_backfill` and applied after the event block.
+    // tip_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
+    /// Each canonical-backfill block, fetched so the apply phase stays free
+    /// of node fetches.
+    canonical_backfill: Vec<ApiBlock>,
     /// The reported tip's unknown branch, oldest first, prepared like
     /// `canonical_backfill` and applied after the event block.
-    tip_backfill: Vec<(ApiBlock, Vec<NoteOp>)>,
+    tip_backfill: Vec<ApiBlock>,
     our_txs: Vec<TxHash>,
     channel_txs: Vec<BlockChannelTx>,
-    /// Channel-note ops of the live block, computed in the prepare phase.
-    note_ops: Vec<NoteOp>,
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // /// Channel-note ops of the live block, computed in the prepare phase.
+    // note_ops: Vec<NoteOp>,
     deposits: Vec<DepositInfo>,
 }
 
@@ -122,7 +137,10 @@ where
         let from: u64 = lib_slot.into();
         let to: u64 = event.lib_slot.into();
         if from < to {
-            prepare_finalized_blocks(from + 1, to, channel_id, node, state).await?
+            // TODO(RFC-480): channel notes are private and move by steps; the
+            // bridge is rebuilt on ChannelStep.
+            // prepare_finalized_blocks(from + 1, to, channel_id, node, state).await?
+            prepare_finalized_blocks(from + 1, to, channel_id, node).await?
         } else {
             Vec::new()
         }
@@ -160,12 +178,14 @@ where
         channel_id,
     )
     .await?;
-    let note_ops = note_ops_from_txs(
-        &event.block.transactions,
-        channel_id,
-        &deposit_events,
-        event.block.header.slot,
-    );
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge
+    // is rebuilt on ChannelStep.
+    // let note_ops = note_ops_from_txs(
+    //     &event.block.transactions,
+    //     channel_id,
+    //     &deposit_events,
+    //     event.block.header.slot,
+    // );
     deposits.extend(block_channel_deposits(
         &event.block.transactions,
         channel_id,
@@ -183,7 +203,10 @@ where
         Vec::new()
     } else {
         let mut known = finalized_block_ids;
-        known.extend(canonical_backfill.iter().map(|(block, _)| block.header.id));
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // known.extend(canonical_backfill.iter().map(|(block, _)| block.header.id));
+        known.extend(canonical_backfill.iter().map(|block| block.header.id));
         known.insert(event.block.header.id);
         if block_is_known(state, &known, state_lib, event.tip) {
             Vec::new()
@@ -207,7 +230,9 @@ where
         tip_backfill,
         our_txs,
         channel_txs,
-        note_ops,
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // note_ops,
         deposits,
     })
 }
@@ -248,8 +273,11 @@ fn apply_prepared_block_event(
         canonical_backfill,
         tip_backfill,
         our_txs,
-        mut channel_txs,
-        note_ops,
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // mut channel_txs,
+        // note_ops,
+        channel_txs,
         deposits,
     } = prepared;
 
@@ -280,13 +308,18 @@ fn apply_prepared_block_event(
     let old_lineage = old_tip.map(|old| s.channel_lineage(old));
 
     let current_lib = s.lib();
-    for (block, note_ops) in canonical_backfill {
-        apply_backfilled_block(s, &block, channel_id, current_lib, note_ops);
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // for (block, note_ops) in canonical_backfill {
+    //     apply_backfilled_block(s, &block, channel_id, current_lib, note_ops);
+    // }
+    //
+    // // Re-type unsound pin-deposits to `Custom` before they are stored
+    // // or mirrored, so both the `adopted` surface and the pending set agree.
+    // demote_non_identity_pin_deposits(&mut channel_txs, &block.transactions, channel_id, s);
+    for block in canonical_backfill {
+        apply_backfilled_block(s, &block, channel_id, current_lib);
     }
-
-    // Re-type unsound pin-deposits to `Custom` before they are stored
-    // or mirrored, so both the `adopted` surface and the pending set agree.
-    demote_non_identity_pin_deposits(&mut channel_txs, &block.transactions, channel_id, s);
 
     // Pending = canonical channel txs above LIB + our own unmined publishes:
     // mirror only the canonical tip; a fork's content joins from the store if
@@ -306,14 +339,21 @@ fn apply_prepared_block_event(
         lib,
         our_txs,
         channel_txs,
-        note_ops,
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // note_ops,
     );
 
     // Then the reported tip's branch, which may build on the event block.
     // Like canonical backfill it is mirrored from the store below.
     let tip_lib = s.lib();
-    for (block, note_ops) in tip_backfill {
-        apply_backfilled_block(s, &block, channel_id, tip_lib, note_ops);
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // for (block, note_ops) in tip_backfill {
+    //     apply_backfilled_block(s, &block, channel_id, tip_lib, note_ops);
+    // }
+    for block in tip_backfill {
+        apply_backfilled_block(s, &block, channel_id, tip_lib);
     }
 
     // Remove our pending txs that were finalized in the backfilled LIB blocks,
@@ -391,11 +431,17 @@ fn mirror_branch_from_store(s: &mut TxState, tip: HeaderId, channel_id: ChannelI
     // the tracked ones (e.g. a re-funded publish's original landing next to
     // entries pending still holds), so they need not chain off each other
     // and the in-block order check of `classify_channel_txs` does not apply.
-    let mut classified: Vec<BlockChannelTx> = untracked
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // let mut classified: Vec<BlockChannelTx> = untracked
+    //     .iter()
+    //     .filter_map(|tx| classify_channel_tx(tx, channel_id, &mut None))
+    //     .collect();
+    // demote_non_identity_pin_deposits(&mut classified, &untracked, channel_id, s);
+    let classified: Vec<BlockChannelTx> = untracked
         .iter()
         .filter_map(|tx| classify_channel_tx(tx, channel_id, &mut None))
         .collect();
-    demote_non_identity_pin_deposits(&mut classified, &untracked, channel_id, s);
     mirror_channel_txs(s, &classified, &untracked, channel_id);
 }
 
@@ -412,17 +458,19 @@ fn mirror_channel_txs(
     for block_tx in classified {
         let (info, bundle) = match block_tx {
             BlockChannelTx::Inscription(i) => (i, PendingBundle::Plain),
-            BlockChannelTx::AtomicWithdraw(a) => (
-                &a.inscription,
-                PendingBundle::Withdraw {
-                    withdraws: a.withdraws.clone(),
-                    outputs: a.outputs.clone(),
-                },
-            ),
-            BlockChannelTx::PinDeposit(a) => (
-                &a.inscription,
-                PendingBundle::PinDeposit(a.consumed_notes.clone()),
-            ),
+            // TODO(RFC-480): channel notes are private and move by steps; the
+            // bridge is rebuilt on ChannelStep.
+            // BlockChannelTx::AtomicWithdraw(a) => (
+            //     &a.inscription,
+            //     PendingBundle::Withdraw {
+            //         withdraws: a.withdraws.clone(),
+            //         outputs: a.outputs.clone(),
+            //     },
+            // ),
+            // BlockChannelTx::PinDeposit(a) => (
+            //     &a.inscription,
+            //     PendingBundle::PinDeposit(a.consumed_notes.clone()),
+            // ),
             BlockChannelTx::Config(_) | BlockChannelTx::Custom { .. } => {
                 let tx_hash = block_tx
                     .tx_hash()
@@ -447,77 +495,79 @@ fn mirror_channel_txs(
     }
 }
 
-/// Re-type any [`BlockChannelTx::PinDeposit`] whose transfer is
-/// not a 1:1 identity re-creation of its consumed notes as `Custom` — a split,
-/// merge, re-value or re-key would make `consumed_notes` misdescribe the
-/// deposit. Runs before the classification is stored or mirrored.
-fn demote_non_identity_pin_deposits(
-    channel_txs: &mut [BlockChannelTx],
-    transactions: &[SignedOps<Unverified, StandardMode>],
-    channel_id: ChannelId,
-    state: &TxState,
-) {
-    let by_hash: HashMap<TxHash, &SignedOps<Unverified, StandardMode>> =
-        transactions.iter().map(|tx| (tx.hash(), tx)).collect();
-    for block_tx in channel_txs.iter_mut() {
-        let BlockChannelTx::PinDeposit(a) = block_tx else {
-            continue;
-        };
-        let tx = by_hash
-            .get(&a.tx_hash)
-            .expect("classified entries come from these transactions");
-        if !is_identity_deposit_transfer(state, tx, channel_id) {
-            *block_tx = BlockChannelTx::Custom {
-                tx: (*tx).clone(),
-                message_entries: vec![a.inscription.clone()],
-                config_entries: Vec::new(),
-            };
-        }
-    }
-}
-
-/// Whether the bundle's `ChannelTransfer` re-creates its inputs unchanged —
-/// same count and `(value, key)` multiset. An input note we do not track (so
-/// cannot compare) is treated as non-identity.
-fn is_identity_deposit_transfer(
-    state: &TxState,
-    tx: &SignedOps<Unverified, StandardMode>,
-    channel_id: ChannelId,
-) -> bool {
-    let Some(transfer) = channel_transfers(tx, channel_id).next() else {
-        return false;
-    };
-    let mut outputs: Vec<_> = transfer
-        .utxos()
-        .map(|u| (u.note.value, u.note.pk))
-        .collect();
-    if transfer.inputs.len() != outputs.len() {
-        return false;
-    }
-    for id in transfer.inputs.iter() {
-        let Some(note) = state.find_channel_note(id) else {
-            return false;
-        };
-        match outputs.iter().position(|out| *out == (note.value, note.pk)) {
-            Some(pos) => {
-                outputs.swap_remove(pos);
-            }
-            None => return false,
-        }
-    }
-    outputs.is_empty()
-}
-
-/// A tx's `ChannelTransfer` ops for `channel_id`, in op order.
-pub(super) fn channel_transfers(
-    tx: &SignedOps<Unverified, StandardMode>,
-    channel_id: ChannelId,
-) -> impl Iterator<Item = &ChannelTransferOp> {
-    tx.op_refs_iter().filter_map(move |op| match op {
-        OpRef::ChannelTransfer(t) if t.channel_id == channel_id => Some(t),
-        _ => None,
-    })
-}
+// TODO(RFC-480): channel notes are private and move by steps; the bridge is
+// rebuilt on ChannelStep.
+// /// Re-type any [`BlockChannelTx::PinDeposit`] whose transfer is
+// /// not a 1:1 identity re-creation of its consumed notes as `Custom` — a split,
+// /// merge, re-value or re-key would make `consumed_notes` misdescribe the
+// /// deposit. Runs before the classification is stored or mirrored.
+// fn demote_non_identity_pin_deposits(
+//     channel_txs: &mut [BlockChannelTx],
+//     transactions: &[SignedOps<Unverified, StandardMode>],
+//     channel_id: ChannelId,
+//     state: &TxState,
+// ) {
+//     let by_hash: HashMap<TxHash, &SignedOps<Unverified, StandardMode>> =
+//         transactions.iter().map(|tx| (tx.hash(), tx)).collect();
+//     for block_tx in channel_txs.iter_mut() {
+//         let BlockChannelTx::PinDeposit(a) = block_tx else {
+//             continue;
+//         };
+//         let tx = by_hash
+//             .get(&a.tx_hash)
+//             .expect("classified entries come from these transactions");
+//         if !is_identity_deposit_transfer(state, tx, channel_id) {
+//             *block_tx = BlockChannelTx::Custom {
+//                 tx: (*tx).clone(),
+//                 message_entries: vec![a.inscription.clone()],
+//                 config_entries: Vec::new(),
+//             };
+//         }
+//     }
+// }
+//
+// /// Whether the bundle's `ChannelTransfer` re-creates its inputs unchanged —
+// /// same count and `(value, key)` multiset. An input note we do not track (so
+// /// cannot compare) is treated as non-identity.
+// fn is_identity_deposit_transfer(
+//     state: &TxState,
+//     tx: &SignedOps<Unverified, StandardMode>,
+//     channel_id: ChannelId,
+// ) -> bool {
+//     let Some(transfer) = channel_transfers(tx, channel_id).next() else {
+//         return false;
+//     };
+//     let mut outputs: Vec<_> = transfer
+//         .utxos()
+//         .map(|u| (u.note.value, u.note.pk))
+//         .collect();
+//     if transfer.inputs.len() != outputs.len() {
+//         return false;
+//     }
+//     for id in transfer.inputs.iter() {
+//         let Some(note) = state.find_channel_note(id) else {
+//             return false;
+//         };
+//         match outputs.iter().position(|out| *out == (note.value, note.pk)) {
+//             Some(pos) => {
+//                 outputs.swap_remove(pos);
+//             }
+//             None => return false,
+//         }
+//     }
+//     outputs.is_empty()
+// }
+//
+// /// A tx's `ChannelTransfer` ops for `channel_id`, in op order.
+// pub(super) fn channel_transfers(
+//     tx: &SignedOps<Unverified, StandardMode>,
+//     channel_id: ChannelId,
+// ) -> impl Iterator<Item = &ChannelTransferOp> {
+//     tx.op_refs_iter().filter_map(move |op| match op {
+//         OpRef::ChannelTransfer(t) if t.channel_id == channel_id => Some(t),
+//         _ => None,
+//     })
+// }
 
 /// Extract a tx's channel inscriptions, in op order. `ChannelConfig` ops are
 /// not part of the message lineage and yield no entries.
@@ -563,7 +613,10 @@ fn update_tx_msg_ids(
             );
             ids
         }
-        _ => Vec::new(),
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // _ => Vec::new(),
+        ChannelUpdateTx::Inscription(_) => Vec::new(),
     };
     typed.into_iter().chain(opaque)
 }
@@ -601,8 +654,10 @@ pub(super) fn orphan_from_shed(entry: PendingTx) -> ChannelUpdateTx {
     );
     match entry {
         PendingTx::Inscription(i) => ChannelUpdateTx::Inscription(i),
-        PendingTx::AtomicWithdraw(a) => ChannelUpdateTx::AtomicWithdraw(a),
-        PendingTx::PinDeposit(a) => ChannelUpdateTx::PinDeposit(a),
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // PendingTx::AtomicWithdraw(a) => ChannelUpdateTx::AtomicWithdraw(a),
+        // PendingTx::PinDeposit(a) => ChannelUpdateTx::PinDeposit(a),
     }
 }
 
@@ -623,9 +678,11 @@ struct PreparedFinalizedBlock {
     our_txs: Vec<TxHash>,
     channel_txs: Vec<BlockChannelTx>,
     items: Vec<FinalizedTx>,
-    /// Wallet note ops for this finalized block, applied straight to the
-    /// finalized base (never the per-block overlay).
-    note_ops: Vec<NoteOp>,
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // /// Wallet note ops for this finalized block, applied straight to the
+    // /// finalized base (never the per-block overlay).
+    // note_ops: Vec<NoteOp>,
 }
 
 async fn prepare_finalized_blocks<Node>(
@@ -633,7 +690,9 @@ async fn prepare_finalized_blocks<Node>(
     to_slot: u64,
     channel_id: ChannelId,
     node: &Node,
-    state: Option<&TxState>,
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge
+    // is rebuilt on ChannelStep.
+    // state: Option<&TxState>,
 ) -> Result<Vec<PreparedFinalizedBlock>, Error>
 where
     Node: adapter::Node + Sync,
@@ -657,19 +716,22 @@ where
             .map(|tx| tx.op_refs().hash())
             .collect();
 
-        let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
-        // Below-LIB blocks feed the lineage walk too, so on first sync (empty
-        // old lineage) they surface as `adopted` — demote here as well. A
-        // same-batch deposit isn't applied yet, so its inscription can only
-        // under-label to `Custom`, which is safe.
-        if let Some(state) = state {
-            demote_non_identity_pin_deposits(
-                &mut channel_txs,
-                &block.transactions,
-                channel_id,
-                state,
-            );
-        }
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
+        // // Below-LIB blocks feed the lineage walk too, so on first sync (empty
+        // // old lineage) they surface as `adopted` — demote here as well. A
+        // // same-batch deposit isn't applied yet, so its inscription can only
+        // // under-label to `Custom`, which is safe.
+        // if let Some(state) = state {
+        //     demote_non_identity_pin_deposits(
+        //         &mut channel_txs,
+        //         &block.transactions,
+        //         channel_id,
+        //         state,
+        //     );
+        // }
+        let channel_txs = classify_channel_txs(&block.transactions, channel_id);
 
         // Fetch + validate deposit events for this block BEFORE mutating
         // state — on error we leave state untouched so the caller can retry.
@@ -683,19 +745,21 @@ where
             &deposit_events,
         );
 
-        let note_ops = note_ops_from_txs(
-            &block.transactions,
-            channel_id,
-            &deposit_events,
-            block.header.slot,
-        );
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // let note_ops = note_ops_from_txs(
+        //     &block.transactions,
+        //     channel_id,
+        //     &deposit_events,
+        //     block.header.slot,
+        // );
         prepared.push(PreparedFinalizedBlock {
             block_id: block.header.id,
             parent_id: block.header.parent_block,
             our_txs,
             channel_txs,
             items: block_items,
-            note_ops,
+            // note_ops,
         });
     }
 
@@ -715,9 +779,11 @@ fn apply_finalized_blocks(
         result.our_tx_hashes.extend(block.our_txs.iter().copied());
         result.items.extend(block.items);
 
-        // Immutable blocks: note ops go straight to the wallet's finalized
-        // base, never through the per-block overlay.
-        state.apply_finalized_note_ops(block.note_ops);
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // // Immutable blocks: note ops go straight to the wallet's finalized
+        // // base, never through the per-block overlay.
+        // state.apply_finalized_note_ops(block.note_ops);
 
         state.process_block(
             block.block_id,
@@ -725,7 +791,7 @@ fn apply_finalized_blocks(
             state.lib(),
             block.our_txs,
             block.channel_txs,
-            Vec::new(),
+            // Vec::new(),
         );
     }
 
@@ -740,7 +806,10 @@ pub(super) fn landed_msg_ids(items: &[FinalizedTx]) -> HashSet<MsgId> {
         .flat_map(|tx| tx.ops.iter())
         .filter_map(|op| match op {
             FinalizedOp::Inscription(i) | FinalizedOp::Config(i) => Some(i.this_msg),
-            _ => None,
+            // TODO(RFC-480): channel notes are private and move by steps; the
+            // bridge is rebuilt on ChannelStep.
+            // _ => None,
+            FinalizedOp::Deposit(_) => None,
         })
         .collect()
 }
@@ -758,8 +827,11 @@ pub(super) async fn fetch_and_process_blocks<Node>(
 where
     Node: adapter::Node + Sync,
 {
-    let prepared =
-        prepare_finalized_blocks(from_slot, to_slot, channel_id, node, Some(state)).await?;
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // let prepared =
+    //     prepare_finalized_blocks(from_slot, to_slot, channel_id, node, Some(state)).await?;
+    let prepared = prepare_finalized_blocks(from_slot, to_slot, channel_id, node).await?;
 
     Ok(apply_finalized_blocks(state, prepared))
 }
@@ -904,28 +976,41 @@ fn extract_finalized_items(
                         "deposit_events must contain every channel deposit op - \
                          fetch_block_deposit_events invariant",
                     );
+                    // TODO(RFC-480): channel notes are private and move by
+                    // steps; the bridge is rebuilt on ChannelStep.
+                    // ops.push(FinalizedOp::Deposit(DepositInfo {
+                    //     tx_hash,
+                    //     op_id,
+                    //     channel_id,
+                    //     inputs: deposit.inputs.clone(),
+                    //     notes: event.notes.clone(),
+                    //     amount: event.amount,
+                    //     metadata: deposit.metadata.clone(),
+                    // }));
+                    let message = deposit_message(tx_hash, deposit, event);
                     ops.push(FinalizedOp::Deposit(DepositInfo {
                         tx_hash,
                         op_id,
                         channel_id,
-                        inputs: deposit.inputs.clone(),
-                        notes: event.notes.clone(),
-                        amount: event.amount,
-                        metadata: deposit.metadata.clone(),
+                        inputs: message.inputs,
+                        outputs: message.outputs,
+                        metadata: message.metadata,
                     }));
                 }
-                OpRef::ChannelWithdraw(withdraw) if withdraw.channel_id == channel_id => {
-                    ops.push(FinalizedOp::Withdraw(WithdrawInfo {
-                        tx_hash,
-                        op: (*withdraw).clone(),
-                    }));
-                }
-                OpRef::ChannelTransfer(transfer) if transfer.channel_id == channel_id => {
-                    ops.push(FinalizedOp::ChannelTransfer(ChannelTransferInfo {
-                        tx_hash,
-                        op: (*transfer).clone(),
-                    }));
-                }
+                // TODO(RFC-480): channel notes are private and move by steps;
+                // the bridge is rebuilt on ChannelStep.
+                // OpRef::ChannelWithdraw(withdraw) if withdraw.channel_id == channel_id => {
+                //     ops.push(FinalizedOp::Withdraw(WithdrawInfo {
+                //         tx_hash,
+                //         op: (*withdraw).clone(),
+                //     }));
+                // }
+                // OpRef::ChannelTransfer(transfer) if transfer.channel_id == channel_id => {
+                //     ops.push(FinalizedOp::ChannelTransfer(ChannelTransferInfo {
+                //         tx_hash,
+                //         op: (*transfer).clone(),
+                //     }));
+                // }
                 _ => {}
             }
         }
@@ -989,11 +1074,14 @@ where
 /// collect the deposits those blocks carry, in block order. Each block needs
 /// a deposit-events fetch, so this runs in the prepare phase, keeping apply
 /// await-free; a failed fetch fails the event, like the live block's.
+// TODO(RFC-480): channel notes are private and move by steps; the bridge is
+// rebuilt on ChannelStep.
+// ) -> Result<(Vec<(ApiBlock, Vec<NoteOp>)>, Vec<DepositInfo>), Error>
 async fn prepare_backfill_blocks<Node>(
     blocks: Vec<ApiBlock>,
     channel_id: ChannelId,
     node: &Node,
-) -> Result<(Vec<(ApiBlock, Vec<NoteOp>)>, Vec<DepositInfo>), Error>
+) -> Result<(Vec<ApiBlock>, Vec<DepositInfo>), Error>
 where
     Node: adapter::Node + Sync,
 {
@@ -1003,19 +1091,22 @@ where
         let deposit_events =
             fetch_block_deposit_events(node, block.header.id, &block.transactions, channel_id)
                 .await?;
-        let note_ops = note_ops_from_txs(
-            &block.transactions,
-            channel_id,
-            &deposit_events,
-            block.header.slot,
-        );
+        // TODO(RFC-480): channel notes are private and move by steps; the
+        // bridge is rebuilt on ChannelStep.
+        // let note_ops = note_ops_from_txs(
+        //     &block.transactions,
+        //     channel_id,
+        //     &deposit_events,
+        //     block.header.slot,
+        // );
         deposits.extend(block_channel_deposits(
             &block.transactions,
             channel_id,
             block.header.slot,
             &deposit_events,
         ));
-        prepared.push((block, note_ops));
+        // prepared.push((block, note_ops));
+        prepared.push(block);
     }
     Ok((prepared, deposits))
 }
@@ -1046,7 +1137,9 @@ fn apply_backfilled_block(
     block: &ApiBlock,
     channel_id: ChannelId,
     lib: HeaderId,
-    note_ops: Vec<NoteOp>,
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge
+    // is rebuilt on ChannelStep.
+    // note_ops: Vec<NoteOp>,
 ) {
     let block_id = block.header.id;
     let parent_id = block.header.parent_block;
@@ -1058,12 +1151,16 @@ fn apply_backfilled_block(
         .map(|tx| tx.op_refs().hash())
         .collect();
 
-    let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
-    demote_non_identity_pin_deposits(&mut channel_txs, &block.transactions, channel_id, state);
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // let mut channel_txs = classify_channel_txs(&block.transactions, channel_id);
+    // demote_non_identity_pin_deposits(&mut channel_txs, &block.transactions, channel_id, state);
+    let channel_txs = classify_channel_txs(&block.transactions, channel_id);
 
     let mirrorable = mirrorable_txs(&channel_txs, &block.transactions);
     // Use current state lib to avoid premature finalization
-    state.process_block(block_id, parent_id, lib, our_txs, channel_txs, note_ops);
+    // state.process_block(block_id, parent_id, lib, our_txs, channel_txs, note_ops);
+    state.process_block(block_id, parent_id, lib, our_txs, channel_txs);
     state.store_block_signed_txs(block_id, mirrorable);
 }
 
@@ -1119,10 +1216,12 @@ pub(super) fn classify_channel_tx(
     let mut config_entries: Vec<InscriptionInfo> = Vec::new();
     let mut inscribes = 0usize;
     let mut configs = 0usize;
-    let mut withdraws: Vec<WithdrawInfo> = Vec::new();
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // let mut withdraws: Vec<WithdrawInfo> = Vec::new();
     let mut transfers = 0usize;
-    let mut channel_transfers = 0usize;
-    let mut channel_transfer_inputs: Option<Inputs> = None;
+    // let mut channel_transfers = 0usize;
+    // let mut channel_transfer_inputs: Option<Inputs> = None;
     let mut foreign_ops = false;
 
     for op in tx.op_refs() {
@@ -1162,16 +1261,19 @@ pub(super) fn classify_channel_tx(
                     signer: None,
                 });
             }
-            OpRef::ChannelWithdraw(withdraw) if withdraw.channel_id == channel_id => {
-                withdraws.push(WithdrawInfo {
-                    tx_hash,
-                    op: (*withdraw).clone(),
-                });
-            }
-            OpRef::ChannelTransfer(transfer) if transfer.channel_id == channel_id => {
-                channel_transfers += 1;
-                channel_transfer_inputs = Some(transfer.inputs.clone());
-            }
+            // TODO(RFC-480): channel notes are private and move by steps; the
+            // bridge is rebuilt on ChannelStep. A channel withdrawal is now a
+            // foreign op: a tx carrying one is `Custom`.
+            // OpRef::ChannelWithdraw(withdraw) if withdraw.channel_id == channel_id => {
+            //     withdraws.push(WithdrawInfo {
+            //         tx_hash,
+            //         op: (*withdraw).clone(),
+            //     });
+            // }
+            // OpRef::ChannelTransfer(transfer) if transfer.channel_id == channel_id => {
+            //     channel_transfers += 1;
+            //     channel_transfer_inputs = Some(transfer.inputs.clone());
+            // }
             OpRef::Transfer(_) => transfers += 1,
             _ => foreign_ops = true,
         }
@@ -1183,44 +1285,59 @@ pub(super) fn classify_channel_tx(
     }
 
     let clean = !foreign_ops && transfers <= 1;
-    Some(
-        if clean && inscribes == 1 && configs == 0 && channel_transfers <= 1 {
-            let inscription = entries.pop().expect("exactly one inscribe entry");
-            match (withdraws.is_empty(), channel_transfers) {
-                // `[inscribe, channel_transfer, withdraw…]`. Only re-issue of our
-                // own orphaned bundle needs the outputs; an observed one has none.
-                (false, _) => BlockChannelTx::AtomicWithdraw(AtomicWithdrawInfo {
-                    tx_hash,
-                    inscription,
-                    withdraws,
-                    outputs: Outputs::empty(),
-                }),
-                // `[inscribe, channel_transfer]` — transfer consumes the deposited note.
-                (true, 1) => BlockChannelTx::PinDeposit(PinDepositInfo {
-                    tx_hash,
-                    inscription,
-                    consumed_notes: channel_transfer_inputs
-                        .expect("channel_transfers == 1 implies a captured transfer"),
-                }),
-                (true, _) => BlockChannelTx::Inscription(inscription),
-            }
-        } else if clean
-            && configs == 1
-            && inscribes == 0
-            && withdraws.is_empty()
-            && channel_transfers == 0
-        {
-            // A pure single-config tx — the config-lineage analogue of a clean
-            // single inscription.
-            BlockChannelTx::Config(config_entries.pop().expect("exactly one config entry"))
-        } else {
-            BlockChannelTx::Custom {
-                tx: tx.clone(),
-                message_entries: entries,
-                config_entries,
-            }
-        },
-    )
+    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
+    // rebuilt on ChannelStep.
+    // Some(
+    //     if clean && inscribes == 1 && configs == 0 && channel_transfers <= 1 {
+    //         let inscription = entries.pop().expect("exactly one inscribe entry");
+    //         match (withdraws.is_empty(), channel_transfers) {
+    //             // `[inscribe, channel_transfer, withdraw…]`. Only re-issue of our
+    //             // own orphaned bundle needs the outputs; an observed one has none.
+    //             (false, _) => BlockChannelTx::AtomicWithdraw(AtomicWithdrawInfo {
+    //                 tx_hash,
+    //                 inscription,
+    //                 withdraws,
+    //                 outputs: Outputs::empty(),
+    //             }),
+    //             // `[inscribe, channel_transfer]` — transfer consumes the deposited note.
+    //             (true, 1) => BlockChannelTx::PinDeposit(PinDepositInfo {
+    //                 tx_hash,
+    //                 inscription,
+    //                 consumed_notes: channel_transfer_inputs
+    //                     .expect("channel_transfers == 1 implies a captured transfer"),
+    //             }),
+    //             (true, _) => BlockChannelTx::Inscription(inscription),
+    //         }
+    //     } else if clean
+    //         && configs == 1
+    //         && inscribes == 0
+    //         && withdraws.is_empty()
+    //         && channel_transfers == 0
+    //     {
+    //         // A pure single-config tx — the config-lineage analogue of a clean
+    //         // single inscription.
+    //         BlockChannelTx::Config(config_entries.pop().expect("exactly one config entry"))
+    //     } else {
+    //         BlockChannelTx::Custom {
+    //             tx: tx.clone(),
+    //             message_entries: entries,
+    //             config_entries,
+    //         }
+    //     },
+    // )
+    Some(if clean && inscribes == 1 && configs == 0 {
+        BlockChannelTx::Inscription(entries.pop().expect("exactly one inscribe entry"))
+    } else if clean && configs == 1 && inscribes == 0 {
+        // A pure single-config tx — the config-lineage analogue of a clean
+        // single inscription.
+        BlockChannelTx::Config(config_entries.pop().expect("exactly one config entry"))
+    } else {
+        BlockChannelTx::Custom {
+            tx: tx.clone(),
+            message_entries: entries,
+            config_entries,
+        }
+    })
 }
 
 /// Whether `tx` is a clean single-config tx for `channel_id` — the same

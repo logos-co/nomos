@@ -425,6 +425,8 @@ pub(super) fn zone_balance_rows(step: &Step) -> Result<Vec<ZoneBalanceRow>, Step
     )
 }
 
+// TODO(RFC-480): the zone bridge (atomic withdrawals) is suspended.
+/*
 /// Parses an atomic-withdraw table row of `(alias, outputs)` where `outputs`
 /// is a comma-separated list of note values. Each row becomes one
 /// `WithdrawArg`; the comma list lets a single arg carry multiple output
@@ -460,6 +462,7 @@ pub(super) fn zone_atomic_withdraw_rows(step: &Step) -> Result<Vec<(String, Vec<
         },
     )
 }
+*/
 fn parse_turn_cell(value: &str) -> Result<bool, StepError> {
     match value.to_uppercase().trim() {
         "OUR_TURN" => Ok(true),

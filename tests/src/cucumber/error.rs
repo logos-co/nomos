@@ -3,10 +3,13 @@ use std::io::Error as IoError;
 use hex::FromHexError;
 use lb_binary_codec::bincode::Error;
 use lb_core::mantle::transactions::VerificationError;
+use lb_key_management_system_service::keys::errors::KeyError;
 use lb_testing_framework::configs::wallet::WalletConfigError;
 use lb_utils::bounded::BoundedError;
 use lb_wallet::WalletError;
-use lb_zksign::ZkSignError;
+// TODO(RFC-480): the ZkSignature scheme is removed, transfers are proven by
+// ZkTransfers.
+// use lb_zksign::ZkSignError;
 use testing_framework_core::scenario::{DynError, ScenarioBuildError};
 use testing_framework_runner_local::ManualClusterError;
 use thiserror::Error;
@@ -63,8 +66,12 @@ pub enum StepError {
     WalletConfigError(#[from] WalletConfigError),
     #[error(transparent)]
     WalletError(#[from] WalletError),
+    // TODO(RFC-480): the ZkSignature scheme is removed, transfers are proven
+    // by ZkTransfers.
+    // #[error(transparent)]
+    // ZkSignError(#[from] ZkSignError),
     #[error(transparent)]
-    ZkSignError(#[from] ZkSignError),
+    ProvingError(#[from] KeyError),
     #[error(transparent)]
     VerificationError(#[from] VerificationError),
     #[error("Step requires a wallet, but none was provided")]

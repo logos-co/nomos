@@ -12,9 +12,13 @@ mod prepared;
 mod signed;
 mod signing;
 
+// TODO(RFC-480): UTXO test wallet.
+// pub use builder_funding::{
+//     estimate_workload_fee_requirements, extend_wallet_funding_inputs,
+//     fund_builder_from_wallet_source, wallet_state_from_utxos,
+// };
 pub use builder_funding::{
-    estimate_workload_fee_requirements, extend_wallet_funding_inputs,
-    fund_builder_from_wallet_source, wallet_state_from_utxos,
+    estimate_workload_fee_requirements, extend_wallet_funding_inputs, random_nonce,
 };
 pub use error::WalletTransactionError;
 pub use intent::WalletTransactionIntent;

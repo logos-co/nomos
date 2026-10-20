@@ -413,7 +413,7 @@ fn test_pol_epoch_info(epoch: Epoch) -> PolEpochInfo {
         epoch,
         state: PolEpochState {
             nonce: Fr::ZERO,
-            aged_utxo_root: Fr::ZERO,
+            eligible_aged: Fr::ZERO,
             lottery_0: Fr::ZERO,
             lottery_1: Fr::ZERO,
             source: PolEpochStateSource {
@@ -423,12 +423,22 @@ fn test_pol_epoch_info(epoch: Epoch) -> PolEpochInfo {
                 lib_slot: Slot::from(0),
             },
         },
+        // TODO(RFC-480): depth 32 UTXO tree witness
+        // winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
+        //     slot: 1,
+        //     note_value: 1,
+        //     transaction_hash: ZkHash::ZERO,
+        //     output_number: 1,
+        //     aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+        //     secret_key: ZkHash::ZERO,
+        // })),
         winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
             slot: 1,
             note_value: 1,
-            transaction_hash: ZkHash::ZERO,
-            output_number: 1,
-            aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+            note_nonce: ZkHash::ZERO,
+            cm_aged_path_and_selectors: [(ZkHash::ZERO, false); _],
+            nf_root_aged: ZkHash::ZERO,
+            set_aged_path_and_selectors: [(ZkHash::ZERO, false); _],
             secret_key: ZkHash::ZERO,
         })),
     }

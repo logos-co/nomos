@@ -1,28 +1,30 @@
-use std::fmt::{Debug, Display};
-
-use lb_chain_leader_service::api::{ChainLeaderSerivceApi, ChainLeaderServiceData};
-use lb_core::mantle::transactions::hash::TxHash;
-use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-
-use crate::http::DynError;
-
-pub async fn claim<ChainLeader, RuntimeServiceId>(
-    handle: &OverwatchHandle<RuntimeServiceId>,
-) -> Result<LeaderClaimResponseBody, DynError>
-where
-    ChainLeader: ChainLeaderServiceData,
-    RuntimeServiceId: Debug + Send + Sync + Display + 'static + AsServiceId<ChainLeader>,
-{
-    let tx_hash =
-        ChainLeaderSerivceApi::<ChainLeader, RuntimeServiceId>::new(handle.relay().await?)
-            .claim()
-            .await?;
-    Ok(LeaderClaimResponseBody { tx_hash })
-}
-
-#[derive(Serialize, Deserialize, ToSchema)]
-pub struct LeaderClaimResponseBody {
-    pub tx_hash: TxHash,
-}
+// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
+// block.
+// use std::fmt::{Debug, Display};
+//
+// use lb_chain_leader_service::api::{ChainLeaderSerivceApi, ChainLeaderServiceData};
+// use lb_core::mantle::transactions::hash::TxHash;
+// use overwatch::{overwatch::OverwatchHandle, services::AsServiceId};
+// use serde::{Deserialize, Serialize};
+// use utoipa::ToSchema;
+//
+// use crate::http::DynError;
+//
+// pub async fn claim<ChainLeader, RuntimeServiceId>(
+//     handle: &OverwatchHandle<RuntimeServiceId>,
+// ) -> Result<LeaderClaimResponseBody, DynError>
+// where
+//     ChainLeader: ChainLeaderServiceData,
+//     RuntimeServiceId: Debug + Send + Sync + Display + 'static + AsServiceId<ChainLeader>,
+// {
+//     let tx_hash =
+//         ChainLeaderSerivceApi::<ChainLeader, RuntimeServiceId>::new(handle.relay().await?)
+//             .claim()
+//             .await?;
+//     Ok(LeaderClaimResponseBody { tx_hash })
+// }
+//
+// #[derive(Serialize, Deserialize, ToSchema)]
+// pub struct LeaderClaimResponseBody {
+//     pub tx_hash: TxHash,
+// }

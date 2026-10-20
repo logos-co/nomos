@@ -85,7 +85,11 @@ fn shared_inputs(
 
 #[cfg(test)]
 mod tests {
-    use lb_core::mantle::{ops::OpRef, traits::MantleTx as _};
+    use lb_core::mantle::{
+        notes::derive_note_nf,
+        ops::OpRef,
+        traits::{GenesisTx as _, MantleTx as _},
+    };
     use lb_key_management_system_service::keys::Key;
     use lb_libp2p::identity::ed25519;
     use lb_sdp_service::DeclarationConfig;
@@ -109,12 +113,34 @@ mod tests {
         let shared = prepared.shared_inputs().unwrap();
         let network = prepared.network().unwrap();
         let genesis_id = network.genesis.header().id();
-        let transfer = network.genesis.genesis_tx().transfer().operation();
+        // TODO(RFC-480): the genesis notes are the allocations the distribution
+        // publishes, a declaration spends its provider's note.
+        // let transfer = network.genesis.genesis_tx().transfer().operation();
+        // assert_eq!(
+        //     transfer
+        //         .outputs
+        //         .iter()
+        //         .find(|note| note.pk == wallet.public_key())
+        //         .unwrap()
+        //         .value,
+        //     wallet.value
+        // );
+        // for key in &network.consensus.regular_note_keys {
+        //     assert_eq!(
+        //         transfer
+        //             .outputs
+        //             .iter()
+        //             .find(|note| note.pk == key.to_public_key())
+        //             .unwrap()
+        //             .value,
+        //         2_500_000
+        //     );
+        // }
+        let transfer = network.genesis.genesis_tx().distribution();
         assert_eq!(
             transfer
-                .outputs
                 .iter()
-                .find(|note| note.pk == wallet.public_key())
+                .find(|note| note.public_key == wallet.public_key())
                 .unwrap()
                 .value,
             wallet.value
@@ -122,9 +148,8 @@ mod tests {
         for key in &network.consensus.regular_note_keys {
             assert_eq!(
                 transfer
-                    .outputs
                     .iter()
-                    .find(|note| note.pk == key.to_public_key())
+                    .find(|note| note.public_key == key.to_public_key())
                     .unwrap()
                     .value,
                 2_500_000
@@ -136,15 +161,25 @@ mod tests {
             .op_refs()
             .into_iter()
             .filter_map(|op| match op {
+                // OpRef::SDPDeclare(declaration) => {
+                //     Some((declaration.id(), declaration.service_note_id))
+                // }
                 OpRef::SDPDeclare(declaration) => {
-                    Some((declaration.id(), declaration.service_note_id))
+                    Some((declaration.id(), declaration.inputs.as_slice()[0]))
                 }
                 _ => None,
             })
             .collect::<Vec<_>>();
         assert_eq!(declarations.len(), 2);
-        for (i, (_, note_id)) in declarations.iter().enumerate() {
-            assert_eq!(*note_id, network.consensus.blend_notes[i].note_id);
+        // for (i, (_, note_id)) in declarations.iter().enumerate() {
+        //     assert_eq!(*note_id, network.consensus.blend_notes[i].note_id);
+        // }
+        for (i, (_, nullifier)) in declarations.iter().enumerate() {
+            let blend_note = &network.consensus.blend_notes[i];
+            assert_eq!(
+                *nullifier,
+                derive_note_nf(&blend_note.note.commitment(), blend_note.sk.as_fr())
+            );
         }
 
         let plan = build_plan(prepared).unwrap();

@@ -1,11 +1,13 @@
+// TODO(RFC-480): the zone bridge is suspended. Dropped imports: BundleAnnounce,
+// MultiSigBus, start_deposit_reaction_sequencer,
+// start_deposit_withdraw_sequencer, start_multisig_lifecycle_sequencer.
 use super::{
-    BundleAnnounce, CucumberWorld, DriveMode, Duration, MultiSigBus, Step, StepError, StepResult,
-    ZoneSequencerStartup, given, initialize_zone_indexer, log_step_error,
-    parse_optional_submit_depth, register_zone_sequencers_with_shared_key, single_column_table,
-    start_deposit_reaction_sequencer, start_deposit_withdraw_sequencer,
-    start_multisig_lifecycle_sequencer, start_named_sequencer, start_named_sequencer_with_startup,
-    start_nodes_with_zone_resources, stop_zone_sequencer, wait_for_lib_advance, when,
-    zone_account_balances, zone_node_resource_rows, zone_sequencer_start_rows, zone_step_error,
+    CucumberWorld, DriveMode, Duration, Step, StepError, StepResult, ZoneSequencerStartup, given,
+    initialize_zone_indexer, log_step_error, parse_optional_submit_depth,
+    register_zone_sequencers_with_shared_key, single_column_table, start_named_sequencer,
+    start_named_sequencer_with_startup, start_nodes_with_zone_resources, stop_zone_sequencer,
+    wait_for_lib_advance, when, zone_account_balances, zone_node_resource_rows,
+    zone_sequencer_start_rows, zone_step_error,
 };
 
 #[given("I start nodes with wallet and sequencer resources:")]
@@ -72,6 +74,9 @@ async fn start_sequencer_with_indexer(
     initialize_zone_indexer(world, step, sequencer_alias)
 }
 
+// TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
+// bundles) is suspended.
+/*
 #[when(
     expr = "I start zone sequencer {string} pinning then withdrawing observed deposits with outputs {string}"
 )]
@@ -180,6 +185,7 @@ async fn step_start_zone_sequencer_deposit_withdraw(
     )
     .await
 }
+*/
 
 #[when("I start zone sequencers:")]
 async fn step_start_zone_sequencers(world: &mut CucumberWorld, step: &Step) -> StepResult {

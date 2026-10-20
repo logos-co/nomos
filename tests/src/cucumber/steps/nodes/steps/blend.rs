@@ -584,7 +584,9 @@ async fn wait_for_blend_funded_note(
     world: &CucumberWorld,
     node_name: &str,
     blend_zk_pk: ZkPublicKey,
-) -> Result<lb_core::mantle::NoteId, StepError> {
+    // TODO(RFC-480): notes are private, named by their commitment.
+    // ) -> Result<lb_core::mantle::NoteId, StepError> {
+) -> Result<lb_core::mantle::notes::NoteCm, StepError> {
     let base_url = world
         .nodes_info
         .get(node_name)
@@ -639,13 +641,16 @@ async fn step_run_blend_sdp_declaration_cli(
     let user_config_path = node_user_config_path(world, &declarer_node_name)?;
     let locator = blend_core_locator_from_node_yaml(&user_config_path)?;
     let blend_zk_pk = blend_zk_pk_for_node(world, &declarer_node_name)?;
-    let service_note_id =
-        wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
-    let service_note_id_json =
-        serde_json::to_string(&service_note_id).map_err(|error| StepError::LogicalError {
-            message: format!("Failed to serialize service note ID: {error}"),
-        })?;
-    let service_note_id_hex = service_note_id_json.trim_matches('"').to_owned();
+    // TODO(RFC-480): the wallet funds the declaration stake; without
+    // `--amount` the CLI asks for the minimum stake.
+    // let service_note_id =
+    //     wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    // let service_note_id_json =
+    //     serde_json::to_string(&service_note_id).map_err(|error| StepError::LogicalError {
+    //         message: format!("Failed to serialize service note ID: {error}"),
+    //     })?;
+    // let service_note_id_hex = service_note_id_json.trim_matches('"').to_owned();
+    wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
 
     let declarer_api_base_url = world
         .nodes_info
@@ -672,8 +677,8 @@ async fn step_run_blend_sdp_declaration_cli(
         .arg(user_config_path)
         .arg("--blend-addr")
         .arg(format!("{locator}"))
-        .arg("--service-note-id")
-        .arg(service_note_id_hex)
+        // .arg("--service-note-id")
+        // .arg(service_note_id_hex)
         .arg("--node-address")
         .arg(declarer_api_base_url.to_string())
         .output()
@@ -703,10 +708,20 @@ async fn step_run_blend_sdp_declaration_api(
     declarer_node_name: String,
 ) -> StepResult {
     let blend_zk_pk = blend_zk_pk_for_node(world, &declarer_node_name)?;
-    let service_note_id =
-        wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    // TODO(RFC-480): the wallet funds the declaration stake, the request
+    // names no note.
+    // let service_note_id =
+    //     wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    //
+    // declare_blend_core_via_api(world, step, &declarer_node_name, Some(service_note_id)).await
+    let funded_note = wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    info!(
+        target: TARGET,
+        "Blend ZK key of '{declarer_node_name}' holds note {funded_note:?}; the wallet funds \
+         the minimum stake"
+    );
 
-    declare_blend_core_via_api(world, step, &declarer_node_name, Some(service_note_id)).await
+    declare_blend_core_via_api(world, step, &declarer_node_name, None).await
 }
 
 #[expect(
@@ -729,7 +744,9 @@ async fn declare_blend_core_via_api(
     world: &CucumberWorld,
     step: &Step,
     declarer_node_name: &str,
-    service_note_id: Option<lb_core::mantle::NoteId>,
+    // TODO(RFC-480): the wallet funds the declaration stake.
+    // service_note_id: Option<lb_core::mantle::NoteId>,
+    amount: Option<lb_core::mantle::Value>,
 ) -> StepResult {
     let user_config_path = node_user_config_path(world, declarer_node_name)?;
     let locator = blend_core_locator_from_node_yaml(&user_config_path)?;
@@ -744,7 +761,8 @@ async fn declare_blend_core_via_api(
         .clone();
 
     let submission = declarer_node_client
-        .join_blend_network(locator, service_note_id)
+        // .join_blend_network(locator, service_note_id)
+        .join_blend_network(locator, amount)
         .await
         .inspect_err(|error| {
             warn!(target: TARGET, "Step `{}` error: {error}", step.value);
@@ -787,8 +805,11 @@ async fn step_verify_blend_sdp_declaration_included(
     api_node_name: String,
 ) -> StepResult {
     let blend_zk_pk = blend_zk_pk_for_node(world, &declarer_node_name)?;
-    let service_note_id =
-        wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    // TODO(RFC-480): the declaration creates its own service note, it is
+    // found by its zk_id.
+    // let service_note_id =
+    //     wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
+    wait_for_blend_funded_note(world, &declarer_node_name, blend_zk_pk).await?;
 
     let step_timeout = Duration::from_secs(30);
     let start_time = Instant::now();
@@ -820,9 +841,13 @@ async fn step_verify_blend_sdp_declaration_included(
             }
         };
 
-        if declarations.values().any(|declaration| {
-            declaration.service_note_id == service_note_id && declaration.zk_id == blend_zk_pk
-        }) {
+        // if declarations.values().any(|declaration| {
+        //     declaration.service_note_id == service_note_id && declaration.zk_id == blend_zk_pk
+        // }) {
+        if declarations
+            .values()
+            .any(|declaration| declaration.zk_id == blend_zk_pk)
+        {
             info!(
                 target: TARGET,
                 "Blend declaration observed for node '{declarer_node_name}'"
