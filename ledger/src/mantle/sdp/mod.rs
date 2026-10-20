@@ -813,7 +813,7 @@ mod tests {
             service_note_id: utxo.id(),
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let sample_proof = ZkAndEd25519Proof::sample();
         let declare_signed_operation =
@@ -881,7 +881,7 @@ mod tests {
             service_note_id: utxo.id(),
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -940,7 +940,7 @@ mod tests {
             service_note_id: utxo.id(),
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -999,7 +999,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -1084,7 +1084,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -1199,7 +1199,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -1307,7 +1307,7 @@ mod tests {
             service_note_id: utxo_a.id(),
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id_a = declare_a.id();
         let proof_a = ZkAndEd25519Proof {
@@ -1368,7 +1368,7 @@ mod tests {
             service_note_id: utxo_b.id(),
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/2.2.2.2/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/2.2.2.2/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let proof_b = ZkAndEd25519Proof {
             zk_sig: ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
@@ -1402,7 +1402,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {
@@ -1531,7 +1531,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declare_op.id();
         let proof = ZkAndEd25519Proof {

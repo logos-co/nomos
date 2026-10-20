@@ -322,8 +322,8 @@ mod tests {
     /// per-service uniqueness check.
     #[test]
     fn rejects_duplicate_provider_id_within_service() {
-        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
-        let declare_b = declare_op(1, 2, "/ip4/2.2.2.2/udp/0");
+        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
+        let declare_b = declare_op(1, 2, "/ip4/2.2.2.2/udp/3000");
 
         let declarations = Declarations::new_sync()
             .insert(declare_a.id(), Declaration::new(Epoch::new(0), &declare_a));
@@ -339,8 +339,8 @@ mod tests {
     /// per-service uniqueness check.
     #[test]
     fn rejects_duplicate_zk_id_within_service() {
-        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
-        let declare_b = declare_op(2, 1, "/ip4/2.2.2.2/udp/0");
+        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
+        let declare_b = declare_op(2, 1, "/ip4/2.2.2.2/udp/3000");
 
         let declarations = Declarations::new_sync()
             .insert(declare_a.id(), Declaration::new(Epoch::new(0), &declare_a));
@@ -381,7 +381,7 @@ mod tests {
             let other_view = TxHashView::from(TxHash::from([12u8; 32]));
 
             let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkAndEd25519Proof::new(
                     ZkSignature::sample(),
                     signing_key.sign_payload(signed_view.as_bytes().as_ref()),
@@ -404,7 +404,7 @@ mod tests {
 
         #[test]
         fn verify_rejects_a_locked_note_that_is_not_in_the_ledger() {
-            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
+            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
             let service_note_id = operation.service_note_id;
 
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
@@ -436,7 +436,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_id = operation.id();
             let declarations = Declarations::new_sync()
@@ -475,7 +475,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_key = ZkKey::from(BigUint::from(1u64));
 
@@ -515,7 +515,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_key = ZkKey::from(BigUint::from(1u64));
 
@@ -554,7 +554,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_key = ZkKey::from(BigUint::from(1u64));
 
@@ -587,7 +587,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_key = ZkKey::from(BigUint::from(1u64));
 
@@ -636,7 +636,7 @@ mod tests {
             let (utxos, _) = Utxos::new().insert(utxo.id(), utxo);
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
             let zk_sig =
@@ -680,7 +680,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_key = ZkKey::from(BigUint::from(1u64));
 
@@ -723,7 +723,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             let declaration_id = operation.id();
             let service_type = operation.service_type;
@@ -758,7 +758,7 @@ mod tests {
             let note_key = ZkKey::from(BigUint::from(3u64));
             let operation = SDPDeclareOp {
                 service_note_id: locked_utxo(&note_key).id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             drop(verified(operation).execute(SDPDeclareExecutionContext {
@@ -781,7 +781,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             assert_eq!(
@@ -839,7 +839,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id,
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
@@ -869,7 +869,7 @@ mod tests {
             let other_view = TxHashView::from(TxHash::from([12u8; 32]));
 
             let signed_operation = SignedOperation::<_, Unverified, GenesisMode>::new(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkAndEd25519Proof::new(
                     ZkSignature::sample(),
                     signing_key.sign_payload(signed_view.as_bytes().as_ref()),
@@ -898,7 +898,7 @@ mod tests {
 
             let operation = SDPDeclareOp {
                 service_note_id: utxo.id(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
