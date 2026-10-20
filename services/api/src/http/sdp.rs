@@ -115,6 +115,38 @@ where
     reply_rx.await?
 }
 
+pub async fn get_current_declaration_id_handler<
+    MempoolAdapter,
+    WalletAdapter,
+    ChainService,
+    StateStorage,
+    RuntimeServiceId,
+>(
+    handle: OverwatchHandle<RuntimeServiceId>,
+) -> Result<Option<DeclarationId>, DynError>
+where
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    ChainService: CryptarchiaServiceData + Send + Sync + 'static,
+    StateStorage: SdpStateStorage<RuntimeServiceId>,
+    RuntimeServiceId: Send
+        + Sync
+        + Debug
+        + Display
+        + 'static
+        + overwatch::services::AsServiceId<
+            SdpService<MempoolAdapter, WalletAdapter, ChainService, StateStorage, RuntimeServiceId>,
+        >,
+{
+    let relay = handle.relay().await?;
+    let (reply_channel, reply_rx) = tokio::sync::oneshot::channel();
+
+    relay
+        .send(lb_sdp_service::SdpMessage::GetCurrentDeclarationId { reply_channel })
+        .await?;
+
+    Ok(reply_rx.await?)
+}
+
 pub async fn post_set_declaration_id_handler<
     MempoolAdapter,
     WalletAdapter,

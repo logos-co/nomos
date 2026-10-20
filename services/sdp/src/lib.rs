@@ -178,6 +178,11 @@ pub enum SdpMessage {
         declaration_id: Option<DeclarationId>,
         reply_channel: oneshot::Sender<Result<(), SdpError>>,
     },
+    /// Request the declaration id this node is currently tracking as its own,
+    /// if any.
+    GetCurrentDeclarationId {
+        reply_channel: oneshot::Sender<Option<DeclarationId>>,
+    },
 }
 
 pub struct SdpService<MempoolAdapter, WalletAdapter, ChainService, StateStorage, RuntimeServiceId>
@@ -385,6 +390,11 @@ where
             } => {
                 self.handle_set_current_declaration_id(declaration_id, reply_channel, chain_api)
                     .await;
+            }
+            SdpMessage::GetCurrentDeclarationId { reply_channel } => {
+                if let Err(e) = reply_channel.send(self.declaration_id) {
+                    tracing::error!(target: LOG_TARGET, "Failed to send current declaration id: {e:?}");
+                }
             }
         }
     }

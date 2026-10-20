@@ -7,13 +7,19 @@ use lb_core::{
     sdp::{self, Locator},
 };
 use lb_groth16::fr_from_bytes;
-use lb_node::{RuntimeServiceId, generic_services::blend::BlendService};
+use lb_node::{
+    RuntimeServiceId,
+    generic_services::{
+        CryptarchiaService, SdpMempoolAdapter, SdpRecoveryBackend, SdpWalletAdapter,
+        blend::BlendService,
+    },
+};
 use lb_sdp_service::SdpSubmission;
 use multiaddr::PeerId;
 
 use crate::{
     LogosBlockchainNode,
-    api::lifecycle::resolve_run_config,
+    api::{lifecycle::resolve_run_config, time::get_time_info_sync},
     errors::{OperationStatus, OperationStatusCode},
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
@@ -310,4 +316,109 @@ pub unsafe extern "C" fn blend_requirements(
     };
 
     FfiBlendRequirementsResult::ok(unwrap_or_return_error!(to_json_cstring(&requirements)))
+}
+
+/// The outcome of leaving core participation.
+///
+/// Mirrors the referral program's `blend_withdraw()`.
+#[derive(serde::Serialize)]
+struct BlendWithdrawal {
+    /// The hash of the submitted withdrawal transaction, if one was produced.
+    tx_hash: Option<lb_core::mantle::transactions::TxHash>,
+    /// The epoch at which the locked stake is expected to unlock. Estimated
+    /// from the node's current epoch plus [`SNAPSHOT_FINALIZATION_DELAY`]; the
+    /// ledger fixes the exact value when the withdrawal lands in a block.
+    ///
+    /// [`SNAPSHOT_FINALIZATION_DELAY`]: lb_core::sdp::SNAPSHOT_FINALIZATION_DELAY
+    unlocks_at_epoch: u32,
+}
+
+pub type FfiBlendWithdrawResult = FfiStatusResult<*mut c_char>;
+
+/// Withdraws this node from Blend core participation, as a JSON string.
+///
+/// Looks up the node's own current declaration, submits a withdrawal for it,
+/// and reports the transaction hash together with the epoch the stake is
+/// expected to unlock at.
+///
+/// # Arguments
+///
+/// - `node`: A non-null pointer to a running [`LogosBlockchainNode`] instance.
+///
+/// # Returns
+///
+/// A [`FfiBlendWithdrawResult`] containing a pointer to an allocated C string
+/// (the JSON-serialized withdrawal outcome) on success, or an
+/// [`OperationStatus`] error on failure. A `NotFound` error is returned when
+/// the node has no current declaration to withdraw.
+///
+/// # Safety
+///
+/// This function is unsafe because it dereferences raw pointers.
+///
+/// # Memory Management
+///
+/// This function allocates memory for the output C string. The caller must
+/// free this memory using the [`free_cstring`](super::free_cstring) function.
+#[must_use]
+#[panic_to_error]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn blend_withdraw(node: *const LogosBlockchainNode) -> FfiBlendWithdrawResult {
+    return_error_if_null_pointer!(node);
+
+    let node = unsafe { &*node };
+    let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
+    let overwatch_handle = node.get_overwatch_handle().clone();
+
+    let submission: StatusResult<SdpSubmission> = runtime_handle.block_on(async {
+        let declaration_id = lb_api_service::http::sdp::get_current_declaration_id_handler::<
+            SdpMempoolAdapter<RuntimeServiceId>,
+            SdpWalletAdapter<RuntimeServiceId>,
+            CryptarchiaService<RuntimeServiceId>,
+            SdpRecoveryBackend<RuntimeServiceId>,
+            RuntimeServiceId,
+        >(overwatch_handle.clone())
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get current declaration id: {error}"),
+            )
+        })?
+        .ok_or_else(|| {
+            OperationStatus::error(
+                OperationStatusCode::NotFound,
+                "Node has no current Blend declaration to withdraw.",
+            )
+        })?;
+
+        lb_api_service::http::sdp::post_withdrawal_handler::<
+            SdpMempoolAdapter<RuntimeServiceId>,
+            SdpWalletAdapter<RuntimeServiceId>,
+            CryptarchiaService<RuntimeServiceId>,
+            SdpRecoveryBackend<RuntimeServiceId>,
+            RuntimeServiceId,
+        >(overwatch_handle.clone(), declaration_id)
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to post Blend withdrawal: {error}"),
+            )
+        })
+    });
+    let submission = unwrap_or_return_error!(submission);
+
+    // Fetched outside the block above so this sync wrapper's own `block_on` is
+    // not nested inside another.
+    let time_info = unwrap_or_return_error!(get_time_info_sync(node));
+    let unlocks_at_epoch = time_info
+        .current_epoch
+        .saturating_add(sdp::SNAPSHOT_FINALIZATION_DELAY.into_inner());
+
+    let withdrawal = BlendWithdrawal {
+        tx_hash: submission.tx_id,
+        unlocks_at_epoch,
+    };
+    FfiBlendWithdrawResult::ok(unwrap_or_return_error!(to_json_cstring(&withdrawal)))
 }
