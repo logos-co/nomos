@@ -370,18 +370,24 @@ impl WalletState {
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
         excluded: &HashSet<NoteNullifier>,
     ) -> Result<(TransferOp, ZkTransferOpening), WalletError> {
-        // Smallest first, so the larger notes stay free to fund the fee.
-        let mut candidates = self.funding_candidates(pks, excluded);
-        candidates.reverse();
-        let mut inputs = Vec::new();
-        let mut total: Value = 0;
-        for owned in candidates.into_iter().take(MAX_INPUTS) {
+        // The smallest note covering `value` alone, else the smallest notes that
+        // do, else the largest ones, so the larger notes stay free to fund the
+        // fee whenever they can.
+        let candidates = self.funding_candidates(pks, excluded);
+        let (inputs, total) = if let Some(owned) = candidates
+            .iter()
+            .rev()
+            .find(|owned| owned.note.value >= value)
+        {
+            (vec![owned.clone()], owned.note.value)
+        } else {
+            let (inputs, total) = covering_prefix(candidates.iter().rev(), value)?;
             if total >= value {
-                break;
+                (inputs, total)
+            } else {
+                covering_prefix(candidates.iter(), value)?
             }
-            total = total.checked_add(owned.note.value).ok_or(GasOverflow)?;
-            inputs.push(owned);
-        }
+        };
         let Some(rest) = total.checked_sub(value) else {
             return Err(WalletError::InsufficientFunds { available: total });
         };
@@ -432,6 +438,24 @@ fn total_value(notes: &[OwnedNote]) -> Result<Value, WalletError> {
         .iter()
         .try_fold(0, |total: Value, owned| total.checked_add(owned.note.value))
         .ok_or_else(|| GasOverflow.into())
+}
+
+// The first of `notes`, at most `MAX_INPUTS`, until they cover `value`, and
+// their total.
+fn covering_prefix<'a>(
+    notes: impl Iterator<Item = &'a OwnedNote>,
+    value: Value,
+) -> Result<(Vec<OwnedNote>, Value), WalletError> {
+    let mut inputs = Vec::new();
+    let mut total: Value = 0;
+    for owned in notes.take(MAX_INPUTS) {
+        if total >= value {
+            break;
+        }
+        total = total.checked_add(owned.note.value).ok_or(GasOverflow)?;
+        inputs.push(owned.clone());
+    }
+    Ok((inputs, total))
 }
 
 fn current_paths(
@@ -938,6 +962,36 @@ mod tests {
             )
             .unwrap();
         assert_eq!(opening.inputs, vec![small]);
+    }
+
+    #[test]
+    fn exact_note_split_takes_one_larger_note_when_the_smaller_ones_fall_short() {
+        let dust: Vec<Note> = (1..=4)
+            .map(|nonce| Note::new(1, Fr::from(nonce), pk(1)))
+            .collect();
+        let large = Note::new(1000, Fr::from(5u64), pk(1));
+        let known = known(
+            &dust
+                .iter()
+                .chain([&large])
+                .zip(1..)
+                .map(|(note, seed)| (*note, LEDGER_SET, nullifier(seed)))
+                .collect::<Vec<_>>(),
+        );
+        let genesis: Vec<Note> = dust.iter().copied().chain([large]).collect();
+        let state = WalletState::from_genesis(&known, &genesis, &[], Epoch::new(0)).unwrap();
+        let (_, opening) = state
+            .exact_note_split(
+                500,
+                pk(1),
+                Fr::from(6u64),
+                pk(1),
+                Fr::from(7u64),
+                [pk(1)],
+                &HashSet::new(),
+            )
+            .unwrap();
+        assert_eq!(opening.inputs, vec![large]);
     }
 
     #[test]
