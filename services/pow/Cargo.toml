@@ -34,8 +34,6 @@ lb-storage-service            = { workspace = true }
 lb-time-service               = { workspace = true }
 lb-utils                      = { features = ["tokio"], workspace = true }
 lb-wallet-service             = { workspace = true }
-# TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-# lb-zksign                     = { workspace = true }
 lb-zktransfer = { workspace = true }
 overwatch     = { workspace = true }
 

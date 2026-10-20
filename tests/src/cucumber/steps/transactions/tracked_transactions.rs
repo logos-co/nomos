@@ -1,15 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
 use lb_common_http_client::ApiBlock;
-// TODO(RFC-480): inputs are nullifiers and outputs commitments, a Transfer is
-// proven by a ZkTransfer.
-// use lb_core::mantle::{
-//     Note, NoteId, Op, OpProof, SignedOps,
-//     ledger::{BoundedInputs, Inputs, Outputs, verification_mode::StandardMode},
-//     ops::transfer::TransferOp,
-//     traits::Hashable as _,
-//     transactions::{OpProofs, Ops, hash::TxHash, states::Unverified},
-// };
 use lb_core::mantle::{
     Note, Op, OpProof, SignedOps,
     ledger::verification_mode::StandardMode,
@@ -262,41 +253,6 @@ async fn transaction_is_in_chain(
     .await
     .is_some()
 }
-
-// TODO(RFC-480): inputs are nullifiers and outputs commitments, a Transfer is
-// proven by a ZkTransfer.
-/*
-/// Builds a transaction that fails stateless validation: a `TransferOp` with no
-/// inputs.
-pub fn create_stateless_invalid_transaction() -> SignedOps<Unverified, StandardMode> {
-    let output_note = Note::new(1000, ZkPublicKey::new(1u8.into()));
-    let transfer_op = TransferOp::new(Inputs::empty(), Outputs::new([output_note]));
-
-    build_signed_transfer(transfer_op)
-}
-
-/// Builds a transaction that passes stateless validation but is invalid against
-/// ledger state: its input note id does not correspond to any real UTXO.
-fn create_stateful_invalid_transaction() -> SignedOps<Unverified, StandardMode> {
-    let nonexistent_input = NoteId(Fr::from(0xDEAD_BEEFu64));
-    let output_note = Note::new(1000, ZkPublicKey::new(1u8.into()));
-    let transfer_op = TransferOp::new(
-        BoundedInputs::from(nonexistent_input).into(),
-        Outputs::new([output_note]),
-    );
-
-    build_signed_transfer(transfer_op)
-}
-
-fn build_signed_transfer(transfer_op: TransferOp) -> SignedOps<Unverified, StandardMode> {
-    let mantle_tx = Ops::from([Op::Transfer(transfer_op)]);
-
-    let transfer_proof = ZkKey::multi_sign(&[], &mantle_tx.hash().to_fr())
-        .expect("invalid transfer proof should still be constructible");
-    let op_proofs = OpProofs::from([OpProof::ZkSig(transfer_proof)]);
-    SignedOps::from_parts(mantle_tx, op_proofs).expect("transfer fixture should assemble")
-}
-*/
 
 /// Builds a transaction that fails stateless validation: a `TransferOp` with no
 /// inputs.

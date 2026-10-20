@@ -1,8 +1,5 @@
 pub mod channel;
 pub(crate) mod internal;
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block.
-// pub mod leader_claim;
 pub mod op;
 pub mod op_proof;
 pub mod op_proof_ref;
@@ -135,17 +132,9 @@ mod mantle_test_vectors {
             match op {
                 Op::Transfer(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
                 Op::ChannelDeposit(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
-                // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-                // the steps of CHANNEL_INSCRIBE.
-                // Op::ChannelTransfer(o) => {
-                //     assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes()));
-                // }
                 Op::ChannelWithdraw(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
                 Op::ProgramRegister(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
                 Op::ChannelInscribe(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // Op::LeaderClaim(o) => assert_eq!(o.op_id(), op_id_from_payload(&o.op_bytes())),
                 _ => {}
             }
         }

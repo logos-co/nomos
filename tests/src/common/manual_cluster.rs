@@ -5,8 +5,6 @@ use std::{
     time::Duration,
 };
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::Utxo;
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
@@ -360,19 +358,6 @@ pub fn api_url(node: &NodeHttpClient, path: &str) -> Url {
         .join(path)
         .expect("manual-cluster client base URL should join API path")
 }
-
-// TODO(RFC-480): UTXO test wallet.
-// /// UTXOs created by the genesis transfer of the deployment's genesis block.
-// #[must_use]
-// pub fn genesis_wallet_utxos(config: &TopologyConfig) -> Vec<Utxo> {
-//     let genesis_tx = config
-//         .genesis_block
-//         .as_ref()
-//         .expect("manual-cluster deployment should include genesis tx")
-//         .genesis_tx();
-//
-//     genesis_tx.transfer().operation().utxos().collect()
-// }
 
 /// Notes created by the deployment's genesis block.
 #[must_use]

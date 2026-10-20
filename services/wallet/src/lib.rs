@@ -1,8 +1,6 @@
 pub mod api;
 mod states;
 
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-// use std::{collections::HashMap, num::NonZeroU64, time::Duration};
 use std::{
     collections::{BTreeMap, HashMap},
     time::Duration,
@@ -19,22 +17,8 @@ use lb_core::{
     block::Block,
     events::Events,
     header::HeaderId,
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    // mantle::{
-    //     NoteId, Op, OpProof, SignedOps, TxHash, Utxo, Value, VerificationError,
-    //     ops::{
-    //         leader_claim::{
-    //             LeaderClaimOp, RewardsRoot, VoucherCm, VoucherNullifier, VoucherSecret,
-    //         },
-    //     },
-    // },
-    // proofs::leader_claim_proof::{Groth16LeaderClaimProof, LeaderClaimPrivate,
-    // LeaderClaimPublic},
-    // TODO(RFC-480): Operations are proven by ZkTransfers built from the
-    // wallet's paths; `Inputs`, `ChannelConfigOp`, `InscriptionOp` and the SDP
-    // Operation types are no longer named here.
     mantle::{
-        Note, NoteId, Op, OpProof, SignedOps, TxHash, Value, VerificationError,
+        Note, Op, OpProof, SignedOps, TxHash, Value, VerificationError,
         gas::{GasCost, GasOverflow, MainnetGasProfile},
         ledger::verification_mode::StandardMode,
         note_set::{LEDGER_SET, NoteSetIndex, SDP_SET},
@@ -54,13 +38,6 @@ use lb_groth16::Fr;
 use lb_key_management_system_service::{
     api::{KmsServiceApi, KmsServiceData},
     backend::{KMSBackend, preload::PreloadKMSBackend},
-    // TODO(RFC-480): the ZkSignature scheme is removed.
-    // keys::{
-    //     ED25519_PUBLIC_KEY_SIZE, Ed25519Key, Ed25519PublicKey, KeyOperators, PayloadEncoding,
-    //     SignatureEncoding, ZkPublicKey, ZkPublicKeys, ZkSignature, secured_key::SecuredKey,
-    // },
-    // TODO(RFC-480): Operations are proven by ZkTransfers built from the
-    // wallet's paths; `ZkPublicKeys` is no longer named here.
     keys::{
         ED25519_PUBLIC_KEY_SIZE, Ed25519Key, Ed25519PublicKey, Ed25519Signature, Key, KeyOperators,
         PayloadEncoding, SignatureEncoding, ZkKey, ZkPublicKey, secured_key::SecuredKey,
@@ -75,8 +52,6 @@ use lb_services_utils::{
     wait_until_services_are_ready,
 };
 use lb_storage_service::{api::StorageApi, recovery::StorageRecoveryBackend};
-// TODO(RFC-480): Operations are proven by ZkTransfers built from the wallet's paths.
-// use lb_utils::{bounded::BoundedError, tokio::task::spawn_blocking};
 use lb_utils::bounded::BoundedError;
 use lb_wallet::{
     KnownNote, OwnedNote, WalletBalance, WalletBlock, WalletError,
@@ -131,12 +106,6 @@ pub enum WalletServiceError {
     #[error("Declaration {0:?} is missing in ledger")]
     MissingDeclaration(lb_core::sdp::DeclarationId),
 
-    #[error("Service note {0:?} is missing in ledger")]
-    MissingServiceNote(NoteId),
-
-    #[error("Input note {0:?} is missing in ledger")]
-    MissingInputNote(NoteId),
-
     #[error(transparent)]
     TxBuilder(#[from] TxBuilderError),
 
@@ -146,21 +115,6 @@ pub enum WalletServiceError {
     #[error("Transaction fee exceeded the configured max fee. tx_fee={tx_fee} > max_fee={max_fee}")]
     TxFeeExceedsMaxFee { max_fee: GasCost, tx_fee: GasCost },
 
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    // #[error("PoC generation failed: {0:?}")]
-    // PoCGenerationFailed(#[from] lb_core::proofs::leader_claim_proof::Error),
-    //
-    // #[error(transparent)]
-    // MerklePathWitness(#[from] lb_core::proofs::MerklePathWitnessError),
-    //
-    // #[error("No claimable voucher found")]
-    // NoClaimableVoucher,
-    //
-    // #[error("Voucher not found for the nullifier")]
-    // VoucherNotFound(VoucherNullifier),
-    //
-    // #[error("Merkle path not found for voucher_cm: {0:?}")]
-    // VoucherMerklePathNotFound(VoucherCm),
     #[error("The wallet holds no key for {0:?}")]
     UnknownKey(ZkPublicKey),
 
@@ -202,16 +156,6 @@ pub enum WalletMsg {
         priority_fee_percent: u64,
         resp_tx: Sender<Result<TipResponse<MantleTxBuilder>, WalletServiceError>>,
     },
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    // BuildLeaderClaimTx {
-    //     tip: HeaderId,
-    //     rewards_root: RewardsRoot,
-    //     reward_amount: Value,
-    //     funding_pk: ZkPublicKey,
-    //     max_tx_fee: GasCost,
-    //     resp_tx:
-    //         Sender<Result<TipResponse<SignedOps<Preverified, StandardMode>>, WalletServiceError>>,
-    // },
     SignTx {
         tip: Option<HeaderId>,
         tx_builder: MantleTxBuilder,
@@ -244,30 +188,14 @@ pub enum WalletMsg {
         commitment: NoteCm,
         resp_tx: Sender<Result<TipResponse<Option<OwnedNote>>, WalletServiceError>>,
     },
-    // TODO(RFC-480): the ZkSignature scheme is removed.
-    // SignTxWithZk {
-    //     tx_hash: TxHash,
-    //     pks: ZkPublicKeys,
-    //     resp_tx: Sender<Result<ZkSignature, WalletServiceError>>,
-    // },
     GetLeaderAgedNotes {
         tip: Option<HeaderId>,
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // resp_tx: Sender<Result<TipResponse<Vec<UtxoWithKeyId>>, WalletServiceError>>,
         resp_tx: Sender<Result<TipResponse<Vec<AgedNote>>, WalletServiceError>>,
     },
     GetLeaderAgedNotesInfo {
         tip: Option<HeaderId>,
         resp_tx: Sender<Result<TipResponse<LeaderAgedNotesInfo>, WalletServiceError>>,
     },
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    // GenerateNewVoucherSecret {
-    //     resp_tx: Sender<Result<VoucherCm, WalletServiceError>>,
-    // },
-    // GetClaimableVouchers {
-    //     tip: Option<HeaderId>,
-    //     resp_tx: Sender<Result<TipResponse<ClaimableVouchersInfo>, WalletServiceError>>,
-    // },
     GenerateRewardKey {
         resp_tx: Sender<Result<ZkPublicKey, WalletServiceError>>,
     },
@@ -294,13 +222,6 @@ pub struct TipResponse<R> {
     pub response: R,
 }
 
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-// #[derive(Debug)]
-// pub struct UtxoWithKeyId {
-//     pub utxo: Utxo,
-//     pub key_id: KeyId,
-// }
-
 // An owned note of the aged snapshot, with the key that spends it.
 #[derive(Debug)]
 pub struct AgedNote {
@@ -309,64 +230,9 @@ pub struct AgedNote {
     pub key_id: KeyId,
 }
 
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-/*
-struct LeaderClaimTx {
-    signed_tx: SignedOps<Preverified, StandardMode>,
-    voucher_nullifier: VoucherNullifier,
-    funded_notes: Vec<NoteId>,
-}
-
-struct LeaderClaimTxRequest {
-    tip: HeaderId,
-    rewards_root: RewardsRoot,
-    reward_amount: Value,
-    funding_pk: ZkPublicKey,
-    max_tx_fee: GasCost,
-}
-
-#[derive(Debug)]
-pub struct ClaimableVoucherInfo {
-    pub commitment: VoucherCm,
-    pub nullifier: VoucherNullifier,
-}
-
-/// The vouchers a wallet can claim right now, and what they are worth.
-#[derive(Debug)]
-pub struct ClaimableVouchersInfo {
-    /// Vouchers with a proven path at the queried tip and no claim already in
-    /// flight. Vouchers reserved by a pending claim are excluded.
-    pub vouchers: Vec<ClaimableVoucherInfo>,
-    /// What a single voucher pays out at the queried tip.
-    ///
-    /// The ledger splits the claimable reward pool evenly across every
-    /// unclaimed voucher on the chain, so this is the same for each of
-    /// `vouchers` and it moves as other leaders claim or as a new epoch adds
-    /// to the pool. It is a snapshot, not a guarantee of what a claim
-    /// submitted now will settle for.
-    pub reward_amount: Value,
-    /// `reward_amount` times the number of claimable `vouchers`: what this
-    /// wallet could claim in total at the queried tip.
-    pub total_claimable: Value,
-}
-
-impl ClaimableVouchersInfo {
-    const fn new(vouchers: Vec<ClaimableVoucherInfo>, reward_amount: Value) -> Self {
-        let total_claimable = reward_amount.saturating_mul(vouchers.len() as Value);
-        Self {
-            vouchers,
-            reward_amount,
-            total_claimable,
-        }
-    }
-}
-*/
-
 /// One wallet-owned UTXO old enough to take part in the leadership lottery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LeaderAgedNoteInfo {
-    // TODO(RFC-480): notes are private, named by their commitment.
-    // pub note_id: NoteId,
     pub commitment: NoteCm,
     pub note_set: NoteSetIndex,
     pub value: Value,
@@ -398,33 +264,6 @@ impl LeaderAgedNotesInfo {
         self.notes.len()
     }
 }
-
-// TODO(RFC-480): notes are private, named by their commitment.
-/*
-impl From<Vec<UtxoWithKeyId>> for LeaderAgedNotesInfo {
-    fn from(utxos: Vec<UtxoWithKeyId>) -> Self {
-        Self::from_iter(utxos.iter().map(|UtxoWithKeyId { utxo, .. }| utxo))
-    }
-}
-
-impl<'a> FromIterator<&'a Utxo> for LeaderAgedNotesInfo {
-    fn from_iter<I: IntoIterator<Item = &'a Utxo>>(utxos: I) -> Self {
-        let mut total_value: Value = 0;
-        let notes = utxos
-            .into_iter()
-            .map(|utxo| {
-                total_value = total_value.saturating_add(utxo.note.value);
-                LeaderAgedNoteInfo {
-                    note_id: utxo.id(),
-                    value: utxo.note.value,
-                    public_key: utxo.note.pk,
-                }
-            })
-            .collect();
-        Self { notes, total_value }
-    }
-}
-*/
 
 impl From<Vec<AgedNote>> for LeaderAgedNotesInfo {
     fn from(notes: Vec<AgedNote>) -> Self {
@@ -465,15 +304,8 @@ impl WalletMsg {
             | Self::OwnedNote { tip, .. }
             | Self::GetLeaderAgedNotes { tip, .. }
             | Self::GetLeaderAgedNotesInfo { tip, .. }
-            // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-            // | Self::GetClaimableVouchers { tip, .. }
             | Self::GetTxContext { block_id: tip, .. } => *tip,
-            // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-            // Self::BuildLeaderClaimTx { tip, .. } => Some(*tip),
             Self::SignTxWithEd25519 { .. }
-            // TODO(RFC-480): the ZkSignature scheme, LEADER_CLAIM and the vouchers are removed.
-            // | Self::SignTxWithZk { .. }
-            // | Self::GenerateNewVoucherSecret { .. }
             | Self::GenerateRewardKey { .. }
             | Self::ImportNote { .. }
             | Self::GetKnownAddresses { .. } => None,
@@ -627,31 +459,11 @@ where
         let mut lib_updates = BroadcastStream::new(cryptarchia_api.subscribe_lib_updates().await?);
 
         let (epoch_config, consensus_config) = cryptarchia_api.get_epoch_config().await?;
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // let security_param = NonZeroU64::from(consensus_config.security_param()).get();
         let epoch_config = EpochConfig {
             epoch_config,
             consensus_config,
         };
 
-        // TODO(RFC-480): a wallet follows the commitment MMRs from genesis.
-        // // Initialize wallet from LIB and LIB LedgerState
-        // let lib = cryptarchia_info.lib;
-        //
-        // // Fetch the ledger state at LIB using the API
-        // let lib_ledger = cryptarchia_api
-        //     .get_ledger_state(lib)
-        //     .await?
-        //     .ok_or(WalletServiceError::LedgerStateNotFound(lib))?;
-        //
-        // let mut state = ServiceState::new(
-        //     self.initial_state,
-        //     &settings,
-        //     lib,
-        //     &lib_ledger,
-        //     &service_resources_handle.state_updater,
-        //     security_param,
-        // );
         let mut state = Self::start_state(
             self.initial_state,
             &settings,
@@ -823,9 +635,6 @@ where
                     return;
                 }
 
-                // TODO(RFC-480): notes are reserved by nullifier.
-                // let funded_notes: Vec<NoteId> =
-                //     funded.notes_consumed_or_used_in_service().collect();
                 let funded_notes: Vec<NoteNf> = funded.nullifiers_consumed().collect();
                 state.reserve_pending_notes(funded_notes.iter().copied());
 
@@ -840,62 +649,6 @@ where
                     debug!(target: LOG_TARGET, "Failed to respond to FundTx");
                 }
             }
-            // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-            /*
-            WalletMsg::BuildLeaderClaimTx {
-                tip,
-                rewards_root,
-                reward_amount,
-                funding_pk,
-                max_tx_fee,
-                resp_tx,
-            } => {
-                let ledger = match Self::ledger_state_at(tip, cryptarchia).await {
-                    Ok(ledger) => ledger,
-                    Err(err) => {
-                        Self::send_err(resp_tx, err);
-                        return;
-                    }
-                };
-                let request = LeaderClaimTxRequest {
-                    tip,
-                    rewards_root,
-                    reward_amount,
-                    funding_pk,
-                    max_tx_fee,
-                };
-                // Pinned to keep the future off the stack: `LedgerState` is
-                // passed by value and grew past the `clippy::large_futures`
-                // threshold, by 720 bytes for `PoW` and 112 for the uncle
-                // slots.
-                // TODO: consider passing it by reference so we can remove `Box::pin`.
-                let response =
-                    Box::pin(Self::build_leader_claim_tx(request, ledger, state, kms)).await;
-
-                match response {
-                    Ok(built_tx) => {
-                        let voucher_nullifier = built_tx.voucher_nullifier;
-                        let funded_notes = built_tx.funded_notes;
-                        if resp_tx
-                            .send(Ok(TipResponse {
-                                tip,
-                                response: built_tx.signed_tx,
-                            }))
-                            .is_err()
-                        {
-                            state.release_claim_reservation(voucher_nullifier);
-                            state.release_pending_notes(funded_notes);
-                            debug!(target: LOG_TARGET, "Failed to respond to BuildLeaderClaimTx");
-                        }
-                    }
-                    Err(err) => {
-                        if resp_tx.send(Err(err)).is_err() {
-                            debug!(target: LOG_TARGET, "Failed to respond to BuildLeaderClaimTx");
-                        }
-                    }
-                }
-            }
-            */
             WalletMsg::SignTx {
                 tip,
                 tx_builder,
@@ -917,14 +670,8 @@ where
                     }
                 };
 
-                // TODO(RFC-480): notes are reserved by nullifier.
-                // let funded_notes: Vec<NoteId> =
-                //     tx_builder.notes_consumed_or_used_in_service().collect();
                 let funded_notes: Vec<NoteNf> = tx_builder.nullifiers_consumed().collect();
 
-                // TODO(RFC-480): the ledger state is lent to keep the proving
-                // future small.
-                // let resp = Self::sign_tx(tx_builder, tip, ledger, kms, state.wallet())
                 let resp = Self::sign_tx(tx_builder, tip, &ledger, kms, state.wallet())
                     .await
                     .map(|signed_tx| TipResponse {
@@ -1048,17 +795,6 @@ where
                     debug!(target: LOG_TARGET, "Failed to respond to SignTxWithEd25519");
                 }
             }
-            // TODO(RFC-480): the ZkSignature scheme is removed.
-            // WalletMsg::SignTxWithZk {
-            //     tx_hash,
-            //     pks,
-            //     resp_tx,
-            // } => {
-            //     let result = Self::sign_zksig(tx_hash, pks, kms).await;
-            //     if resp_tx.send(result).is_err() {
-            //         debug!(target: LOG_TARGET, "Failed to respond to SignTxWithZk");
-            //     }
-            // }
             WalletMsg::GetLeaderAgedNotes { tip, resp_tx } => {
                 let response = Self::leader_aged_notes_at(tip, state.wallet(), cryptarchia).await;
                 if resp_tx.send(response).is_err() {
@@ -1076,19 +812,6 @@ where
                     debug!(target: LOG_TARGET, "Failed to respond to GetLeaderAgedNotesInfo");
                 }
             }
-            // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-            // WalletMsg::GenerateNewVoucherSecret { resp_tx } => {
-            //     Self::generate_new_voucher_secret(
-            //         state,
-            //         voucher_master_key_id.clone(),
-            //         kms,
-            //         resp_tx,
-            //     )
-            //     .await;
-            // }
-            // WalletMsg::GetClaimableVouchers { tip, resp_tx } => {
-            //     Self::get_claimable_vouchers(tip, resp_tx, state, cryptarchia).await;
-            // }
             WalletMsg::GenerateRewardKey { resp_tx } => {
                 let index = state.next_reward_key_index();
                 let result =
@@ -1144,241 +867,6 @@ where
             debug!(target: LOG_TARGET, "Failed to respond to GetBalance");
         }
     }
-
-    // TODO(RFC-480): Operations are proven by ZkTransfers built from the wallet's
-    // paths.
-    /*
-    async fn sign_inscription(
-        tx_hash: TxHash,
-        inscribe_op: &InscriptionOp,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        let Ok(validated_public_key) = Ed25519PublicKey::try_from(inscribe_op.signer) else {
-            return Err(WalletServiceError::InvalidSigner(
-                inscribe_op.signer.to_bytes(),
-            ));
-        };
-        let ed25519_sig = Self::sign_ed25519(tx_hash, validated_public_key, kms).await?;
-        Ok(OpProof::Ed25519Sig(ed25519_sig))
-    }
-
-    async fn sign_channel_deposit(
-        tx_hash: TxHash,
-        note_ids: Inputs,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        ledger: &LedgerState,
-    ) -> Result<OpProof, WalletServiceError> {
-        let input_pks = Self::resolve_note_input_pks(ledger, note_ids.into_inner())?;
-        let zk_sig = Self::sign_zksig(tx_hash, input_pks, kms).await?;
-
-        Ok(OpProof::ZkSig(zk_sig))
-    }
-
-    async fn sign_channel_set_key(
-        tx_hash: TxHash,
-        set_keys_op: &ChannelConfigOp,
-        ledger: &LedgerState,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        let channel = ledger
-            .mantle_ledger()
-            .channels()
-            .channel_state(&set_keys_op.channel)
-            .ok_or(WalletServiceError::MissingChannelState(set_keys_op.channel))?;
-
-        let authorized_key = channel.accredited_keys[0]; // First key is authorized key (guaranteed non-empty)
-        let Ok(validated_public_key) = Ed25519PublicKey::try_from(authorized_key) else {
-            return Err(WalletServiceError::InvalidSigner(authorized_key.to_bytes()));
-        };
-        let ed25519_sig = Self::sign_ed25519(tx_hash, validated_public_key, kms).await?;
-
-        Ok(OpProof::Ed25519Sig(ed25519_sig))
-    }
-
-    async fn sign_sdp_declare(
-        tx_hash: TxHash,
-        declare_op: &SDPDeclareOp,
-        ledger: &LedgerState,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        // For a new declaration, the note is still in the UTXOs (not yet locked).
-        // We look it up from the UTXO set to get the public key for signing.
-        let utxo_tree = ledger.latest_utxos();
-        debug!(
-            target: LOG_TARGET,
-            "SDPDeclare: Looking for note_id={}, utxo_tree has {} UTXOs",
-            hex::encode(declare_op.service_note_id.as_bytes()),
-            utxo_tree.size()
-        );
-        let note = utxo_tree
-            .utxos()
-            .get(&declare_op.service_note_id)
-            .map(|(utxo, _)| utxo.note)
-            .ok_or(WalletServiceError::MissingServiceNote(
-                declare_op.service_note_id,
-            ))?;
-
-        let zk_sig = Self::sign_zksig(tx_hash, [note.pk, declare_op.zk_id], kms).await?;
-        let ed25519_sig = Self::sign_ed25519(tx_hash, declare_op.provider_id.0, kms).await?;
-
-        let proof = ZkAndEd25519Proof {
-            zk_sig,
-            ed25519_sig,
-        };
-        Ok(OpProof::ZkAndEd25519Sigs(proof))
-    }
-
-    async fn sign_sdp_withdraw(
-        tx_hash: TxHash,
-        withdraw_op: &SDPWithdrawOp,
-        ledger: &LedgerState,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        let declaration = ledger
-            .mantle_ledger()
-            .sdp_ledger()
-            .get_declaration(&withdraw_op.declaration_id)
-            .ok_or(WalletServiceError::MissingDeclaration(
-                withdraw_op.declaration_id,
-            ))?;
-
-        let service_note = ledger
-            .mantle_ledger()
-            .service_notes()
-            .get(&declaration.service_note_id)
-            .ok_or(WalletServiceError::MissingServiceNote(
-                declaration.service_note_id,
-            ))?;
-
-        let zk_sig = Self::sign_zksig(tx_hash, [service_note.pk, declaration.zk_id], kms).await?;
-
-        Ok(OpProof::ZkSig(zk_sig))
-    }
-
-    async fn sign_sdp_active(
-        tx_hash: TxHash,
-        active_op: &SDPActiveOp,
-        ledger: &LedgerState,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        let declaration = ledger
-            .mantle_ledger()
-            .sdp_ledger()
-            .get_declaration(&active_op.declaration_id)
-            .ok_or(WalletServiceError::MissingDeclaration(
-                active_op.declaration_id,
-            ))?;
-
-        let zk_sig = Self::sign_zksig(tx_hash, [declaration.zk_id], kms).await?;
-
-        Ok(OpProof::ZkSig(zk_sig))
-    }
-
-    async fn sign_leader_claim(
-        tx_hash: TxHash,
-        leader_claim_op: &LeaderClaimOp,
-        tip: HeaderId,
-        wallet: &Wallet,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<OpProof, WalletServiceError> {
-        let (voucher_master_key_id, voucher_index) = wallet
-            .get_voucher_by_nullifier(&leader_claim_op.voucher_nullifier)
-            .ok_or(WalletServiceError::VoucherNotFound(
-                leader_claim_op.voucher_nullifier,
-            ))?;
-        let voucher_secret =
-            Self::derive_voucher_from_kms(kms, voucher_master_key_id.clone(), *voucher_index)
-                .await?;
-
-        let voucher_cm = VoucherCm::from_secret(voucher_secret);
-        let path = wallet
-            .voucher_path_snapshot(tip, &voucher_cm)
-            .map_err(WalletServiceError::WalletError)?
-            .ok_or(WalletServiceError::VoucherMerklePathNotFound(voucher_cm))?;
-        let rewards_root = leader_claim_op.rewards_root;
-
-        // TODO: This should happen in KMS
-        let poc = spawn_blocking("logos/wallet/leader-claim-proof-blocking", move || {
-            Self::generate_poc(voucher_secret, &path, rewards_root, tx_hash)
-        })
-        .await??;
-
-        Ok(OpProof::PoC(poc))
-    }
-
-    async fn sign_transfer(
-        tx_hash: TxHash,
-        note_ids: Inputs,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        ledger: &LedgerState,
-    ) -> Result<OpProof, WalletServiceError> {
-        let input_pks = Self::resolve_note_input_pks(ledger, note_ids.into_inner())?;
-        let zk_sig = Self::sign_zksig(tx_hash, input_pks, kms).await?;
-
-        Ok(OpProof::ZkSig(zk_sig))
-    }
-
-    async fn sign_tx(
-        tx_builder: MantleTxBuilder,
-        tip: HeaderId,
-        tip_leader: LedgerState,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        wallet: &Wallet,
-    ) -> Result<SignedOps<Preverified, StandardMode>, WalletServiceError> {
-        // TODO: Maybe Unverified?
-        // Extract input public keys before building the transaction
-        let mut channel_multi_sig_proofs = tx_builder.channel_multi_sig_proofs().clone();
-        let mantle_tx = tx_builder.clone().build()?;
-        let tx_hash = mantle_tx.hash();
-
-        let mut op_proofs = OpProofs::empty();
-        for (i, op) in mantle_tx.op_refs().into_iter().enumerate() {
-            let op_proof = match op {
-                OpRef::ChannelInscribe(inscribe_op) => {
-                    Self::sign_inscription(tx_hash, inscribe_op, kms).await?
-                }
-                OpRef::ChannelConfig(set_keys_op) => {
-                    Self::sign_channel_set_key(tx_hash, set_keys_op, &tip_leader, kms).await?
-                }
-                OpRef::ChannelDeposit(deposit_op) => {
-                    Self::sign_channel_deposit(tx_hash, deposit_op.inputs.clone(), kms, &tip_leader)
-                        .await?
-                }
-                OpRef::ChannelWithdraw(_) | OpRef::ChannelTransfer(_) => {
-                    let proof = channel_multi_sig_proofs
-                        .remove(&i)
-                        .ok_or(WalletServiceError::ChannelMultiSigProofNotFound(i))?;
-                    OpProof::ChannelMultiSigProof(proof)
-                }
-                OpRef::SDPDeclare(declare_op) => {
-                    Self::sign_sdp_declare(tx_hash, declare_op, &tip_leader, kms).await?
-                }
-                OpRef::SDPWithdraw(withdraw_op) => {
-                    Self::sign_sdp_withdraw(tx_hash, withdraw_op, &tip_leader, kms).await?
-                }
-                OpRef::SDPActive(active_op) => {
-                    Self::sign_sdp_active(tx_hash, active_op, &tip_leader, kms).await?
-                }
-                OpRef::LeaderClaim(claim_op) => {
-                    Self::sign_leader_claim(tx_hash, claim_op, tip, wallet, kms).await?
-                }
-                OpRef::Transfer(transfer_op) => {
-                    Self::sign_transfer(tx_hash, transfer_op.inputs.clone(), kms, &tip_leader)
-                        .await?
-                }
-                OpRef::ClaimPowReward(_) => OpProof::None(NoOpProof),
-            };
-            op_proofs.try_push(op_proof)?;
-        }
-
-        let signed_mantle_tx = SignedOps::from_parts(mantle_tx, op_proofs)
-            .expect("SignedOps should be valid with the provided proofs.")
-            .preverify()
-            .expect("Preverification should not fail.");
-
-        Ok(signed_mantle_tx)
-    }
-    */
 
     async fn sign_tx(
         tx_builder: MantleTxBuilder,
@@ -1571,12 +1059,8 @@ where
         let key_id = hex::encode(pk.as_bytes());
 
         let payload = PayloadEncoding::Ed25519(Bytes::copy_from_slice(tx_hash.as_signing_bytes()));
-        // TODO(RFC-480): pinned to keep the future off the stack, a KMS message
-        // can carry a ZkTransfer witness.
-        // let signature = kms
-        //     .sign(key_id, payload)
-        //     .await
-        //     .map_err(WalletServiceError::KmsApi)?;
+        // Pinned to keep the future off the stack: a KMS message can carry a
+        // ZkTransfer witness.
         let signature = Box::pin(kms.sign(key_id, payload))
             .await
             .map_err(WalletServiceError::KmsApi)?;
@@ -1589,73 +1073,6 @@ where
 
         Ok(ed25519_sig)
     }
-
-    // TODO(RFC-480): Operations are proven by ZkTransfers built from the wallet's
-    // paths.
-    /*
-    async fn sign_zksig(
-        tx_hash: TxHash,
-        pks: impl IntoIterator<Item = ZkPublicKey>,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<ZkSignature, WalletServiceError> {
-        let pks = ZkPublicKeys::try_from_iter(pks)?;
-        // Use hex-encoded public key as key_id for now
-        let key_ids: Vec<_> = pks
-            .into_iter()
-            .map(|pk| hex::encode(lb_groth16::fr_to_bytes(&pk.into_inner())))
-            .collect();
-
-        let payload = PayloadEncoding::Zk(tx_hash.to_fr());
-        let signature = kms
-            .sign_multiple(key_ids, payload)
-            .await
-            .map_err(WalletServiceError::KmsApi)?;
-
-        let SignatureEncoding::Zk(zk_sig) = signature else {
-            return Err(WalletServiceError::KmsApi(
-                "Expected ZkSig signature".into(),
-            ));
-        };
-
-        Ok(zk_sig)
-    }
-
-    fn resolve_note_input_pks(
-        ledger: &LedgerState,
-        note_ids: impl IntoIterator<Item = NoteId>,
-    ) -> Result<Vec<ZkPublicKey>, WalletServiceError> {
-        note_ids
-            .into_iter()
-            .map(|note_id| {
-                ledger
-                    .latest_utxos()
-                    .utxos()
-                    .get(&note_id)
-                    .map(|(utxo, _)| utxo.note.pk)
-                    .ok_or(WalletServiceError::MissingInputNote(note_id))
-            })
-            .collect()
-    }
-
-    fn generate_poc(
-        voucher_secret: VoucherSecret,
-        path: &MerklePath,
-        rewards_root: RewardsRoot,
-        tx_hash: TxHash,
-    ) -> Result<Groth16LeaderClaimProof, WalletServiceError> {
-        Ok(Groth16LeaderClaimProof::prove(
-            LeaderClaimPrivate::try_new(
-                LeaderClaimPublic {
-                    voucher_nullifier: VoucherNullifier::from_secret(voucher_secret).into(),
-                    voucher_root: rewards_root.into(),
-                    mantle_tx_hash: tx_hash.to_fr(),
-                },
-                path,
-                voucher_secret,
-            )?,
-        )?)
-    }
-    */
 
     async fn owned_note_at(
         tip: Option<HeaderId>,
@@ -1680,30 +1097,12 @@ where
         cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
     ) -> Result<TipResponse<Vec<AgedNote>>, WalletServiceError> {
         let tip = Self::msg_tip_or_latest(tip, cryptarchia).await?;
-        // TODO(RFC-480): the wallet keeps the aged paths of its notes.
-        // let ledger_state = Self::ledger_state_at(tip, cryptarchia).await?;
 
         let wallet_state = wallet.wallet_state_at(tip).map_err(|err| {
             error!(target: LOG_TARGET, err = ?err, "Failed to fetch wallet state");
             WalletServiceError::FailedToFetchWalletStateForBlock(tip)
         })?;
 
-        // TODO(RFC-480): the wallet keeps the aged paths of its notes.
-        // let aged_utxos = ledger_state.epoch_state().utxos.utxos();
-        // let eligible_utxos = wallet_state
-        //     .utxos
-        //     .iter()
-        //     .filter(|(note_id, _)| aged_utxos.contains_key(note_id))
-        //     .filter_map(|(_, utxo)| {
-        //         wallet
-        //             .known_keys()
-        //             .get(&utxo.note.pk)
-        //             .map(|key_id| UtxoWithKeyId {
-        //                 utxo: *utxo,
-        //                 key_id: key_id.clone(),
-        //             })
-        //     })
-        //     .collect();
         let eligible_notes = wallet_state
             .aged_notes()
             .into_iter()
@@ -1724,34 +1123,6 @@ where
             response: eligible_notes,
         })
     }
-
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    /*
-    /// Derive a new voucher via KMS and store it in [`Wallet`].
-    async fn generate_new_voucher_secret(
-        state: &mut ServiceState<'_>,
-        master_key_id: KeyId,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-        resp_tx: Sender<Result<VoucherCm, WalletServiceError>>,
-    ) {
-        let index = state.next_new_voucher_index();
-        let secret = match Self::derive_voucher_from_kms(kms, master_key_id.clone(), index).await {
-            Ok(secret) => secret,
-            Err(err) => {
-                Self::send_err(resp_tx, err);
-                return;
-            }
-        };
-        let cm = VoucherCm::from_secret(secret);
-        let nf = VoucherNullifier::from_secret(secret);
-
-        state.add_next_known_voucher(cm, nf, master_key_id);
-
-        if let Err(e) = resp_tx.send(Ok(cm)) {
-            debug!(target: LOG_TARGET, "Failed to send voucher secret: {e:?}");
-        }
-    }
-    */
 
     // Derives the reward key `index` from the voucher master key and makes it
     // a key of the KMS and of the wallet.
@@ -2012,8 +1383,6 @@ where
         kms: &KmsServiceApi<Kms, RuntimeServiceId>,
         key_id: KeyId,
         index: u64,
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // ) -> Result<VoucherSecret, WalletServiceError> {
     ) -> Result<Fr, WalletServiceError> {
         let (output_tx, output_rx) = oneshot::channel();
         // Pinned to keep the future off the stack: a KMS message can carry a
@@ -2028,191 +1397,10 @@ where
         .await
         .map_err(|error| WalletServiceError::KmsApi(Box::new(error)))?;
 
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // Ok(output_rx
-        //     .await
-        //     .map_err(|_| {
-        //         WalletServiceError::KmsApi("KMS API did not respond with voucher_cm".into())
-        //     })?
-        //     .into())
         output_rx.await.map_err(|_| {
             WalletServiceError::KmsApi("KMS API did not respond with voucher_cm".into())
         })
     }
-
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    /*
-    async fn build_leader_claim_tx(
-        request: LeaderClaimTxRequest,
-        ledger: LedgerState,
-        state: &mut ServiceState<'_>,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<LeaderClaimTx, WalletServiceError> {
-        let voucher_nullifier = Self::reserve_claimable_voucher(state, request.tip)?
-            .ok_or(WalletServiceError::NoClaimableVoucher)?;
-
-        let result =
-            Self::build_reserved_leader_claim_tx(request, voucher_nullifier, ledger, state, kms)
-                .await;
-
-        if result.is_err() {
-            state.release_claim_reservation(voucher_nullifier);
-        }
-
-        result.map(|(signed_tx, funded_notes)| LeaderClaimTx {
-            signed_tx,
-            voucher_nullifier,
-            funded_notes,
-        })
-    }
-
-    fn reserve_claimable_voucher(
-        state: &mut ServiceState<'_>,
-        tip: HeaderId,
-    ) -> Result<Option<VoucherNullifier>, WalletServiceError> {
-        let claimable_vouchers = state.claimable_vouchers(tip)?;
-
-        match (
-            claimable_vouchers.available.into_iter().next(),
-            claimable_vouchers.pending.len(),
-        ) {
-            (Some(voucher), _) => {
-                state.reserve_claim(voucher.nullifier);
-
-                debug!(
-                    target: LOG_TARGET,
-                    nf = ?voucher.nullifier,
-                    cm = ?voucher.commitment,
-                    "Found and reserved claimable voucher"
-                );
-
-                Ok(Some(voucher.nullifier))
-            }
-            (None, pending_count) if pending_count > 0 => {
-                debug!(
-                    target: LOG_TARGET,
-                    "No available vouchers: {pending_count} are pending"
-                );
-                Ok(None)
-            }
-            (None, _) => Ok(None),
-        }
-    }
-
-    async fn get_claimable_vouchers(
-        tip: Option<HeaderId>,
-        resp_tx: Sender<Result<TipResponse<ClaimableVouchersInfo>, WalletServiceError>>,
-        state: &ServiceState<'_>,
-        cryptarchia: &CryptarchiaServiceApi<Cryptarchia>,
-    ) {
-        let tip = match Self::msg_tip_or_latest(tip, cryptarchia).await {
-            Ok(tip) => tip,
-            Err(err) => {
-                Self::send_err(resp_tx, err);
-                return;
-            }
-        };
-
-        // The per-voucher payout is a property of the ledger at `tip`, not of
-        // the wallet, and it is the same figure the leader claim transaction
-        // is built with.
-        let reward_amount = match Self::ledger_state_at(tip, cryptarchia).await {
-            Ok(ledger_state) => ledger_state.mantle_ledger().leader_reward_amount(),
-            Err(err) => {
-                Self::send_err(resp_tx, err);
-                return;
-            }
-        };
-
-        let response = state.claimable_vouchers(tip).map(|vouchers| TipResponse {
-            tip,
-            response: ClaimableVouchersInfo::new(
-                vouchers
-                    .available
-                    .into_iter()
-                    .map(|voucher| ClaimableVoucherInfo {
-                        commitment: voucher.commitment,
-                        nullifier: voucher.nullifier,
-                    })
-                    .collect(),
-                reward_amount,
-            ),
-        });
-
-        if resp_tx.send(response).is_err() {
-            debug!(target: LOG_TARGET, "Failed to respond to GetClaimableVouchers");
-        }
-    }
-
-    async fn build_reserved_leader_claim_tx(
-        request: LeaderClaimTxRequest,
-        voucher_nullifier: VoucherNullifier,
-        ledger: LedgerState,
-        state: &mut ServiceState<'_>,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<(SignedOps<Preverified, StandardMode>, Vec<NoteId>), WalletServiceError> {
-        let context = ledger.tx_context();
-        let tx_builder = MantleTxBuilder::new().push_op(Op::LeaderClaim(LeaderClaimOp {
-            rewards_root: request.rewards_root,
-            voucher_nullifier,
-            pk: request.funding_pk,
-        }))?;
-
-        let funded_tx_builder = state.fund_tx::<MainnetGasProfile>(
-            request.tip,
-            &tx_builder,
-            request.funding_pk,
-            [request.funding_pk],
-            &context,
-            0,
-        )?;
-
-        let funded_notes: Vec<NoteId> = funded_tx_builder
-            .notes_consumed_or_used_in_service()
-            .collect();
-        state.reserve_pending_notes(funded_notes.iter().copied());
-
-        match Self::sign_funded_leader_claim_tx(request, funded_tx_builder, ledger, state, kms)
-            .await
-        {
-            Ok(signed_tx) => Ok((signed_tx, funded_notes)),
-            Err(err) => {
-                state.release_pending_notes(funded_notes);
-                Err(err)
-            }
-        }
-    }
-
-    async fn sign_funded_leader_claim_tx(
-        request: LeaderClaimTxRequest,
-        funded_tx_builder: MantleTxBuilder,
-        ledger: LedgerState,
-        state: &ServiceState<'_>,
-        kms: &KmsServiceApi<Kms, RuntimeServiceId>,
-    ) -> Result<SignedOps<Preverified, StandardMode>, WalletServiceError> {
-        let context = ledger.tx_context();
-        let net_balance = funded_tx_builder.net_balance();
-        let gas_cost = funded_tx_builder.minimum_gas_cost::<MainnetGasProfile>(&context)?;
-        debug!(
-            target: LOG_TARGET,
-            net_balance,
-            gas_cost = ?gas_cost,
-            reward_amount = request.reward_amount,
-            n_inputs = funded_tx_builder.ledger_inputs().len(),
-            "leader claim tx builder state after funding"
-        );
-
-        let tx_fee = funded_tx_builder.tx_fee()?;
-        if tx_fee > request.max_tx_fee {
-            return Err(WalletServiceError::TxFeeExceedsMaxFee {
-                max_fee: request.max_tx_fee,
-                tx_fee,
-            });
-        }
-
-        Self::sign_tx(funded_tx_builder, request.tip, ledger, kms, state.wallet()).await
-    }
-    */
 
     async fn backfill_if_not_in_sync(
         tip: Option<HeaderId>,
@@ -2383,59 +1571,13 @@ where
             }
         }
 
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // let claimed_nullifiers = Self::collect_claimed_nullifiers_from_blocks(
-        //     lib_update.pruned_blocks.immutable_blocks.values(),
-        //     storage,
-        // )
-        // .await;
-        //
-        // for nullifier in &claimed_nullifiers {
-        //     state.release_claim_reservation(*nullifier);
-        // }
-
         let new_immutable_blocks_count = lib_update.pruned_blocks.immutable_blocks.len() as u64;
-        // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-        // state.advance_lib(
-        //     lib_update.new_lib,
-        //     lib_update.pruned_blocks.all(),
-        //     new_immutable_blocks_count,
-        //     claimed_nullifiers,
-        // );
         state.advance_lib(
             lib_update.new_lib,
             lib_update.pruned_blocks.all(),
             new_immutable_blocks_count,
         );
     }
-
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    /*
-    async fn collect_claimed_nullifiers_from_blocks(
-        blocks: impl Iterator<Item = &HeaderId>,
-        storage: &StorageApi<Tx>,
-    ) -> Vec<VoucherNullifier> {
-        let immutable_blocks: Vec<Block<Tx>> = futures::stream::iter(blocks)
-            .filter_map(async |header_id| storage.get_block(header_id).await)
-            .collect::<Vec<_>>()
-            .await;
-
-        immutable_blocks
-            .into_iter()
-            .flat_map(|block: Block<Tx>| block.into_transactions().into_iter())
-            .collect::<Vec<_>>() // Need to collect to avoid lifetime issues
-            .iter()
-            .flat_map(MantleTx::op_refs)
-            .filter_map(|op| {
-                if let OpRef::LeaderClaim(claim_op) = op {
-                    Some(claim_op.voucher_nullifier)
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-    }
-    */
 
     #[expect(
         clippy::cognitive_complexity,

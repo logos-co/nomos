@@ -1,12 +1,6 @@
 use std::net::Ipv4Addr;
 
 use color_eyre::eyre::{Result, bail, eyre};
-// TODO(RFC-480): the wallet funds the declaration stake.
-// use lb_core::{
-//     mantle::NoteId,
-//     sdp::{DeclarationId, DeclarationMessage, Locator, Locators, ProviderId, ServiceType},
-// };
-// use lb_groth16::{AdditiveGroup as _, Fr};
 use lb_core::sdp::{DeclarationId, Locator, Locators, ProviderId, ServiceType};
 use lb_key_management_system_service::keys::{Ed25519PublicKey, ZkPublicKey};
 use lb_libp2p::{Multiaddr, Protocol};
@@ -93,15 +87,6 @@ fn build_blend_data(
     // Declaration ID is not required for the genesis ceremony, but it is still
     // useful for looking the declaration up once it is on chain. The stake is
     // not part of the ID, so a zero one is fine here.
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // let declaration_id = DeclarationMessage {
-    //     service_type: ServiceType::BlendNetwork,
-    //     locators: locators.clone(),
-    //     provider_id: ProviderId(provider_id),
-    //     zk_id: blend_key.to_public_key(),
-    //     service_note_id: NoteId::from(Fr::ZERO),
-    // }
-    // .id();
     let declaration_id = DeclarationRequest {
         service_type: ServiceType::BlendNetwork,
         locators: locators.clone(),

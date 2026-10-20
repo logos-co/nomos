@@ -10,7 +10,6 @@ use std::{
 
 use async_trait::async_trait;
 use common_http_client::ApiBlock;
-// TODO(RFC-480): outputs are commitments. Dropped import: ZkPublicKey.
 use lb_core::mantle::{
     notes::{NoteNf, derive_note_nf},
     ops::OpRef,
@@ -210,15 +209,8 @@ fn build_capture_plan(
     let available = limited_user_count(expectation.user_limit, wallet_accounts.len());
     let plan = submission_plan(expectation.txs_per_block, ctx, available)?;
 
-    // TODO(RFC-480): outputs are commitments; a transaction of a tracked
-    // account is the one spending its genesis notes.
-    // let wallet_pks = wallet_accounts
-    //     .into_iter()
-    //     .take(plan.transaction_count)
-    //     .map(|account| account.secret_key.to_public_key())
-    //     .collect::<HashSet<_>>();
-    //
-    // Ok((plan, wallet_pks))
+    // Outputs are commitments, so a transaction of a tracked account is the
+    // one spending its genesis notes.
     let wallet_keys = wallet_accounts
         .into_iter()
         .take(plan.transaction_count)
@@ -253,9 +245,6 @@ const fn catchup_wait_budget(_ctx: &RunContext<AppHostEnv>) -> Duration {
 
 fn capture_tx_outputs(
     block: &ApiBlock,
-    // TODO(RFC-480): outputs are commitments; a transaction of a tracked
-    // account is the one spending its genesis notes.
-    // tracked_accounts: &HashSet<ZkPublicKey>,
     tracked_accounts: &HashSet<NoteNf>,
     observed: &AtomicU64,
 ) {
@@ -264,13 +253,6 @@ fn capture_tx_outputs(
             let OpRef::Transfer(transfer) = op else {
                 continue;
             };
-            // for note in &transfer.outputs {
-            //     if tracked_accounts.contains(&note.pk) {
-            //         observed.fetch_add(1, Ordering::Relaxed);
-            //         tracing::debug!(pk = ?note.pk, "tx inclusion observed account output");
-            //         break;
-            //     }
-            // }
             for nullifier in &transfer.inputs {
                 if tracked_accounts.contains(nullifier) {
                     observed.fetch_add(1, Ordering::Relaxed);

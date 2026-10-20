@@ -1,29 +1,6 @@
 use core::time::Duration;
 
 use lb_binary_codec::canonical::BinaryEncode as _;
-// TODO(RFC-480): the genesis builder proves the declarations from the
-// allocations the distribution publishes.
-// use lb_core::{
-//     block::genesis::{GenesisBlock, GenesisBlockBuilder},
-//     mantle::{
-//         CryptarchiaParameter, GenesisTime, Note, NoteId, OpProof, Utxo,
-//         ops::{
-//             Op, OpId as _, ZkAndEd25519Proof,
-//             channel::{
-//                 ChannelId, MsgId,
-//                 inscribe::{Inscription, InscriptionOp},
-//             },
-//             transfer::TransferOp,
-//         },
-//         transactions::{GenesisTx, OpProofs, Ops},
-//     },
-//     sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
-// };
-// use lb_groth16::{AdditiveGroup as _, CompressedGroth16Proof, Fr};
-// use lb_key_management_system_service::keys::{
-//     Ed25519Key, Ed25519Signature, UnverifiedEd25519PublicKey, ZkKey, ZkPublicKey, ZkSignature,
-// };
-// use lb_node::{Hashable as _, SignedOps};
 use lb_core::{
     block::genesis::{GenesisBlock, GenesisBlockBuilder},
     mantle::{
@@ -50,8 +27,6 @@ pub const SHORT_PROLONGED_BOOTSTRAP_PERIOD: Duration = Duration::from_secs(1);
 
 pub const EMPTY_CHANNEL_ID: [u8; 32] = [0; 32];
 pub const EMPTY_ED25519_PUBLIC_KEY: [u8; 32] = [0; 32];
-// TODO(RFC-480): the genesis builder proves the declarations.
-// const EMPTY_GROTH16_PROOF_BYTES: [u8; 128] = [0u8; 128];
 
 const LEADER_KEY_PREFIX: &[u8] = b"ld";
 const BLEND_KEY_PREFIX: &[u8] = b"bn";
@@ -67,7 +42,7 @@ const DEFAULT_SDP_FUNDING_NOTES_PER_NODE: usize = 1;
 
 /// Test-tool mirror of the genesis transfer-output bound.
 ///
-/// The bound is the transaction output bound used by `BoundedOutputs` in the
+/// The bound is the transaction output bound used by `OutputCms` in the
 /// release core. Keeping this value in test tooling avoids exporting a
 /// production constant solely for fixture validation.
 pub const GENESIS_TRANSFER_OUTPUT_LIMIT: usize = u8::MAX as usize;
@@ -142,8 +117,6 @@ pub struct ServiceNote {
     pub pk: ZkPublicKey,
     pub sk: ZkKey,
     pub note: Note,
-    // TODO(RFC-480): a genesis note is named by its allocation index.
-    // pub note_id: NoteId,
     pub output_index: usize,
 }
 
@@ -152,9 +125,6 @@ pub struct BaseConsensusMaterial {
     pub regular_note_keys: Vec<ZkKey>,
     pub blend_notes: Vec<ServiceNote>,
     pub sdp_notes: Vec<ServiceNote>,
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // pub utxos: Vec<Utxo>,
     pub allocations: Vec<GenesisAllocation>,
 }
 
@@ -238,17 +208,10 @@ fn inscription_for_current_test(
 
 #[must_use]
 pub fn create_genesis_block(
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // utxos: &[Utxo],
     allocations: &[GenesisAllocation],
     test_context: Option<&str>,
     genesis_time: GenesisTime,
 ) -> GenesisBlock {
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // // Create transfer op with the utxos as outputs
-    // let mut outputs = utxos.iter().map(|u| u.note);
     // Create transfer op with the allocations as outputs
     let mut outputs = allocations.iter().copied();
     #[expect(
@@ -324,9 +287,6 @@ pub fn create_consensus_configs_with_additional_wallet_outputs_and_sdp_funding_c
             additional_wallet_outputs,
             sdp_funding_config,
         );
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // let genesis_block = create_genesis_block(&material.utxos, test_context, genesis_time);
     let genesis_block = create_genesis_block(&material.allocations, test_context, genesis_time);
 
     (
@@ -380,9 +340,6 @@ pub fn create_base_consensus_material_with_additional_wallet_outputs_and_sdp_fun
     let mut regular_note_keys = Vec::new();
     let mut blend_notes = Vec::new();
     let mut sdp_notes = Vec::new();
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // let utxos = create_utxos(
     let allocations = create_allocations(
         ids,
         &mut regular_note_keys,
@@ -396,16 +353,10 @@ pub fn create_base_consensus_material_with_additional_wallet_outputs_and_sdp_fun
         regular_note_keys,
         blend_notes,
         sdp_notes,
-        // TODO(RFC-480): the genesis notes are the allocations the distribution
-        // publishes.
-        // utxos,
         allocations,
     }
 }
 
-// TODO(RFC-480): the genesis notes are the allocations the distribution
-// publishes.
-// fn create_utxos(
 fn create_allocations(
     ids: &[[u8; 32]],
     regular_note_keys: &mut Vec<ZkKey>,
@@ -413,9 +364,6 @@ fn create_allocations(
     sdp_notes: &mut Vec<ServiceNote>,
     additional_wallet_outputs: usize,
     sdp_funding_config: SdpFundingConfig,
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // ) -> Vec<Utxo> {
 ) -> Vec<GenesisAllocation> {
     if ids.is_empty() {
         return Vec::new();
@@ -441,9 +389,6 @@ fn create_allocations(
         usize::try_from(sdp_funding_config.total_value_per_node % sdp_notes_per_node_u64)
             .expect("SDP funding value remainder should fit in usize");
 
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes, their opening takes the allocation index as nonce.
-    // let mut utxos = Vec::new();
     let mut allocations = Vec::new();
     let mut output_index = 0;
 
@@ -452,11 +397,6 @@ fn create_allocations(
         let sk = ZkKey::from(BigUint::from_bytes_le(&sk_data));
         let pk = sk.to_public_key();
         regular_note_keys.push(sk);
-        // utxos.push(Utxo {
-        //     note: Note::new(REGULAR_NOTE_VALUE, pk),
-        //     op_id: [0u8; 32],
-        //     output_index: 0,
-        // });
         allocations.push(GenesisAllocation {
             value: REGULAR_NOTE_VALUE,
             public_key: pk,
@@ -466,12 +406,6 @@ fn create_allocations(
         let sk_blend_data = derive_key_material(BLEND_KEY_PREFIX, &id);
         let sk_blend = ZkKey::from(BigUint::from_bytes_le(&sk_blend_data));
         let pk_blend = sk_blend.to_public_key();
-        // let note_blend = Note::new(BLEND_NOTE_VALUE, pk_blend);
-        // let utxo = Utxo {
-        //     note: note_blend,
-        //     op_id: [0u8; 32],
-        //     output_index: 0,
-        // };
         let allocation = GenesisAllocation {
             value: BLEND_NOTE_VALUE,
             public_key: pk_blend,
@@ -479,12 +413,9 @@ fn create_allocations(
         blend_notes.push(ServiceNote {
             pk: pk_blend,
             sk: sk_blend,
-            // note: note_blend,
-            // note_id: utxo.id(),
             note: allocation.note(output_index),
             output_index,
         });
-        // utxos.push(utxo);
         allocations.push(allocation);
         output_index += 1;
 
@@ -493,12 +424,6 @@ fn create_allocations(
         let pk_sdp = sk_sdp.to_public_key();
         for sdp_note_index in 0..sdp_notes_per_node {
             let note_value = base_sdp_note_value + u64::from(sdp_note_index < sdp_value_remainder);
-            // let note_sdp = Note::new(note_value, pk_sdp);
-            // let utxo = Utxo {
-            //     note: note_sdp,
-            //     op_id: [0u8; 32],
-            //     output_index,
-            // };
             let allocation = GenesisAllocation {
                 value: note_value,
                 public_key: pk_sdp,
@@ -507,84 +432,18 @@ fn create_allocations(
                 sdp_notes.push(ServiceNote {
                     pk: pk_sdp,
                     sk: sk_sdp.clone(),
-                    // note: note_sdp,
-                    // note_id: utxo.id(),
                     note: allocation.note(output_index),
                     output_index,
                 });
             }
-            // utxos.push(utxo);
             allocations.push(allocation);
             output_index += 1;
         }
     }
 
-    // utxos
     allocations
 }
 
-// TODO(RFC-480): each declaration spends the genesis note of its provider,
-// proven by the builder with the note's secret key.
-// #[must_use]
-// pub fn create_genesis_block_with_declarations(
-//     transfer_op: TransferOp,
-//     providers: Vec<ProviderInfo>,
-//     test_context: Option<&str>,
-//     genesis_time: GenesisTime,
-// ) -> GenesisBlock {
-//     let inscription = inscription_for_current_test(test_context, genesis_time);
-//     let transfer_id = transfer_op.op_id();
-//
-//     let mut ops = vec![Op::Transfer(transfer_op), Op::ChannelInscribe(inscription)];
-//
-//     for provider in &providers {
-//         let utxo = Utxo {
-//             op_id: transfer_id,
-//             output_index: provider.note.output_index,
-//             note: provider.note.note,
-//         };
-//         let declaration = DeclarationMessage {
-//             service_type: provider.service_type,
-//             locators: provider.locator.clone().into(),
-//             provider_id: provider.provider_id(),
-//             zk_id: provider.zk_id(),
-//             service_note_id: utxo.id(),
-//         };
-//         ops.push(Op::SDPDeclare(declaration));
-//     }
-//
-//     let mantle_tx = Ops::new_unchecked(ops);
-//     let mantle_tx_hash = mantle_tx.hash();
-//     let mut ops_proofs = OpProofs::from([
-//         OpProof::ZkSig(ZkSignature::new(CompressedGroth16Proof::from_bytes(
-//             &EMPTY_GROTH16_PROOF_BYTES,
-//         ))),
-//         OpProof::Ed25519Sig(Ed25519Signature::zero()),
-//     ]);
-//
-//     for provider in providers {
-//         let zk_sig =
-//             ZkKey::multi_sign(&[provider.note.sk, provider.zk_sk], &mantle_tx_hash.to_fr())
-//                 .unwrap();
-//         let ed25519_sig = provider
-//             .provider_sk
-//             .sign_payload(mantle_tx_hash.as_signing_bytes());
-//         let proof = ZkAndEd25519Proof {
-//             zk_sig,
-//             ed25519_sig,
-//         };
-//         ops_proofs
-//             .try_push(OpProof::ZkAndEd25519Sigs(proof))
-//             .expect("genesis transaction proofs are bounded");
-//     }
-//
-//     let signed_mantle_tx = SignedOps::from_parts_trusted(mantle_tx, ops_proofs).unwrap();
-//
-//     // TODO: Maybe use the builder instead of trusting the signed mantle tx
-//     GenesisBlockBuilder::new()
-//         .with_genesis_tx(GenesisTx::from_tx(signed_mantle_tx).expect("Genesis tx should build"))
-//         .build()
-// }
 #[must_use]
 pub fn create_genesis_block_with_declarations(
     allocations: Distribution,
@@ -645,21 +504,12 @@ mod tests {
 
     use super::*;
 
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // fn sdp_outputs(material: &BaseConsensusMaterial) -> Vec<Note> {
     fn sdp_outputs(material: &BaseConsensusMaterial) -> Vec<GenesisAllocation> {
         let funding_keys = material
             .sdp_notes
             .iter()
             .map(|note| note.pk)
             .collect::<HashSet<_>>();
-        // material
-        //     .utxos
-        //     .iter()
-        //     .filter(|utxo| funding_keys.contains(&utxo.note.pk))
-        //     .map(|utxo| utxo.note)
-        //     .collect()
         material
             .allocations
             .iter()

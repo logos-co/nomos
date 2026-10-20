@@ -481,12 +481,6 @@ where
                 error!(target: LOG_TARGET, candidate = ?candidate.id(), "uncle candidate not found in storage");
                 continue;
             };
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // uncles.push(SignedHeader::new(
-            //     block.header().clone(),
-            //     *block.signature(),
-            // ));
             uncles.push(block.header().clone());
         }
 

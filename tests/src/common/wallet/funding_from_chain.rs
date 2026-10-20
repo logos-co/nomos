@@ -1,21 +1,6 @@
-// TODO(RFC-480): UTXO test wallet.
-// use std::collections::HashMap;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use lb_common_http_client::Error as HttpClientError;
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::{
-//     Op, OpProof, SignedOps, TxHash, Utxo,
-//     gas::MainnetGasProfile,
-//     ledger::verification_mode::StandardMode,
-//     ops::channel::{ChannelId, ChannelKeyIndex},
-//     traits::Hashable as _,
-//     transactions::{
-//         GasPrices, MantleTxBuilder, OpProofs,
-//         states::Unverified,
-//         tx_list::ops::{OpsContext, OpsGasContext},
-//     },
-// };
 use lb_core::mantle::{
     Op, OpProof, SignedOps, TxHash,
     gas::MainnetGasProfile,
@@ -36,9 +21,6 @@ use thiserror::Error;
 
 use super::{
     WalletId,
-    // TODO(RFC-480): UTXO test wallet.
-    // chain::state::{TrackedWalletKeys, TrackedWalletKeysError},
-    // scanner::accounting::ScannerAccounting,
     chain::state::{GenesisNotes, TrackedWalletKeys},
     scanner::{
         accounting::{ScannerAccounting, ScannerAccountingError},
@@ -46,11 +28,6 @@ use super::{
         error::ScannerError,
     },
 };
-// TODO(RFC-480): UTXO test wallet.
-// use crate::common::wallet::{
-//     WalletFundingSource, chain::state::WalletUtxos, fund_builder_from_wallet_source,
-//     transfer_proofs_for_funded_wallet_tx,
-// };
 use crate::common::wallet::{
     random_nonce, record_note_openings, transfer_proofs_for_funded_wallet_tx,
 };
@@ -59,11 +36,6 @@ use crate::common::wallet::{
 enum DirectWalletSourceError {
     #[error(transparent)]
     Source(#[from] HttpClientError),
-    // TODO(RFC-480): UTXO test wallet.
-    // #[error("wallet source sync did not return wallet `{wallet_id}`")]
-    // MissingWallet { wallet_id: WalletId },
-    // #[error(transparent)]
-    // TrackedKeys(#[from] TrackedWalletKeysError),
     #[error(transparent)]
     Accounting(#[from] ScannerAccountingError),
     #[error(transparent)]
@@ -76,21 +48,10 @@ enum DirectWalletSourceError {
 /// trailing transfer op gets its own proof. The op proof is built via
 /// `op_proof` from the funded transaction hash. Returns the signed
 /// transaction and its fee at genesis gas prices.
-// TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
-// channel notes.
-// #[expect(
-//     clippy::implicit_hasher,
-//     reason = "The thresholds map is forwarded to OpsGasContext, which requires the default hasher."
-// )]
 pub async fn funded_signed_tx(
     node: &NodeHttpClient,
-    // TODO(RFC-480): UTXO test wallet.
-    // genesis_utxos: &[Utxo],
     genesis: &GenesisNotes,
     funding_account: &WalletAccount,
-    // TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
-    // channel notes.
-    // transfer_thresholds: HashMap<ChannelId, ChannelKeyIndex>,
     op: Op,
     op_proof: impl FnOnce(TxHash) -> OpProof,
 ) -> (SignedOps<Unverified, StandardMode>, u64) {
@@ -151,31 +112,14 @@ async fn fund_and_sign(
     witness_context: &WitnessContext,
     op_proof: impl FnOnce(TxHash, &mut BTreeMap<usize, ZkTransferProof>) -> OpProof,
 ) -> (SignedOps<Unverified, StandardMode>, u64) {
-    // TODO(RFC-480): UTXO test wallet.
-    // let funding_source =
-    //     current_wallet_funding_source(node, genesis_utxos, funding_account.clone())
-    //         .await
-    //         .expect("funding wallet source should sync from chain");
     let accounting = current_wallet_accounting(node, genesis, funding_account, spender_keys)
         .await
         .expect("funding wallet source should sync from chain");
 
     let tx_context = OpsContext {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // gas_context: OpsGasContext::new(transfer_thresholds, HashMap::new(), GasPrices::default()),
-        // leader_reward_amount: 0,
         gas_context: OpsGasContext::new(HashMap::new(), GasPrices::default()),
     };
-    // TODO(RFC-480): UTXO test wallet. The callers build the op, with its
-    // opening when it spends.
-    // let tx_builder = MantleTxBuilder::new()
-    //     .push_op(op)
-    //     .expect("op should fit op bounds");
 
-    // TODO(RFC-480): UTXO test wallet.
-    // let funded_builder = fund_builder_from_wallet_source(&funding_source, &tx_builder, &tx_context)
-    //     .expect("funding transaction should succeed");
     let funded_builder = accounting
         .wallet_state()
         .fund_tx::<MainnetGasProfile>(
@@ -203,13 +147,8 @@ async fn fund_and_sign(
     let mantle_tx = funded_builder.build().expect("funded builder should build");
     let tx_hash = mantle_tx.hash();
 
-    // TODO(RFC-480): UTXO test wallet. Every Operation that spends is proven
-    // from the wallet's witnesses, the leading op's proof included.
-    // let mut proofs = vec![op_proof(tx_hash)];
-    // proofs.extend(
-    //     transfer_proofs_for_funded_wallet_tx(&mantle_tx, &funding_account.secret_key)
-    //         .expect("transfer proofs should build"),
-    // );
+    // Every op that spends is proven from the wallet's witnesses, the leading
+    // op's proof included.
     let mut zk_proofs = transfer_proofs_for_funded_wallet_tx(
         accounting.wallet_state(),
         accounting.known_notes(),
@@ -227,63 +166,6 @@ async fn fund_and_sign(
 
     (signed_tx, fee)
 }
-
-// TODO(RFC-480): UTXO test wallet. The funding wallet follows the chain with
-// its commitment MMRs, so it funds from its accounting.
-/*
-async fn current_wallet_funding_source(
-    client: &NodeHttpClient,
-    genesis_utxos: &[Utxo],
-    account: WalletAccount,
-) -> Result<WalletFundingSource, DirectWalletSourceError> {
-    let tip = client.consensus_info().await?.cryptarchia_info.tip;
-
-    wallet_funding_source_from_chain(client, tip, genesis_utxos, account).await
-}
-
-async fn wallet_funding_source_from_chain(
-    client: &NodeHttpClient,
-    tip: lb_core::header::HeaderId,
-    genesis_utxos: &[Utxo],
-    account: WalletAccount,
-) -> Result<WalletFundingSource, DirectWalletSourceError> {
-    let wallet_id = WalletId::from(account.label.clone());
-    let tracked_wallet = TrackedWalletKeys::new(wallet_id.clone(), [account.public_key()]);
-
-    let wallet_utxos =
-        wallet_utxos_from_chain(client, tip, &[tracked_wallet], genesis_utxos).await?;
-    let available_utxos = wallet_utxos
-        .get(wallet_id.as_str())
-        .cloned()
-        .ok_or(DirectWalletSourceError::MissingWallet { wallet_id })?;
-
-    Ok(WalletFundingSource::new(account, available_utxos))
-}
-
-async fn wallet_utxos_from_chain(
-    client: &NodeHttpClient,
-    tip: lb_core::header::HeaderId,
-    tracked_wallets: &[TrackedWalletKeys],
-    genesis_utxos: &[Utxo],
-) -> Result<WalletUtxos, DirectWalletSourceError> {
-    let mut accounting = ScannerAccounting::new(tracked_wallets.to_vec(), genesis_utxos)?;
-    let mut tail_blocks = Vec::new();
-    let mut current = tip;
-
-    while let Some(block) = client.block(&current).await? {
-        current = block.header.parent_block;
-        tail_blocks.push(block);
-    }
-
-    tail_blocks.reverse();
-
-    for block in tail_blocks {
-        accounting.apply_block(&block);
-    }
-
-    Ok(accounting.wallet_utxos())
-}
-*/
 
 async fn current_wallet_accounting(
     client: &NodeHttpClient,

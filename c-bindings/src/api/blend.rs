@@ -2,12 +2,6 @@ use std::ffi::{CString, c_char};
 
 use lb_blend_service::message::NetworkInfo;
 use lb_c_macros::panic_to_error;
-// TODO(RFC-480): the wallet funds the declaration stake.
-// use lb_core::{
-//     mantle::NoteId,
-//     sdp::{self, Locator},
-// };
-// use lb_groth16::fr_from_bytes;
 use lb_core::sdp::{self, Locator};
 use lb_node::{RuntimeServiceId, generic_services::blend::BlendService};
 use lb_sdp_service::SdpSubmission;
@@ -31,17 +25,6 @@ impl From<sdp::DeclarationId> for DeclarationId {
         Self(id.0)
     }
 }
-
-// TODO(RFC-480): the wallet funds the declaration stake.
-// unsafe fn parse_service_note_id(ptr: *const u8) -> Result<NoteId, OperationStatus> {
-//     let bytes = unsafe { std::slice::from_raw_parts(ptr, KEY_SIZE) };
-//     fr_from_bytes(bytes).map(NoteId).map_err(|_| {
-//         OperationStatus::error(
-//             OperationStatusCode::ValidationError,
-//             "Invalid `service_note_id` bytes.",
-//         )
-//     })
-// }
 
 /// # Safety
 ///
@@ -89,20 +72,13 @@ unsafe fn parse_locator(ptr: *const c_char) -> Result<Locator, OperationStatus> 
 pub unsafe extern "C" fn blend_join_as_core_node(
     node: *const LogosBlockchainNode,
     locator: *const c_char,
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // service_note_id: *const u8,
     amount: u64,
 ) -> FfiStatusResult<DeclarationId> {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(locator);
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // return_error_if_null_pointer!(service_note_id);
 
     // SAFETY: `locator` is non null (checked above) and a C string per `# Safety`.
     let locator = unwrap_or_return_error!(unsafe { parse_locator(locator) });
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // let service_note_id =
-    //     unwrap_or_return_error!(unsafe { parse_service_note_id(service_note_id) });
 
     // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };

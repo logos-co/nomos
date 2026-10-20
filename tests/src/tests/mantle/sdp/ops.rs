@@ -11,10 +11,6 @@ use std::{
 
 use lb_chain_service::Epoch;
 use lb_common_http_client::Error;
-// TODO(RFC-480): the node's wallet builds the declaration and the withdrawal.
-// Dropped imports: HashSet, NoteId, OpProof, Utxo, Op, ZkAndEd25519Proof,
-// Hashable, DeclarationMessage, ProviderId, WithdrawMessage, Ed25519Key,
-// Ed25519Signature, ZkKey, genesis_wallet_utxos, funded_signed_tx, BigUint.
 use lb_core::{
     mantle::Value,
     sdp::{Declaration, DeclarationId, Locator, ServiceType},
@@ -56,12 +52,6 @@ use tokio::time::{sleep, timeout};
     clippy::large_futures,
     reason = "Manual-cluster startup futures are large in these integration tests; boxing would not improve readability"
 )]
-// TODO(RFC-480): the node's wallet builds the declaration and the withdrawal,
-// so the flow fits.
-// #[expect(
-//     clippy::too_many_lines,
-//     reason = "This test covers a full E2E flow with multiple steps, and breaking it up would not improve readability"
-// )]
 async fn sdp_ops_e2e() {
     let (_cluster, _node0_name, node0, min_stake, slots_per_epoch) =
         start_sdp_manual_cluster("sdp-ops").await;
@@ -169,160 +159,6 @@ async fn withdraw_and_wait_for_removal(
     );
 }
 
-// TODO(RFC-480): the declaration and the withdrawal spend notes with
-// ZkTransfers; the node's wallet builds them from a `DeclarationRequest` and a
-// declaration id.
-/*
-async fn sdp_ops_e2e() {
-    let (
-        _cluster,
-        _node0_name,
-        node0,
-        genesis_utxos,
-        funding_wallet,
-        spare_note_secret_key,
-        spare_note_id,
-        slots_per_epoch,
-    ) = start_sdp_manual_cluster("sdp-ops").await;
-
-    let inclusion_timeout = Duration::from_mins(1);
-
-    let existing = wait_for_sdp_declarations(&node0, Duration::from_secs(30))
-        .await
-        .expect("fetching SDP declarations should succeed");
-    let locked: HashSet<_> = existing.values().map(|decl| decl.service_note_id).collect();
-    let service_note_id = spare_note_id;
-    assert!(
-        !locked.contains(&service_note_id),
-        "manual-cluster wallet note must be unused before submitting declare"
-    );
-
-    let provider_signing_key = Ed25519Key::from_bytes(&[7u8; 32]);
-    let provider_zk_key = ZkKey::from(BigUint::from(7u64));
-    let provider_id = ProviderId::try_from(provider_signing_key.public_key().to_bytes())
-        .expect("provider signing key should yield a provider id");
-    let zk_id = provider_zk_key.to_public_key();
-    let locator: Locator = "/ip4/127.0.0.1/tcp/9100"
-        .parse()
-        .expect("Valid locator multiaddr");
-
-    let declaration = DeclarationMessage {
-        service_type: ServiceType::BlendNetwork,
-        locators: locator.into(),
-        provider_id,
-        zk_id,
-        service_note_id,
-    };
-    let declaration_id = declaration.id();
-
-    let (declare_tx, _declare_fee) = funded_signed_tx(
-        &node0,
-        &genesis_utxos,
-        &funding_wallet,
-        HashMap::new(),
-        Op::SDPDeclare(declaration),
-        |tx_hash| {
-            let ed25519_sig = Ed25519Signature::from_bytes(
-                &provider_signing_key
-                    .sign_payload(tx_hash.as_signing_bytes())
-                    .to_bytes(),
-            );
-            let zk_sig = ZkKey::multi_sign(
-                &[spare_note_secret_key.clone(), provider_zk_key.clone()],
-                &tx_hash.to_fr(),
-            )
-            .expect("SDP declare zk proof should build");
-
-            let proof = ZkAndEd25519Proof {
-                zk_sig,
-                ed25519_sig,
-            };
-            OpProof::ZkAndEd25519Sigs(proof)
-        },
-    )
-    .await;
-    let declare_hash = declare_tx.hash();
-
-    node0
-        .submit_transaction(&declare_tx)
-        .await
-        .expect("submit declare transaction");
-
-    let declare_included =
-        wait_for_transactions_inclusion(&node0, &[declare_hash], inclusion_timeout).await;
-
-    assert!(declare_included, "declare transaction should be included");
-
-    let declaration_created = get_declaration(&node0, &provider_id)
-        .await
-        .expect("API must succeed")
-        .expect("declaration should appear after submission");
-
-    // Submit an withdraw tx immediately.
-    let withdraw_message = WithdrawMessage {
-        declaration_id,
-        service_note_id,
-        nonce: declaration_created.nonce + 1,
-    };
-
-    let (withdraw_tx, _withdraw_fee) = funded_signed_tx(
-        &node0,
-        &genesis_utxos,
-        &funding_wallet,
-        HashMap::new(),
-        Op::SDPWithdraw(withdraw_message),
-        |tx_hash| {
-            OpProof::ZkSig(
-                ZkKey::multi_sign(
-                    &[spare_note_secret_key.clone(), provider_zk_key.clone()],
-                    &tx_hash.to_fr(),
-                )
-                .expect("SDP withdraw zk proof should build"),
-            )
-        },
-    )
-    .await;
-    let withdraw_hash = withdraw_tx.hash();
-
-    node0
-        .submit_transaction(&withdraw_tx)
-        .await
-        .expect("submit withdraw transaction");
-
-    assert!(
-        wait_for_transactions_inclusion(&node0, &[withdraw_hash], inclusion_timeout).await,
-        "withdraw transaction should be included"
-    );
-
-    let withdraw_epoch = get_declaration(&node0, &provider_id)
-        .await
-        .expect("API must succeed")
-        .expect("declaration must still exist until the snapshot finalization delay has passed")
-        .withdraw_at
-        .expect("withdraw_at must be set after withdraw tx is accepted");
-
-    // Wait until the `withdraw_at + 1` epoch has started: in its first block
-    // the service note is unlocked and the declaration is removed.
-    wait_for_tip_slot(
-        &node0,
-        (u64::from(withdraw_epoch.strict_add(Epoch::new(2)).into_inner()) * slots_per_epoch).into(),
-        Duration::from_mins(3),
-    )
-    .await
-    .expect("timed out to wait until the snapshot finalization delay passes after withdraw");
-
-    // Check that the declaration has been removed
-    assert!(
-        !node0
-            .get_sdp_declarations()
-            .await
-            .unwrap()
-            .values()
-            .any(|declaration| declaration.provider_id == provider_id)
-    );
-}
-*/
-
 /// Test that SDP declaration is correctly restored after validator restart.
 ///
 /// This test verifies that after restart, the validator fetches its declaration
@@ -346,8 +182,6 @@ async fn sdp_declaration_restoration_e2e() {
     );
 
     let initial_declaration = declarations.values().next().unwrap().clone();
-    // TODO(RFC-480): the declaration creates its own service note.
-    // let target_service_note = initial_declaration.service_note_id;
     let target_service_note = initial_declaration.service_note;
 
     cluster_harness
@@ -372,7 +206,6 @@ async fn sdp_declaration_restoration_e2e() {
 
     let restored_declaration = post_restart_declarations
         .values()
-        // .find(|d| d.service_note_id == target_service_note)
         .find(|d| d.service_note == target_service_note)
         .expect("original declaration should still exist after restart");
 
@@ -392,18 +225,6 @@ async fn sdp_declaration_restoration_e2e() {
     );
 }
 
-// TODO(RFC-480): node-0's provider is declared twice over the test (genesis,
-// then another locator), so a declaration is found by its id.
-// async fn get_declaration(
-//     node: &NodeHttpClient,
-//     provider_id: &ProviderId,
-// ) -> Result<Option<Declaration>, Error> {
-//     Ok(node
-//         .get_sdp_declarations()
-//         .await?
-//         .into_values()
-//         .find(|declaration| &declaration.provider_id == provider_id))
-// }
 async fn get_declaration_by_id(
     node: &NodeHttpClient,
     declaration_id: &DeclarationId,
@@ -434,18 +255,6 @@ async fn wait_for_sdp_declarations(
 )]
 async fn start_sdp_manual_cluster(
     test_name: &str,
-// TODO(RFC-480): the node's wallet funds the declaration, so the scenario
-// keeps no genesis notes, funding wallet or spare note.
-// ) -> (
-//     LocalManualClusterHarnessBase,
-//     String,
-//     NodeHttpClient,
-//     Vec<Utxo>,
-//     WalletAccount,
-//     ZkKey,
-//     NoteId,
-//     u64,
-// ) {
 ) -> (
     LocalManualClusterHarnessBase,
     String,
@@ -521,28 +330,9 @@ async fn start_sdp_manual_cluster(
         .await
         .expect("node-0 should produce the first block");
 
-    // let genesis_utxos = genesis_wallet_utxos(&cluster_harness.deployment().config);
-    //
-    // let spare_note_id = genesis_utxos
-    //     .iter()
-    //     .copied()
-    //     .find(|utxo| utxo.note.pk == spare_wallet.public_key())
-    //     .expect("wallet-backed spare note should exist at genesis")
-    //     .id();
-
     let node0_name = node0.name;
     let node0_client = node0.client;
 
-    // (
-    //     cluster_harness,
-    //     node0_name,
-    //     node0_client,
-    //     genesis_utxos,
-    //     funding_wallet,
-    //     spare_wallet.secret_key,
-    //     spare_note_id,
-    //     slots_per_epoch.load(Ordering::Relaxed),
-    // )
     (
         cluster_harness,
         node0_name,

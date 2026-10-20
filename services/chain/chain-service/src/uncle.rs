@@ -152,10 +152,6 @@ pub enum UncleError {
     OnChain,
     #[error("invalid uncle header")]
     InvalidHeader(#[from] HeaderError),
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // #[error("invalid header signature")]
-    // InvalidSignature,
     #[error("invalid proof of leadership")]
     InvalidProof,
     #[error(transparent)]
@@ -166,9 +162,6 @@ impl From<lb_core::block::Error> for UncleError {
     fn from(error: lb_core::block::Error) -> Self {
         match error {
             lb_core::block::Error::Header(e) => Self::InvalidHeader(e),
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // lb_core::block::Error::Signature => Self::InvalidSignature,
             _ => Self::Other(error),
         }
     }
@@ -185,13 +178,7 @@ mod tests {
         proofs::leader_proof::Groth16LeaderProof,
     };
     use lb_cryptarchia_engine::Slot;
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // use lb_key_management_system_keys::keys::Ed25519Key;
     use lb_utils::bounded::BoundedVec;
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // use rand::thread_rng;
 
     use super::*;
     use crate::tests::{chain_with_fork, signed_header, try_build_block};
@@ -321,9 +308,6 @@ mod tests {
             u1.header().slot(),
             u1.header().leader_proof().clone(),
         );
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-        // no signature.
-        // let signature = header.sign(&u1_key).unwrap();
         let block = craft_block_with_uncles(
             cryptarchia.tip(),
             u1.header().slot().strict_add(1.into()),
@@ -344,42 +328,6 @@ mod tests {
         ));
     }
 
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // #[test]
-    // fn reject_uncle_with_invalid_signature() {
-    //     let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
-    //
-    //     // The uncle's header is intact, but signed by a key that is not its
-    //     // leader.
-    //     let signature = u1
-    //         .header()
-    //         .sign(&Ed25519Key::generate(&mut thread_rng()))
-    //         .unwrap();
-    //     let block = craft_block_with_uncles(
-    //         cryptarchia.tip(),
-    //         u1.header().slot().strict_add(1.into()),
-    //         UncleHeaders::new(BoundedVec::from(SignedHeader::new(
-    //             u1.header().clone(),
-    //             signature,
-    //         ))),
-    //         u1.header().leader_proof(),
-    //         &u1_key,
-    //     );
-    //
-    //     let block_header_slot = block.header().slot();
-    //     let Err(err) = cryptarchia.try_apply_block(block, block_header_slot) else {
-    //         panic!("expected the block to be rejected");
-    //     };
-    //     assert!(matches!(
-    //         err,
-    //         Error::InvalidUncle {
-    //             reason: UncleError::InvalidSignature,
-    //             ..
-    //         }
-    //     ));
-    // }
-
     #[test]
     fn reject_uncle_with_invalid_pol() {
         let (mut cryptarchia, _, u1, ..) = chain_with_fork();
@@ -393,9 +341,6 @@ mod tests {
             wrong_uncle_slot,
             u1.header().leader_proof().clone(),
         );
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-        // no signature.
-        // let signature = header.sign(&u1_key).unwrap();
         let block = craft_block_with_uncles(
             cryptarchia.tip(),
             u1.header().slot().strict_add(2.into()),
@@ -423,9 +368,6 @@ mod tests {
         slot: Slot,
         uncle_headers: UncleHeaders,
         proof: &Groth16LeaderProof,
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-        // carry no signature.
-        // key: &Ed25519Key,
     ) -> Block<SignedOps<Preverified, StandardMode>> {
         Block::create(
             parent,
@@ -433,9 +375,6 @@ mod tests {
             uncle_headers,
             proof.clone(),
             BlockTransactions::empty(),
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // key,
         )
         .unwrap()
     }

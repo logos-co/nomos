@@ -9,11 +9,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     events::TxEvent,
     mantle::{
-        // TODO(RFC-480): channel notes live in their channel note set.
-        // NoteId,
-        // channel_notes::{self, ChannelNotes},
         gas::ThresholdSource,
-        ledger::{self, verification_mode::GenesisMode},
+        ledger::verification_mode::GenesisMode,
         note_set::{NoteSetError, NoteSetIndex, NoteSets},
         notes::{NoteNf, ProgramId},
         ops::{
@@ -86,17 +83,6 @@ pub enum Error {
     ChannelNotFound { channel_id: ChannelId },
     #[error("The Channel Config isn't well-formed")]
     InvalidChannelConfig,
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // #[error("Channel transfer inputs and outputs have different total value")]
-    // UnbalancedTransfer,
-    // TODO(RFC-480): channel notes live in their channel note set.
-    // #[error(transparent)]
-    // ChannelNotes(#[from] channel_notes::Error),
-    #[error("Inputs error: {0}")]
-    Inputs(#[from] ledger::InputsError),
-    #[error("Outputs error: {0}")]
-    Outputs(#[from] ledger::OutputsError),
     #[error(
         "Invalid number of signatures (treshold:?) for channel {channel_id:?}, expected {actual:?}"
     )]
@@ -144,8 +130,6 @@ pub enum Error {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Channels {
     pub channels: rpds::HashTrieMapSync<ChannelId, ChannelState>,
-    // TODO(RFC-480): channel notes live in their channel note set.
-    // channel_notes: ChannelNotes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,17 +156,8 @@ pub struct ChannelState {
     pub posting_timeout: SlotTimeout,     // number of slots (0 = no timeout)
 
     // Bridging
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // pub transfer_threshold: ChannelKeyIndex, /* indicating how many keys are required to
-    //                                           * transfer or withdraw funds from the
-    //                                           * channel */
     pub note_set: Option<NoteSetIndex>, // index of the note set, None for the null channel
 }
-
-// TODO(RFC-480): transfer_threshold is removed, holders
-// withdraw their own channel notes.
-// pub(crate) const DEFAULT_TRANSFER_THRESHOLD: ChannelKeyIndex = 1;
 
 impl Default for Channels {
     fn default() -> Self {
@@ -196,34 +171,9 @@ impl ThresholdSource for Channels {
             .get(channel)
             .map_or(0, |channel| channel.configuration_threshold)
     }
-
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // fn transfer_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex {
-    //     self.channels
-    //         .get(channel)
-    //         .map_or(0, |channel| channel.transfer_threshold)
-    // }
 }
 
 impl Channels {
-    // TODO(RFC-480): the genesis transaction carries the Cryptarchia and the
-    // distribution inscriptions.
-    // pub fn from_genesis(
-    //     signed_operation: SignedOperation<InscriptionOp, Verified, GenesisMode>,
-    // ) -> Result<(Self, Vec<TxEvent>), Error> {
-    //     // The genesis inscription is on the null channel (checked by
-    //     // `GenesisTx`), which gets no note set.
-    //     let (context, events) = signed_operation
-    //         .execute(InscriptionExecutionContext {
-    //             channels: Self::default(),
-    //             note_sets: NoteSets::new(),
-    //             block_slot: Slot::default(),
-    //         })
-    //         .map_err(|(_signed_operation, error)| error)?;
-    //     Ok((context.channels, events))
-    // }
-
     pub fn from_genesis(
         signed_operations: [SignedOperation<InscriptionOp, Verified, GenesisMode>; 2],
     ) -> Result<(Self, Vec<TxEvent>), Error> {
@@ -250,8 +200,6 @@ impl Channels {
     pub fn new() -> Self {
         Self {
             channels: rpds::HashTrieMapSync::new_sync(),
-            // TODO(RFC-480): channel notes live in their channel note set.
-            // channel_notes: ChannelNotes::new(),
         }
     }
 
@@ -287,50 +235,11 @@ impl Channels {
                 tip_sequencer_starting_slot: block_slot,
                 posting_timeframe: 0.into(),
                 posting_timeout: 0.into(),
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: DEFAULT_TRANSFER_THRESHOLD,
                 note_set,
             },
         );
         (self, note_sets)
     }
-
-    // TODO(RFC-480): channel notes live in their channel note set.
-    // /// Returns `true` if `note_id` is owned by any channel.
-    // #[must_use]
-    // pub fn is_channel_note(&self, note_id: &NoteId) -> bool {
-    //     self.channel_notes.contains(note_id)
-    // }
-    //
-    // /// Returns `true` if `note_id` is a channel note owned by `channel_id`.
-    // #[must_use]
-    // pub(crate) fn is_channel_note_of(&self, note_id: &NoteId, channel_id: &ChannelId) -> bool {
-    //     self.channel_notes.is_a_channel(note_id, channel_id)
-    // }
-    //
-    // /// Registers `note_id` as a channel note owned by `channel_id`.
-    // #[cfg(test)]
-    // pub(crate) fn register_channel_note(
-    //     mut self,
-    //     note_id: &NoteId,
-    //     channel_id: &ChannelId,
-    // ) -> Result<Self, channel_notes::Error> {
-    //     self.channel_notes = self.channel_notes.into_channel(note_id, channel_id)?;
-    //     Ok(self)
-    // }
-
-    // TODO(RFC-480): a withdrawal is released from the channel note set, no note
-    // leaves a channel by its id.
-    // /// Unregisters `note_id`, releasing it from `channel_id`'s ownership.
-    // pub(crate) fn unregister_channel_note(
-    //     mut self,
-    //     note_id: &NoteId,
-    //     channel_id: &ChannelId,
-    // ) -> Result<Self, channel_notes::Error> {
-    //     self.channel_notes = self.channel_notes.into_bedrock(note_id, channel_id)?;
-    //     Ok(self)
-    // }
 }
 
 impl ChannelState {
@@ -414,9 +323,6 @@ mod tests {
 
     use super::*;
     use crate::mantle::note_set::NoteSet;
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // use crate::mantle::transactions::{GasPrices, tx_list::ops::OpsGasContext};
 
     fn test_public_key(seed: u8) -> UnverifiedEd25519PublicKey {
         Ed25519Key::from_bytes(&[seed; 32])
@@ -446,68 +352,9 @@ mod tests {
             configuration_threshold: 0,
             tip_message: MsgId::root(),
             config_tip_hash: MsgId::root(),
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 0,
             note_set: None,
         }
     }
-
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // #[test]
-    // fn channels_to_gas_context_tracks_transfer_thresholds() {
-    //     let first_id = ChannelId::from([1u8; 32]);
-    //     let second_id = ChannelId::from([2u8; 32]);
-    //     let missing_id = ChannelId::from([0u8; 32]);
-    //
-    //     let channels = Channels {
-    //         channels: rpds::HashTrieMapSync::new_sync()
-    //             .insert(
-    //                 first_id,
-    //                 ChannelState {
-    //                     accredited_keys: UnverifiedChannelKeys::from(test_public_key(11)).into(),
-    //                     configuration_threshold: 1,
-    //                     tip_message: MsgId::root(),
-    //                     config_tip_hash: MsgId::root(),
-    //                     tip_slot: Slot::default(),
-    //                     tip_sequencer: 0,
-    //                     tip_sequencer_starting_slot: Slot::default(),
-    //                     posting_timeframe: 0u32.into(),
-    //                     transfer_threshold: 1,
-    //                     posting_timeout: 0u32.into(),
-    //                     note_set: Some(2),
-    //                 },
-    //             )
-    //             .insert(
-    //                 second_id,
-    //                 ChannelState {
-    //                     accredited_keys: UnverifiedChannelKeys::from([
-    //                         test_public_key(22),
-    //                         test_public_key(23),
-    //                     ])
-    //                     .into(),
-    //                     configuration_threshold: 1,
-    //                     tip_message: MsgId::root(),
-    //                     config_tip_hash: MsgId::root(),
-    //                     tip_slot: Slot::default(),
-    //                     tip_sequencer: 0,
-    //                     tip_sequencer_starting_slot: Slot::default(),
-    //                     posting_timeframe: 0.into(),
-    //                     transfer_threshold: 2,
-    //                     posting_timeout: 0.into(),
-    //                     note_set: Some(3),
-    //                 },
-    //             ),
-    //         channel_notes: ChannelNotes::new(),
-    //     };
-    //
-    //     let gas_context = OpsGasContext::from_channels(&channels, GasPrices::new(0, 0));
-    //
-    //     assert_eq!(gas_context.transfer_threshold(&first_id), Some(1));
-    //     assert_eq!(gas_context.transfer_threshold(&second_id), Some(2));
-    //     assert_eq!(gas_context.transfer_threshold(&missing_id), None);
-    // }
 
     #[test]
     fn create_channel_gives_the_null_channel_no_note_set_and_others_the_next_set() {
@@ -557,9 +404,6 @@ mod tests {
                 tip_sequencer_starting_slot: Slot::new(3),
                 posting_timeframe: 0.into(),
                 posting_timeout: 0.into(),
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: DEFAULT_TRANSFER_THRESHOLD,
                 note_set: Some(2),
             })
         );

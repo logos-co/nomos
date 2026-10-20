@@ -4,9 +4,6 @@ use crate::mantle::{
     fixtures::ops::op_values::{
         CHANNEL_CONFIG, CHANNEL_CONFIG_HEX, CHANNEL_WITHDRAW, CHANNEL_WITHDRAW_HEX,
         CLAIM_POW_REWARD, CLAIM_POW_REWARD_HEX, DEPOSIT, DEPOSIT_HEX, INSCRIPTION, INSCRIPTION_HEX,
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // LEADER_CLAIM, LEADER_CLAIM_HEX,
         SDP_ACTIVE, SDP_ACTIVE_HEX, SDP_DECLARE, SDP_DECLARE_HEX, SDP_WITHDRAW, SDP_WITHDRAW_HEX,
         TRANSFER, TRANSFER_HEX,
     },
@@ -21,14 +18,8 @@ codec_fixtures!(
     OpRef::ChannelInscribe(&INSCRIPTION) => INSCRIPTION_HEX,
     OpRef::ChannelDeposit(&DEPOSIT) => DEPOSIT_HEX,
     OpRef::ChannelWithdraw(&CHANNEL_WITHDRAW) => CHANNEL_WITHDRAW_HEX,
-    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-    // the steps of CHANNEL_INSCRIBE.
-    // OpRef::ChannelTransfer(&CHANNEL_TRANSFER) => CHANNEL_TRANSFER_HEX,
     OpRef::SDPDeclare(&SDP_DECLARE) => SDP_DECLARE_HEX,
     OpRef::SDPWithdraw(&SDP_WITHDRAW) => SDP_WITHDRAW_HEX,
     OpRef::SDPActive(&SDP_ACTIVE) => SDP_ACTIVE_HEX,
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // OpRef::LeaderClaim(&LEADER_CLAIM) => LEADER_CLAIM_HEX,
     OpRef::ClaimPowReward(&CLAIM_POW_REWARD) => CLAIM_POW_REWARD_HEX
 );

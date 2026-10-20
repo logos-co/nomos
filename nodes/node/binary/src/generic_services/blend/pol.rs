@@ -64,34 +64,6 @@ where
                     winning_pol_info_stream: Box::pin(
                         slots
                             .filter_map(|winning_slot| winning_slot)
-                            // TODO(RFC-480): depth 32 UTXO tree witness
-                            // .map(|leader_private| {
-                            //     let PolWitnessInputsData {
-                            //         wallet:
-                            //             PolWalletInputsData {
-                            //                 aged_path,
-                            //                 aged_selectors,
-                            //                 note_value,
-                            //                 output_number,
-                            //                 secret_key,
-                            //                 transaction_hash,
-                            //                 ..
-                            //             },
-                            //         chain: PolChainInputsData { slot_number, .. },
-                            //     } = leader_private.input();
-                            //
-                            //     let aged_path_and_selectors =
-                            //         core::array::from_fn(|i| (aged_path[i], aged_selectors[i]));
-                            //
-                            //     ProofOfLeadershipQuotaInputs {
-                            //         aged_path_and_selectors,
-                            //         note_value: *note_value,
-                            //         output_number: *output_number,
-                            //         secret_key: *secret_key,
-                            //         slot: *slot_number,
-                            //         transaction_hash: *transaction_hash,
-                            //     }
-                            // }),
                             .map(|leader_private| leadership_quota_inputs(&leader_private)),
                     ),
                 }

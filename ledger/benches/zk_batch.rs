@@ -46,8 +46,6 @@ use lb_groth16::Fr;
 use lb_key_management_system_keys::keys::{ZkKey, ZkPublicKey};
 use lb_mmr::MerklePath;
 use lb_utils::math::{NonNegativeRatio, PositiveF64};
-// TODO(RFC-480): the Transfer proof is a ZkTransfer.
-// use lb_zksign::verify;
 use logos_blockchain_ledger::{
     Config, LedgerState,
     config::{BlendPoWConfig, ConsensusExcludedKeys, ModulusShift, PoWConfig, RewardPoWConfig},
@@ -182,41 +180,6 @@ static TX_POOL: LazyLock<TxPool> = LazyLock::new(|| {
     let config = config();
     let n_txs = *single_block::TXS_PER_BLOCK.last().unwrap();
 
-    // TODO(RFC-480): the genesis notes are private notes.
-    // let keys: Vec<ZkKey> = (0..n_txs)
-    //     .map(|i| ZkKey::from(BigUint::from(i as u64 + 1)))
-    //     .collect();
-    // let utxos: Vec<Utxo> = keys
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(i, key)| Utxo {
-    //         op_id: [i as u8; 32],
-    //         output_index: i,
-    //         // Assign a large value to withstand gas cost increases.
-    //         note: Note::new(1_000_000, key.to_public_key()),
-    //     })
-    //     .collect();
-    //
-    // let txs = utxos
-    //     .iter()
-    //     .zip(&keys)
-    //     .map(|(utxo, key)| build_tx(*utxo, key))
-    //     .collect();
-    //
-    // TxPool {
-    //     genesis: LedgerState::from_notes(
-    //         utxos.iter().map(|utxo| {
-    //             notes::Note::new(
-    //                 utxo.note.value,
-    //                 Fr::from(utxo.output_index as u64),
-    //                 utxo.note.pk,
-    //             )
-    //         }),
-    //         &config,
-    //     ),
-    //     config,
-    //     txs,
-    // }
     let keys: Vec<ZkKey> = (0..n_txs)
         .map(|i| ZkKey::new(Fr::from(i as u64 + 1)))
         .collect();
@@ -288,12 +251,6 @@ fn apply_sequential(
     txs: impl Iterator<Item = SignedOps<Preverified, StandardMode>>,
 ) -> LedgerState {
     let (state, deferred) = apply(state, txs);
-    // TODO(RFC-480): the Transfer proof is a ZkTransfer.
-    // for deferred_proof in deferred.zk_sigs() {
-    //     assert!(
-    //         verify(deferred_proof.proof(), deferred_proof.inputs()).expect("proof should verify")
-    //     );
-    // }
     for deferred_proof in deferred.zk_transfers() {
         assert!(
             lb_zktransfer::verify(deferred_proof.proof(), deferred_proof.inputs())
@@ -317,25 +274,6 @@ fn apply(
         .expect("block should apply");
     (state, deferred)
 }
-
-// TODO(RFC-480): the Transfer spends a private note.
-// /// Builds a transaction with a `Transfer` operation that spends `utxo` and
-// /// sends the very little amount to `key`.
-// fn build_tx(utxo: Utxo, key: &ZkKey) -> SignedOps<Preverified, StandardMode> {
-//     let transfer_op = TransferOp::new(
-//         BoundedInputs::from(utxo.id()).into(),
-//         // Most of the tx's value goes as a tip, to withstand gas cost increases.
-//         Outputs::new([Note::new(1, key.to_public_key())]),
-//     );
-//     let ops = Ops::from([Op::Transfer(transfer_op)]);
-//     let signature = ZkKey::multi_sign(std::slice::from_ref(key), &ops.hash().to_fr()).unwrap();
-//     let op_proofs = OpProofs::from([OpProof::ZkSig(signature)]);
-//
-//     SignedOps::from_parts(ops, op_proofs)
-//         .expect("transaction should build")
-//         .preverify()
-//         .expect("transaction should preverify")
-// }
 
 /// Builds a transaction with a `Transfer` operation that spends `note` and
 /// sends the very little amount back to its public key.

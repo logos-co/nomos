@@ -13,9 +13,6 @@ use crate::{
     mantle::{
         Op,
         OpProof,
-        // TODO(RFC-480): the builder takes the allocations the distribution publishes.
-        // ledger::{BoundedOutputs, Note},
-        // notes::{self, InputNfs, OutputCms},
         note_set::CommitmentMmr,
         notes::{InputNfs, OutputCms, derive_note_nf},
         ops::{
@@ -144,9 +141,6 @@ impl<'de> Deserialize<'de> for GenesisBlock {
         #[derive(Deserialize)]
         struct RawGenesisBlock {
             header: Header,
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // signature: Ed25519Signature,
             uncle_headers: UncleHeaders,
             transactions: BlockTransactions<GenesisTx>,
         }
@@ -171,9 +165,6 @@ impl<'de> Deserialize<'de> for GenesisBlock {
 
         let block = Block {
             header: raw.header,
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // signature: raw.signature,
             uncle_headers: raw.uncle_headers,
             transactions: raw.transactions,
         };
@@ -192,15 +183,9 @@ impl GenesisBlock {
     #[must_use]
     pub fn genesis(genesis_tx: GenesisTx) -> Self {
         let header = Header::genesis(&genesis_tx);
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-        // blocks carry no signature.
-        // let signature = Ed25519Signature::from_bytes(&[0; 64]);
         let transactions = BlockTransactions::from([genesis_tx]);
         Self(Block {
             header,
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // signature,
             uncle_headers: UncleHeaders::empty(),
             transactions,
         })
@@ -1404,55 +1389,6 @@ impl GenesisBlockBuilder<WithAll> {
                 },
         } = self;
         // Order is important to keep here
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let ops: Vec<Op> = std::iter::once(Op::Transfer(TransferOp::new(
-        //     Inputs::empty(),
-        //     Outputs::new(notes),
-        // )))
-        // TODO(RFC-480): the builder takes the allocations the distribution publishes.
-        // // The genesis notes take their output index as nonce and are proven
-        // // against the empty commitment root.
-        // let ops: Vec<Op> = std::iter::once(Op::Transfer(TransferOp::new(
-        //     InputNfs::default(),
-        //     OutputCms::try_from_iter(notes.iter().enumerate().map(|(index, note)| {
-        //         notes::Note::new(note.value, Fr::from(index as u64), note.pk)
-        //             .commitment()
-        //     }))
-        //     .expect("as many commitments as genesis notes"),
-        //     CommitmentMmr::new().frontier_root(),
-        //     0,
-        // )))
-        // .chain(std::iter::once(Op::ChannelInscribe(inscription)))
-        // .chain(sdp_declarations.into_iter().map(Op::SDPDeclare))
-        // .collect();
-        // let n = ops.len();
-        // let Ok(capped_ops) = Ops::try_from(ops) else {
-        //     // This should never happen because the builder doesn't allow more
-        //     // ops than can fit in a genesis tx, but we have to handle the error
-        //     // just in case.
-        //     return Err(Error::InvalidGenesisTx(genesis_tx::Error::TooManyOps {
-        //         count: n,
-        //     }));
-        // };
-        // let mut ops_proofs = OpProofs::from([
-        //     OpProof::ZkTransfer(ZkTransferProof::new(CompressedGroth16Proof::from_bytes(
-        //         &[0u8; 128],
-        //     ))),
-        //     OpProof::ChannelInscribe(ChannelInscribeProof::without_steps(Ed25519Signature::zero())),
-        // ]);
-        // for _ in 0..n - 2 {
-        //     let proof = ZkAndEd25519Proof {
-        //         zk_proof: ZkTransferProof::new(CompressedGroth16Proof::from_bytes(
-        //             &[0u8; 128],
-        //         )),
-        //         ed25519_sig: Ed25519Signature::zero(),
-        //     };
-        //     ops_proofs
-        //         .try_push(OpProof::ZkAndEd25519Sigs(proof))
-        //         .expect("genesis transaction proofs are bounded");
-        // }
-        // let signed_tx = SignedOps::from_parts_trusted(capped_ops, ops_proofs)?;
-        // Ok(GenesisBlock::genesis(GenesisTx::from_tx(signed_tx)?))
         let declaration_proofs = std::iter::repeat_n(
             ZkTransferProof::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
             sdp_declarations.len(),
@@ -1510,12 +1446,7 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::*;
-    // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-    // `mantle::NoteId` distinguished the declarations.
     use crate::{
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-        // no signature.
-        // block::SignedHeader,
         header::HeaderId,
         mantle::{
             CryptarchiaParameter, GenesisTime,
@@ -1566,10 +1497,6 @@ mod tests {
         }
     }
 
-    // TODO(RFC-480): the builder takes the allocations the distribution publishes.
-    // fn make_note(value: u64) -> Note {
-    //     Note::new(value, ZkPublicKey::from(BigUint::from(value + 1)))
-    // }
     fn make_note(value: u64) -> GenesisAllocation {
         GenesisAllocation {
             value,
@@ -1582,8 +1509,6 @@ mod tests {
         // zero Ed25519 key since not all 32-byte arrays are valid curve points.
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-            // service_note_id: NoteId(Fr::from(u64::from(id))),
             inputs: [NoteNf(Fr::from(u64::from(id)))].into(),
             cm_merkle_root: Fr::ZERO,
             amount: 0,
@@ -1606,18 +1531,6 @@ mod tests {
     fn make_signed_genesis_tx(extra_ops: Vec<Op>) -> SignedOps<Preverified, GenesisMode> {
         let notes = [make_note(1_000)];
         let mut ops = vec![
-            // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-            // Op::Transfer(TransferOp::new(
-            //     Inputs::empty(),
-            //     Outputs::new([make_note(1_000)]),
-            // )),
-            // TODO(RFC-480): the genesis outputs are the commitments the distribution publishes.
-            // Op::Transfer(TransferOp::new(
-            //     InputNfs::default(),
-            //     [NoteCm(Fr::from(1_000u64))].into(),
-            //     Fr::ZERO,
-            //     0,
-            // )),
             Op::Transfer(TransferOp::new(
                 InputNfs::default(),
                 OutputCms::try_from_iter(

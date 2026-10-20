@@ -376,8 +376,6 @@ fn build_inscription_transaction(
 
     let ed25519_signature = channel.signing_key.sign_payload(tx_hash.as_signing_bytes());
 
-    // TODO(RFC-480): an inscription carries the proofs of its steps.
-    // let op_proofs_wrapper = OpProofs::from([OpProof::Ed25519Sig(ed25519_signature)]);
     let op_proofs_wrapper = OpProofs::from([OpProof::ChannelInscribe(
         ChannelInscribeProof::without_steps(ed25519_signature),
     )]);

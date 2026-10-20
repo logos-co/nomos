@@ -1,9 +1,5 @@
 use std::num::NonZeroU64;
 
-// TODO(RFC-480): service notes live in the SDP note set and are consumed by
-// SDP_WITHDRAW; `service_notes::ServiceNotes` left the `sdp` imports.
-// TODO(RFC-480): no Operation reads legacy UTXOs since M9. `Utxos` left the
-// `ledger` imports.
 use lb_core::{
     block::BlockNumber,
     crypto::{Hash, ZkHash},
@@ -13,9 +9,6 @@ use lb_core::{
         note_set::NoteSets,
         ops::{
             channel::{ChannelId, ChannelKeyIndex},
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::{RewardsRoot, VoucherNullifier},
             pow::{PowNullifier, PowReward, PowTarget},
             sdp::SdpError,
         },
@@ -26,8 +19,6 @@ use lb_core::{
 };
 use lb_cryptarchia_engine::{Epoch, Slot};
 use lb_key_management_system_keys::keys::UnverifiedEd25519PublicKey;
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block. `HashTrieSetSync` held the voucher nullifiers.
 use rpds::HashTrieMapSync;
 
 use crate::mantle::LedgerState;
@@ -60,17 +51,6 @@ impl OperationVerificationHelper for MantleOperationVerificationHelper<'_> {
     fn get_channels(&self) -> &Channels {
         self.ledger_state.channels()
     }
-
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // fn get_service_notes(&self) -> &ServiceNotes {
-    //     self.ledger_state.service_notes()
-    // }
-
-    // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-    // fn get_utxos(&self) -> &Utxos {
-    //     &self.cryptarchia_ledger.utxos
-    // }
 
     fn get_note_sets(&self) -> &NoteSets {
         &self.cryptarchia_ledger.note_sets
@@ -113,40 +93,12 @@ impl OperationVerificationHelper for MantleOperationVerificationHelper<'_> {
     }
 
     fn get_epoch(&self) -> Epoch {
-        // TODO(RFC-480): the header carries no voucher; LeaderState goes with
-        // LEADER_CLAIM.
-        // self.ledger_state.leaders.epoch()
         self.cryptarchia_ledger.epoch_state().epoch()
     }
 
     fn get_block_slot(&self) -> Slot {
         self.cryptarchia_ledger.slot
     }
-
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // fn get_nullifiers(&self) -> &HashTrieSetSync<VoucherNullifier> {
-    //     self.ledger_state.leaders.nullifiers()
-    // }
-    //
-    // fn get_claimable_vouchers_root(&self) -> &RewardsRoot {
-    //     self.ledger_state.vouchers_snapshot_root()
-    // }
-
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // fn get_channel_transfer_threshold(
-    //     &self,
-    //     channel_id: &ChannelId,
-    // ) -> Result<ChannelKeyIndex, VerificationError> {
-    //     self.ledger_state
-    //         .channels()
-    //         .channel_state(channel_id)
-    //         .ok_or(VerificationError::ChannelNotFound {
-    //             channel_id: *channel_id,
-    //         })
-    //         .map(|channel_state| channel_state.transfer_threshold)
-    // }
 
     fn get_key_from_channel_at_index(
         &self,

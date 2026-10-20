@@ -119,7 +119,7 @@ impl SignedOps<Unverified, StandardMode> {
     /// - `ops` and `proofs` have the same length
     /// - Each operation has a corresponding proof of the correct type
     /// - [`InscriptionOp`](crate::mantle::ops::channel::inscribe::InscriptionOp)
-    ///   and [`LeaderClaimOp`](crate::mantle::ops::leader_claim::LeaderClaimOp) have valid signatures/proofs.
+    ///   has a valid signature.
     pub fn preverify(self) -> Result<SignedOps<Preverified, StandardMode>, VerificationError> {
         let tx_hash_view = TxHashView::new(self.hash());
         let preverified_signed_op_vec = self
@@ -403,9 +403,6 @@ pub mod test_utils {
         Op,
         channel::{ChannelState, SlotTimeframe, SlotTimeout},
         ops::channel::{
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // ChannelKeyIndex,
             MsgId,
             UnverifiedChannelKeys,
             inscribe::{ChannelSteps, InscriptionOp},
@@ -433,9 +430,6 @@ pub mod test_utils {
     // states for testing.
     #[must_use]
     pub fn make_channel_state(
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // transfer_threshold: ChannelKeyIndex,
         accredited_keys: Option<UnverifiedChannelKeys>,
     ) -> ChannelState {
         let keys = accredited_keys.unwrap_or_else(|| {
@@ -457,42 +451,9 @@ pub mod test_utils {
             posting_timeframe: SlotTimeframe::from(0),
             posting_timeout: SlotTimeout::from(0),
 
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold,
             note_set: None,
         }
     }
-
-    // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-    // ZkTransfer over the channel note set.
-    // #[must_use]
-    // pub fn create_withdraw_tx(
-    //     channel_id: ChannelId,
-    //     signing_keys: &[&Ed25519Key],
-    //     inputs: Option<Inputs>,
-    // ) -> SignedOps<Preverified, StandardMode> {
-    //     let inputs = inputs.unwrap_or_else(|| BoundedInputs::from(NoteId(Fr::from(0u64))).into());
-    //     let mantle_tx = create_test_mantle_tx(vec![Op::ChannelWithdraw(ChannelWithdrawOp {
-    //         channel_id,
-    //         inputs,
-    //     })]);
-    //
-    //     let tx_hash = mantle_tx.hash();
-    //     let proof = create_channel_multi_sig_proof(&tx_hash, signing_keys);
-    //     let op_proofs = OpProofs::from([OpProof::ChannelMultiSigProof(proof)]);
-    //
-    //     let signed_ops = SignedOps::from_parts(mantle_tx, op_proofs)
-    //         .unwrap()
-    //         .preverify()
-    //         .unwrap();
-    //     assert_eq!(
-    //         signed_ops.inner().len(),
-    //         1,
-    //         "The tests that rely on this function assume that the transaction has exactly one operation."
-    //     );
-    //     signed_ops
-    // }
 }
 
 #[cfg(test)]
@@ -561,9 +522,6 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 1,
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 1,
         }
     }
 
@@ -588,9 +546,6 @@ mod tests {
     fn create_withdraw_op(channel_id: ChannelId) -> ChannelWithdrawOp {
         ChannelWithdrawOp {
             channel_id,
-            // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-            // ZkTransfer over the channel note set.
-            // inputs: BoundedInputs::from(NoteId(Fr::from(0u64))).into(),
             inputs: [NoteNf(Fr::ZERO)].into(),
             cm_merkle_root: Fr::ZERO,
             outputs: OutputCms::default(),
@@ -645,13 +600,7 @@ mod tests {
         ]);
 
         let config_threshold = 3;
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // let transfer_threshold = 2;
         let context = OpsGasContext::new(
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // [(withdraw_channel, transfer_threshold)].into(),
             [(config_channel, config_threshold)].into(),
             GasPrices::new(1, 0),
         );
@@ -663,9 +612,6 @@ mod tests {
 
         let expected_config_gas = u64::from(config_threshold) * 59;
         let expected_deposit_gas = 619;
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // let expected_withdraw_gas = u64::from(transfer_threshold) * 56;
         let expected_withdraw_gas = 619;
         let expected_total_gas = expected_config_gas + expected_deposit_gas + expected_withdraw_gas;
 
@@ -708,9 +654,6 @@ mod tests {
 
         assert_eq!(config_gas.into_inner(), 3 * 59);
         assert_eq!(deposit_gas.into_inner(), 619);
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // assert_eq!(withdraw_gas.into_inner(), 2 * 56);
         assert_eq!(withdraw_gas.into_inner(), 619);
     }
 
@@ -836,37 +779,6 @@ mod tests {
             ))
         ));
     }
-
-    // TODO(RFC-480): output values are hidden in the commitments.
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M3): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn test_signed_mantle_tx_new_rejects_zero_value_transfer_output() {
-    //     let input_sk = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10000, input_sk.to_public_key()),
-    //     };
-    //
-    //     let transfer_op = TransferOp::new(
-    //         BoundedInputs::from(input_utxo.id()).into(),
-    //         Outputs::new([Note::new(0, Fr::from(BigUint::from(2u8)).into())]),
-    //     );
-    //     let mantle_tx = create_test_mantle_tx(vec![Op::Transfer(transfer_op)]);
-    //     let transfer_sig = ZkKey::multi_sign(&[input_sk], &mantle_tx.hash().to_fr())
-    //         .expect("Signing should succeed");
-    //     let op_proofs = OpProofs::from([OpProof::ZkSig(transfer_sig)]);
-    //     let result = SignedOps::<_, StandardMode>::from_parts(mantle_tx, op_proofs)
-    //         .unwrap()
-    //         .preverify();
-    //
-    //     assert_eq!(
-    //         result,
-    //         Err(VerificationError::TransferVerificationError(
-    //             TransferError::Outputs(OutputsError::ZeroValueNote)
-    //         ))
-    //     );
-    // }
 
     #[test]
     fn trusted_constructor_skips_preverification() {

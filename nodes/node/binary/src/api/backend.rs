@@ -56,8 +56,6 @@ use super::handlers::{
 use crate::{
     BlendService, PoWService, TracingService, WalletService,
     api::{
-        // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of
-        // the block. `leader_claim` was imported here.
         handlers::{
             blend_join_network, channel, channel_deposit, post_activity, post_declaration,
             post_set_declaration_id, post_withdrawal, pow_claim, pow_claimable_rewards,

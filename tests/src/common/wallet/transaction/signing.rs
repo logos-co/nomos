@@ -1,17 +1,7 @@
 //! Transfer proof construction and final Mantle transaction signing.
 
-// TODO(RFC-480): UTXO test wallet.
-// use std::collections::HashMap;
 use std::collections::{BTreeMap, HashMap};
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::{
-//     NoteId, Op, OpProof, OpRef, SignedOps, TxHash,
-//     gas::{MainnetGasProfile, TxGasCalculator as _},
-//     traits::Hashable as _,
-//     transactions::{MantleTxBuilder, OpProofs, Ops, tx_list::ops::OpsContext},
-// };
-// use lb_key_management_system_service::keys::{Ed25519Key, ZkKey};
 use lb_core::mantle::{
     Op, OpProof, OpRef, SignedOps, TxHash,
     gas::{MainnetGasProfile, TxGasCalculator as _},
@@ -31,9 +21,6 @@ use lb_wallet::{
 use super::{error::WalletTransactionError, signed::SignedWalletTransaction};
 use crate::common::wallet::WalletReservedInputs;
 
-// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier and proven
-// with its path.
-// pub(super) type WalletTransferSigners = HashMap<NoteId, ZkKey>;
 pub(super) type WalletTransferSigners = HashMap<NoteNf, (OwnedNote, ZkKey)>;
 
 pub(super) fn sign_prepared_wallet_transaction(
@@ -56,25 +43,7 @@ pub(super) fn sign_prepared_wallet_transaction(
         .op_refs()
         .total_gas_cost::<MainnetGasProfile>(&context.gas_context)?
         .into_inner();
-    // TODO(RFC-480): UTXO test wallet, the outputs are commitments and the
-    // excess of a Transfer is what it pays.
-    // let output_total = signed_tx
-    //     .op_refs()
-    //     .into_iter()
-    //     .filter_map(|op| match op {
-    //         OpRef::Transfer(transfer) => Some(transfer),
-    //         _ => None,
-    //     })
-    //     .flat_map(|transfer| transfer.outputs.iter())
-    //     .try_fold(0u64, |total, note| {
-    //         total
-    //             .checked_add(note.value)
-    //             .ok_or(WalletTransactionError::OutputTotalOverflow)
-    //     })?;
-    // let paid_fee = reserved_inputs
-    //     .total_value()
-    //     .checked_sub(output_total)
-    //     .ok_or(WalletTransactionError::FeeAccounting)?;
+    // The excess of a Transfer is what it pays.
     let paid_fee = signed_tx
         .op_refs()
         .into_iter()
@@ -96,38 +65,6 @@ pub(super) fn sign_prepared_wallet_transaction(
         mandatory_fee_at_preparation,
     ))
 }
-
-// TODO(RFC-480): UTXO test wallet. A ZkTransfer replaces the ZkSignature.
-/*
-/// Build one `ZkSig` proof per transfer op in a funded transaction, signing
-/// every input with the same wallet key. Suitable for transactions whose
-/// funding inputs all come from a single wallet account.
-pub fn transfer_proofs_for_funded_wallet_tx(
-    tx: &Ops,
-    signing_key: &ZkKey,
-) -> Result<OpProofs, WalletTransactionError> {
-    let tx_hash = tx.hash();
-    let proofs = tx
-        .into_iter()
-        .filter_map(|op| match op {
-            Op::Transfer(transfer_op) => Some(transfer_op),
-            _ => None,
-        })
-        .map(|transfer_op| -> Result<OpProof, WalletTransactionError> {
-            let signing_keys = transfer_op
-                .inputs
-                .iter()
-                .map(|_| signing_key.clone())
-                .collect::<Vec<_>>();
-            Ok(OpProof::ZkSig(ZkKey::multi_sign(
-                &signing_keys,
-                &tx_hash.to_fr(),
-            )?))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(OpProofs::try_from(proofs).expect("transaction proofs are bounded"))
-}
-*/
 
 /// Build the `ZkTransfer` proof of every Operation of a funded transaction
 /// that spends, keyed by its index, from the witnesses of `state`, each input
@@ -169,41 +106,17 @@ pub fn transfer_proofs_for_funded_wallet_tx(
 
 pub(super) fn build_transfer_proofs(
     ops: &[Op],
-    // TODO(RFC-480): UTXO test wallet, a ZkTransfer proves the openings of its
-    // notes.
     openings: &BTreeMap<usize, ZkTransferOpening>,
     tx_hash: &TxHash,
     transfer_signers: &WalletTransferSigners,
 ) -> Result<OpProofs, WalletTransactionError> {
     let proofs = ops
         .iter()
-        // TODO(RFC-480): UTXO test wallet.
-        // .filter_map(|op| match op {
-        //     Op::Transfer(transfer_op) => Some(transfer_op),
-        //     _ => None,
-        // })
         .enumerate()
         .filter_map(|(op_index, op)| match op {
             Op::Transfer(transfer_op) => Some((op_index, transfer_op)),
             _ => None,
         })
-        // .map(|transfer_op| -> Result<OpProof, WalletTransactionError> {
-        //     let signing_keys = transfer_op
-        //         .inputs
-        //         .iter()
-        //         .map(|note_id| {
-        //             transfer_signers
-        //                 .get(note_id)
-        //                 .cloned()
-        //                 .ok_or(WalletTransactionError::MissingSigningKey { note_id: *note_id })
-        //         })
-        //         .collect::<Result<Vec<_>, _>>()?;
-        //
-        //     Ok(OpProof::ZkSig(ZkKey::multi_sign(
-        //         &signing_keys,
-        //         &tx_hash.to_fr(),
-        //     )?))
-        // })
         .map(|(op_index, transfer_op)| -> Result<OpProof, WalletTransactionError> {
             let opening = openings
                 .get(&op_index)
@@ -254,10 +167,6 @@ pub(super) fn build_leading_inscription_proofs(
                 return Err(WalletTransactionError::InvalidLeadingInscriptionSigner);
             }
 
-            // TODO(RFC-480): an inscription carries the proofs of its steps.
-            // Ok(OpProof::Ed25519Sig(
-            //     signing_key.sign_payload(tx_hash.as_signing_bytes()),
-            // ))
             Ok(OpProof::ChannelInscribe(
                 ChannelInscribeProof::without_steps(
                     signing_key.sign_payload(tx_hash.as_signing_bytes()),
@@ -299,8 +208,6 @@ mod tests {
             std::slice::from_ref(&signing_key),
         )
         .expect("inscription proof");
-        // TODO(RFC-480): an inscription carries the proofs of its steps.
-        // let Some(OpProof::Ed25519Sig(signature)) = proofs.into_inner().into_inner().pop() else {
         let Some(OpProof::ChannelInscribe(ChannelInscribeProof { signature, .. })) =
             proofs.into_inner().into_inner().pop()
         else {

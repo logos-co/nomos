@@ -75,10 +75,7 @@ async fn fund_and_submit_payment(
     let funding_pk = funding_wallet.public_key()?;
     let client = world.resolve_node_http_client(node_name)?;
 
-    // TODO(RFC-480): a note carries a nonce; the receiving test wallet adopts
-    // the note from its recorded opening.
-    // let tx_builder = MantleTxBuilder::new()
-    //     .add_ledger_output(Note::new(amount, receiver_pk))
+    // The receiving test wallet adopts the note from its recorded opening.
     let receiver_note = Note::new(amount, random_nonce(), receiver_pk);
     record_note_openings([receiver_note]);
     let tx_builder = MantleTxBuilder::new()
@@ -491,8 +488,6 @@ async fn step_fund_inscription_transaction(
 
     let tx_hash = ops.hash();
     let signature = signing_key.sign_payload(tx_hash.as_signing_bytes());
-    // TODO(RFC-480): an inscription carries the proofs of its steps.
-    // let op_proofs = OpProofs::from([OpProof::Ed25519Sig(signature), transfer_proof]);
     let op_proofs = OpProofs::from([
         OpProof::ChannelInscribe(ChannelInscribeProof::without_steps(signature)),
         transfer_proof,

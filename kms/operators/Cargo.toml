@@ -22,8 +22,6 @@ lb-log-targets                = { workspace = true }
 lb-pol                        = { workspace = true }
 lb-poseidon2                  = { workspace = true }
 lb-utils                      = { features = ["tokio"], workspace = true }
-# TODO(RFC-480): leader witnesses come from the note sets.
-# lb-utxotree                   = { workspace = true }
 tokio                         = { features = ["rt"], workspace = true }
 tracing                       = { workspace = true }
 

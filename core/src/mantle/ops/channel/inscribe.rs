@@ -1047,9 +1047,6 @@ mod tests {
                 tip_sequencer_starting_slot: block_slot,
                 posting_timeframe: 0.into(),
                 posting_timeout: 0.into(),
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: crate::mantle::channel::DEFAULT_TRANSFER_THRESHOLD,
                 note_set: Some(2),
             })
         );
@@ -1136,9 +1133,6 @@ mod tests {
                 tip_sequencer_starting_slot: Slot::from(1u64),
                 posting_timeframe: 1.into(),
                 posting_timeout: 0.into(),
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: 3,
                 note_set: None,
             })
         );
@@ -1584,23 +1578,6 @@ mod tests {
             DecodeError::unknown_discriminant::<Step>(2)
         );
     }
-
-    // TODO(RFC-481 P1 Task 6): program steps are validated; the sample opening
-    // does not open the sample output, `verify_rejects_an_unregistered_program`
-    // covers an unknown program.
-    // #[test]
-    // fn verify_rejects_program_steps_until_they_are_validated() {
-    //     let (channels, note_sets) = state();
-    //     let deferred = verify_steps(
-    //         vec![Step::Program(ProgramStep::sample())],
-    //         &channels,
-    //         &note_sets,
-    //     );
-    //     assert_eq!(
-    //         deferred.unwrap_err(),
-    //         Error::UnknownProgram(Fr::from(0x34u64))
-    //     );
-    // }
 
     fn program_key() -> ProgramVerificationKey {
         ProgramVerificationKey::try_from(&three_input_setup(1).0).unwrap()

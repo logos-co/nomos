@@ -2,19 +2,13 @@ use bytes::Bytes;
 use lb_binary_codec::bincode::{DeserializeOp as _, SerializeOp as _};
 use serde::{Deserialize, Serialize};
 
-// TODO(RFC-480): withdrawals release their outputs; `NoteId` served SdpNoteUnlocked.
 use crate::{
     crypto::Hash,
     mantle::{
-        // TODO(RFC-480): reward notes are private notes of the ledger note set.
-        // Utxo,
         note_set::{NoteSetIndex, NoteSetUpdate},
         notes::{InputNfs, Note, OutputCms},
         ops::{
             channel::{ChannelId, deposit::Metadata},
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::VoucherNullifier,
             pow::PowNullifier,
         },
         transactions::hash::TxHash,
@@ -111,49 +105,17 @@ impl TxEvent {
     }
 }
 
-// TODO(RFC-480): a deposit creates commitments of the channel note set.
-// /// A single channel note a deposit re-created from one of its inputs.
-// ///
-// /// Carries the data a wallet needs to track and later select the note: its id,
-// /// value, and owning public key. The public key is the depositor's — a deposit
-// /// re-creates each input note unchanged inside the channel — so a withdrawal
-// /// client can tell which key must authorize spending it.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-// pub struct DepositNote {
-//     pub note_id: NoteId,
-//     pub value: Value,
-//     pub pk: ZkPublicKey,
-// }
-//
-// // A deposit re-creates one channel note per input, so the notes it emits carry
-// // the same bound as its inputs.
-// pub type DepositRecreatedNotes = UpperBoundedVec<DepositNote, MAX_TRANSACTION_INPUTS>;
-
 /// Event payloads emitted while processing a transaction
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxEventPayload {
     Deposit {
         channel_id: ChannelId,
-        // TODO(RFC-480): a deposit creates commitments of the channel note set.
-        // amount: Value,
         metadata: Metadata,
-        // /// The channel notes the deposit re-created its inputs as. They carry
-        // /// new `NoteId`s, so a channel cannot derive them from the payload.
-        // notes: DepositRecreatedNotes,
         outputs: OutputCms,
     },
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // /// A leader claim operation created the reward note for its beneficiary.
-    // LeaderRewardClaimed {
-    //     voucher_nullifier: VoucherNullifier,
-    //     utxo: Utxo,
-    // },
     /// A `PoW` claim operation created a reward note for its beneficiary
     PoWRewardClaimed {
         pow_nullifier: PowNullifier,
-        // TODO(RFC-480): the reward is a note of the ledger set.
-        // utxo: Utxo,
         note: Note,
     },
 }
@@ -161,14 +123,6 @@ pub enum TxEventPayload {
 /// Events emitted while processing a block header
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HeaderEvent {
-    // TODO(RFC-480): withdrawals release their outputs; the wallet reads SdpWithdrawalReleased.
-    // /// A service note has been unlocked because the epoch after its
-    // /// declaration's `withdraw_at` has been reached.
-    // SdpNoteUnlocked {
-    //     note_id: NoteId,
-    //     service_type: ServiceType,
-    //     declaration_id: DeclarationId,
-    // },
     /// The outputs of a withdrawal entered the ledger note set because the
     /// epoch after its declaration's `withdraw_at` has been reached.
     SdpWithdrawalReleased {
@@ -179,8 +133,6 @@ pub enum HeaderEvent {
     /// A reward note of a provider entered the ledger note set.
     SdpRewardDistributed {
         service_type: ServiceType,
-        // TODO(RFC-480): reward notes are private notes of the ledger note set.
-        // utxo: Utxo,
         note: Note,
     },
     /// A channel withdrawal reached its due slot with its notes unspent and its
@@ -229,41 +181,17 @@ mod tests {
         notes::{NoteCm, NoteNf},
     };
 
-    // TODO(RFC-480): a deposit creates commitments of the channel note set.
-    // /// A deposit note with distinct, non-default id/value/pk so the round-trip
-    // /// exercises every field rather than zero-valued defaults.
-    // fn deposit_note(seed: u64, value: Value) -> DepositNote {
-    //     DepositNote {
-    //         note_id: NoteId::from(Fr::from(BigUint::from(seed))),
-    //         value,
-    //         pk: ZkPublicKey::from(Fr::from(BigUint::from(
-    //             seed.wrapping_mul(97).wrapping_add(3),
-    //         ))),
-    //     }
-    // }
-
     /// A `Deposit` payload carrying several notes must survive the events codec
     /// round-trip. The wallet reads these notes off the block-events endpoint,
     /// so a broken `DepositNote` (de)serialization would silently drop the
     /// per-note value/pk data that channel-note tracking depends on.
     #[test]
     fn deposit_event_outputs_survive_codec_round_trip() {
-        // TODO(RFC-480): a deposit creates commitments of the channel note set.
-        // let expected_notes = vec![
-        //     deposit_note(11, 1),
-        //     deposit_note(22, 10_000),
-        //     deposit_note(33, u64::MAX),
-        // ];
-        // let notes: DepositRecreatedNotes = expected_notes
-        //     .clone()
-        //     .try_into()
-        //     .expect("note count is within the input bound");
         let outputs: OutputCms = [NoteCm(Fr::from(11u64)), NoteCm(Fr::from(22u64))].into();
 
         let tx_hash = TxHash([1u8; 32]);
         let op_id: Hash = [2u8; 32];
         let channel_id = ChannelId::from([7u8; 32]);
-        // let amount: Value = 424_242;
         let metadata: Metadata = vec![9u8, 8, 7]
             .try_into()
             .expect("metadata is within the size bound");
@@ -302,9 +230,7 @@ mod tests {
         assert_eq!(*decoded_tx_hash, tx_hash);
         assert_eq!(*decoded_op_id, op_id);
         assert_eq!(*decoded_channel_id, channel_id);
-        // assert_eq!(*decoded_amount, amount);
         assert_eq!(decoded_metadata.as_slice(), metadata.as_slice());
-        // assert_eq!(decoded_notes.as_slice(), expected_notes.as_slice());
         assert_eq!(*decoded_outputs, outputs);
     }
 

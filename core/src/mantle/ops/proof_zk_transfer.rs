@@ -19,7 +19,7 @@ impl ZkTransferProof {
     }
 }
 
-// Same shape as a `ZkSignature`: `{pi_a, pi_b, pi_c}`, each a hex string when
+// Serialized as `{pi_a, pi_b, pi_c}`, each a hex string when
 // human readable, a fixed size tuple otherwise (128 bytes in bincode).
 #[derive(Serialize, Deserialize)]
 struct ProofSerde {

@@ -6,19 +6,6 @@ pub mod runner;
 pub mod steps;
 mod tables;
 
-// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
-// transfers, withdrawals, atomic bundles, pin deposits) is suspended. Dropped
-// imports: AtomicZoneDepositRequest, BundleAnnounce, MultiSigBus, ZoneDeposit,
-// build_zone_deposit,
-// build_zone_deposit_from_values, pin_payload, publish_atomic_zone_withdraw,
-// start_deposit_lifecycle_policy, start_deposit_withdraw_policy,
-// start_multisig_lifecycle_policy, submit_atomic_zone_deposit,
-// submit_zone_channel_split, submit_zone_deposit, submit_zone_withdraw,
-// wait_for_channel_transfer_input_count, wait_for_channel_wallet_counts,
-// wait_for_channel_wallet_note, wait_for_deposit,
-// wait_for_finalized_deposit_via_sequencer,
-// wait_for_finalized_withdraw_via_sequencer, wait_for_withdraw,
-// withdraw_payload.
 use operations::{
     CustomRepublishDeps, DiscardedPayloads, PolicyRuntime, PublishDeadline, ZoneAccountBalances,
     ZoneTestError, balance_update_payload, collect_indexed_messages,

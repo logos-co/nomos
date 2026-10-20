@@ -10,11 +10,6 @@ use futures::StreamExt as _;
 pub use lb_blend::message::{crypto::proofs::RealProofsVerifier, encap::ProofsVerifier};
 use lb_blend::scheduling::epoch::UninitializedEpochEventStream;
 use lb_chain_service::api::{CryptarchiaServiceApi, CryptarchiaServiceData};
-// TODO(RFC-480): the wallet funds the declaration stake.
-// use lb_core::{
-//     mantle::NoteId,
-//     sdp::{DeclarationMessage, Locator, ProviderId, ServiceType},
-// };
 use lb_core::{
     mantle::Value,
     sdp::{Locator, ProviderId, ServiceType},
@@ -331,8 +326,6 @@ where
 async fn submit_blend_sdp_declaration<SdpService>(
     sdp_service_api: &SdpServiceApi<SdpService>,
     locator: Locator,
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // service_note_id: NoteId,
     amount: Value,
     non_ephemeral_signing_key_public: Ed25519PublicKey,
     zk_id: ZkPublicKey,
@@ -344,14 +337,6 @@ where
         target: LOG_TARGET,
         "Submitting Blend service declaration to SDP with locator {locator:?} and stake {amount}",
     );
-    // TODO(RFC-480): the wallet funds the declaration stake.
-    // let sdp_declaration = DeclarationMessage {
-    //     locators: locator.into(),
-    //     service_note_id,
-    //     provider_id: ProviderId(non_ephemeral_signing_key_public),
-    //     service_type: ServiceType::BlendNetwork,
-    //     zk_id,
-    // };
     let sdp_declaration = DeclarationRequest {
         locators: locator.into(),
         provider_id: ProviderId(non_ephemeral_signing_key_public),

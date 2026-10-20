@@ -259,18 +259,12 @@ fn estimate_split_required_fee(
     let mut builder = MantleTxBuilder::new();
     for _ in 0..outputs_per_wallet.saturating_add(1) {
         builder = builder
-            // TODO(RFC-480): a note carries a nonce.
-            // .add_ledger_output(Note::new(1, public_key))
             .add_ledger_output(Note::new(1, Fr::from(0u64), public_key))
             .map_err(|error| StepError::LogicalError {
                 message: format!("could not build split fee estimate: {error}"),
             })?;
     }
     let context = OpsContext {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes; the gas context is the only field left.
-        // gas_context: OpsGasContext::new(HashMap::new(), HashMap::new(), gas_prices),
-        // ..OpsContext::default()
         gas_context: OpsGasContext::new(HashMap::new(), gas_prices),
     };
     let mandatory_fee = builder

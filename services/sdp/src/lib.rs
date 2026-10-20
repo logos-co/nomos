@@ -12,8 +12,6 @@ use lb_chain_service::{
     ChainServiceInfo, Epoch, ProcessedBlockEvent,
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
 };
-// TODO(RFC-480): the wallet builds the declaration's ZkTransfer; `mantle::NoteId` and
-// `sdp::{DeclarationMessage, WithdrawMessage}` left.
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -87,18 +85,6 @@ impl DeclarationConfig {
     }
 }
 
-// TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-// impl From<&DeclarationMessage> for DeclarationConfig {
-//     fn from(message: &DeclarationMessage) -> Self {
-//         Self {
-//             provider_id: message.provider_id,
-//             zk_id: message.zk_id,
-//             locators: message.locators.clone(),
-//             service_type: message.service_type,
-//         }
-//     }
-// }
-
 // What the node asks to declare; the wallet funds the `amount` stake and
 // builds the `DeclarationMessage`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,8 +148,6 @@ impl StorageRecoverySettings for SdpSettings {
 pub struct RuntimeDeclaration {
     pub id: DeclarationId,
     pub zk_id: ZkPublicKey,
-    // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-    // pub service_note_id: NoteId,
     pub service_note: NoteCm,
     pub nonce: u64,
     pub tip: HeaderId,
@@ -203,8 +187,6 @@ impl SdpSubmission {
 #[derive(Debug)]
 pub enum SdpMessage {
     PostDeclaration {
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: Box<DeclarationMessage>,
         declaration: Box<DeclarationRequest>,
         reply_channel: oneshot::Sender<Result<SdpSubmission, DynError>>,
     },
@@ -573,8 +555,6 @@ where
             declaration: RuntimeDeclaration {
                 id: declaration_id,
                 zk_id: declaration.zk_id,
-                // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-                // service_note_id: declaration.service_note_id,
                 service_note: declaration.service_note,
                 nonce: declaration.nonce,
                 tip,
@@ -635,8 +615,6 @@ where
     )]
     async fn handle_post_declaration(
         &mut self,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: Box<DeclarationMessage>,
         declaration: Box<DeclarationRequest>,
         wallet_adapter: &WalletAdapter,
         mempool_adapter: &MempoolAdapter,
@@ -945,13 +923,6 @@ where
             );
             return;
         };
-
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // let withdraw_message = WithdrawMessage {
-        //     declaration_id,
-        //     service_note_id: declaration.service_note_id,
-        //     nonce,
-        // };
 
         let tx_builder = MantleTxBuilder::new();
 

@@ -7,19 +7,6 @@ use std::{
 use cucumber::{gherkin::Step, given, when};
 use lb_core::mantle::ops::channel::inscribe::Inscription;
 
-// TODO(RFC-480): the zone bridge (deposits with explicit notes, channel
-// transfers, withdrawals, atomic bundles, pin deposits) is suspended. Dropped
-// imports: BundleAnnounce, MultiSigBus,
-// publish_atomic_zone_withdraw_transaction, start_deposit_reaction_sequencer,
-// start_deposit_withdraw_sequencer, start_multisig_lifecycle_sequencer,
-// submit_atomic_zone_deposit_transaction, submit_zone_channel_split_transaction,
-// submit_zone_deposit_transaction, submit_zone_multi_deposit_transaction,
-// submit_zone_withdraw_transaction, pin_payload, zone_atomic_withdraw_rows,
-// wait_for_channel_transfer_input_count, wait_for_channel_wallet_counts,
-// wait_for_channel_wallet_note, wait_for_deposit,
-// wait_for_finalized_deposit_via_sequencer,
-// wait_for_finalized_withdraw_via_sequencer, wait_for_withdraw,
-// withdraw_payload.
 use super::{
     CustomRepublishDeps, PublishDeadline,
     actions::{

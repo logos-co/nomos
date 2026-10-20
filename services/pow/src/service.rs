@@ -23,15 +23,8 @@ use lb_core::{
     events::{Event, TxEvent, TxEventPayload},
     header::HeaderId,
     mantle::{
-        // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-        // Note, NoteId, Op, OpProof, SignedOps, Utxo, Value,
-        Note,
-        Op,
-        OpProof,
-        SignedOps,
-        Value,
+        Note, Op, OpProof, SignedOps, Value,
         gas::MainnetGasProfile,
-        // ledger::{Inputs, InputsError, Outputs, verification_mode::StandardMode},
         ledger::verification_mode::StandardMode,
         note_set::{CommitmentMmr, LEDGER_SET},
         notes::{NoteNf, derive_note_nf, derive_note_nonce},
@@ -50,10 +43,6 @@ use lb_core::{
     },
 };
 use lb_groth16::{AdditiveGroup as _, COMPRESSED_PROOF_SIZE, Fr, fr_from_mod_bytes};
-// TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-// use lb_key_management_system_keys::keys::{
-//     MAX_ZK_SIGNING_KEYS, UnsecuredZkKey, ZkPublicKey, ZkSignature,
-// };
 use lb_key_management_system_keys::keys::{UnsecuredZkKey, ZkPublicKey};
 use lb_ledger::LedgerState;
 use lb_log_targets::pow;
@@ -65,8 +54,6 @@ use lb_storage_service::{StorageService, recovery::StorageRecoveryBackend};
 use lb_time_service::{TimeService, TimeServiceMessage, backends::TimeBackend};
 use lb_utils::bounded::BoundedError;
 use lb_wallet_service::api::{WalletApi, WalletApiError, WalletServiceData};
-// TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-// use lb_zksign::{ZkSignError, ZkSignProof};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -105,13 +92,8 @@ pub enum PoWError {
     RewardBelowFee,
     #[error("failed to build transaction: {0}")]
     TxBuilder(#[from] TxBuilderError),
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // #[error("invalid transfer inputs: {0}")]
-    // Inputs(#[from] InputsError),
     #[error("too many operation proofs: {0}")]
     OpProofs(#[from] BoundedError),
-    // #[error("failed to sign transfer: {0}")]
-    // Sign(#[from] ZkSignError),
     #[error("signing task failed: {0}")]
     SignTask(#[from] JoinError),
     #[error("failed to encode transaction: {0}")]
@@ -143,11 +125,6 @@ pub enum PoWError {
     SignedOps(#[from] lb_core::mantle::transactions::tx_list::signed_ops::Error),
 }
 
-// TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-// /// Max inputs a single `Transfer` op can carry: its `ZkSig` is a
-// /// multi-signature over one key per input, capped at [`MAX_ZK_SIGNING_KEYS`].
-// /// Hence one transfer per 32 claims.
-// const MAX_TRANSFER_INPUTS: usize = MAX_ZK_SIGNING_KEYS;
 /// Max inputs a single `Transfer` op can carry: the notes its `ZkTransfer`
 /// spends. Hence one transfer per 4 claims.
 const MAX_TRANSFER_INPUTS: usize = lb_zktransfer::MAX_INPUTS;
@@ -1408,8 +1385,6 @@ const fn max_claims_by_ops() -> usize {
 ///
 /// [`claim_tx_size_matches_a_signed_transaction`] pins that equivalence.
 fn claim_tx_size(claims: usize) -> Result<u64, PoWError> {
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // let signature = ZkSignature::new(ZkSignProof::from_bytes(&[0u8; COMPRESSED_PROOF_SIZE]));
     let proof = ZkTransferProof::new(lb_zktransfer::ZkTransferProof::from_bytes(
         &[0u8; COMPRESSED_PROOF_SIZE],
     ));
@@ -1428,11 +1403,6 @@ fn claim_tx_size(claims: usize) -> Result<u64, PoWError> {
             }
         })
         .collect();
-    // let note_ids: Vec<NoteId> = probe_claims
-    //     .iter()
-    //     .map(|claim| Utxo::new(claim.op_id(), 0, Note::new(0, claim.public_key)).id())
-    //     .collect();
-    // let transfers = transfer_ops(&note_ids, ZkPublicKey::zero(), &vec![0; groups])?;
     let nullifiers: Vec<NoteNf> = (0..claims)
         .map(|index| NoteNf(Fr::from(index as u64)))
         .collect();
@@ -1445,7 +1415,6 @@ fn claim_tx_size(claims: usize) -> Result<u64, PoWError> {
     )?;
 
     let ops = push_reward_claim_ops(MantleTxBuilder::new(), &probe_claims, transfers)?.build()?;
-    // let ops_proofs = claim_ops_proofs(claims, std::iter::repeat_n(signature, groups))?;
     let ops_proofs = claim_ops_proofs(claims, std::iter::repeat_n(proof, groups))?;
 
     Ok(SerializeOp::bytes_size(
@@ -1540,10 +1509,6 @@ async fn build_reward_claim_tx_inner(
         return Err(PoWError::RewardsDisabled);
     }
     let context = OpsContext {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes, and the leader reward is a note of the block.
-        // gas_context: OpsGasContext::new(HashMap::new(), HashMap::new(), gas_prices),
-        // leader_reward_amount: 0,
         gas_context: OpsGasContext::new(HashMap::new(), gas_prices),
     };
 
@@ -1559,40 +1524,6 @@ async fn build_reward_claim_tx_inner(
     }
     let tickets = &tickets[..claim_count];
     let claims: Vec<ClaimPowRewardOp> = tickets.iter().map(|(_, claim)| claim.clone()).collect();
-
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // // Reconstruct the id of the UTXO each claim mints (op_id, output 0, reward
-    // // note), so the transfers can spend them.
-    // let note_ids: Vec<NoteId> = claims
-    //     .iter()
-    //     .map(|claim| Utxo::new(claim.op_id(), 0, Note::new(reward_value, claim.public_key)).id())
-    //     .collect();
-    //
-    // // Size the change against the final tx shape, then spread the fee across
-    // // the transfer outputs.
-    // let fee = estimate_reward_claim_fee(&claims, &note_ids, claim_address, &context)?;
-    // let change_outputs = change_outputs(&note_ids, reward_value, fee)?;
-    // let transfers = transfer_ops(&note_ids, claim_address, &change_outputs)?;
-    //
-    // let mantle_tx = push_reward_claim_ops(MantleTxBuilder::new(), &claims, transfers)?.build()?;
-    //
-    // // Sign each transfer with the keys owning its input notes (a
-    // // multi-signature over the whole tx hash). Signing is a ZK proof
-    // // (CPU-heavy), so run it off the async runtime.
-    // let tx_fr = mantle_tx.hash().to_fr();
-    // let sk_groups: Vec<Vec<UnsecuredZkKey>> = tickets
-    //     .chunks(MAX_TRANSFER_INPUTS)
-    //     .map(|group| group.iter().map(|(sk, _)| sk.clone()).collect())
-    //     .collect();
-    // let zk_sigs = tokio::task::spawn_blocking(move || {
-    //     sk_groups
-    //         .iter()
-    //         .map(|sks| UnsecuredZkKey::multi_sign(sks, &tx_fr))
-    //         .collect::<Result<Vec<_>, _>>()
-    // })
-    // .await??;
-    //
-    // let ops_proofs = claim_ops_proofs(claim_count, zk_sigs)?;
 
     // Reconstruct the note each claim mints and the nullifier its key spends
     // it with, so the transfers can spend them.
@@ -1688,27 +1619,6 @@ fn reward_note(claim: &ClaimPowRewardOp, reward_value: Value) -> Note {
     )
 }
 
-// TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-// /// Builds the `Transfer` ops spending `note_ids`, grouped into batches of up to
-// /// [`MAX_TRANSFER_INPUTS`] inputs, each returning `change_outputs[group]` to
-// /// `claim_address`.
-// fn transfer_ops(
-//     note_ids: &[NoteId],
-//     claim_address: ZkPublicKey,
-//     change_outputs: &[Value],
-// ) -> Result<Vec<TransferOp>, PoWError> {
-//     note_ids
-//         .chunks(MAX_TRANSFER_INPUTS)
-//         .zip(change_outputs)
-//         .map(|(group, &change)| {
-//             Ok(TransferOp::new(
-//                 Inputs::try_new(group.to_vec())?,
-//                 Outputs::new([Note::new(change, claim_address)]),
-//             ))
-//         })
-//         .collect()
-// }
-
 /// Builds the `Transfer` ops spending `nullifiers` against `cm_merkle_root`,
 /// grouped into batches of up to [`MAX_TRANSFER_INPUTS`] inputs, each creating
 /// `change_notes[group]` and paying `fee_shares[group]` as its excess.
@@ -1755,8 +1665,6 @@ fn push_reward_claim_ops(
 /// as the real one is.
 fn claim_ops_proofs(
     claims: usize,
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // zk_sigs: impl IntoIterator<Item = ZkSignature>,
     zk_transfers: impl IntoIterator<Item = ZkTransferProof>,
 ) -> Result<OpProofs, PoWError> {
     let mut ops_proofs = OpProofs::empty();
@@ -1767,7 +1675,6 @@ fn claim_ops_proofs(
         for _ in 0..group {
             ops_proofs.try_push(OpProof::None(NoOpProof))?;
         }
-        // ops_proofs.try_push(OpProof::ZkSig(zk_sig))?;
         ops_proofs.try_push(OpProof::ZkTransfer(zk_transfer))?;
     }
     Ok(ops_proofs)
@@ -1832,8 +1739,6 @@ fn estimate_reward_claim_fee(
 ) -> Result<Value, PoWError> {
     // Change values, roots and excesses don't affect gas, so probe with zeros.
     let num_groups = nullifiers.len().div_ceil(MAX_TRANSFER_INPUTS);
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // let transfers = transfer_ops(note_ids, claim_address, &vec![0; num_groups])?;
     let change = Note::new(0, Fr::ZERO, claim_address);
     let transfers = transfer_ops(
         nullifiers,
@@ -1856,13 +1761,7 @@ mod tests {
     use lb_core::{
         header::HeaderId,
         mantle::{
-            // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-            // Note, NoteId, OpProofRef, OpRef, SignedOps, Utxo,
-            Note,
-            OpProofRef,
-            OpRef,
-            SignedOps,
-            Value,
+            Note, OpProofRef, OpRef, SignedOps, Value,
             ledger::verification_mode::StandardMode,
             note_set::CommitmentMmr,
             notes::{NoteCm, NoteNf, derive_note_nf, derive_note_nonce},
@@ -1892,13 +1791,6 @@ mod tests {
     const POOL: u64 = 1_000_000_000;
 
     const SLOT_WINDOW: NonZeroU64 = NonZeroU64::new(100).expect("100 is not 0");
-    // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-    // /// A distinct dummy note id, derived like the ones the builder
-    // /// reconstructs.
-    // fn note_id(seed: u8) -> NoteId {
-    //     Utxo::new([seed; 32], 0, Note::new(1, ZkPublicKey::zero())).id()
-    // }
-
     /// A distinct dummy nullifier.
     fn nullifier(seed: u8) -> NoteNf {
         NoteNf(Fr::from(u64::from(seed)))
@@ -1925,15 +1817,7 @@ mod tests {
 
     fn context() -> OpsContext {
         OpsContext {
-            gas_context: OpsGasContext::new(
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // HashMap::default(),
-                HashMap::default(),
-                GasPrices::new(1, 1),
-            ),
-            // TODO(RFC-480): the leader reward is a note of the block.
-            // leader_reward_amount: 0,
+            gas_context: OpsGasContext::new(HashMap::default(), GasPrices::new(1, 1)),
         }
     }
 
@@ -2191,8 +2075,6 @@ mod tests {
     #[tokio::test]
     async fn build_reward_claim_tx_produces_a_claim_and_signed_transfer() {
         let (secret_key, claim) = ticket();
-        // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-        // let expected_note = Utxo::new(claim.op_id(), 0, Note::new(REWARD, claim.public_key)).id();
         let reward_note = Note::new(
             REWARD,
             derive_note_nonce(&claim.op_id(), 0, REWARD, &claim.public_key),
@@ -2220,17 +2102,12 @@ mod tests {
         let OpRef::Transfer(transfer) = &ops[1] else {
             panic!("second op should be a transfer");
         };
-        // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-        // let inputs: Vec<NoteId> = (&transfer.inputs).into_iter().copied().collect();
-        // assert_eq!(inputs, vec![expected_note]);
         assert_eq!(transfer.inputs.to_vec(), vec![expected_nullifier]);
 
         // A `None` proof for the claim, a `ZkTransfer` for the transfer.
         let proofs = tx.op_proof_refs();
         assert_eq!(proofs.len(), 2);
         assert!(matches!(proofs[0], OpProofRef::None(_)));
-        // TODO(RFC-480): a claim pays a key and its transfer is a ZkTransfer.
-        // assert!(matches!(proofs[1], OpProofRef::ZkSig(_)));
         assert!(matches!(proofs[1], OpProofRef::ZkTransfer(_)));
     }
 

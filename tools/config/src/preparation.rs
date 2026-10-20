@@ -3,9 +3,6 @@
 
 use lb_core::{
     block::genesis::GenesisBlock,
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // mantle::GenesisTime,
     mantle::{GenesisTime, traits::GenesisTx as _},
     sdp::{Locator, ServiceType},
 };
@@ -65,10 +62,6 @@ pub fn prepare_network(
             reserved_wallet_outputs.max(wallets.len()),
             sdp_funding,
         );
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // let genesis = create_genesis_block(&consensus.utxos, test_context, genesis_time);
-    // let mut transfer = genesis.genesis_tx().transfer().operation().clone();
     let genesis = create_genesis_block(&consensus.allocations, test_context, genesis_time);
     let mut transfer = genesis.genesis_tx().distribution();
     let leader_keys = consensus
@@ -96,18 +89,6 @@ pub fn prepare_network(
     {
         refresh_service_note(note, &transfer);
     }
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // consensus.utxos = transfer
-    //     .outputs
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(i, _)| {
-    //         transfer
-    //             .utxo_by_index(i)
-    //             .expect("genesis output must exist")
-    //     })
-    //     .collect();
     consensus.allocations = transfer.as_slice().to_vec();
 
     let providers = ids

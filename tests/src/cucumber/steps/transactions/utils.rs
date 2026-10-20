@@ -1,7 +1,5 @@
 use std::{collections::HashSet, num::NonZero};
 
-// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-// use lb_core::mantle::{NoteId, transactions::hash::TxHash};
 use lb_core::mantle::{notes::NoteNf, transactions::hash::TxHash};
 use tracing::warn;
 

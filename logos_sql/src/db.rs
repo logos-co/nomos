@@ -1395,9 +1395,6 @@ pub mod tests {
             pending_txs: Vec::new(),
             lib: HeaderId::from([byte; 32]),
             lib_slot: Slot::from(slot),
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // channel_notes: Vec::new(),
             finalized_config: MsgId::root(),
             funding: Vec::new(),
         }

@@ -2,12 +2,6 @@ use core::fmt::{self, Debug, Formatter};
 
 use ark_ff::PrimeField as _;
 use blake2::Digest as _;
-// TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-// signature.
-// use lb_binary_codec::{
-//     bincode::{BoundedSerializeOp, SerializeOp as _},
-//     canonical::{BinaryCodec, BinaryDecode, BinaryEncode, DecodeError},
-// };
 #[cfg(test)]
 use lb_binary_codec::bincode::SerializeOp as _;
 use lb_binary_codec::{
@@ -16,9 +10,6 @@ use lb_binary_codec::{
 };
 use lb_cryptarchia_engine::Slot;
 use lb_groth16::{Fr, fr_to_bytes};
-// TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-// signature.
-// use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519Signature};
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use serde::{Deserialize, Serialize};
 
@@ -105,13 +96,8 @@ impl BinaryEncode for Header {
             proof_of_leadership,
         } = self;
 
-        // TODO(RFC-480): the spec's wire layout leads with `bedrock_version`, which
-        // tells a node which rules parse the rest of the header, and puts `slot`
-        // after `parent_block`. The slot used to come first: "The first field,
-        // which must never change across eras. A node reads the slot to learn
-        // which era's rules parse the rest of the header."
-        // slot.encode_into(out);
-        // parent_block.encode_into(out);
+        // The wire layout leads with `bedrock_version`, which tells a node which
+        // rules parse the rest of the header.
         BEDROCK_VERSION.encode_into(out);
         parent_block.encode_into(out);
         slot.encode_into(out);
@@ -127,10 +113,6 @@ impl BinaryDecode for Header {
         input: &'input [u8],
         context: &Self::Context,
     ) -> Result<(&'input [u8], Self), DecodeError> {
-        // TODO(RFC-480): the spec's wire layout leads with `bedrock_version` and puts
-        // `slot` after `parent_block`.
-        // let (input, slot) = Slot::decode(input, context)?;
-        // let (input, parent_block) = HeaderId::decode(input, context)?;
         let (input, bedrock_version) = u8::decode(input, context)?;
         // The block ID and `pol_msg` hash this constant.
         if bedrock_version != BEDROCK_VERSION {
@@ -174,11 +156,7 @@ impl Header {
         h.update(self.parent_block.0);
         h.update(self.slot.to_le_bytes());
         h.update(self.body_root.0);
-        // TODO(RFC-480): the proof is left out, a Groth16 proof can be re-randomized.
-        // h.update(self.proof_of_leadership.voucher_cm().to_bytes());
-        // h.update(fr_to_bytes(&self.proof_of_leadership.entropy()));
-        // h.update(self.proof_of_leadership.proof().to_bytes());
-        // h.update(self.proof_of_leadership.leader_key().to_bytes());
+        // The proof is left out, a Groth16 proof can be re-randomized.
         h.update(fr_to_bytes(self.proof_of_leadership.reward_key().as_fr()));
         h.update(fr_to_bytes(&self.proof_of_leadership.entropy()));
     }
@@ -214,16 +192,6 @@ impl Header {
     pub const fn slot(&self) -> Slot {
         self.slot
     }
-
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-    // blocks carry no signature.
-    // pub fn sign(
-    //     &self,
-    //     signing_key: &Ed25519Key,
-    // ) -> Result<Ed25519Signature, crate::block::Error> {
-    //     let header_bytes = self.to_bytes()?;
-    //     Ok(signing_key.sign_payload(&header_bytes))
-    // }
 
     #[must_use]
     pub const fn parent_block(&self) -> HeaderId {
@@ -653,30 +621,14 @@ fn header_with_a_version_byte_other_than_one_is_rejected() {
 /// --nocapture`
 #[cfg(test)]
 mod body_root_test_vectors {
-    // TODO(RFC-480): `Fr` now comes from `super::*`.
-    // use lb_poseidon2::Fr;
-
-    // TODO(RFC-480): the header carries the reward_key of the leader reward; the
-    // PoL is bound to the header by pol_msg.
-    // use lb_key_management_system_keys::keys::Ed25519Key;
-
     use super::*;
     use crate::{
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-        // no signature.
-        // block::{SignedHeader, UncleHeaders},
         block::UncleHeaders,
-        // TODO(RFC-480): the header carries the reward_key of the leader reward; the PoL is bound
-        // to the header by pol_msg.
-        // mantle::{ops::leader_claim::VoucherCm, traits::Hashable as _, transactions::Ops},
         mantle::{traits::Hashable as _, transactions::Ops},
         utils::merkle,
     };
 
     fn uncle(byte: u8) -> Header {
-        // TODO(RFC-480): the header carries the reward_key of the leader reward; the
-        // PoL is bound to the header by pol_msg.
-        // let signing_key = Ed25519Key::from_bytes(&[byte; 32]);
         Header::new(
             HeaderId([byte; 32]),
             ContentId([byte; 32]),
@@ -684,18 +636,9 @@ mod body_root_test_vectors {
             Groth16LeaderProof::from_parts(
                 lb_pol::PoLProof::from_bytes(&[byte; 128]),
                 Fr::from(u64::from(byte)),
-                // TODO(RFC-480): the header carries the reward_key of the leader reward; the PoL
-                // is bound to the header by pol_msg.
-                // signing_key.public_key(),
-                // VoucherCm::from(Fr::from(u64::from(byte))),
                 ZkPublicKey::new(Fr::from(u64::from(byte))),
             ),
         )
-        // TODO(RFC-480): the proof of leadership is bound to the header by
-        // pol_msg, blocks carry no signature.
-        // let signature =
-        //     header.sign(&signing_key).expect("header serializes");
-        // SignedHeader::new(header, signature)
     }
 
     /// Generates (and prints) the `body_root` / `HeaderId` test vectors.
@@ -704,9 +647,6 @@ mod body_root_test_vectors {
     /// vectors.
     #[test]
     #[ignore = "generates body_root/HeaderId test vectors on demand; run with --ignored --nocapture"]
-    // TODO(RFC-480): the shorter `block_id` preimage brings the function under
-    // the line limit.
-    // #[expect(clippy::too_many_lines, reason = "a flat list of printed vectors")]
     fn generate_body_root_test_vectors() {
         println!();
         println!(
@@ -770,9 +710,6 @@ mod body_root_test_vectors {
             println!(
                 "{:20}: {}",
                 format!("uncle_headers[{index}]"),
-                // TODO(RFC-480): the canonical entry carries `bedrock_version`, the bincode form
-                // does not.
-                // hex::encode(uncle.to_bytes().expect("uncle serializes"))
                 hex::encode(uncle.encode_to_vec())
             );
         }
@@ -791,10 +728,6 @@ mod body_root_test_vectors {
         let proof = Groth16LeaderProof::from_parts(
             lb_pol::PoLProof::from_bytes(&[0x22u8; 128]),
             Fr::from(0x5555u64), // entropy_contribution
-            // TODO(RFC-480): the header carries the reward_key of the leader reward; the PoL is
-            // bound to the header by pol_msg.
-            // Ed25519Key::from_bytes(&[0x33u8; 32]).public_key(), // leader_key
-            // VoucherCm::from(Fr::from(0x4444u64)), // leader_voucher
             ZkPublicKey::new(Fr::from(0x4444u64)), // reward_key
         );
         let header = Header::new(parent_block, body_root, slot, proof);
@@ -810,11 +743,6 @@ mod body_root_test_vectors {
         h.update(parent_block.0);
         h.update(slot.to_le_bytes());
         h.update(body_root.0);
-        // TODO(RFC-480): the proof is left out, a Groth16 proof can be re-randomized.
-        // h.update(proof.voucher_cm().to_bytes());
-        // h.update(fr_to_bytes(&proof.entropy()));
-        // h.update(proof.proof().to_bytes());
-        // h.update(proof.leader_key().to_bytes());
         h.update(fr_to_bytes(proof.reward_key().as_fr()));
         h.update(fr_to_bytes(&proof.entropy()));
         let manual: [u8; 32] = h.finalize().into();
@@ -831,12 +759,6 @@ mod body_root_test_vectors {
         println!("{:20}: {}", "slot", u64::from(slot));
         println!("{:20}: {}", "body_root", hex::encode(body_root.0));
         // proof_of_leadership fields (here, the deterministic genesis proof).
-        // TODO(RFC-480): the proof is left out, a Groth16 proof can be re-randomized.
-        // println!(
-        //     "{:20}: {}",
-        //     "leader_voucher",
-        //     hex::encode(proof.voucher_cm().to_bytes())
-        // );
         println!(
             "{:20}: {}",
             "reward_key",
@@ -847,13 +769,6 @@ mod body_root_test_vectors {
             "entropy_contribution",
             hex::encode(fr_to_bytes(&proof.entropy()))
         );
-        // TODO(RFC-480): the proof is left out, a Groth16 proof can be re-randomized.
-        // println!("{:20}: {}", "proof", hex::encode(proof.proof().to_bytes()));
-        // println!(
-        //     "{:20}: {}",
-        //     "leader_key",
-        //     hex::encode(proof.leader_key().to_bytes())
-        // );
         println!("{:20}: {}", "block_id", hex::encode(header_id.0));
         println!("================================================================");
     }

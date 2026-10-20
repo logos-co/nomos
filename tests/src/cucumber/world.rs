@@ -16,7 +16,7 @@ use lb_binary_codec::bincode::DeserializeOp as _;
 use lb_core::{
     header::HeaderId,
     mantle::{
-        GenesisTime, SignedOps, Utxo, Value,
+        GenesisTime, SignedOps, Value,
         ledger::verification_mode::StandardMode,
         ops::channel::{
             ChannelId, MsgId, deposit::DepositOp, inscribe::Inscription,
@@ -251,10 +251,6 @@ pub struct ZoneState {
     default_sequencer_alias: Option<String>,
     published_messages: HashMap<String, ZonePublishedMessage>,
     submitted_deposits: HashMap<String, (DepositOp, Value)>,
-    /// The channel notes each deposit re-created, keyed by deposit alias — so a
-    /// later channel split transfer can spend them without waiting on the
-    /// indexer.
-    deposit_channel_notes: HashMap<String, Vec<Utxo>>,
     submitted_withdraws: HashMap<String, ChannelWithdrawOp>,
     account_balances: HashMap<String, i64>,
     published_order: Vec<String>,
@@ -431,24 +427,6 @@ impl ZoneState {
 
     pub fn remember_submitted_deposit(&mut self, alias: String, deposit: DepositOp, amount: Value) {
         self.submitted_deposits.insert(alias, (deposit, amount));
-    }
-
-    pub fn remember_deposit_channel_notes(&mut self, alias: String, channel_notes: Vec<Utxo>) {
-        self.deposit_channel_notes.insert(alias, channel_notes);
-    }
-
-    pub fn resolve_deposit_channel_notes(
-        &self,
-        alias: impl AsRef<str>,
-    ) -> Result<&[Utxo], StepError> {
-        let alias = alias.as_ref();
-
-        self.deposit_channel_notes
-            .get(alias)
-            .map(Vec::as_slice)
-            .ok_or(StepError::LogicalError {
-                message: format!("Zone deposit channel notes for alias '{alias}' not found"),
-            })
     }
 
     pub fn resolve_submitted_deposit(
@@ -869,7 +847,6 @@ impl ZoneState {
         self.sequencers.clear();
         self.published_messages.clear();
         self.submitted_deposits.clear();
-        self.deposit_channel_notes.clear();
         self.submitted_withdraws.clear();
         self.account_balances.clear();
         self.published_order.clear();
@@ -980,8 +957,6 @@ pub struct ScenarioLifecycle {
 pub struct ChainParameters {
     /// Manual: List of genesis block UTXOs allocated in the genesis
     /// configuration.
-    // TODO(RFC-480): UTXO test wallet.
-    // pub genesis_block_utxos: Vec<Utxo>,
     pub genesis_block_utxos: GenesisNotes,
     /// Manual: Header id of the locally generated genesis block, when the
     /// cluster deployment carries one.
@@ -2051,11 +2026,8 @@ impl CucumberWorld {
             .unwrap_or_default();
 
         let mut wallet_keys = TrackedWalletKeysBySource::new();
-        // TODO(RFC-480): UTXO test wallet, the scanner derives nullifiers and
-        // proves with the secret key, so node funding wallets are not tracked.
-        // for (wallet_name, public_key) in wallets {
-        //     wallet_keys.add_wallet(&group_key, wallet_name, *public_key);
-        // }
+        // The scanner derives nullifiers and proves with the secret key, so
+        // node funding wallets are not tracked.
         for (wallet_name, _public_key) in wallets {
             let Some(WalletType::User { wallet_account }) = self
                 .wallet_registry
@@ -2076,7 +2048,6 @@ impl CucumberWorld {
             wallet_keys.add_wallet(
                 &group_key,
                 SCENARIO_FEE_ACCOUNT_NAME,
-                // fee_wallet_account.public_key(),
                 UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr()),
             );
         }
@@ -2704,8 +2675,6 @@ impl CucumberWorld {
                     ),
                 })??;
 
-        // TODO(RFC-480): the response also carries the recipient note.
-        // Ok(response.hash)
         Ok(response.tx_hash)
     }
 

@@ -14,8 +14,6 @@ use lb_common_http_client::{
     ApiBlock, ApiHeader, BlockInfo, ChainServiceInfo, CryptarchiaInfo, Events, PhaseTag,
     ProcessedBlockEvent, Slot, State, TimeInfo,
 };
-// TODO(RFC-480): a deposit event carries the commitments the deposit created.
-// use lb_core::{events::DepositNote, mantle::Value};
 use lb_core::{
     events::{Event as ChainEvent, TxEvent, TxEventPayload},
     header::{ContentId, HeaderId},
@@ -366,9 +364,6 @@ impl adapter::Node for MockNode {
 pub fn funding_config() -> FundingConfig {
     FundingConfig {
         funding_pk: Fr::from(1u64).into(),
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // change_pk: None,
         max_tx_fee: GasCost::new(u64::MAX),
         priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
     }
@@ -392,9 +387,6 @@ pub fn single_key_channel_state() -> ChannelState {
         tip_sequencer_starting_slot: Slot::default(),
         posting_timeframe: 0u32.into(),
         posting_timeout: 0u32.into(),
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // transfer_threshold: 1,
         note_set: None,
     }
 }
@@ -456,25 +448,6 @@ pub fn inscribe_op(channel_id: ChannelId, parent: MsgId, payload: &[u8]) -> Insc
     }
 }
 
-// TODO(RFC-480): a deposit event carries the commitments the deposit created.
-// /// A `Deposit` block event matching `op` inside `tx`, recreating `notes`.
-// pub fn deposit_event(
-//     tx: &SignedOps<Unverified, StandardMode>,
-//     op: &DepositOp,
-//     amount: Value,
-//     notes: Vec<DepositNote>,
-// ) -> Events {
-//     Events::from(ChainEvent::Tx(TxEvent::new(
-//         tx.hash(),
-//         op.op_id(),
-//         TxEventPayload::Deposit {
-//             channel_id: op.channel_id,
-//             amount,
-//             metadata: op.metadata.clone(),
-//             notes: notes.try_into().expect("bounded note count"),
-//         },
-//     )))
-// }
 /// A `Deposit` block event matching `op` inside `tx`, creating its outputs.
 pub fn deposit_event(tx: &SignedOps<Unverified, StandardMode>, op: &DepositOp) -> Events {
     Events::from(ChainEvent::Tx(TxEvent::new(

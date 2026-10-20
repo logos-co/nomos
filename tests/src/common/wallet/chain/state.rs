@@ -1,13 +1,8 @@
-// TODO(RFC-480): UTXO test wallet.
-// use std::collections::{HashMap, HashSet};
 use std::{
     collections::HashMap,
     sync::{LazyLock, Mutex, PoisonError},
 };
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::Utxo;
-// use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_core::mantle::{
     Note,
     notes::{NoteCm, NoteNf},
@@ -20,16 +15,12 @@ use thiserror::Error;
 
 use crate::common::wallet::WalletId;
 
-// TODO(RFC-480): UTXO test wallet.
-// pub type WalletUtxos = HashMap<WalletId, Vec<Utxo>>;
 pub type WalletUtxos = HashMap<WalletId, Vec<OwnedNote>>;
 
 /// Wallet keys whose chain notes should be tracked as one test wallet.
 #[derive(Debug, Clone)]
 pub struct TrackedWalletKeys {
     wallet_id: WalletId,
-    // TODO(RFC-480): UTXO test wallet.
-    // wallet_pks: HashSet<ZkPublicKey>,
     // the secret keys derive the nullifiers of the notes and prove their spending
     wallet_keys: HashMap<ZkPublicKey, UnsecuredZkKey>,
 }
@@ -38,14 +29,10 @@ impl TrackedWalletKeys {
     #[must_use]
     pub fn new(
         wallet_id: impl Into<WalletId>,
-        // TODO(RFC-480): UTXO test wallet.
-        // wallet_pks: impl IntoIterator<Item = ZkPublicKey>,
         wallet_keys: impl IntoIterator<Item = UnsecuredZkKey>,
     ) -> Self {
         Self {
             wallet_id: wallet_id.into(),
-            // TODO(RFC-480): UTXO test wallet.
-            // wallet_pks: wallet_pks.into_iter().collect(),
             wallet_keys: wallet_keys
                 .into_iter()
                 .map(|key| (key.to_public_key(), key))
@@ -59,8 +46,6 @@ impl TrackedWalletKeys {
     }
 
     pub(crate) fn wallet_pks(&self) -> impl Iterator<Item = ZkPublicKey> + '_ {
-        // TODO(RFC-480): UTXO test wallet.
-        // self.wallet_pks.iter().copied()
         self.wallet_keys.keys().copied()
     }
 

@@ -1,7 +1,5 @@
 use lb_binary_codec::canonical::{BinaryCodec, BinaryEncode as _};
 use lb_groth16::{AdditiveGroup as _, Fr, serde::serde_fr};
-// TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-// use lb_key_management_system_keys::keys::ZkSignature;
 use lb_mmr::MerklePath;
 use lb_zktransfer::{
     MAX_INPUTS, MAX_OUTPUTS, ZkTransferChainInputsData, ZkTransferInputNoteData,
@@ -59,34 +57,6 @@ impl TransferOp {
         }
     }
 
-    // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-    // #[must_use]
-    // pub fn is_empty(&self) -> bool {
-    //     self.inputs.is_empty() && self.outputs.is_empty()
-    // }
-    //
-    // pub fn utxos(&self) -> impl Iterator<Item = Utxo> {
-    //     self.outputs.utxos(self)
-    // }
-    //
-    // #[must_use]
-    // pub fn utxo_by_index(&self, index: usize) -> Option<Utxo> {
-    //     self.outputs.utxo_by_index(index, self)
-    // }
-    //
-    // pub fn balance(&self, utxos: &Utxos) -> Result<i128, TransferError> {
-    //     let mut balance: i128 = 0;
-    //     let input_amount = self.inputs.amount(utxos)?;
-    //     let output_amount = self.outputs.amount()?;
-    //     balance = balance
-    //         .checked_add(i128::from(input_amount))
-    //         .ok_or(TransferError::BalanceOverflow)?;
-    //     balance = balance
-    //         .checked_sub(i128::from(output_amount))
-    //         .ok_or(TransferError::BalanceOverflow)?;
-    //     Ok(balance)
-    // }
-
     #[cfg(any(test, feature = "test-utils"))]
     #[must_use]
     pub fn sample() -> Self {
@@ -107,15 +77,6 @@ impl OpId for TransferOp {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum TransferError {
-    // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-    // #[error("Inputs error: {0}")]
-    // Inputs(#[from] ledger::InputsError),
-    // #[error("Outputs error: {0}")]
-    // Outputs(#[from] ledger::OutputsError),
-    // #[error("Applying this transaction would cause a balance overflow")]
-    // BalanceOverflow,
-    // #[error("Invalid transfer ZkSignature")]
-    // InvalidProof,
     #[error(transparent)]
     NoteSet(#[from] NoteSetError),
     #[error(transparent)]
@@ -123,18 +84,12 @@ pub enum TransferError {
 }
 
 pub struct TransferValidationContext<'a> {
-    // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-    // pub service_notes: &'a ServiceNotes,
-    // pub channels: &'a Channels,
-    // pub utxos: &'a Utxos,
     pub note_sets: &'a NoteSets,
     pub block_number: BlockNumber,
     pub tx_hash_view: &'a TxHashView,
 }
 
 impl ProvableOperation for TransferOp {
-    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-    // type Proof = ZkSignature;
     type Proof = ZkTransferProof;
     const CODE: u8 = 0x00;
 }
@@ -153,13 +108,6 @@ impl PreverifiableOperation<StandardMode>
 
     fn preverify(&self, _context: &Self::Context<'_>) -> Result<(), Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // // Ensure the inputs is non-empty
-        // operation.inputs.preverify()?;
-        //
-        // // Validate Outputs
-        // operation.outputs.validate()?;
 
         // Ensure the inputs is non-empty
         if operation.inputs.is_empty() {
@@ -185,20 +133,6 @@ impl VerifiableOperation<StandardMode> for SignedOperation<TransferOp, Preverifi
 
     fn verify(&self, context: &Self::Context<'_>) -> Result<Self::DeferredProof, Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // // Validate Inputs
-        // operation.inputs.validate_not_in_channel(
-        //     context.service_notes,
-        //     context.channels,
-        //     context.utxos,
-        // )?;
-        //
-        // // Defer the proof verification so that the caller can batch it.
-        // let pks = operation.inputs.get_pk(context.utxos)?;
-        // let inputs = public_inputs_from_pks((*context.tx_hash_view.as_fr()).into(), &pks)
-        //     .map_err(|_| TransferError::InvalidProof)?;
-        // Ok(DeferredZkSig::new(*self.proof().as_proof(), inputs))
 
         // Validate Inputs
         let ledger = context
@@ -239,14 +173,6 @@ impl<Mode: VerificationMode> ExecutableOperation for SignedOperation<TransferOp,
         note_sets: Self::Context<'a>,
     ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // // Remove inputs from the ledger
-        // utxos = operation.inputs.execute(utxos)?;
-        //
-        // // Add outputs from the ledger
-        // utxos = operation.outputs.execute(utxos, self.operation());
-        // Ok((utxos, Vec::new()))
 
         // Spend the inputs and add the outputs to the ledger note set
         let ledger = note_sets
@@ -356,283 +282,6 @@ mod test {
         notes::derive_note_nf,
         ops::op_proof::samples::SampleProof as _,
     };
-
-    // TODO(RFC-480): UTXO transfer tests, inputs are now nullifiers and outputs
-    // commitments.
-    // #[test]
-    // fn preverify_rejects_empty_inputs() {
-    //     let pk = ZkPublicKey::from(Fr::from(BigUint::from(0u8)));
-    //     let transfer = TransferOp {
-    //         inputs: Inputs::empty(),
-    //         outputs: Outputs::new([Note::new(100, pk)]),
-    //     };
-    //     let proof = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
-    //     let signed_operation = SignedOperation::new(transfer, proof);
-    //
-    //     assert_eq!(
-    //         signed_operation.preverify(&()),
-    //         Err(TransferError::Inputs(InputsError::EmptyInputs))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn preverify_rejects_a_zero_value_output() {
-    //     let pk = ZkPublicKey::from(Fr::from(BigUint::from(0u8)));
-    //     let transfer = TransferOp {
-    //         inputs: BoundedInputs::from(NoteId(Fr::from(BigUint::from(1u8)))).into(),
-    //         outputs: Outputs::new([Note::new(0, pk)]),
-    //     };
-    //     let proof = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
-    //     let signed_operation = SignedOperation::new(transfer, proof);
-    //
-    //     assert_eq!(
-    //         signed_operation.preverify(&()),
-    //         Err(TransferError::Outputs(ledger::OutputsError::ZeroValueNote))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn utxos_and_utxo_by_index() {
-    //     let pk0 = ZkPublicKey::from(Fr::from(BigUint::from(0u8)));
-    //     let pk1 = ZkPublicKey::from(Fr::from(BigUint::from(1u8)));
-    //     let pk2 = ZkPublicKey::from(Fr::from(BigUint::from(2u8)));
-    //     let transfer = TransferOp {
-    //         inputs: BoundedInputs::from(NoteId(BigUint::from(0u8).into())).into(),
-    //         outputs: Outputs::new([
-    //             Note::new(100, pk0),
-    //             Note::new(200, pk1),
-    //             Note::new(300, pk2),
-    //         ]),
-    //     };
-    //     assert_eq!(
-    //         transfer.utxo_by_index(0),
-    //         Some(Utxo {
-    //             op_id: transfer.op_id(),
-    //             output_index: 0,
-    //             note: Note::new(100, pk0),
-    //         })
-    //     );
-    //     assert_eq!(
-    //         transfer.utxo_by_index(1),
-    //         Some(Utxo {
-    //             op_id: transfer.op_id(),
-    //             output_index: 1,
-    //             note: Note::new(200, pk1),
-    //         })
-    //     );
-    //     assert_eq!(
-    //         transfer.utxo_by_index(2),
-    //         Some(Utxo {
-    //             op_id: transfer.op_id(),
-    //             output_index: 2,
-    //             note: Note::new(300, pk2),
-    //         })
-    //     );
-    //
-    //     assert!(transfer.utxo_by_index(3).is_none());
-    // }
-    //
-    // fn input_key() -> ZkKey {
-    //     ZkKey::from(BigUint::from(1u8))
-    // }
-    //
-    // fn unrelated_key() -> ZkKey {
-    //     ZkKey::from(BigUint::from(7u8))
-    // }
-    //
-    // fn deferred_proof_signed_by(signers: &[ZkKey]) -> DeferredZkSig {
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key().to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //     let operation = TransferOp::new(
-    //         BoundedInputs::from(input_utxo.id()).into(),
-    //         Outputs::new([Note::new(
-    //             10_000,
-    //             ZkPublicKey::from(Fr::from(BigUint::from(2u8))),
-    //         )]),
-    //     );
-    //     let tx_hash_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(signers, tx_hash_view.as_fr()).expect("signing should succeed");
-    //
-    //     SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //         .into_preverified(&())
-    //         .expect("preverify should accept a well-formed transfer")
-    //         .verify(&TransferValidationContext {
-    //             service_notes: &ServiceNotes::new(),
-    //             channels: &Channels::new(),
-    //             utxos: &utxos,
-    //             tx_hash_view: &tx_hash_view,
-    //         })
-    //         .expect("verify leaves the proof to the batch")
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M3): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn deferred_proof_is_accepted() {
-    //     assert!(batch_verify(deferred_proof_signed_by(&[input_key()])).is_ok());
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M3): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn wrong_deferred_proof_is_rejected() {
-    //     assert!(matches!(
-    //         batch_verify(deferred_proof_signed_by(&[unrelated_key()])),
-    //         Err(BatchError::InvalidZkSignatures)
-    //     ));
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M3): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn verify_rejects_an_input_missing_from_the_ledger() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //
-    //     let operation = TransferOp::new(
-    //         BoundedInputs::from(input_utxo.id()).into(),
-    //         Outputs::new([Note::new(
-    //             10_000,
-    //             ZkPublicKey::from(Fr::from(BigUint::from(2u8))),
-    //         )]),
-    //     );
-    //
-    //     let tx_hash_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(&[input_key], tx_hash_view.as_fr()).expect("signing should succeed");
-    //
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //             .into_preverified(&())
-    //             .expect("preverify should accept a well-formed transfer");
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .verify(&TransferValidationContext {
-    //                 service_notes: &ServiceNotes::new(),
-    //                 channels: &Channels::new(),
-    //                 utxos: &Utxos::new(),
-    //                 tx_hash_view: &tx_hash_view,
-    //             })
-    //             .unwrap_err(),
-    //         TransferError::Inputs(InputsError::InexistingNote(input_utxo.id()))
-    //     );
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M3): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn verify_rejects_an_input_owned_by_a_channel() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //
-    //     let operation = TransferOp::new(
-    //         BoundedInputs::from(input_utxo.id()).into(),
-    //         Outputs::new([Note::new(
-    //             10_000,
-    //             ZkPublicKey::from(Fr::from(BigUint::from(2u8))),
-    //         )]),
-    //     );
-    //
-    //     let tx_hash_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(&[input_key], tx_hash_view.as_fr()).expect("signing should succeed");
-    //
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //             .into_preverified(&())
-    //             .expect("preverify should accept a well-formed transfer");
-    //
-    //     let channels = Channels::new()
-    //         .register_channel_note(&input_utxo.id(), &ChannelId::from([21u8; 32]))
-    //         .expect("the note is not owned by another channel");
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .verify(&TransferValidationContext {
-    //                 service_notes: &ServiceNotes::new(),
-    //                 channels: &channels,
-    //                 utxos: &utxos,
-    //                 tx_hash_view: &tx_hash_view,
-    //             })
-    //             .unwrap_err(),
-    //         TransferError::Inputs(InputsError::ChannelNote(input_utxo.id()))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn execute_rejects_an_input_missing_from_the_ledger() {
-    //     let missing_note = NoteId(Fr::from(BigUint::from(3u8)));
-    //     let operation = TransferOp::new(
-    //         BoundedInputs::from(missing_note).into(),
-    //         Outputs::new([Note::new(
-    //             10_000,
-    //             ZkPublicKey::from(Fr::from(BigUint::from(2u8))),
-    //         )]),
-    //     );
-    //
-    //     let signed_operation: SignedOperation<_, _, StandardMode> = SignedOperation::new(
-    //         operation,
-    //         <TransferOp as ProvableOperation>::Proof::sample(),
-    //     )
-    //     .into_state_trusted();
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .execute(Utxos::new())
-    //             .map(|_| ())
-    //             .map_err(|(_, error)| error),
-    //         Err(TransferError::Inputs(InputsError::InexistingNote(
-    //             missing_note
-    //         )))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn execute_removes_the_inputs_and_adds_the_outputs() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //
-    //     let operation = TransferOp::new(
-    //         BoundedInputs::from(input_utxo.id()).into(),
-    //         Outputs::new([Note::new(
-    //             10_000,
-    //             ZkPublicKey::from(Fr::from(BigUint::from(2u8))),
-    //         )]),
-    //     );
-    //     let output_utxo = operation
-    //         .utxo_by_index(0)
-    //         .expect("the operation declares one output");
-    //
-    //     let signed_operation: SignedOperation<_, _, StandardMode> = SignedOperation::new(
-    //         operation,
-    //         <TransferOp as ProvableOperation>::Proof::sample(),
-    //     )
-    //     .into_state_trusted();
-    //
-    //     let (utxos, events) = signed_operation
-    //         .execute(utxos)
-    //         .expect("the input is in the ledger");
-    //
-    //     assert!(!utxos.contains(&input_utxo.id()));
-    //     assert_eq!(utxos.get(&output_utxo.id()), Some(output_utxo));
-    //     assert_eq!(events, []);
-    // }
 
     #[test]
     fn transfer_op_execution_gas_does_not_scale_with_the_threshold() {

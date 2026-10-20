@@ -66,9 +66,6 @@ mod actor;
 mod backfill;
 mod block_fetch;
 mod block_states;
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// mod channel_wallet;
 mod client;
 mod handle;
 mod slot_clock;
@@ -99,12 +96,6 @@ pub use lb_key_management_system_service::keys::{Ed25519Key, UnverifiedEd25519Pu
 // Pure key-only signing primitive for prepared multi-sig artifacts — usable by
 // an offline key holder with no sequencer or chain state.
 pub use tx_builder::sign_prepared;
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// pub use types::{
-//     AtomicWithdrawInfo, ChannelNote, ChannelTransferInfo, ChannelWalletView,
-//     PreparedAtomicBundle, WithdrawArg, WithdrawInfo, WithdrawInputs,
-// };
 pub use types::{
     ChannelUpdate, ChannelUpdateTx, DepositInfo, Error, Event, FinalizedOp, FinalizedTx,
     FundingConfig, InscriptionId, InscriptionInfo, PendingFunding, PendingTx,

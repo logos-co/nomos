@@ -1,6 +1,3 @@
-// TODO(RFC-480): the zone bridge is suspended. Dropped imports: BundleAnnounce,
-// MultiSigBus, initialize_zone_indexer, start_deposit_lifecycle_policy,
-// start_deposit_withdraw_policy, start_multisig_lifecycle_policy.
 use super::{
     CommonHttpClient, CucumberWorld, DiscardedPayloads, DriveMode, Elapsed, FundingConfig, GasCost,
     NodeHttpClient, PolicyRuntime, SEQUENCER_READY_HEIGHT_ADVANCE_TIMEOUT,
@@ -40,9 +37,6 @@ fn sequencer_funding(
     let funding_pk = world.funding_wallet(node_name)?.public_key()?;
     Ok(FundingConfig {
         funding_pk,
-        // TODO(RFC-480): the zone bridge is suspended, change_pk only paid an
-        // atomic withdraw's change.
-        // change_pk: None,
         max_tx_fee: GasCost::new(u64::MAX),
         priority_fee_percent: ZONE_TEST_PRIORITY_FEE_PERCENT,
     })
@@ -61,86 +55,6 @@ pub(in super::super) async fn start_named_sequencer_with_pending_submit_depth(
 
     start_named_sequencer_with_config(world, step, sequencer_alias, checkpoint, mode, config).await
 }
-
-// TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
-// bundles) is suspended.
-/*
-/// Start `sequencer_alias` with the deposit-lifecycle policy and an indexer.
-pub(in super::super) async fn start_deposit_reaction_sequencer(
-    world: &mut CucumberWorld,
-    step: &Step,
-    sequencer_alias: &str,
-    withdraw_outputs: Vec<u64>,
-) -> StepResult {
-    let recipient = log_step_error(step, sequencer_funding(world, sequencer_alias))?.funding_pk;
-    start_named_sequencer(
-        world,
-        step,
-        sequencer_alias,
-        None,
-        DriveMode::DepositReaction {
-            withdraw_outputs,
-            recipient,
-        },
-    )
-    .await?;
-    initialize_zone_indexer(world, step, sequencer_alias)
-}
-
-/// Start `sequencer_alias` with the deposit-withdraw policy and an indexer.
-pub(in super::super) async fn start_deposit_withdraw_sequencer(
-    world: &mut CucumberWorld,
-    step: &Step,
-    sequencer_alias: &str,
-    target_amount: u64,
-    withdraw_outputs: Vec<u64>,
-) -> StepResult {
-    let recipient = log_step_error(step, sequencer_funding(world, sequencer_alias))?.funding_pk;
-    start_named_sequencer(
-        world,
-        step,
-        sequencer_alias,
-        None,
-        DriveMode::DepositWithdraw {
-            target_amount,
-            withdraw_outputs,
-            recipient,
-        },
-    )
-    .await?;
-    initialize_zone_indexer(world, step, sequencer_alias)
-}
-
-/// Start `sequencer_alias` running the reactive multi-sig deposit lifecycle
-/// policy, sharing the signature `bus` with its peers, plus an indexer.
-pub(in super::super) async fn start_multisig_lifecycle_sequencer(
-    world: &mut CucumberWorld,
-    step: &Step,
-    sequencer_alias: &str,
-    withdraw_outputs: Vec<u64>,
-    bus: MultiSigBus,
-    announce: BundleAnnounce,
-) -> StepResult {
-    let recipient = log_step_error(step, sequencer_funding(world, sequencer_alias))?.funding_pk;
-    let signing_key =
-        log_step_error(step, world.zone.sequencer_signing_key(sequencer_alias))?.clone();
-    start_named_sequencer(
-        world,
-        step,
-        sequencer_alias,
-        None,
-        DriveMode::MultiSigLifecycle {
-            withdraw_outputs,
-            recipient,
-            bus,
-            announce,
-            signing_key: Box::new(signing_key),
-        },
-    )
-    .await?;
-    initialize_zone_indexer(world, step, sequencer_alias)
-}
-*/
 
 async fn start_named_sequencer_with_config(
     world: &mut CucumberWorld,
@@ -281,39 +195,6 @@ fn start_sequencer_runtime(
         ),
         DriveMode::CustomRepublish { deps } => {
             from_policy_runtime(start_custom_republish_policy(sequencer, *deps), None)
-        } // TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
-          // bundles) is suspended.
-          // DriveMode::DepositReaction {
-          //     withdraw_outputs,
-          //     recipient,
-          // } => from_policy_runtime(
-          //     start_deposit_lifecycle_policy(sequencer, withdraw_outputs, recipient),
-          //     None,
-          // ),
-          // DriveMode::DepositWithdraw {
-          //     target_amount,
-          //     withdraw_outputs,
-          //     recipient,
-          // } => from_policy_runtime(
-          //     start_deposit_withdraw_policy(sequencer, target_amount, withdraw_outputs, recipient),
-          //     None,
-          // ),
-          // DriveMode::MultiSigLifecycle {
-          //     withdraw_outputs,
-          //     recipient,
-          //     bus,
-          //     announce,
-          //     signing_key,
-          // } => from_policy_runtime(
-          //     start_multisig_lifecycle_policy(
-          //         sequencer,
-          //         withdraw_outputs,
-          //         recipient,
-          //         bus,
-          //         announce,
-          //         *signing_key,
-          //     ),
-          //     None,
-          // ),
+        }
     }
 }

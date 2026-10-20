@@ -1,21 +1,3 @@
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the ZkSignature scheme
-// are removed.
-// use lb_core::{
-//     header::HeaderId,
-//     mantle::{
-//         Note, SignedOps, Value,
-//         gas::GasCost,
-//         ledger::verification_mode::StandardMode,
-//         ops::leader_claim::{RewardsRoot, VoucherCm},
-//         transactions::{
-//             MantleTxBuilder, TxBuilderError, hash::TxHash, states::Preverified,
-//             tx_list::ops::OpsContext,
-//         },
-//     },
-// };
-// use lb_key_management_system_service::keys::{
-//     Ed25519Key, ZkPublicKey, ZkPublicKeys, ZkSignature, secured_key::SecuredKey,
-// };
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -41,11 +23,6 @@ use overwatch::{
 };
 use tokio::sync::oneshot::{self, error::RecvError};
 
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-// use crate::{
-//     ClaimableVouchersInfo, LeaderAgedNotesInfo, TipResponse, UtxoWithKeyId, WalletMsg,
-//     WalletServiceError, WalletServiceSettings,
-// };
 use crate::{
     AgedNote, LeaderAgedNotesInfo, TipResponse, WalletMsg, WalletServiceError,
     WalletServiceSettings,
@@ -176,33 +153,6 @@ where
         Ok(rx.await??)
     }
 
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    /*
-    pub async fn build_leader_claim_tx(
-        &self,
-        tip: HeaderId,
-        rewards_root: RewardsRoot,
-        reward_amount: Value,
-        funding_pk: ZkPublicKey,
-        max_tx_fee: GasCost,
-    ) -> Result<TipResponse<SignedOps<Preverified, StandardMode>>, WalletApiError> {
-        let (resp_tx, rx) = oneshot::channel();
-
-        self.relay
-            .send(WalletMsg::BuildLeaderClaimTx {
-                tip,
-                rewards_root,
-                reward_amount,
-                funding_pk,
-                max_tx_fee,
-                resp_tx,
-            })
-            .await?;
-
-        Ok(rx.await??)
-    }
-    */
-
     /// The built Operations and the proof of their funding Transfer, `None`
     /// when the builder does not fund them.
     pub async fn prove_funding(
@@ -302,26 +252,6 @@ where
         Ok(rx.await??)
     }
 
-    // TODO(RFC-480): the created recipient note is returned so the sender can
-    // hand it over.
-    /*
-    pub async fn transfer_funds(
-        &self,
-        tip: Option<HeaderId>,
-        change_pk: ZkPublicKey,
-        funding_pks: Vec<ZkPublicKey>,
-        recipient_pk: ZkPublicKey,
-        amount: Value,
-    ) -> Result<TipResponse<SignedOps<Preverified, StandardMode>>, WalletApiError> {
-        let mantle_tx_builder =
-            MantleTxBuilder::new().add_ledger_output(Note::new(amount, recipient_pk))?;
-        let funded_tx_builder = self
-            .fund_tx(tip, mantle_tx_builder, change_pk, funding_pks, 0)
-            .await?;
-        self.sign_tx(tip, funded_tx_builder.response).await
-    }
-    */
-
     /// The signed transfer of `amount` to `recipient_pk`, and the note it
     /// creates for the sender to hand over.
     pub async fn transfer_funds(
@@ -385,28 +315,6 @@ where
         Ok(rx.await??)
     }
 
-    // TODO(RFC-480): the ZkSignature scheme is removed.
-    /*
-    pub async fn sign_tx_with_zk(
-        &self,
-        tx_hash: TxHash,
-        pks: impl IntoIterator<Item = ZkPublicKey>,
-    ) -> Result<ZkSignature, WalletApiError> {
-        let pks = ZkPublicKeys::try_from_iter(pks)?;
-        let (resp_tx, rx) = oneshot::channel();
-
-        self.relay
-            .send(WalletMsg::SignTxWithZk {
-                tx_hash,
-                pks,
-                resp_tx,
-            })
-            .await?;
-
-        Ok(rx.await??)
-    }
-    */
-
     pub async fn get_leader_aged_notes(
         &self,
         tip: Option<HeaderId>,
@@ -438,28 +346,6 @@ where
 
         Ok(rx.await??)
     }
-
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    /*
-    pub async fn generate_new_voucher(&self) -> Result<VoucherCm, WalletApiError> {
-        let (resp_tx, rx) = oneshot::channel();
-        self.relay
-            .send(WalletMsg::GenerateNewVoucherSecret { resp_tx })
-            .await?;
-        Ok(rx.await??)
-    }
-
-    pub async fn get_claimable_vouchers(
-        &self,
-        tip: Option<HeaderId>,
-    ) -> Result<TipResponse<ClaimableVouchersInfo>, WalletApiError> {
-        let (resp_tx, rx) = oneshot::channel();
-        self.relay
-            .send(WalletMsg::GetClaimableVouchers { tip, resp_tx })
-            .await?;
-        Ok(rx.await??)
-    }
-    */
 }
 
 #[cfg(test)]
@@ -515,16 +401,6 @@ mod tests {
             while let Some(msg) = msg_receiver.recv().await {
                 if let WalletMsg::GetTxContext { block_id, resp_tx } = msg {
                     assert_eq!(block_id, Some(expected_block_id));
-                    // TODO(RFC-480): transfer_threshold is removed and the leader reward is a
-                    // note of the block.
-                    // let context = OpsContext {
-                    //     gas_context: OpsGasContext::new(
-                    //         std::iter::once((expected_channel_id, expected_threshold)).collect(),
-                    //         std::collections::HashMap::new(),
-                    //         expected_gas_prices,
-                    //     ),
-                    //     leader_reward_amount: 0,
-                    // };
                     let context = OpsContext {
                         gas_context: OpsGasContext::new(
                             std::iter::once((expected_channel_id, expected_threshold)).collect(),
@@ -544,19 +420,6 @@ mod tests {
             .await
             .expect("gas context should round-trip through the wallet API");
 
-        // TODO(RFC-480): transfer_threshold is removed and the leader reward is a
-        // note of the block.
-        // assert_eq!(
-        //     context.gas_context.transfer_threshold(&expected_channel_id),
-        //     Some(expected_threshold)
-        // );
-        // assert_eq!(
-        //     context
-        //         .gas_context
-        //         .transfer_threshold(&ChannelId::from([1u8; 32])),
-        //     None
-        // );
-        // assert_eq!(context.leader_reward_amount, 0);
         assert_eq!(
             context
                 .gas_context

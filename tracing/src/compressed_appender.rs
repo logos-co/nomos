@@ -138,8 +138,7 @@ impl Write for CompressedRollingAppender {
 }
 
 fn compress_file_gzip(path: &Path) -> io::Result<()> {
-    // TODO(RFC-480): replaced by a no follow open so a planted symlink is not read.
-    // let input = fs::File::open(path)?;
+    // Open without following symlinks so a planted symlink is not read.
     let mut input_options = fs::OpenOptions::new();
     input_options.read(true);
     #[cfg(unix)]
@@ -156,9 +155,7 @@ fn compress_file_gzip(path: &Path) -> io::Result<()> {
     let ext = path.extension().unwrap_or_default().to_string_lossy();
     new_name.set_extension(format!("{ext}.gz"));
 
-    // TODO(RFC-480): replaced by `create_new` so an existing file or symlink is
-    // never truncated.
-    // let output = fs::File::create(new_name)?;
+    // `create_new` so an existing file or symlink is never truncated.
     let output = fs::OpenOptions::new()
         .write(true)
         .create_new(true)

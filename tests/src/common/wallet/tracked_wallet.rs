@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::{NoteId, Utxo};
 use lb_core::mantle::notes::NoteNf;
 use lb_wallet::OwnedNote;
 use serde::{Deserialize, Serialize};
@@ -96,8 +94,6 @@ impl WalletStateView {
 }
 
 fn available_utxos(on_chain_utxos: &[OwnedNote], reserved_utxos: &[OwnedNote]) -> Vec<OwnedNote> {
-    // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-    // let reserved_note_ids = reserved_utxos.iter().map(Utxo::id).collect::<HashSet<_>>();
     let reserved_note_ids = reserved_utxos
         .iter()
         .map(|utxo| utxo.nullifier)
@@ -207,8 +203,6 @@ impl TrackedWallet {
                 .map(|utxo| (utxo.nullifier, utxo))
                 .collect(),
             pending_state: PendingWalletState {
-                // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-                // reserved_note_ids: state.reserved_utxos.iter().map(Utxo::id).collect(),
                 reserved_note_ids: state
                     .reserved_utxos
                     .iter()
@@ -294,14 +288,6 @@ mod tests {
 
     use super::*;
 
-    // TODO(RFC-480): UTXO test wallet.
-    // fn utxo(value: u64, output_index: usize) -> Utxo {
-    //     Utxo::new(
-    //         [output_index as u8; 32],
-    //         output_index,
-    //         lb_core::mantle::Note::new(value, ZkPublicKey::zero()),
-    //     )
-    // }
     fn utxo(value: u64, output_index: u64) -> OwnedNote {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::zero()),

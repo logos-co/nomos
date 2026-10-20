@@ -1,8 +1,3 @@
-// TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
-// use lb_core::{
-//     header::HeaderId,
-//     mantle::{gas::GasCost, ops::channel::deposit::DepositOp, transactions::hash::TxHash},
-// };
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -18,9 +13,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct ChannelDepositRequestBody {
     pub tip: Option<HeaderId>,
-    // TODO(RFC-480): a client cannot name nullifiers; the node builds the
-    // deposit.
-    // pub deposit: DepositOp,
     pub channel_id: ChannelId,
     pub amount: Value,
     /// The key the deposited note is paid to in the channel.

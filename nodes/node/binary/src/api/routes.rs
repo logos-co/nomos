@@ -49,8 +49,6 @@ macro_rules! api_routes {
             post lb_http_api_common::paths::SDP_POST_SET_DECLARATION_ID => crate::api::handlers::post_set_declaration_id, post_set_declaration_id::<SdpMempool, SdpWallet, Cryptarchia<RuntimeServiceId>, SdpStateStorage, RuntimeServiceId>;
             get lb_http_api_common::paths::MANTLE_SDP_DECLARATIONS => crate::api::handlers::get_sdp_declarations, get_sdp_declarations::<RuntimeServiceId>;
             get lb_http_api_common::paths::MANTLE_SDP_SNAPSHOT => crate::api::handlers::get_sdp_snapshot, get_sdp_snapshot::<RuntimeServiceId>;
-            // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the block.
-            // post lb_http_api_common::paths::LEADER_CLAIM => crate::api::handlers::leader_claim, leader_claim::<ChainLeader, RuntimeServiceId>;
             put lb_http_api_common::paths::POW_START_MINING => crate::api::handlers::pow_start_mining, pow_start_mining::<PoWService, RuntimeServiceId>;
             put lb_http_api_common::paths::POW_STOP_MINING => crate::api::handlers::pow_stop_mining, pow_stop_mining::<PoWService, RuntimeServiceId>;
             put lb_http_api_common::paths::POW_START_AUTO_CLAIM => crate::api::handlers::pow_start_auto_claim, pow_start_auto_claim::<PoWService, RuntimeServiceId>;
@@ -58,15 +56,11 @@ macro_rules! api_routes {
             post lb_http_api_common::paths::POW_CLAIM => crate::api::handlers::pow_claim, pow_claim::<PoWService, RuntimeServiceId>;
             get lb_http_api_common::paths::POW_CLAIMABLE_REWARDS => crate::api::handlers::pow_claimable_rewards, pow_claimable_rewards::<PoWService, RuntimeServiceId>;
             get lb_http_api_common::paths::POW_STATUS => crate::api::handlers::pow_status, pow_status::<PoWService, RuntimeServiceId>;
-            // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the block.
-            // get lb_http_api_common::paths::LEADER_CLAIM_VOUCHERS => crate::api::handlers::wallet::get_claimable_vouchers, wallet::get_claimable_vouchers::<WalletService, _>;
             get lb_http_api_common::paths::LEADER_AGED_NOTES => crate::api::handlers::wallet::get_leader_aged_notes, wallet::get_leader_aged_notes::<WalletService, _>;
             get lb_http_api_common::paths::wallet::BALANCE => crate::api::handlers::wallet::get_balance, wallet::get_balance::<WalletService, _>;
             get lb_http_api_common::paths::MANTLE_GAS_PRICES => crate::api::handlers::get_gas_prices, get_gas_prices::<RuntimeServiceId>;
             post lb_http_api_common::paths::wallet::TRANSACTIONS_TRANSFER_FUNDS => crate::api::handlers::wallet::post_transactions_transfer_funds, wallet::post_transactions_transfer_funds::<WalletService, MempoolStorageAdapter, _>;
             post lb_http_api_common::paths::wallet::SIGN_TX_ED25519 => crate::api::handlers::wallet::sign_tx_ed25519, wallet::sign_tx_ed25519::<WalletService, MempoolStorageAdapter, _>;
-            // TODO(RFC-480): the ZkSignature scheme is removed.
-            // post lb_http_api_common::paths::wallet::SIGN_TX_ZK => crate::api::handlers::wallet::sign_tx_zk, wallet::sign_tx_zk::<WalletService, MempoolStorageAdapter, _>;
             post lb_http_api_common::paths::wallet::FUND => crate::api::handlers::wallet::fund, wallet::fund::<WalletService, MempoolStorageAdapter, _>;
             post lb_http_api_common::paths::wallet::IMPORT_NOTE => crate::api::handlers::wallet::import_note, wallet::import_note::<WalletService, _>;
             put lb_http_api_common::paths::admin::TRACING_FILTER => crate::api::tracing::reload_tracing_filter, reload_tracing_filter::<RuntimeServiceId>;

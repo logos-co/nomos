@@ -1,10 +1,5 @@
-// TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-// LEADER_CLAIM is retired.
-// use lb_poc::{PoCProof, PoCVerifierInput};
 use lb_groth16::{CompressedGroth16Proof, Fr};
 use lb_program_spend::{ZkProgramSpendProof, ZkProgramSpendVerifierInput};
-// TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-// use lb_zksign::{ZkSignProof, ZkSignVerifierInputs};
 use lb_zktransfer::{ZkTransferProof, ZkTransferVerifierInput};
 
 use crate::mantle::programs::{PROGRAM_PUBLIC_INPUTS, RegisteredProgram};
@@ -41,11 +36,6 @@ impl<Proof, Inputs> DeferredProof<Proof, Inputs> {
     }
 }
 
-// TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-// pub type DeferredZkSig = DeferredProof<ZkSignProof, ZkSignVerifierInputs>;
-// TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-// LEADER_CLAIM is retired.
-// pub type DeferredLeaderClaim = DeferredProof<PoCProof, PoCVerifierInput>;
 pub type DeferredZkTransfer = DeferredProof<ZkTransferProof, ZkTransferVerifierInput>;
 pub type DeferredZkProgramSpend = DeferredProof<ZkProgramSpendProof, ZkProgramSpendVerifierInput>;
 pub type DeferredProgramProof = DeferredProof<CompressedGroth16Proof, ProgramProofInput>;
@@ -55,15 +45,6 @@ pub struct ProgramProofInput {
     pub program: RegisteredProgram,
     pub public: [Fr; PROGRAM_PUBLIC_INPUTS],
 }
-
-// TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-/*
-impl DeferrableProof for DeferredZkSig {
-    fn defer_into(self, batch: &mut DeferredProofs) {
-        batch.zk_sigs.push(self);
-    }
-}
-*/
 
 impl DeferrableProof for DeferredZkTransfer {
     fn defer_into(self, batch: &mut DeferredProofs) {
@@ -100,34 +81,10 @@ impl DeferrableProof for InscriptionDeferredProofs {
     }
 }
 
-// TODO(RFC-481): the inscription defers InscriptionDeferredProofs.
-/*
-impl DeferrableProof for Vec<DeferredZkTransfer> {
-    fn defer_into(self, batch: &mut DeferredProofs) {
-        batch.zk_transfers.extend(self);
-    }
-}
-*/
-
-// TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-// LEADER_CLAIM is retired.
-/*
-impl DeferrableProof for DeferredLeaderClaim {
-    fn defer_into(self, batch: &mut DeferredProofs) {
-        batch.leader_claims.push(self);
-    }
-}
-*/
-
 /// A group of deferred proof verifications while applying a block
 #[derive(Default)]
 #[must_use]
 pub struct DeferredProofs {
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    // zk_sigs: Vec<DeferredZkSig>,
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    // leader_claims: Vec<DeferredLeaderClaim>,
     zk_transfers: Vec<DeferredZkTransfer>,
     program_spends: Vec<DeferredZkProgramSpend>,
     program_proofs: Vec<DeferredProgramProof>,
@@ -139,46 +96,16 @@ impl DeferredProofs {
     }
 
     pub fn extend(&mut self, other: Self) {
-        // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-        // self.zk_sigs.extend(other.zk_sigs);
-        // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-        // LEADER_CLAIM is retired.
-        // self.leader_claims.extend(other.leader_claims);
         self.zk_transfers.extend(other.zk_transfers);
         self.program_spends.extend(other.program_spends);
         self.program_proofs.extend(other.program_proofs);
     }
 
     pub fn verify(self) -> Result<(), Error> {
-        // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-        // LEADER_CLAIM is retired.
-        // Self::verify_zk_sigs(self.zk_sigs)?;
-        // Self::verify_leader_claims(self.leader_claims)
-        // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-        // Self::verify_zk_sigs(self.zk_sigs)?;
         Self::verify_zk_transfers(self.zk_transfers)?;
         Self::verify_program_spends(self.program_spends)?;
         Self::verify_program_proofs(self.program_proofs)
     }
-
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    /*
-    fn verify_zk_sigs(proofs: Vec<DeferredZkSig>) -> Result<(), Error> {
-        if proofs.is_empty() {
-            return Ok(());
-        }
-
-        let proof_parts = proofs
-            .into_iter()
-            .map(DeferredZkSig::into_parts)
-            .collect::<Vec<_>>();
-        match lb_zksign::batch_verify(proof_parts.as_slice()) {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(Error::InvalidZkSignatures),
-            Err(e) => Err(Error::MalformedZkSignature(format!("{e:?}"))),
-        }
-    }
-    */
 
     fn verify_zk_transfers(proofs: Vec<DeferredZkTransfer>) -> Result<(), Error> {
         if proofs.is_empty() {
@@ -225,45 +152,6 @@ impl DeferredProofs {
         Ok(())
     }
 
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    /*
-    fn verify_leader_claims(proofs: Vec<DeferredLeaderClaim>) -> Result<(), Error> {
-        if proofs.is_empty() {
-            return Ok(());
-        }
-
-        let proof_parts = proofs
-            .into_iter()
-            .map(DeferredLeaderClaim::into_parts)
-            .collect::<Vec<_>>();
-        match lb_poc::batch_verify(proof_parts.as_slice()) {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(Error::InvalidLeaderClaimProofs),
-            Err(e) => Err(Error::MalformedLeaderClaimProof(format!("{e:?}"))),
-        }
-    }
-    */
-
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    /*
-    #[cfg(any(test, feature = "unsafe-test-functions"))]
-    #[must_use]
-    pub fn zk_sigs(&self) -> &[DeferredZkSig] {
-        &self.zk_sigs
-    }
-    */
-
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    /*
-    #[cfg(any(test, feature = "unsafe-test-functions"))]
-    #[must_use]
-    pub fn leader_claims(&self) -> &[DeferredLeaderClaim] {
-        &self.leader_claims
-    }
-    */
-
     #[cfg(any(test, feature = "unsafe-test-functions"))]
     #[must_use]
     pub fn zk_transfers(&self) -> &[DeferredZkTransfer] {
@@ -295,17 +183,6 @@ impl<Proof: DeferrableProof> FromIterator<Proof> for DeferredProofs {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    // #[error("deferred ZkSignatures are invalid")]
-    // InvalidZkSignatures,
-    // #[error("deferred ZkSignature is malformed: {0}")]
-    // MalformedZkSignature(String),
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    // #[error("deferred leader claim proofs are invalid")]
-    // InvalidLeaderClaimProofs,
-    // #[error("deferred leader claim proof is malformed: {0}")]
-    // MalformedLeaderClaimProof(String),
     #[error("deferred ZkTransfer proofs are invalid")]
     InvalidZkTransfers,
     #[error("deferred ZkTransfer proof is malformed: {0}")]
@@ -336,55 +213,13 @@ mod tests {
         test_utils::{three_input_prove, three_input_setup},
     };
 
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    // use lb_key_management_system_keys::keys::{ZkKey, public_inputs_from_pks};
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    // use lb_mmr::MerkleMountainRange;
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    // use num_bigint::BigUint;
     use super::*;
     use crate::mantle::programs::ProgramVerificationKey;
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    /*
-    use crate::{
-        crypto::ZkHasher,
-        mantle::ops::leader_claim::{RewardsRoot, VoucherCm, VoucherNullifier, VoucherSecret},
-        proofs::leader_claim_proof::{
-            Groth16LeaderClaimProof, LeaderClaimPrivate, LeaderClaimPublic,
-        },
-    };
-    */
 
     #[test]
     fn verify_accepts_empty_batch() {
         DeferredProofs::new().verify().expect("must succeed");
     }
-
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    /*
-    #[test]
-    #[ignore = "TODO(RFC-480 M5): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    fn verify_accepts_batch_of_valid_zk_signatures() {
-        [valid_zk_sig(7), valid_zk_sig(8), valid_zk_sig(9)]
-            .into_iter()
-            .collect::<DeferredProofs>()
-            .verify()
-            .expect("must succeed");
-    }
-
-    #[test]
-    #[ignore = "TODO(RFC-480 M5): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    fn verify_rejects_batch_containing_invalid_zk_signature() {
-        let err = [valid_zk_sig(7), invalid_zk_sig(8), valid_zk_sig(9)]
-            .into_iter()
-            .collect::<DeferredProofs>()
-            .verify()
-            .unwrap_err();
-        assert!(matches!(err, Error::InvalidZkSignatures));
-    }
-    */
 
     #[test]
     fn verify_accepts_batch_of_valid_zk_transfers() {
@@ -445,62 +280,6 @@ mod tests {
         ));
     }
 
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    /*
-    #[test]
-    fn verify_accepts_batch_of_valid_leader_claims() {
-        [valid_leader_claim(7), valid_leader_claim(8)]
-            .into_iter()
-            .collect::<DeferredProofs>()
-            .verify()
-            .expect("must succeed");
-    }
-
-    #[test]
-    fn verify_rejects_batch_containing_invalid_leader_claim() {
-        let err = [valid_leader_claim(7), invalid_leader_claim(8)]
-            .into_iter()
-            .collect::<DeferredProofs>()
-            .verify()
-            .unwrap_err();
-        assert!(matches!(err, Error::InvalidLeaderClaimProofs));
-    }
-
-    #[test]
-    fn verify_rejects_invalid_leader_claim_alongside_valid_zk_signature() {
-        let mut batch = DeferredProofs::new();
-        valid_zk_sig(7).defer_into(&mut batch);
-        invalid_leader_claim(8).defer_into(&mut batch);
-
-        let err = batch.verify().unwrap_err();
-        assert!(matches!(err, Error::InvalidLeaderClaimProofs));
-    }
-    */
-
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    /*
-    fn valid_zk_sig(message: u64) -> DeferredZkSig {
-        zk_sig(message, message)
-    }
-
-    fn invalid_zk_sig(message: u64) -> DeferredZkSig {
-        zk_sig(message + 1, message)
-    }
-
-    /// Signs `msg`, but pairs the proof with the public inputs the
-    /// verifier checks it against: those of `msg_for_input`.
-    /// If `msg != msg_for_input`, an invalid proof will be produced.
-    fn zk_sig(msg: u64, msg_for_input: u64) -> DeferredZkSig {
-        let key = ZkKey::from(BigUint::from(1u8));
-        let signature = ZkKey::multi_sign(std::slice::from_ref(&key), &Fr::from(msg)).unwrap();
-        let inputs =
-            public_inputs_from_pks(Fr::from(msg_for_input).into(), &[key.to_public_key()]).unwrap();
-
-        DeferredZkSig::new(*signature.as_proof(), inputs)
-    }
-    */
-
     fn zk_transfer(msg: Fr) -> DeferredZkTransfer {
         let mut data = lb_zktransfer::test_utils::sample_witness_data();
         data.chain.msg = msg;
@@ -537,52 +316,4 @@ mod tests {
             CompressedGroth16Proof::try_from(&three_input_prove(&proving_key, public, 4)).unwrap();
         DeferredProgramProof::new(proof, ProgramProofInput { program, public })
     }
-
-    // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-    // LEADER_CLAIM is retired.
-    /*
-    fn valid_leader_claim(voucher: u64) -> DeferredLeaderClaim {
-        leader_claim(voucher, voucher)
-    }
-
-    fn invalid_leader_claim(voucher: u64) -> DeferredLeaderClaim {
-        leader_claim(voucher + 1, voucher)
-    }
-
-    /// Proves a claim over the voucher of `secret`, but pairs the proof
-    /// with the nullifier the verifier checks it against: that of
-    /// `secret_for_input`.
-    /// If `secret != secret_for_input`, an invalid proof will be produced.
-    fn leader_claim(secret: u64, secret_for_input: u64) -> DeferredLeaderClaim {
-        let voucher_secret = VoucherSecret::from(Fr::from(secret));
-        let (mmr, voucher_path) = MerkleMountainRange::<VoucherCm, ZkHasher>::new()
-            .push_with_paths(VoucherCm::from_secret(voucher_secret), &mut [])
-            .expect("MMR shouldn't be full");
-        let voucher_root = RewardsRoot::from(mmr.frontier_root());
-        let tx_hash = Fr::from(11u64);
-        let proof = Groth16LeaderClaimProof::prove(
-            LeaderClaimPrivate::try_new(
-                LeaderClaimPublic::new(
-                    VoucherNullifier::from_secret(voucher_secret).into(),
-                    voucher_root.into(),
-                    tx_hash,
-                ),
-                &voucher_path,
-                voucher_secret,
-            )
-            .expect("voucher path should match the PoC circuit height"),
-        )
-        .expect("proof generation should succeed");
-
-        DeferredLeaderClaim::new(
-            *proof.proof(),
-            PoCVerifierInput::new(
-                VoucherNullifier::from_secret(VoucherSecret::from(Fr::from(secret_for_input)))
-                    .into(),
-                voucher_root.into(),
-                tx_hash,
-            ),
-        )
-    }
-    */
 }

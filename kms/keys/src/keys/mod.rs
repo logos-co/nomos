@@ -15,17 +15,6 @@ pub use crate::keys::{
         UnsecuredEd25519Key, UnverifiedPublicKey as UnverifiedEd25519PublicKey,
         UnverifiedX25519PublicKey, X25519PrivateKey,
     },
-    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-    // Components 1.3.0).
-    // zk::{
-    //     MAX_ZK_SIGNING_KEYS, PublicKey as ZkPublicKey, PublicKeys as ZkPublicKeys,
-    //     Signature as ZkSignature, UnsecuredZkKey, ZkKey, public_inputs_from_pks,
-    // },
-    // TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
-    // zk::{
-    //     MAX_ZK_SIGNING_KEYS, PublicKey as ZkPublicKey, PublicKeys as ZkPublicKeys, UnsecuredZkKey,
-    //     ZkKey, ZkTransferPayload,
-    // },
     zk::{PublicKey as ZkPublicKey, UnsecuredZkKey, ZkKey, ZkTransferPayload},
 };
 

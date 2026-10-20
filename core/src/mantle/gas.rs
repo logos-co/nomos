@@ -160,10 +160,6 @@ pub trait ThresholdSource {
     // A channel that does not exist yet accredits no key, so both thresholds
     // are 0.
     fn configuration_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex;
-
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // fn transfer_threshold(&self, channel: &ChannelId) -> ChannelKeyIndex;
 }
 
 // The Execution Gas of an Operation, derived from the Operation and the state
@@ -187,12 +183,6 @@ pub mod test_utils {
         fn configuration_threshold(&self, _channel: &ChannelId) -> ChannelKeyIndex {
             self.0
         }
-
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // fn transfer_threshold(&self, _channel: &ChannelId) -> ChannelKeyIndex {
-        //     self.0
-        // }
     }
 }
 

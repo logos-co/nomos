@@ -91,15 +91,8 @@ pub fn build_fork_group_scanner_configs(
                 })?
         };
 
-        // TODO(RFC-480): UTXO test wallet. A node wallet key is not tracked,
-        // the scanner derives nullifiers and proves with the secret key.
-        // let entry = groups
-        //     .entry(group_id)
-        //     .or_insert_with(|| (Vec::new(), Vec::new(), BTreeMap::new()));
-        // entry.1.push(TrackedWalletKeys::new(
-        //     wallet.wallet_name.clone(),
-        //     [wallet.public_key()?],
-        // ));
+        // A node wallet key is not tracked, the scanner derives nullifiers and
+        // proves with the secret key.
         let WalletType::User { wallet_account } = &wallet.wallet_type else {
             continue;
         };
@@ -129,8 +122,6 @@ pub fn build_fork_group_scanner_configs(
             {
                 wallet_keys.push(TrackedWalletKeys::new(
                     SCENARIO_FEE_ACCOUNT_NAME,
-                    // TODO(RFC-480): UTXO test wallet.
-                    // [fee_wallet_account.public_key()],
                     [UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr())],
                 ));
                 wallet_to_node.insert(SCENARIO_FEE_ACCOUNT_NAME.to_owned(), node_name);
@@ -143,8 +134,6 @@ pub fn build_fork_group_scanner_configs(
                 .or_insert_with(|| (world.all_node_names(), Vec::new(), BTreeMap::new()));
             entry.1.push(TrackedWalletKeys::new(
                 SCENARIO_FEE_ACCOUNT_NAME,
-                // TODO(RFC-480): UTXO test wallet.
-                // [fee_wallet_account.public_key()],
                 [UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr())],
             ));
             if let Some(node_name) = entry.0.first().cloned() {
@@ -223,8 +212,6 @@ pub fn build_fork_group_scanner_configs(
             scanner_state: Arc::clone(&scanner_state),
             poll_interval: DEFAULT_SCANNER_POLL_INTERVAL,
             range_batch_size: DEFAULT_SCANNER_RANGE_BATCH_SIZE,
-            // TODO(RFC-480): UTXO test wallet.
-            // genesis_utxos: world.chain.genesis_block_utxos.clone(),
             genesis_notes: world.chain.genesis_block_utxos.clone(),
             best_node_selector: Arc::clone(&selector),
         });

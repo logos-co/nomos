@@ -94,12 +94,6 @@ mod tests {
     use lb_key_management_system_keys::keys::Ed25519Key;
 
     use crate::mantle::{
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // Utxo, VerificationError,
-        // channel::Error,
-        // ledger::{BoundedInputs, Note},
-        // transactions::tx_list::signed_ops::test_utils::{create_withdraw_tx, make_channel_state},
         Op,
         OpProof,
         batch::DeferredProofs,
@@ -123,45 +117,6 @@ mod tests {
         SignedOps<Preverified, StandardMode>,
         TestOperationVerificationHelper,
     ) {
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // let channel_id = ChannelId::from([8u8; 32]);
-        // let key0 = Ed25519Key::from_bytes(&[8; 32]);
-        // let key1 = Ed25519Key::from_bytes(&[9; 32]);
-        // let keys = [
-        //     key0.public_key().into_unverified(),
-        //     key1.public_key().into_unverified(),
-        // ]
-        // .into();
-        //
-        // let input_sk = ZkKey::from(BigUint::from(1u8));
-        // let utxo = Utxo {
-        //     op_id: [1u8; 32],
-        //     output_index: 0,
-        //     note: Note::new(10, input_sk.to_public_key()),
-        // };
-        // let note_id = utxo.id();
-        // let withdraw_inputs = BoundedInputs::from(note_id).into();
-        //
-        // let signed_tx = create_withdraw_tx(channel_id, &[&key0, &key1], Some(withdraw_inputs));
-        //
-        // let channels = {
-        //     let mut channels = Channels::new();
-        //     let channel_state = make_channel_state(2, Some(keys));
-        //     channels.channels.insert_mut(channel_id, channel_state);
-        //     channels
-        //         .register_channel_note(&note_id, &channel_id)
-        //         .expect("Note should be registered.")
-        // };
-        //
-        // let helper = TestOperationVerificationHelper::new(
-        //     channels,
-        //     [
-        //         ((channel_id, 0), key0.public_key().into_unverified()),
-        //         ((channel_id, 1), key1.public_key().into_unverified()),
-        //     ],
-        // )
-        // .with_utxos(vec![utxo]);
         let channel_id = ChannelId::from([8u8; 32]);
         let keys = [Ed25519Key::from_bytes(&[8; 32])
             .public_key()
@@ -195,43 +150,6 @@ mod tests {
 
         (signed_tx, helper)
     }
-
-    // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-    // ZkTransfer over the channel note set.
-    // #[test]
-    // fn helper_backed_verification_accepts_valid_channel_withdraw() {
-    //     let (signed_tx, helper) = valid_withdraw();
-    //
-    //     let mut deferred_proofs = DeferredProofs::new();
-    //     signed_tx
-    //         .into_verified()
-    //         .next(&helper, &mut deferred_proofs)
-    //         .expect("Cursor should yield the WithdrawOp")
-    //         .expect("WithdrawOp should verify");
-    // }
-    //
-    // /// Only checks that a failing op's error reaches the cursor unchanged.
-    // /// The specific reasons a channel-withdraw proof can be rejected (missing
-    // /// channel/key, threshold, bad signature) are covered where that logic
-    // /// lives, in `ops::channel::verification::tests`.
-    // #[test]
-    // fn helper_backed_verification_surfaces_op_validation_error() {
-    //     let channel_id = ChannelId::from([10u8; 32]);
-    //     let key0 = Ed25519Key::from_bytes(&[0; 32]);
-    //     let signed_tx = create_withdraw_tx(channel_id, &[&key0], None);
-    //
-    //     let helper = TestOperationVerificationHelper::new(Channels::new(), []);
-    //
-    //     let mut deferred_proofs = DeferredProofs::new();
-    //     let verification_result = signed_tx
-    //         .into_verified()
-    //         .next(&helper, &mut deferred_proofs)
-    //         .unwrap();
-    //     assert_eq!(
-    //         verification_result.err().unwrap(),
-    //         VerificationError::ChannelVerificationError(Error::InvalidSignature)
-    //     );
-    // }
 
     #[test]
     fn next_returns_none_once_the_operations_are_exhausted() {

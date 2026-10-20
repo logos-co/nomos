@@ -1,6 +1,3 @@
-// TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-// the steps of CHANNEL_INSCRIBE.
-// pub mod channel_transfer;
 pub mod config;
 pub mod deposit;
 pub mod inscribe;

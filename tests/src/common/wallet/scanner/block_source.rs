@@ -17,8 +17,6 @@ pub async fn stream_blocks_range(
     client: &NodeHttpClient,
     slot_from: u64,
     slot_to: u64,
-    // TODO(RFC-480): UTXO test wallet, the note sets updates are block events.
-    // mut on_block: impl FnMut(ApiBlock) -> Result<(), ScannerError>,
     mut on_block: impl FnMut(ApiBlock, Events) -> Result<(), ScannerError>,
 ) -> Result<usize, ScannerError> {
     if slot_from > slot_to {
@@ -45,8 +43,6 @@ pub async fn stream_blocks_range(
         }
 
         streamed_blocks += 1;
-        // TODO(RFC-480): UTXO test wallet, the note sets updates are block events.
-        // on_block(event.block)?;
         let events = block_events(client, event.block.header.id).await?;
         on_block(event.block, events)?;
     }

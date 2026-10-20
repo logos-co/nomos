@@ -113,29 +113,6 @@ mod tests {
         let shared = prepared.shared_inputs().unwrap();
         let network = prepared.network().unwrap();
         let genesis_id = network.genesis.header().id();
-        // TODO(RFC-480): the genesis notes are the allocations the distribution
-        // publishes, a declaration spends its provider's note.
-        // let transfer = network.genesis.genesis_tx().transfer().operation();
-        // assert_eq!(
-        //     transfer
-        //         .outputs
-        //         .iter()
-        //         .find(|note| note.pk == wallet.public_key())
-        //         .unwrap()
-        //         .value,
-        //     wallet.value
-        // );
-        // for key in &network.consensus.regular_note_keys {
-        //     assert_eq!(
-        //         transfer
-        //             .outputs
-        //             .iter()
-        //             .find(|note| note.pk == key.to_public_key())
-        //             .unwrap()
-        //             .value,
-        //         2_500_000
-        //     );
-        // }
         let transfer = network.genesis.genesis_tx().distribution();
         assert_eq!(
             transfer
@@ -161,9 +138,6 @@ mod tests {
             .op_refs()
             .into_iter()
             .filter_map(|op| match op {
-                // OpRef::SDPDeclare(declaration) => {
-                //     Some((declaration.id(), declaration.service_note_id))
-                // }
                 OpRef::SDPDeclare(declaration) => {
                     Some((declaration.id(), declaration.inputs.as_slice()[0]))
                 }
@@ -171,9 +145,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(declarations.len(), 2);
-        // for (i, (_, note_id)) in declarations.iter().enumerate() {
-        //     assert_eq!(*note_id, network.consensus.blend_notes[i].note_id);
-        // }
         for (i, (_, nullifier)) in declarations.iter().enumerate() {
             let blend_note = &network.consensus.blend_notes[i];
             assert_eq!(

@@ -1,7 +1,5 @@
 use std::fmt::{Debug, Display};
 
-// TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-// use lb_core::sdp::DeclarationMessage;
 use overwatch::{
     DynError,
     overwatch::OverwatchHandle,
@@ -59,8 +57,6 @@ where
 
     pub async fn post_declaration(
         &self,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: DeclarationMessage,
         declaration: DeclarationRequest,
     ) -> Result<SdpSubmission, Error> {
         let (reply_channel, receiver) = oneshot::channel();

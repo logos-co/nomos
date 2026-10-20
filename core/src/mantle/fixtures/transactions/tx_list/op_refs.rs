@@ -4,12 +4,8 @@ use crate::mantle::{
     OpRef,
     fixtures::ops::op_values::{
         ALL_OPS_COLUMN_HEX, CHANNEL_CONFIG, CHANNEL_WITHDRAW, CLAIM_POW_REWARD, DEPOSIT,
-        EMPTY_COLUMN_HEX, INSCRIPTION,
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // LEADER_CLAIM,
-        SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, TRANSFER, TRANSFER_AND_INSCRIPTION_COLUMN_HEX,
-        TRANSFER_COLUMN_HEX,
+        EMPTY_COLUMN_HEX, INSCRIPTION, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, TRANSFER,
+        TRANSFER_AND_INSCRIPTION_COLUMN_HEX, TRANSFER_COLUMN_HEX,
     },
     transactions::OpRefs,
 };
@@ -29,15 +25,9 @@ codec_fixtures!(
         OpRef::ChannelInscribe(&INSCRIPTION),
         OpRef::ChannelDeposit(&DEPOSIT),
         OpRef::ChannelWithdraw(&CHANNEL_WITHDRAW),
-        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-        // the steps of CHANNEL_INSCRIBE.
-        // OpRef::ChannelTransfer(&CHANNEL_TRANSFER),
         OpRef::SDPDeclare(&SDP_DECLARE),
         OpRef::SDPWithdraw(&SDP_WITHDRAW),
         OpRef::SDPActive(&SDP_ACTIVE),
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // OpRef::LeaderClaim(&LEADER_CLAIM),
         OpRef::ClaimPowReward(&CLAIM_POW_REWARD),
     ]) => ALL_OPS_COLUMN_HEX
 );

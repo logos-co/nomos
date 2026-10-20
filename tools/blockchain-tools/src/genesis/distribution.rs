@@ -1,13 +1,7 @@
-// TODO(RFC-480): the distribution is a list of genesis allocations.
-// use std::collections::HashSet;
 use std::collections::{HashMap, HashSet};
 
 use lb_core::{
     mantle::{
-        // TODO(RFC-480): the distribution is a list of genesis allocations.
-        // Note, Utxo, Value as NoteValue,
-        // ledger::{Inputs, Outputs},
-        // ops::{sdp::SDPDeclareOp, transfer::TransferOp},
         Value as NoteValue,
         note_set::CommitmentMmr,
         notes::derive_note_nf,
@@ -16,8 +10,6 @@ use lb_core::{
     },
     sdp::ServiceType,
 };
-// TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-// use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_key_management_system_keys::keys::{ZkKey, ZkPublicKey};
 use lb_sdp_service::DeclarationConfig;
 use serde::{Deserialize, Serialize};
@@ -36,44 +28,6 @@ pub struct ConsensusExcludedKey {
     pub zk_id: ZkPublicKey,
     pub funds: NoteValue,
 }
-
-// TODO(RFC-480): the distribution is a list of genesis allocations, the
-// builder derives the Transfer outputs from them.
-// pub struct GenesisTransferOp {
-//     transfer_op: TransferOp,
-// }
-//
-// impl GenesisTransferOp {
-//     pub fn new(
-//         stake_holders: impl Iterator<Item = StakeHolderInfo>,
-//         excluded_key: &ConsensusExcludedKey,
-//     ) -> Self {
-//         let mut notes: Vec<Note> = stake_holders
-//             .map(|stake_holder| Note::new(stake_holder.stake, stake_holder.zk_id))
-//             .collect();
-//
-//         notes.push(Note::new(excluded_key.funds, excluded_key.zk_id));
-//
-//         let outputs = Outputs::try_new(notes)
-//             .expect("genesis distribution outputs must fit transfer output bounds");
-//         let transfer_op = TransferOp::new(Inputs::empty(), outputs);
-//
-//         Self { transfer_op }
-//     }
-//
-//     pub fn notes(&self) -> impl Iterator<Item = Note> {
-//         self.transfer_op.utxos().map(|u| u.note)
-//     }
-//
-//     pub fn utxos(&self) -> impl Iterator<Item = Utxo> {
-//         self.transfer_op.utxos()
-//     }
-//
-//     #[must_use]
-//     pub fn utxo_by_index(&self, index: usize) -> Option<Utxo> {
-//         self.transfer_op.utxo_by_index(index)
-//     }
-// }
 
 #[derive(Error, Debug)]
 pub enum DistributionError {
@@ -99,8 +53,6 @@ pub fn distribute<S, P>(
     stake_holders: S,
     providers: P,
     excluded_key: &ConsensusExcludedKey,
-    // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-    // ) -> Result<(GenesisTransferOp, Vec<SDPDeclareOp>), DistributionError>
     stake_keys: &HashMap<ZkPublicKey, ZkKey>,
 ) -> Result<(Vec<GenesisAllocation>, Vec<SDPDeclareOp>, Vec<ZkKey>), DistributionError>
 where
@@ -110,8 +62,6 @@ where
     let stake_holder_keys: HashSet<ZkPublicKey> =
         stake_holders.clone().into_iter().map(|s| s.zk_id).collect();
 
-    // TODO(RFC-480): the distribution is a list of genesis allocations.
-    // let transfer_op = GenesisTransferOp::new(stake_holders.into_iter(), excluded_key);
     let allocations: Vec<GenesisAllocation> = stake_holders
         .into_iter()
         .map(|stake_holder| GenesisAllocation {
@@ -140,16 +90,6 @@ where
             ));
         }
 
-        // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-        // if let Some(utxo) = transfer_op.utxos().find(|u| u.note.pk == provider.zk_id) {
-        //     declarations.push(SDPDeclareOp {
-        //         service_type: provider.service_type,
-        //         locators: provider.locators,
-        //         provider_id: provider.provider_id,
-        //         zk_id: provider.zk_id,
-        //         service_note_id: utxo.id(),
-        //     });
-        // }
         if let Some(index) = allocations
             .iter()
             .position(|allocation| allocation.public_key == provider.zk_id)
@@ -175,8 +115,6 @@ where
         }
     }
 
-    // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-    // Ok((transfer_op, declarations))
     Ok((allocations, declarations, keys))
 }
 
@@ -253,8 +191,6 @@ mod tests {
 
     #[test]
     fn test_successful_distribution() {
-        // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-        // let zk_id_1 = mock_zk_pk(1);
         let stake_key = ZkKey::new(Fr::from(1u64));
         let zk_id_1 = stake_key.to_public_key();
         let zk_id_2 = mock_zk_pk(2);
@@ -282,23 +218,6 @@ mod tests {
             funds: 100_000,
         };
 
-        // TODO(RFC-480): the distribution is a list of genesis allocations.
-        // let result = distribute(stake_holders, providers, &excluded_key);
-        //
-        // assert!(result.is_ok());
-        // let (transfer_op, declarations) = result.unwrap();
-        // let notes = transfer_op.notes().collect::<Vec<_>>();
-        //
-        // assert_eq!(notes.len(), 3);
-        // assert_eq!(notes[0].pk, zk_id_1);
-        // assert_eq!(notes[1].pk, zk_id_2);
-        //
-        // assert_eq!(declarations.len(), 1);
-        // assert_eq!(declarations[0].zk_id, zk_id_1);
-        // assert_eq!(
-        //     declarations[0].service_note_id,
-        //     transfer_op.utxo_by_index(0).unwrap().id(),
-        // );
         let result = distribute(
             stake_holders,
             providers,
@@ -338,8 +257,6 @@ mod tests {
             funds: 100_000,
         };
 
-        // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-        // let result = distribute(stake_holders, providers, &excluded_key);
         let result = distribute(stake_holders, providers, &excluded_key, &HashMap::new());
 
         assert!(matches!(
@@ -354,8 +271,6 @@ mod tests {
 
     #[test]
     fn test_error_already_used() {
-        // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-        // let zk_id = mock_zk_pk(1);
         let stake_key = ZkKey::new(Fr::from(1u64));
         let zk_id = stake_key.to_public_key();
         let stake_holders = vec![StakeHolderInfo { zk_id, stake: 5000 }];
@@ -381,8 +296,6 @@ mod tests {
             funds: 100_000,
         };
 
-        // TODO(RFC-480): a declaration spends the stakeholder note with its stake key.
-        // let result = distribute(stake_holders, providers, &excluded_key);
         let result = distribute(
             stake_holders,
             providers,

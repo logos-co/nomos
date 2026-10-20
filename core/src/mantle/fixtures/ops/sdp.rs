@@ -44,9 +44,6 @@ codec_fixtures!(
     WithdrawMessage,
     Self {
         declaration_id: DeclarationId([0u8; _]),
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
-        // its commitment.
-        // service_note_id: Fr::from(1u64).into(),
         nonce: 2u64,
         service_note_nf: NoteNf(Fr::from(1u64)),
         outputs: OutputCms::default(),

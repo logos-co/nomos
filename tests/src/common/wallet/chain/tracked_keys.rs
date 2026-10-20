@@ -1,7 +1,5 @@
 use std::collections::BTreeMap;
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_key_management_system_service::keys::UnsecuredZkKey;
 
 use super::state::TrackedWalletKeys;
@@ -25,8 +23,6 @@ impl TrackedWalletKeysBySource {
         &mut self,
         source_id: impl Into<WalletChainSourceId>,
         wallet_id: impl Into<WalletId>,
-        // TODO(RFC-480): UTXO test wallet.
-        // wallet_pk: ZkPublicKey,
         wallet_key: UnsecuredZkKey,
     ) {
         self.by_source
@@ -38,8 +34,6 @@ impl TrackedWalletKeysBySource {
     pub fn add_wallet_for_each_source(
         &mut self,
         base_wallet_id: impl AsRef<str>,
-        // TODO(RFC-480): UTXO test wallet.
-        // wallet_pk: ZkPublicKey,
         wallet_key: &UnsecuredZkKey,
     ) {
         for (source_id, wallet_keys) in &mut self.by_source {

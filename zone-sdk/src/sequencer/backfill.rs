@@ -80,12 +80,6 @@ where
             .flat_map(|t| t.ops.iter().rev())
             .find_map(|op| match op {
                 FinalizedOp::Inscription(i) => Some(i),
-                // TODO(RFC-480): channel notes are private and move by steps;
-                // the bridge is rebuilt on ChannelStep.
-                // FinalizedOp::Deposit(_)
-                // | FinalizedOp::Withdraw(_)
-                // | FinalizedOp::Config(_)
-                // | FinalizedOp::ChannelTransfer(_) => None,
                 FinalizedOp::Deposit(_) | FinalizedOp::Config(_) => None,
             })
         {
@@ -105,12 +99,6 @@ where
             .flat_map(|t| t.ops.iter().rev())
             .find_map(|op| match op {
                 FinalizedOp::Config(c) => Some(c),
-                // TODO(RFC-480): channel notes are private and move by steps;
-                // the bridge is rebuilt on ChannelStep.
-                // FinalizedOp::Inscription(_)
-                // | FinalizedOp::Deposit(_)
-                // | FinalizedOp::Withdraw(_)
-                // | FinalizedOp::ChannelTransfer(_) => None,
                 FinalizedOp::Inscription(_) | FinalizedOp::Deposit(_) => None,
             })
             && let Some(s) = self.state.as_mut()

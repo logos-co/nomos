@@ -13,9 +13,6 @@ use blake2::Digest as _;
 use divan::{Bencher, black_box};
 use lb_binary_codec::canonical::{BinaryDecodeExt as _, BinaryEncode as _};
 use lb_groth16::{Fr, GROTH16_SAFE_BYTES_SIZE, fr_from_bytes_unchecked};
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-// use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519Signature, ZkKey};
 use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519Signature};
 use lb_poseidon2::Digest;
 use logos_blockchain_core::{
@@ -132,21 +129,6 @@ fn bench_sign_a_ed25519_payload(bencher: Bencher) {
             black_box(signing_key.sign_payload(txhash.as_signing_bytes()))
         });
 }
-
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-/*
-// ZkKey multi-sign proof (payload size has no influence here)
-#[divan::bench()]
-fn bench_sign_b_zk_key_multi_sign_no_keys(bencher: Bencher) {
-    bencher
-        .with_inputs(|| {
-            let tx = make_inscription_tx(1);
-            tx.hash()
-        })
-        .bench_values(|txhash: TxHash| black_box(ZkKey::multi_sign(&[], &txhash.to_fr()).unwrap()));
-}
-*/
 
 // Verify ops proofs
 #[divan::bench(args = SIZES)]

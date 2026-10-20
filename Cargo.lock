@@ -5141,7 +5141,6 @@ dependencies = [
  "logos-blockchain-mmr",
  "logos-blockchain-pol",
  "logos-blockchain-utils",
- "logos-blockchain-utxotree",
  "logos-blockchain-zktransfer",
  "num-bigint",
  "rand 0.8.8",
@@ -5726,14 +5725,7 @@ version = "0.0.0"
 dependencies = [
  "ark-ff",
  "logos-blockchain-dynamic-merkle",
- "logos-blockchain-merkle-tree",
  "logos-blockchain-poseidon2",
- "num-bigint",
- "quickcheck",
- "quickcheck_macros",
- "rand 0.8.8",
- "rpds",
- "serde",
 ]
 
 [[package]]

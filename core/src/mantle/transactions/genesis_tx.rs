@@ -112,9 +112,6 @@ impl GenesisTx {
                     .iter()
                     .enumerate()
                     .filter(|(_, op)| !matches!(op, OpRef::SDPDeclare(_)))
-                    // TODO(RFC-480): a distribution inscription follows the Cryptarchia one.
-                    // // The `+ 2` accounts for the first two ops (transfer and inscription)
-                    // .map(|(index, op)| (index + 2, op.as_str()))
                     .map(|(index, op)| (index + GENESIS_REQUIRED_OPS, op.as_str())) // The offset accounts for the transfer and both inscriptions
                     .collect::<Vec<_>>();
 
@@ -166,8 +163,6 @@ impl GenesisTx {
     pub fn sdp_declarations(
         &self,
     ) -> impl Iterator<Item = &SignedOperation<SDPDeclareOp, Preverified, GenesisMode>> {
-        // TODO(RFC-480): a distribution inscription follows the Cryptarchia one.
-        // self.signed_ops.inner().iter().skip(2).filter_map(|op| {
         self.signed_ops
             .inner()
             .iter()
@@ -519,10 +514,9 @@ mod tests {
     use super::*;
     use crate::{
         mantle::{
-            OpProof,
-            ledger::{Note, Utxo},
+            Note, OpProof,
             note_set::CommitmentMmr,
-            notes::{InputNfs, NoteNf, OutputCms},
+            notes::{InputNfs, NoteNf, OutputCms, derive_note_nf},
             ops::{
                 ChannelInscribeProof, StepProof, ZkTransferProof,
                 channel::inscribe::{ChannelStep, ChannelSteps, Inscription, Step},
@@ -557,17 +551,15 @@ mod tests {
     }
 
     fn sdp_declare_op(
-        utxo_to_use: Utxo,
+        note_to_use: Note,
         zk_id_value: u8,
         verifying_key: Ed25519PublicKey,
     ) -> SDPDeclareOp {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-            // service_note_id: utxo_to_use.id(),
-            inputs: [NoteNf(utxo_to_use.id().0)].into(),
+            inputs: [derive_note_nf(&note_to_use.commitment(), &Fr::ZERO)].into(),
             cm_merkle_root: Fr::ZERO,
-            amount: utxo_to_use.note.value,
+            amount: note_to_use.value,
             zk_id: ZkPublicKey::new(BigUint::from(zk_id_value).into()),
             provider_id: ProviderId(verifying_key),
             locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
@@ -575,8 +567,8 @@ mod tests {
     }
 
     // Helper function to create a test note
-    fn create_test_note(value: Value) -> Note {
-        Note::new(value, ZkPublicKey::from(BigUint::from(123u64)))
+    fn create_test_note(value: Value, nonce: u64) -> Note {
+        Note::new(value, Fr::from(nonce), ZkPublicKey::from(BigUint::from(123u64)))
     }
 
     fn allocation(value: Value, key: u64) -> GenesisAllocation {
@@ -641,16 +633,6 @@ mod tests {
         ops: Vec<Op>,
         op_proofs_vec: Vec<OpProof>,
     ) -> SignedOps<Preverified, GenesisMode> {
-        // TODO(RFC-480): the genesis outputs are the commitments the distribution
-        // publishes.
-        // let transfer_op = TransferOp::new(
-        //     InputNfs::default(),
-        //     [NoteCm(Fr::from(1_000u64))].into(),
-        //     Fr::ZERO,
-        //     0,
-        // );
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let transfer_op = TransferOp::new(Inputs::empty(), Outputs::new([create_test_note(1000)]));
         let transfer_op = transfer_of(&allocations());
         create_trusted_tx_with_transfer(transfer_op, ops.into_iter().collect(), op_proofs_vec)
     }
@@ -795,10 +777,10 @@ mod tests {
         let c = cryptarchia_op();
         let d = distribution_op(&c, &allocations());
         let verifying_key = Ed25519PublicKey::from_bytes(&[1; 32]).unwrap();
-        let utxo1 = Utxo::new([0u8; 32], 0, create_test_note(1000));
-        let utxo2 = Utxo::new([1u8; 32], 1, create_test_note(2000));
-        let sdp_declare_op_helper = |utxo_to_use: Utxo, zk_id_value: u8| {
-            sdp_declare_op(utxo_to_use, zk_id_value, verifying_key)
+        let utxo1 = create_test_note(1000, 0);
+        let utxo2 = create_test_note(2000, 1);
+        let sdp_declare_op_helper = |note_to_use: Note, zk_id_value: u8| {
+            sdp_declare_op(note_to_use, zk_id_value, verifying_key)
         };
 
         // Test cases: (operations, expected_error)
@@ -944,20 +926,6 @@ mod tests {
 
     #[test]
     fn from_tx_rejects_a_transfer_that_spends_an_input() {
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let utxo = Utxo::new([0u8; 32], 0, create_test_note(1000));
-        // let transfer_op = TransferOp::new(
-        //     BoundedInputs::from(utxo.id()).into(),
-        //     Outputs::new([create_test_note(1000)]),
-        // );
-        // TODO(RFC-480): the genesis outputs are the commitments the distribution
-        // publishes.
-        // let transfer_op = TransferOp::new(
-        //     [NoteNf(Fr::ONE)].into(),
-        //     [NoteCm(Fr::from(1_000u64))].into(),
-        //     Fr::ZERO,
-        //     0,
-        // );
         let transfer_op = TransferOp {
             inputs: [NoteNf(Fr::ONE)].into(),
             ..transfer_of(&allocations())
@@ -978,7 +946,7 @@ mod tests {
     #[test]
     fn into_genesis_ops_splits_the_transfer_the_inscription_and_the_declarations() {
         let verifying_key = Ed25519PublicKey::from_bytes(&[1; 32]).unwrap();
-        let utxo = Utxo::new([0u8; 32], 0, create_test_note(1000));
+        let utxo = create_test_note(1000, 0);
         let declare_op = sdp_declare_op(utxo, 0, verifying_key);
         let inscribe_op = inscription_op(
             ChannelId::from([0; 32]),
@@ -987,16 +955,6 @@ mod tests {
             UnverifiedEd25519PublicKey::from_bytes(&[0; 32]).unwrap(),
         );
         let distribution = distribution_op(&inscribe_op, &allocations());
-        // TODO(RFC-480): the genesis outputs are the commitments the distribution
-        // publishes.
-        // let transfer_op = TransferOp::new(
-        //     InputNfs::default(),
-        //     [NoteCm(Fr::from(1_000u64))].into(),
-        //     Fr::ZERO,
-        //     0,
-        // );
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let transfer_op = TransferOp::new(Inputs::empty(), Outputs::new([create_test_note(1000)]));
         let transfer_op = transfer_of(&allocations());
         let tx = create_trusted_tx_with_transfer(
             transfer_op.clone(),
@@ -1089,7 +1047,7 @@ mod tests {
         let nonce_zero = TransferOp {
             outputs: [
                 allocations[0].note(0).commitment(),
-                notes::Note::new(2000, Fr::ZERO, ZkPublicKey::new(Fr::from(8u64))).commitment(),
+                Note::new(2000, Fr::ZERO, ZkPublicKey::new(Fr::from(8u64))).commitment(),
             ]
             .into(),
             ..transfer_of(&allocations)

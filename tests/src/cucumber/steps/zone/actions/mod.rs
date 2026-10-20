@@ -3,8 +3,6 @@ use std::{collections::HashMap, num::NonZero, time::Duration};
 use cucumber::gherkin::Step;
 use futures::future::join_all;
 use lb_common_http_client::CommonHttpClient;
-// TODO(RFC-480): the zone bridge is suspended. Dropped imports: Utxo, Metadata,
-// ZkPublicKey.
 use lb_core::mantle::{
     TxHash,
     gas::GasCost,
@@ -23,15 +21,6 @@ use tokio::{
 };
 use tracing::warn;
 
-// TODO(RFC-480): the zone bridge is suspended. Dropped imports:
-// AtomicZoneDepositRequest, BundleAnnounce, MultiSigBus, ZoneDeposit,
-// ZoneTestError, build_zone_deposit, build_zone_deposit_from_values,
-// publish_atomic_zone_withdraw,
-// start_deposit_lifecycle_policy, start_deposit_withdraw_policy,
-// start_multisig_lifecycle_policy, submit_atomic_zone_deposit,
-// submit_zone_channel_split, submit_zone_deposit, submit_zone_withdraw,
-// make_inscription, WalletReservedInputs, current_available_utxos_for_wallet,
-// WalletInfo.
 use super::{
     CustomRepublishDeps, DiscardedPayloads, PolicyRuntime, PublishDeadline, ZoneAccountBalances,
     ensure_zone_transactions_included,
@@ -61,9 +50,6 @@ use crate::{
 };
 
 const ZONE_CHANNEL_WITHDRAW_THRESHOLD: u16 = 1;
-// TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
-// channel notes.
-// const ZONE_CHANNEL_DEPOSIT_THRESHOLD: u16 = 1;
 const SEQUENCER_READY_TIMEOUT: Duration = Duration::from_mins(2);
 const SEQUENCER_READY_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 const SEQUENCER_READY_HEIGHT_ADVANCE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -90,29 +76,6 @@ pub(super) enum DriveMode {
     CustomRepublish {
         deps: Box<CustomRepublishDeps>,
     },
-    // TODO(RFC-480): the zone bridge (pin deposits, withdrawals, multi-sig
-    // bundles) is suspended.
-    // /// Pin then withdraw each observed deposit.
-    // DepositReaction {
-    //     withdraw_outputs: Vec<u64>,
-    //     recipient: ZkPublicKey,
-    // },
-    // /// Withdraw the observed deposit of `target_amount`.
-    // DepositWithdraw {
-    //     target_amount: u64,
-    //     withdraw_outputs: Vec<u64>,
-    //     recipient: ZkPublicKey,
-    // },
-    // /// Reactively pin then withdraw each observed deposit under multi-sig,
-    // /// gathering signatures on the shared `bus` via the `announce` channel.
-    // MultiSigLifecycle {
-    //     withdraw_outputs: Vec<u64>,
-    //     recipient: ZkPublicKey,
-    //     bus: MultiSigBus,
-    //     announce: BundleAnnounce,
-    //     // Boxed: `Ed25519Key` is large and would bloat every `DriveMode` value.
-    //     signing_key: Box<Ed25519Key>,
-    // },
 }
 
 impl DriveMode {
@@ -152,15 +115,6 @@ mod cluster;
 mod publishing;
 mod sequencer;
 
-// TODO(RFC-480): the zone bridge is suspended.
-// pub(super) use channel::{
-//     prepare_zone_channel_config, publish_atomic_zone_withdraw_transaction,
-//     remember_published_zone_message, save_zone_checkpoint, sign_prepared_zone_channel_config,
-//     stop_zone_sequencer, submit_atomic_zone_deposit_transaction,
-//     submit_prepared_zone_channel_config, submit_zone_channel_config,
-//     submit_zone_channel_split_transaction, submit_zone_deposit_transaction,
-//     submit_zone_multi_deposit_transaction, submit_zone_withdraw_transaction,
-// };
 pub(super) use channel::{
     prepare_zone_channel_config, remember_published_zone_message, save_zone_checkpoint,
     sign_prepared_zone_channel_config, stop_zone_sequencer, submit_prepared_zone_channel_config,
@@ -172,12 +126,6 @@ pub(super) use cluster::{
 pub(super) use publishing::{
     initialize_zone_indexer, publish_zone_messages, publish_zone_messages_concurrently,
 };
-// TODO(RFC-480): the zone bridge is suspended.
-// pub(super) use sequencer::{
-//     start_deposit_reaction_sequencer, start_deposit_withdraw_sequencer,
-//     start_multisig_lifecycle_sequencer, start_named_sequencer,
-//     start_named_sequencer_with_pending_submit_depth,
-// };
 pub(super) use sequencer::{
     start_named_sequencer, start_named_sequencer_with_pending_submit_depth,
 };

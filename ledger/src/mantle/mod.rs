@@ -1,19 +1,12 @@
 pub use lb_core::mantle::channel;
 pub mod helpers;
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block.
-// pub mod leader;
 pub mod pow;
 pub mod sdp;
 
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block. `ZkHasher` and `Value` typed the voucher
-// accessors.
 use lb_core::{
     crypto::Hash,
     events::TxEvent,
     mantle::{
-        NoteId,
         ledger::verification_mode::{GenesisMode, StandardMode},
         note_set::NoteSets,
         ops::{
@@ -22,9 +15,6 @@ use lb_core::{
                 config::{ChannelConfigExecutionContext, ChannelConfigOp},
                 inscribe::{InscriptionExecutionContext, InscriptionOp},
             },
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::{LeaderClaimError, RewardsRoot, VoucherCm},
             pow::ClaimPowRewardError,
             program::ProgramRegisterError,
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
@@ -33,19 +23,12 @@ use lb_core::{
         programs::Programs,
         transactions::{GenesisDeclarations, hash::TxHashView, states::Verified},
     },
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // sdp::service_notes::ServiceNotes,
 };
 use lb_cryptarchia_engine::Slot;
 use lb_log_targets::ledger;
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block.
-// use lb_mmr::MerkleMountainRange;
 use sdp::Error as SdpLedgerError;
 use tracing::error;
 
-// TODO(RFC-480): SDP Operations run on the note sets. `UtxoTree` served the declarations.
 use crate::{Config, EpochState, mantle::sdp::HeaderEffect};
 
 const LOG_TARGET: &str = ledger::mantle::ROOT;
@@ -54,26 +37,16 @@ const LOG_TARGET: &str = ledger::mantle::ROOT;
 pub enum Error {
     #[error(transparent)]
     Channel(#[from] channel::Error),
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // #[error(transparent)]
-    // Leader(#[from] leader::Error),
     #[error("Sdp ledger error: {0:?}")]
     Sdp(#[from] SdpLedgerError),
     #[error(transparent)]
     Transfer(#[from] TransferError),
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // #[error(transparent)]
-    // LeaderClaim(#[from] LeaderClaimError),
     #[error(transparent)]
     ClaimPow(#[from] ClaimPowRewardError),
     #[error(transparent)]
     PowRewardPool(#[from] pow::PowRewardPoolOverflow),
     #[error(transparent)]
     Program(#[from] ProgramRegisterError),
-    #[error("Note not found: {0:?}")]
-    NoteNotFound(NoteId),
 }
 
 /// A state of the mantle ledger
@@ -84,9 +57,6 @@ pub enum Error {
 pub struct LedgerState {
     channels: channel::Channels,
     pub sdp: sdp::SdpLedger,
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // pub leaders: leader::LeaderState,
     pub pow: pow::PowState,
     programs: Programs,
 }
@@ -98,40 +68,24 @@ impl LedgerState {
             channels: channel::Channels::new(),
             sdp: sdp::SdpLedger::new(epoch_state.epoch())
                 .with_blend_service(&config.sdp_config.service_rewards_params.blend, epoch_state),
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leaders: leader::LeaderState::new(),
             pow: pow::PowState::from_reward_config(&config.pow_config.reward),
             programs: Programs::new(),
         }
     }
 
     pub fn from_genesis_tx(
-        // TODO(RFC-480): the genesis transaction carries the Cryptarchia and the
-        // distribution inscriptions.
-        // signed_operation_inscription: SignedOperation<InscriptionOp, Verified, GenesisMode>,
         signed_operation_inscriptions: [SignedOperation<InscriptionOp, Verified, GenesisMode>; 2],
         signed_operation_declarations: GenesisDeclarations,
         tx_hash_view: &TxHashView,
         config: &Config,
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // utxo_tree: &UtxoTree,
         note_sets: NoteSets,
         epoch_state: &EpochState,
     ) -> Result<(Self, NoteSets, Vec<TxEvent>), Error> {
         let mut tx_events = Vec::new();
 
-        // let (channels, events) = channel::Channels::from_genesis(signed_operation_inscription)?;
         let (channels, events) = channel::Channels::from_genesis(signed_operation_inscriptions)?;
         tx_events.extend(events);
 
-        // let (sdp, events) = sdp::SdpLedger::from_genesis(
-        //     &config.sdp_config,
-        //     utxo_tree,
-        //     &channels,
-        //     epoch_state,
-        //     signed_operation_declarations,
-        // )?;
         let (sdp, note_sets, events) = sdp::SdpLedger::from_genesis(
             &config.sdp_config,
             note_sets,
@@ -145,9 +99,6 @@ impl LedgerState {
             Self {
                 channels,
                 sdp,
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // leaders: leader::LeaderState::new(),
                 pow: pow::PowState::from_reward_config(&config.pow_config.reward),
                 programs: Programs::new(),
             },
@@ -165,13 +116,6 @@ impl LedgerState {
             ..self
         }
     }
-
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // #[must_use]
-    // pub const fn service_notes(&self) -> &ServiceNotes {
-    //     self.sdp.service_notes()
-    // }
 
     #[must_use]
     pub const fn sdp_ledger(&self) -> &sdp::SdpLedger {
@@ -198,38 +142,12 @@ impl LedgerState {
         Self { programs, ..self }
     }
 
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // /// Get the root of the voucher commitments snapshot.
-    // #[must_use]
-    // pub const fn vouchers_snapshot_root(&self) -> &RewardsRoot {
-    //     self.leaders.vouchers_snapshot_root()
-    // }
-    //
-    // /// Get the MMR of all voucher commitments included in the chain.
-    // #[must_use]
-    // pub const fn vouchers(&self) -> &MerkleMountainRange<VoucherCm, ZkHasher> {
-    //     self.leaders.vouchers()
-    // }
-    //
-    // #[must_use]
-    // pub fn leader_reward_amount(&self) -> Value {
-    //     self.leaders.reward_amount()
-    // }
-
     pub fn try_apply_header(
         mut self,
         last_epoch_state: &EpochState,
         epoch_state: &EpochState,
-        // TODO(RFC-480): the header carries no voucher; LeaderState goes with LEADER_CLAIM.
-        // voucher: VoucherCm,
         config: &Config,
     ) -> Result<(Self, HeaderEffect), Error> {
-        // TODO(RFC-480): the header carries no voucher; LeaderState goes with
-        // LEADER_CLAIM.
-        // self.leaders = self
-        //     .leaders
-        //     .try_apply_header(epoch_state.epoch, voucher)?;
         let (new_sdp, effect) =
             self.sdp
                 .try_apply_header(&config.sdp_config, last_epoch_state, epoch_state)?;
@@ -301,8 +219,6 @@ impl LedgerState {
     pub fn try_apply_sdp_declaration(
         mut self,
         sdp_declare_op: SignedOperation<SDPDeclareOp, Verified, StandardMode>,
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // utxo_tree: &UtxoTree,
         note_sets: NoteSets,
         config: &Config,
     ) -> Result<(Self, NoteSets, Vec<TxEvent>), Error> {

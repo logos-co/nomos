@@ -198,15 +198,6 @@ mod test {
 
         assert!(processor.proofs_generator().0.is_none());
 
-        // TODO(RFC-480): depth 32 UTXO tree witness
-        // let private_inputs = ProofOfLeadershipQuotaInputs {
-        //     aged_path_and_selectors: [(ZkHash::ONE, true); _],
-        //     note_value: 42,
-        //     output_number: 1,
-        //     slot: 1,
-        //     secret_key: ZkHash::ONE,
-        //     transaction_hash: ZkHash::ONE,
-        // };
         let private_inputs = ProofOfLeadershipQuotaInputs {
             slot: 2,
             note_value: 2,

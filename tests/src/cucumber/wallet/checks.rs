@@ -166,8 +166,6 @@ pub async fn assert_tracked_wallet_fees_equal_sponsored_fee_account_spend(
     let fee_state = current_wallet_state_for_key(
         world,
         SCENARIO_FEE_ACCOUNT_NAME,
-        // TODO(RFC-480): UTXO test wallet.
-        // fee_wallet_account.public_key(),
         UnsecuredZkKey::new(*fee_wallet_account.secret_key.as_fr()),
     )
     .await

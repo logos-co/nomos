@@ -52,19 +52,16 @@ mod tests {
         sdp::{DeclarationId, ServiceType},
     };
     use lb_groth16::{Field as _, Fr};
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    // use lb_key_management_system_keys::keys::{ZkKey, public_inputs_from_pks};
-    // use num_bigint::BigUint;
     use lb_zktransfer::ZkTransferVerifierInput;
 
     use super::*;
-    use crate::cryptarchia::tests::{config, note_of, utxo};
+    use crate::cryptarchia::tests::{config, note};
 
     const ID: [u8; 32] = [1; 32];
 
     #[test]
     fn verify_batch_proofs_carries_the_update_through() {
-        let state = LedgerState::from_notes([note_of(&utxo())], &config());
+        let state = LedgerState::from_notes([note()], &config());
         let utxos_root = state.latest_note_sets().eligible_root();
         let update = PreparedUpdate::new(
             ID,
@@ -83,7 +80,7 @@ mod tests {
     fn verify_batch_proofs_rejects_invalid_deferred_proof() {
         let update = PreparedUpdate::new(
             ID,
-            LedgerState::from_notes([note_of(&utxo())], &config()),
+            LedgerState::from_notes([note()], &config()),
             Events::new(),
             std::iter::once(invalid_zk_transfer()).collect(),
         );
@@ -94,14 +91,6 @@ mod tests {
     }
 
     fn header_event() -> Event {
-        // TODO(RFC-480): withdrawals release their outputs; the wallet reads
-        // SdpWithdrawalReleased.
-        // HeaderEvent::SdpNoteUnlocked {
-        //     note_id: utxo().id(),
-        //     service_type: ServiceType::BlendNetwork,
-        //     declaration_id: DeclarationId([2; 32]),
-        // }
-        // .into()
         HeaderEvent::SdpWithdrawalReleased {
             service_type: ServiceType::BlendNetwork,
             declaration_id: DeclarationId([2; 32]),
@@ -109,27 +98,6 @@ mod tests {
         }
         .into()
     }
-
-    // TODO(RFC-480): no Operation is proven by a ZkSignature since M5.
-    /*
-    fn valid_zk_sig() -> DeferredZkSig {
-        zk_sig(1, 1)
-    }
-
-    fn invalid_zk_sig() -> DeferredZkSig {
-        zk_sig(1, 2)
-    }
-
-    /// If `msg == msg_for_input`, a valid sig is produced.
-    /// Otherwise, an invalid sig is produced.
-    fn zk_sig(msg: u64, msg_for_input: u64) -> DeferredZkSig {
-        let key = ZkKey::from(BigUint::from(1u8));
-        let signature = ZkKey::multi_sign(std::slice::from_ref(&key), &Fr::from(msg)).unwrap();
-        let inputs =
-            public_inputs_from_pks(Fr::from(msg_for_input).into(), &[key.to_public_key()]).unwrap();
-        DeferredZkSig::new(*signature.as_proof(), inputs)
-    }
-    */
 
     fn zk_transfer(msg: Fr) -> DeferredZkTransfer {
         let mut data = lb_zktransfer::test_utils::sample_witness_data();

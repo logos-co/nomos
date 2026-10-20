@@ -50,9 +50,6 @@ pub fn apply_wallet_genesis_overrides(
         .iter()
         .map(|general| general.consensus_config.funding_pk)
         .collect::<Vec<_>>();
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // let mut transfer_op = genesis_block.genesis_tx().transfer().operation().clone();
     let mut transfer_op = genesis_block.genesis_tx().distribution();
     fund_wallets(
         &mut transfer_op,
@@ -134,10 +131,6 @@ mod tests {
         apply_wallet_config_to_deployment(&mut plan, &wallets);
 
         let genesis = plan.config().genesis_block.as_ref().unwrap();
-        // TODO(RFC-480): the genesis notes are the allocations the distribution
-        // publishes.
-        // let transfer = genesis.genesis_tx().transfer().operation();
-        // assert_eq!(transfer.outputs.len(), 254);
         let transfer = genesis.genesis_tx().distribution();
         assert_eq!(transfer.len(), 254);
         let declarations = genesis
@@ -151,13 +144,6 @@ mod tests {
             .collect::<Vec<_>>();
         for (i, node) in plan.nodes().iter().enumerate() {
             let consensus = &node.general.consensus_config;
-            // TODO(RFC-480): the genesis notes are the allocations the
-            // distribution publishes, the declaration spends the provider's.
-            // let outputs = transfer
-            //     .outputs
-            //     .iter()
-            //     .filter(|note| note.pk == consensus.funding_pk)
-            //     .collect::<Vec<_>>();
             let outputs = transfer
                 .iter()
                 .filter(|note| note.public_key == consensus.funding_pk)
@@ -167,11 +153,6 @@ mod tests {
                 outputs.iter().map(|note| note.value).sum::<u64>(),
                 funding.total_value_per_node
             );
-            // let blend_utxo = transfer
-            //     .utxo_by_index(consensus.blend_note.output_index)
-            //     .unwrap();
-            // assert_eq!(blend_utxo.note.pk, consensus.blend_note.pk);
-            // assert_eq!(declarations[i].service_note_id, blend_utxo.id());
             let blend_allocation = transfer[consensus.blend_note.output_index];
             assert_eq!(blend_allocation.public_key, consensus.blend_note.pk);
             assert_eq!(

@@ -2,11 +2,8 @@ use lb_binary_codec::canonical::codec_fixtures;
 
 use super::proof_values::{
     CHANNEL_INSCRIBE_PROOF, CHANNEL_INSCRIBE_PROOF_HEX, CHANNEL_MULTI_SIG, CHANNEL_MULTI_SIG_HEX,
-    ED25519_SIG, ED25519_SIG_HEX,
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // POC, POC_HEX,
-    ZK_AND_ED25519_SIGS, ZK_AND_ED25519_SIGS_HEX, ZK_TRANSFER, ZK_TRANSFER_HEX,
+    ED25519_SIG, ED25519_SIG_HEX, ZK_AND_ED25519_SIGS, ZK_AND_ED25519_SIGS_HEX, ZK_TRANSFER,
+    ZK_TRANSFER_HEX,
 };
 use crate::mantle::{OpProof, ops::NoOpProof};
 
@@ -17,9 +14,6 @@ codec_fixtures!(
     OpProof::ZkTransfer(*ZK_TRANSFER) => ZK_TRANSFER_HEX,
     OpProof::Ed25519Sig(*ED25519_SIG) => ED25519_SIG_HEX,
     OpProof::ZkAndEd25519Sigs(ZK_AND_ED25519_SIGS.clone()) => ZK_AND_ED25519_SIGS_HEX,
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // OpProof::PoC(POC.clone()) => POC_HEX,
     OpProof::ChannelMultiSigProof(CHANNEL_MULTI_SIG.clone()) => CHANNEL_MULTI_SIG_HEX,
     OpProof::ChannelInscribe(CHANNEL_INSCRIBE_PROOF.clone()) => CHANNEL_INSCRIBE_PROOF_HEX
 );

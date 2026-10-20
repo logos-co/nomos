@@ -5,9 +5,6 @@ pub mod config;
 pub mod cryptarchia;
 pub mod deployment;
 pub mod keys;
-// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-// block.
-// pub mod leader;
 pub mod lifecycle;
 pub(crate) mod memory;
 pub mod metrics;

@@ -1,34 +1,21 @@
 use std::fmt::{Debug, Formatter};
 
-// TODO(RFC-480): the PoL witness comes from the note sets.
-// use lb_core::{
-//     mantle::Utxo,
-//     proofs::leader_proof::{LeaderPrivate, LeaderPublic, check_winning},
-// };
 use lb_core::{
     mantle::Note,
     proofs::leader_proof::{LeaderPrivate, LeaderPublic, check_winning},
 };
 use lb_groth16::Fr;
-// TODO(RFC-480): the PoL witness comes from the note sets.
-// use lb_key_management_system_keys::keys::{
-//     Ed25519PublicKey, ZkKey, errors::KeyError, secured_key::SecureKeyOperator,
-// };
 use lb_key_management_system_keys::keys::{
     ZkKey, errors::KeyError, secured_key::SecureKeyOperator,
 };
 use lb_log_targets::kms;
 use lb_pol::PolWalletInputsData;
-// TODO(RFC-480): the PoL witness comes from the note sets.
-// use lb_utxotree::MerklePath;
 use tracing::debug;
 
 const LOG_TARGET: &str = kms::operators::ZK_LEADER;
 
 pub struct CheckLotteryWinning {
     result_channel: tokio::sync::oneshot::Sender<bool>,
-    // TODO(RFC-480): the PoL witness comes from the note sets.
-    // utxo: Utxo,
     note: Note,
     public_inputs: LeaderPublic,
 }
@@ -43,15 +30,11 @@ impl CheckLotteryWinning {
     #[must_use]
     pub const fn new(
         result_channel: tokio::sync::oneshot::Sender<bool>,
-        // TODO(RFC-480): the PoL witness comes from the note sets.
-        // utxo: Utxo,
         note: Note,
         public_inputs: LeaderPublic,
     ) -> Self {
         Self {
             result_channel,
-            // TODO(RFC-480): the PoL witness comes from the note sets.
-            // utxo,
             note,
             public_inputs,
         }
@@ -66,15 +49,11 @@ impl SecureKeyOperator for CheckLotteryWinning {
     async fn execute(self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error> {
         let Self {
             result_channel,
-            // TODO(RFC-480): the PoL witness comes from the note sets.
-            // utxo,
             note,
             public_inputs,
         } = *self;
         if result_channel
             .send(check_winning(
-                // TODO(RFC-480): the PoL witness comes from the note sets.
-                // utxo,
                 &note,
                 public_inputs,
                 &key.to_public_key(),
@@ -90,13 +69,7 @@ impl SecureKeyOperator for CheckLotteryWinning {
 
 pub struct BuildPrivateInputsWithLeaderKey {
     result_channel: tokio::sync::oneshot::Sender<LeaderPrivate>,
-    // TODO(RFC-480): the PoL witness comes from the note sets.
-    // utxo: Utxo,
     leader_public: LeaderPublic,
-    // TODO(RFC-480): the PoL witness comes from the note sets.
-    // aged_path: MerklePath<Fr>,
-    // latest_path: MerklePath<Fr>,
-    // leader_pk: Ed25519PublicKey,
     wallet: PolWalletInputsData,
     msg: Fr,
 }
@@ -111,25 +84,13 @@ impl BuildPrivateInputsWithLeaderKey {
     #[must_use]
     pub const fn new(
         result_channel: tokio::sync::oneshot::Sender<LeaderPrivate>,
-        // TODO(RFC-480): the PoL witness comes from the note sets.
-        // utxo: Utxo,
         leader_public: LeaderPublic,
-        // TODO(RFC-480): the PoL witness comes from the note sets.
-        // aged_path: MerklePath<Fr>,
-        // latest_path: MerklePath<Fr>,
-        // leader_pk: Ed25519PublicKey,
         wallet: PolWalletInputsData,
         msg: Fr,
     ) -> Self {
         Self {
             result_channel,
-            // TODO(RFC-480): the PoL witness comes from the note sets.
-            // utxo,
             leader_public,
-            // TODO(RFC-480): the PoL witness comes from the note sets.
-            // aged_path,
-            // latest_path,
-            // leader_pk,
             wallet,
             msg,
         }
@@ -142,25 +103,6 @@ impl SecureKeyOperator for BuildPrivateInputsWithLeaderKey {
     type Error = KeyError;
 
     async fn execute(self: Box<Self>, key: &Self::Key) -> Result<(), Self::Error> {
-        // TODO(RFC-480): the PoL witness comes from the note sets.
-        // let Self {
-        //     result_channel,
-        //     utxo,
-        //     leader_public,
-        //     aged_path,
-        //     latest_path,
-        //     leader_pk,
-        // } = *self;
-        // if result_channel
-        //     .send(LeaderPrivate::new(
-        //         leader_public,
-        //         utxo,
-        //         &aged_path,
-        //         &latest_path,
-        //         *key.as_fr(),
-        //         &leader_pk,
-        //     ))
-        //     .is_err()
         let Self {
             result_channel,
             leader_public,

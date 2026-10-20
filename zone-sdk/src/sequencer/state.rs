@@ -1,9 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use lb_common_http_client::Slot;
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// use lb_core::mantle::ledger::{Inputs, NoteId, Outputs};
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -31,13 +28,6 @@ fn inscription_signer(
     })
 }
 
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// use super::{
-//     block_fetch::channel_transfers,
-//     channel_wallet::{ChannelWallet, NoteOp},
-//     types::{AtomicWithdrawInfo, ChannelNote, ChannelWalletView, PinDepositInfo, WithdrawInfo},
-// };
 use super::{
     block_fetch::{channel_configs, channel_inscriptions, is_pure_config},
     block_states::{BlockChannelTx, BlockStates},
@@ -167,18 +157,6 @@ impl From<ParentTaken> for Error {
 pub enum PendingBundle {
     /// A plain inscription.
     Plain,
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// An atomic inscription+withdraw bundle: the tx's `Op::ChannelWithdraw`
-    // /// ops (in tx order) plus the recipient notes it releases (for re-issue
-    // /// from an orphan report).
-    // Withdraw {
-    //     withdraws: Vec<WithdrawInfo>,
-    //     outputs: Outputs,
-    // },
-    // /// An atomic inscription+transfer bundle pinning a deposit: the channel
-    // /// notes the bundled transfer consumes.
-    // PinDeposit(Inputs),
 }
 
 /// Local pending inscription with lineage metadata.
@@ -209,11 +187,6 @@ type PendingFundingRecord = (Option<MantleTxBuilder>, Option<Slot>);
 pub struct RefundCandidate {
     pub tx_hash: TxHash,
     pub pre_fund: MantleTxBuilder,
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// A bundle's transfer and withdraw ops need the sequencer's multi-sig
-    // /// proof; a plain inscription only its signature.
-    // pub bundle: bool,
 }
 
 impl PendingInscription {
@@ -250,10 +223,6 @@ pub struct TxState {
     /// Config tip last seen by the config-driven inscription shed; a change
     /// means a config landed (or the branch's config lineage diverged).
     observed_config_tip: MsgId,
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// The channel's note set: finalized base + per-block overlay.
-    // wallet: ChannelWallet,
 }
 
 impl TxState {
@@ -267,9 +236,6 @@ impl TxState {
             displaced_other: Vec::new(),
             pending_other: HashMap::new(),
             observed_config_tip: MsgId::root(),
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // wallet: ChannelWallet::default(),
             next_other_seq: 0,
         }
     }
@@ -302,9 +268,6 @@ impl TxState {
     }
 
     /// Submit an inscription tx for tracking with lineage metadata.
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// Use [`Self::submit_atomic_withdraw`] for inscription+withdraw bundles.
     pub fn submit_inscription(
         &mut self,
         signed_tx: SignedOps<Unverified, StandardMode>,
@@ -320,49 +283,6 @@ impl TxState {
             PendingBundle::Plain,
         )
     }
-
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// Submit an atomic inscription+withdraw bundle for tracking. `withdraws`
-    // /// must mirror the `Op::ChannelWithdraw` ops in the bundle, in tx order;
-    // /// `outputs` are the recipient notes it releases (for orphan re-issue).
-    // pub fn submit_atomic_withdraw(
-    //     &mut self,
-    //     signed_tx: SignedOps<Unverified, StandardMode>,
-    //     parent_msg: MsgId,
-    //     this_msg: MsgId,
-    //     payload: Inscription,
-    //     withdraws: Vec<WithdrawInfo>,
-    //     outputs: Outputs,
-    // ) -> Result<(), ParentTaken> {
-    //     self.insert_pending(
-    //         signed_tx,
-    //         parent_msg,
-    //         this_msg,
-    //         payload,
-    //         PendingBundle::Withdraw { withdraws, outputs },
-    //     )
-    // }
-    //
-    // /// Submit an atomic inscription+transfer bundle pinning a deposit.
-    // /// `consumed_notes` mirrors the bundled transfer's input notes (the
-    // /// deposited notes being pinned).
-    // pub fn submit_pin_deposit(
-    //     &mut self,
-    //     signed_tx: SignedOps<Unverified, StandardMode>,
-    //     parent_msg: MsgId,
-    //     this_msg: MsgId,
-    //     payload: Inscription,
-    //     consumed_notes: Inputs,
-    // ) -> Result<(), ParentTaken> {
-    //     self.insert_pending(
-    //         signed_tx,
-    //         parent_msg,
-    //         this_msg,
-    //         payload,
-    //         PendingBundle::PinDeposit(consumed_notes),
-    //     )
-    // }
 
     fn insert_pending(
         &mut self,
@@ -533,9 +453,6 @@ impl TxState {
                 p.pre_fund.clone().map(|pre_fund| RefundCandidate {
                     tx_hash: *hash,
                     pre_fund,
-                    // TODO(RFC-480): channel notes are private and move by
-                    // steps; the bridge is rebuilt on ChannelStep.
-                    // bundle: !matches!(p.bundle, PendingBundle::Plain),
                 })
             })
             .collect();
@@ -625,13 +542,6 @@ impl TxState {
         entry.posted = false;
         entry.pre_fund = Some(pre_fund);
         entry.funded_at = Some(funded_at);
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // if let PendingBundle::Withdraw { withdraws, .. } = &mut entry.bundle {
-        //     for withdraw in withdraws {
-        //         withdraw.tx_hash = new_hash;
-        //     }
-        // }
         self.pending_by_parent.insert(entry.parent_msg, new_hash);
         self.pending.insert(new_hash, entry);
         Some(new_hash)
@@ -731,21 +641,6 @@ impl TxState {
         let pending = self.pending.get(tx_hash)?;
         let info = pending.info();
         Some(match &pending.bundle {
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // PendingBundle::Withdraw { withdraws, outputs } => {
-            //     PendingTx::AtomicWithdraw(AtomicWithdrawInfo {
-            //         tx_hash: pending.tx_hash,
-            //         inscription: info,
-            //         withdraws: withdraws.clone(),
-            //         outputs: outputs.clone(),
-            //     })
-            // }
-            // PendingBundle::PinDeposit(consumed_notes) => PendingTx::PinDeposit(PinDepositInfo {
-            //     tx_hash: pending.tx_hash,
-            //     inscription: info,
-            //     consumed_notes: consumed_notes.clone(),
-            // }),
             PendingBundle::Plain => PendingTx::Inscription(info),
         })
     }
@@ -872,13 +767,9 @@ impl TxState {
         lib: HeaderId,
         our_txs: impl IntoIterator<Item = TxHash>,
         channel_txs: Vec<BlockChannelTx>,
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // note_ops: Vec<NoteOp>,
     ) {
         self.blocks
             .insert(block_id, parent_id, our_txs, channel_txs);
-        // self.wallet.store_overlay(block_id, note_ops);
 
         // When lib advances: update finalized_msg and prune.
         // NOTE: we do NOT remove pending txs here. Pending txs are only
@@ -888,14 +779,6 @@ impl TxState {
         // as proof of canonical finalization — it can include blocks
         // from orphaned branches in concurrent scenarios.
         if lib != self.blocks.lib() {
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // let pruned = self.blocks.advance_lib(lib, |hash| {
-            //     self.pending.contains_key(hash) || self.pending_other.contains_key(hash)
-            // });
-            // for block in pruned {
-            //     self.wallet.prune_block(&block);
-            // }
             self.blocks.advance_lib(lib, |hash| {
                 self.pending.contains_key(hash) || self.pending_other.contains_key(hash)
             });
@@ -996,13 +879,6 @@ impl TxState {
     /// consumer that iterates and republishes naturally rebuilds the chain
     /// in dependency order. Inscriptions are returned as
     /// [`PendingTx::Inscription`].
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // ///
-    // /// Bundle-aware: atomic inscription+withdraw bundles are returned as
-    // /// [`PendingTx::AtomicWithdraw`] so the caller can re-prepare them with
-    // /// a fresh `parent_msg`; plain inscriptions are returned
-    // /// as [`PendingTx::Inscription`].
     pub fn shed_off_branch_pending(&mut self, tip: HeaderId) -> Vec<PendingTx> {
         let mut shed = std::mem::take(&mut self.displaced);
         if self.pending.is_empty() {
@@ -1075,87 +951,6 @@ impl TxState {
         }
         ordered
     }
-
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// Pending bundles chaining from `tip`'s channel tip that are not mined
-    // /// on its branch, in lineage order.
-    // fn unmined_bundles_in_suffix(
-    //     &self,
-    //     tip: HeaderId,
-    // ) -> Vec<(InscriptionInfo, &PendingInscription)> {
-    //     let safe = self.blocks.safe_at(tip);
-    //     self.collect_pending_suffix(self.channel_tip_at(tip))
-    //         .into_iter()
-    //         .filter(|info| !safe.contains(&info.tx_hash))
-    //         .filter_map(|info| self.pending.get(&info.tx_hash).map(|p| (info, p)))
-    //         .filter(|(_, p)| !matches!(p.bundle, PendingBundle::Plain))
-    //         .collect()
-    // }
-    //
-    // /// Notes a new bundle may spend at `tip`: the branch view minus what
-    // /// un-mined pending bundles already consume. Their outputs are not
-    // /// offered.
-    // #[must_use]
-    // pub fn spendable_wallet_view(
-    //     &self,
-    //     tip: Option<HeaderId>,
-    //     channel_id: ChannelId,
-    // ) -> ChannelWalletView {
-    //     let mut view = self.channel_wallet_view(tip);
-    //     let Some(tip) = tip else {
-    //         return view;
-    //     };
-    //     let reserved: HashSet<NoteId> = self
-    //         .unmined_bundles_in_suffix(tip)
-    //         .into_iter()
-    //         .flat_map(|(_, p)| channel_transfers(&p.signed_tx, channel_id))
-    //         .flat_map(|t| t.inputs.iter().copied())
-    //         .collect();
-    //     view.finalized.retain(|n| !reserved.contains(&n.note_id));
-    //     view.unfinalized.retain(|n| !reserved.contains(&n.note_id));
-    //     view
-    // }
-    //
-    // /// Shed pending bundles whose transfer inputs are gone from this branch
-    // /// (e.g. their deposit reorged out) — they can never land — together with
-    // /// every pending entry chaining on them, parent first, as typed
-    // /// [`PendingTx`].
-    // pub fn shed_bundles_with_missing_inputs(
-    //     &mut self,
-    //     tip: HeaderId,
-    //     channel_id: ChannelId,
-    // ) -> Vec<PendingTx> {
-    //     if self.pending.is_empty() {
-    //         return Vec::new();
-    //     }
-    //     let view = self.channel_wallet_view(Some(tip));
-    //     let mut available: HashSet<NoteId> = view
-    //         .finalized
-    //         .iter()
-    //         .chain(view.unfinalized.iter())
-    //         .map(|n| n.note_id)
-    //         .collect();
-    //     let mut shed: HashSet<TxHash> = HashSet::new();
-    //     for (info, pending) in self.unmined_bundles_in_suffix(tip) {
-    //         let transfers: Vec<_> = channel_transfers(&pending.signed_tx, channel_id).collect();
-    //         if transfers
-    //             .iter()
-    //             .all(|t| t.inputs.iter().all(|id| available.contains(id)))
-    //         {
-    //             available.extend(transfers.iter().flat_map(|t| t.utxos().map(|u| u.id())));
-    //         } else {
-    //             // A bundle that cannot land takes everything chained on it.
-    //             shed.insert(info.tx_hash);
-    //             shed.extend(
-    //                 self.collect_pending_suffix(info.this_msg)
-    //                     .iter()
-    //                     .map(|child| child.tx_hash),
-    //             );
-    //         }
-    //     }
-    //     self.drain_pending_in_lineage_order(&shed)
-    // }
 
     /// On a config-tip change, shed the pending entries **not on this branch's
     /// tip** (not in the safe set) — the not-yet-mined tail a config may have
@@ -1547,12 +1342,6 @@ impl TxState {
     fn to_update_tx(&self, info: &InscriptionInfo) -> Option<ChannelUpdateTx> {
         if let Some((signed_txs, block_tx)) = self.blocks.channel_tx(info.tx_hash) {
             return match block_tx {
-                // TODO(RFC-480): channel notes are private and move by steps;
-                // the bridge is rebuilt on ChannelStep.
-                // BlockChannelTx::AtomicWithdraw(a) => {
-                //     Some(ChannelUpdateTx::AtomicWithdraw(a.clone()))
-                // }
-                // BlockChannelTx::PinDeposit(a) => Some(ChannelUpdateTx::PinDeposit(a.clone())),
                 BlockChannelTx::Inscription(_) => Some(ChannelUpdateTx::Inscription(info.clone())),
                 BlockChannelTx::Config(_) => signed_txs
                     .iter()
@@ -1578,64 +1367,8 @@ impl TxState {
                 ChannelUpdateTx::Custom(tx)
             });
         }
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // match self.pending.get(&info.tx_hash).map(|p| &p.bundle) {
-        //     Some(PendingBundle::Withdraw { withdraws, outputs }) => {
-        //         Some(ChannelUpdateTx::AtomicWithdraw(AtomicWithdrawInfo {
-        //             tx_hash: info.tx_hash,
-        //             inscription: info.clone(),
-        //             withdraws: withdraws.clone(),
-        //             outputs: outputs.clone(),
-        //         }))
-        //     }
-        //     Some(PendingBundle::PinDeposit(consumed_notes)) => {
-        //         Some(ChannelUpdateTx::PinDeposit(PinDepositInfo {
-        //             tx_hash: info.tx_hash,
-        //             inscription: info.clone(),
-        //             consumed_notes: consumed_notes.clone(),
-        //         }))
-        //     }
-        //     Some(PendingBundle::Plain) | None => Some(ChannelUpdateTx::Inscription(info.clone())),
-        // }
         Some(ChannelUpdateTx::Inscription(info.clone()))
     }
-
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// Apply channel-note ops from finalized blocks to the wallet base set.
-    // pub fn apply_finalized_note_ops(&mut self, ops: Vec<NoteOp>) {
-    //     self.wallet.apply_finalized(ops);
-    // }
-    //
-    // /// The channel's note set at `tip` (or the finalized base only when no
-    // /// tip is known yet). The overlay walk excludes the LIB block: blocks at
-    // /// and below LIB reach the base via the finalized-backfill path.
-    // #[must_use]
-    // pub fn channel_wallet_view(&self, tip: Option<HeaderId>) -> ChannelWalletView {
-    //     let blocks = tip
-    //         .map(|tip| self.blocks.branch_blocks_above_lib(tip))
-    //         .unwrap_or_default();
-    //     self.wallet.view(blocks.iter())
-    // }
-    //
-    // /// Look up a tracked channel note by id (see
-    // /// [`ChannelWallet::find_note`](super::channel_wallet::ChannelWallet::find_note)).
-    // #[must_use]
-    // pub fn find_channel_note(&self, id: &NoteId) -> Option<&ChannelNote> {
-    //     self.wallet.find_note(id)
-    // }
-    //
-    // /// Export the finalized channel-note base for checkpointing.
-    // #[must_use]
-    // pub fn channel_notes_base(&self) -> Vec<ChannelNote> {
-    //     self.wallet.export_base()
-    // }
-    //
-    // /// Restore the finalized channel-note base from a checkpoint.
-    // pub fn restore_channel_notes(&mut self, notes: Vec<ChannelNote>) {
-    //     self.wallet.restore_base(notes);
-    // }
 
     /// Signed channel txs on `tip`'s branch strictly above LIB (finalized never
     /// returns to pending) that pending lacks; empty in steady state.
@@ -1874,87 +1607,6 @@ mod tests {
         assert!(state.pending_txs(b2).iter().any(|(h, _)| *h == hash));
     }
 
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // fn wallet_note(seed: u64, value: u64) -> NoteOp {
-    //     NoteOp::Add(ChannelNote {
-    //         note_id: NoteId::from(lb_groth16::Fr::from(seed)),
-    //         value,
-    //         pk: lb_groth16::Fr::from(seed).into(),
-    //         slot: Slot::from(1),
-    //     })
-    // }
-    //
-    // fn wallet_note_id(seed: u64) -> NoteId {
-    //     NoteId::from(lb_groth16::Fr::from(seed))
-    // }
-    //
-    // #[test]
-    // fn wallet_view_follows_branch() {
-    //     // G <- a1 (adds n1)
-    //     //   <- b1 (adds n2)
-    //     let genesis = header_id(0);
-    //     let a1 = header_id(1);
-    //     let b1 = header_id(2);
-    //     let mut state = TxState::new(genesis, MsgId::root());
-    //
-    //     state.process_block(
-    //         a1,
-    //         genesis,
-    //         genesis,
-    //         vec![],
-    //         vec![],
-    //         vec![wallet_note(1, 10)],
-    //     );
-    //     state.process_block(
-    //         b1,
-    //         genesis,
-    //         genesis,
-    //         vec![],
-    //         vec![],
-    //         vec![wallet_note(2, 20)],
-    //     );
-    //
-    //     let at_a = state.channel_wallet_view(Some(a1));
-    //     assert_eq!(at_a.unfinalized.len(), 1);
-    //     assert_eq!(at_a.unfinalized[0].note_id, wallet_note_id(1));
-    //
-    //     let at_b = state.channel_wallet_view(Some(b1));
-    //     assert_eq!(at_b.unfinalized.len(), 1);
-    //     assert_eq!(at_b.unfinalized[0].note_id, wallet_note_id(2));
-    // }
-    //
-    // #[test]
-    // fn wallet_lib_advance_excludes_folded_overlay() {
-    //     // G <- a1 (adds n1) <- a2; LIB advances to a1. The finalized-backfill
-    //     // path applies a1's ops to the base; the branch walk from a2 must
-    //     // exclude a1's overlay entry so the note is not double-counted.
-    //     let genesis = header_id(0);
-    //     let a1 = header_id(1);
-    //     let a2 = header_id(2);
-    //     let mut state = TxState::new(genesis, MsgId::root());
-    //
-    //     state.process_block(
-    //         a1,
-    //         genesis,
-    //         genesis,
-    //         vec![],
-    //         vec![],
-    //         vec![wallet_note(1, 10)],
-    //     );
-    //     // What `fetch_and_process_blocks` does when a1's range finalizes:
-    //     state.apply_finalized_note_ops(vec![wallet_note(1, 10)]);
-    //     state.process_block(a2, a1, a1, vec![], vec![], Vec::new());
-    //
-    //     let view = state.channel_wallet_view(Some(a2));
-    //     assert_eq!(view.finalized.len(), 1);
-    //     assert_eq!(view.finalized[0].note_id, wallet_note_id(1));
-    //     assert!(
-    //         view.unfinalized.is_empty(),
-    //         "a1's overlay entry must not double-count the finalized note"
-    //     );
-    // }
-
     /// Build an `[inscribe(parent), config(root)]` bundle tx for the zero
     /// channel.
     fn bundle_tx(parent: MsgId, data: u8) -> (SignedOps<Unverified, StandardMode>, MsgId, MsgId) {
@@ -1989,9 +1641,6 @@ mod tests {
             posting_timeframe: SlotTimeframe::from(0u32),
             posting_timeout: SlotTimeout::from(0u32),
             configuration_threshold: 1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // transfer_threshold: 1,
         };
         let inscribe_msg = inscribe.id();
         let config_msg = config.id();
@@ -2023,54 +1672,6 @@ mod tests {
             "next publish must chain after the pending bundle"
         );
     }
-
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // #[test]
-    // fn wallet_prunes_orphaned_branch_entries() {
-    //     // G <- a1 <- a2 (lib advances to a1); b1 forks from G with a note.
-    //     // After the lib advance b1 is pruned, so its note is unreachable
-    //     // even if a stale tip were queried.
-    //     let genesis = header_id(0);
-    //     let a1 = header_id(1);
-    //     let b1 = header_id(2);
-    //     let a2 = header_id(3);
-    //     let mut state = TxState::new(genesis, MsgId::root());
-    //
-    //     state.process_block(a1, genesis, genesis, vec![], vec![], Vec::new());
-    //     state.process_block(
-    //         b1,
-    //         genesis,
-    //         genesis,
-    //         vec![],
-    //         vec![],
-    //         vec![wallet_note(2, 20)],
-    //     );
-    //     state.process_block(a2, a1, a1, vec![], vec![], Vec::new());
-    //
-    //     let view = state.channel_wallet_view(Some(b1));
-    //     assert!(view.unfinalized.is_empty(), "orphaned branch entry pruned");
-    // }
-    //
-    // #[test]
-    // fn wallet_checkpoint_roundtrip() {
-    //     let genesis = header_id(0);
-    //     let mut state = TxState::new(genesis, MsgId::root());
-    //     state.apply_finalized_note_ops(vec![wallet_note(1, 10), wallet_note(2, 20)]);
-    //
-    //     let mut exported = state.channel_notes_base();
-    //     exported.sort_by_key(|n| n.note_id);
-    //
-    //     let mut restored = TxState::new(genesis, MsgId::root());
-    //     restored.restore_channel_notes(exported.clone());
-    //     let mut base = restored.channel_notes_base();
-    //     base.sort_by_key(|n| n.note_id);
-    //     assert_eq!(exported, base);
-    //
-    //     let view = restored.channel_wallet_view(None);
-    //     assert_eq!(view.finalized.len(), 2);
-    //     assert_eq!(view.unfinalized, []);
-    // }
 
     #[test]
     fn pending_txs_orders_chained_bundles_parent_before_child() {
@@ -2179,9 +1780,6 @@ mod tests {
             posting_timeframe: SlotTimeframe::from(0u32),
             posting_timeout: SlotTimeout::from(0u32),
             configuration_threshold: 1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // transfer_threshold: 1,
         };
         let ops = Ops::from([Op::ChannelConfig(config)]);
         let config_tx = SignedOps::from_ops_with_sample_proofs(ops);
@@ -2238,9 +1836,6 @@ mod tests {
             vec![funded],
             "only the entry with pre-funding ops is rebuilt"
         );
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // assert!(!candidates[0].bundle);
         let (shed, shed_other) = state.shed_expired(tip, Slot::from(14), 3);
         assert_eq!(
             shed.iter().map(PendingTx::tx_hash).collect::<Vec<_>>(),
@@ -2499,9 +2094,6 @@ mod tests {
             posting_timeframe: SlotTimeframe::from(0u32),
             posting_timeout: SlotTimeout::from(0u32),
             configuration_threshold: 1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // transfer_threshold: 1,
         }
     }
 
@@ -2704,9 +2296,6 @@ mod tests {
             posting_timeframe: SlotTimeframe::from(data),
             posting_timeout: SlotTimeout::from(0u32),
             configuration_threshold: 1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // transfer_threshold: 1,
         };
         let config_msg = config.id();
         let tx = SignedOps::from_ops_with_sample_proofs(Ops::from([Op::ChannelConfig(config)]));

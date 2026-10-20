@@ -14,8 +14,6 @@ futures          = { workspace = true }
 lb-api-service   = { workspace = true }
 lb-blend-service = { workspace = true }
 lb-c-macros      = { workspace = true }
-# TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the block.
-# lb-chain-leader-service       = { workspace = true }
 lb-chain-service              = { workspace = true }
 lb-core                       = { workspace = true }
 lb-groth16                    = { workspace = true }

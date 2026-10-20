@@ -347,15 +347,6 @@ mod test {
                 Quota::ZERO,
             );
 
-        // TODO(RFC-480): depth 32 UTXO tree witness
-        // let new_private_inputs = ProofOfLeadershipQuotaInputs {
-        //     aged_path_and_selectors: [(ZkHash::ONE, true); _],
-        //     note_value: 2,
-        //     output_number: 2,
-        //     slot: 2,
-        //     secret_key: ZkHash::ONE,
-        //     transaction_hash: ZkHash::ONE,
-        // };
         let new_private_inputs = ProofOfLeadershipQuotaInputs {
             slot: 2,
             note_value: 2,

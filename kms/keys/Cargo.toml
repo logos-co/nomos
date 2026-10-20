@@ -27,8 +27,6 @@ lb-key-management-system-macros = { workspace = true }
 lb-log-targets                  = { workspace = true }
 lb-poseidon2                    = { workspace = true }
 lb-utils                        = { workspace = true }
-# TODO(RFC-480): the ZkSignature circuit is retired.
-# lb-zksign                       = { workspace = true }
 lb-zktransfer                   = { workspace = true }
 num-bigint                     = { workspace = true }
 rand_core                       = { workspace = true }

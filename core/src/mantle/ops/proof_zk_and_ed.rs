@@ -6,23 +6,12 @@ use crate::mantle::ops::ZkTransferProof;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, BinaryCodec)]
 pub struct ZkAndEd25519Proof {
-    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-    // pub zk_sig: ZkSignature,
     // ZkTransferAndEd25519SigProof = ZkTransfer Ed25519Signature
     pub zk_proof: ZkTransferProof,
     pub ed25519_sig: Ed25519Signature,
 }
 
 impl ZkAndEd25519Proof {
-    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-    // #[must_use]
-    // pub const fn new(zk_sig: ZkSignature, ed25519_sig: Ed25519Signature) -> Self {
-    //     Self {
-    //         zk_sig,
-    //         ed25519_sig,
-    //     }
-    // }
-
     #[must_use]
     pub const fn new(zk_proof: ZkTransferProof, ed25519_sig: Ed25519Signature) -> Self {
         Self {

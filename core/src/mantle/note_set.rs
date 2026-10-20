@@ -325,10 +325,8 @@ impl NoteSet {
     fn record_cm_root(mut self, block: BlockNumber) -> Self {
         let previous = self.committed_root;
         if let Some((mmr, _)) = self.recent_cm_roots.get(&previous).cloned() {
-            // TODO(RFC-480): the empty seed root is current before block 0, so a root is
+            // The empty seed root is current before block 0, so a root is
             // stored with the block that superseded it.
-            // self.recent_cm_roots
-            //     .insert_mut(previous, (mmr, block.saturating_sub(1)));
             self.recent_cm_roots.insert_mut(previous, (mmr, block));
         }
         self.committed_root = self.cm_root();

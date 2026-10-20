@@ -15,8 +15,6 @@
 //! [Storage Markets]: https://github.com/logos-co/logos-lips/blob/38916aa474164ac4acd81e62d19715e17626be17/docs/blockchain/raw/storage-markets.md
 //! [Gas Cost Determination]: https://github.com/logos-co/logos-lips/blob/035c01f78728d8bba23d89c798fb9fa640870126/docs/blockchain/raw/analysis-gas-cost-determination.md
 
-// TODO(RFC-480): UTXO test wallet.
-// use std::collections::{HashMap, HashSet};
 use std::collections::{HashMap, HashSet};
 
 use lb_binary_codec::canonical::BinaryEncode as _;
@@ -24,9 +22,6 @@ use lb_common_http_client::ApiBlock;
 use lb_core::{
     crypto::ZkHasher,
     mantle::{
-        // TODO(RFC-480): UTXO test wallet.
-        // Note, SignedOps, Utxo,
-        // gas::{MainnetGasProfile, TxGasCalculator as _},
         Note,
         OpProof,
         SignedOps,
@@ -35,14 +30,6 @@ use lb_core::{
         note_set::LEDGER_SET,
         notes::derive_note_nf,
         ops::{OpRef, ZkTransferProof, transfer::prove_transfer},
-        // TODO(RFC-480): UTXO test wallet.
-        // traits::Hashable as _,
-        // transactions::{
-        //     GasPrices, MantleTxBuilder,
-        //     codec::minimum_signed_transaction_size,
-        //     states::{Preverified, VerificationState},
-        //     tx_list::ops::{OpsContext, OpsGasContext},
-        // },
         traits::Hashable as _,
         transactions::{
             GasPrices, MantleTxBuilder, OpProofs,
@@ -53,10 +40,6 @@ use lb_core::{
         },
     },
 };
-// TODO(RFC-480): UTXO test wallet.
-// use lb_testing_framework::configs::wallet::WalletAccount;
-//
-// use crate::common::wallet::transfer_proofs_for_funded_wallet_tx;
 use lb_testing_framework::configs::wallet::WalletAccount;
 use lb_wallet::{KnownNote, KnownNotes, WalletState};
 
@@ -155,108 +138,6 @@ pub fn spec_block_execution_gas(block: &ApiBlock) -> Result<u64, String> {
 
     Ok(total)
 }
-
-// TODO(RFC-480): UTXO test wallet.
-/*
-/// Builds a signed self-transfer paying its mandatory fee plus `tip`.
-///
-/// A negative `tip` deliberately underfunds it. Spends the account's genesis
-/// note. The fee is recomputed until stable because the encoded size, and
-/// with it the storage fee, depends on the output value.
-///
-/// # Panics
-///
-/// Panics on broken test setup, e.g. the account owns no genesis note.
-#[must_use]
-pub fn self_transfer_paying_fee_at(
-    genesis_utxos: &[Utxo],
-    account: &WalletAccount,
-    prices: &GasPrices,
-    tip: i128,
-) -> SignedOps<Preverified, StandardMode> {
-    const MAX_FEE_CONVERGENCE_ATTEMPTS: usize = 32;
-
-    let utxo = genesis_utxos
-        .iter()
-        .find(|utxo| utxo.note.pk == account.public_key())
-        .copied()
-        .expect("account should own a genesis note");
-
-    let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
-    let context = OpsContext {
-        gas_context,
-        leader_reward_amount: 0,
-    };
-
-    let builder_with_output = |output_value: u64| {
-        MantleTxBuilder::new()
-            .add_ledger_input(utxo)
-            .expect("input should fit")
-            .add_ledger_output(Note::new(output_value, account.public_key()))
-            .expect("output should fit")
-    };
-
-    let fee_for_output = |output_value: u64| {
-        i128::from(
-            builder_with_output(output_value)
-                .minimum_gas_cost::<MainnetGasProfile>(&context)
-                .expect("gas cost should calculate")
-                .into_inner(),
-        )
-    };
-
-    let output_for_fee = |fee: i128| {
-        u64::try_from(i128::from(utxo.note.value) - fee - tip)
-            .expect("output value should be positive")
-    };
-
-    // The fee depends on the encoded size, which depends on the output value,
-    // which depends on the fee - so recompute until the fee stops changing.
-    let mut fee = fee_for_output(utxo.note.value);
-    let mut seen_fees = HashSet::new();
-    let mut converged = false;
-
-    for _ in 0..MAX_FEE_CONVERGENCE_ATTEMPTS {
-        assert!(
-            seen_fees.insert(fee),
-            "fee calculation oscillated at repeated fee {fee}"
-        );
-
-        let recomputed = fee_for_output(output_for_fee(fee));
-
-        if recomputed == fee {
-            converged = true;
-            break;
-        }
-        fee = recomputed;
-    }
-
-    assert!(
-        converged,
-        "fee calculation did not converge after {MAX_FEE_CONVERGENCE_ATTEMPTS} attempts; last \
-         fee was {fee}"
-    );
-
-    let builder = builder_with_output(output_for_fee(fee));
-
-    assert_eq!(
-        builder
-            .funding_delta::<MainnetGasProfile>(&context)
-            .expect("funding delta should calculate"),
-        tip,
-        "the built transaction must carry exactly the requested tip"
-    );
-
-    let mantle_tx = builder.build().expect("transaction should build");
-    let op_proofs = transfer_proofs_for_funded_wallet_tx(&mantle_tx, &account.secret_key)
-        .expect("transfer proofs should build");
-
-    SignedOps::from_parts(mantle_tx, op_proofs)
-        .expect("signed transaction should build")
-        .preverify()
-        .expect("signed transaction should be valid")
-}
-*/
 
 /// Builds a signed self-transfer paying its mandatory fee plus `tip`.
 ///
@@ -394,9 +275,6 @@ pub fn check_size_prediction<State: VerificationState, Mode: VerificationMode>(
     tx: &SignedOps<State, Mode>,
     prices: &GasPrices,
 ) -> Result<(), String> {
-    // TODO(RFC-480): transfer_threshold is removed, holders withdraw their own
-    // channel notes.
-    // let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
     let gas_context = OpsGasContext::new(HashMap::new(), prices.clone());
     let predicted = minimum_signed_transaction_size(&tx.op_refs(), &gas_context) as u64;
     let actual = tx.encode().len() as u64;
@@ -408,65 +286,6 @@ pub fn check_size_prediction<State: VerificationState, Mode: VerificationMode>(
         ))
     }
 }
-
-// TODO(RFC-480): UTXO test wallet.
-/*
-/// Net balance (inputs minus outputs) of a transaction - the amount it
-/// burns. Inputs are valued against the genesis UTXO set.
-///
-/// # Errors
-///
-/// Errors on inputs that are not genesis notes; the fee scenarios only spend
-/// genesis notes.
-pub fn net_balance_against<State: VerificationState, Mode: VerificationMode>(
-    genesis_utxos: &[Utxo],
-    tx: &SignedOps<State, Mode>,
-) -> Result<u64, String> {
-    let mut input_sum = 0u64;
-    let mut output_sum = 0u64;
-    for op in tx.op_refs() {
-        if let OpRef::Transfer(transfer) = op {
-            for input in transfer.inputs.iter() {
-                let utxo = genesis_utxos
-                    .iter()
-                    .find(|utxo| utxo.id() == *input)
-                    .ok_or_else(|| {
-                        format!("transaction {:?} spends a non-genesis note", tx.hash())
-                    })?;
-                input_sum += utxo.note.value;
-            }
-            for note in transfer.outputs.iter() {
-                output_sum += note.value;
-            }
-        }
-    }
-    Ok(input_sum - output_sum)
-}
-
-/// Surplus balance left after charging a transaction at `prices`.
-///
-/// A non-negative value means the transaction remains funded; the surplus is
-/// its effective tip at those prices.
-///
-/// # Errors
-///
-/// Returns an error when the transaction's balance or gas cost cannot be
-/// calculated.
-pub fn fee_surplus_at<State: VerificationState, Mode: VerificationMode>(
-    genesis_utxos: &[Utxo],
-    tx: &SignedOps<State, Mode>,
-    prices: &GasPrices,
-) -> Result<i128, String> {
-    let paid = net_balance_against(genesis_utxos, tx)?;
-    let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), prices.clone());
-    let required = tx
-        .op_refs()
-        .total_gas_cost::<MainnetGasProfile>(&gas_context)
-        .map_err(|source| format!("transaction gas cost calculation failed: {source}"))?;
-
-    Ok(i128::from(paid) - i128::from(required.into_inner()))
-}
-*/
 
 /// Net balance of a transaction, the amount it burns: the excess of each
 /// Transfer is its inputs minus its outputs.

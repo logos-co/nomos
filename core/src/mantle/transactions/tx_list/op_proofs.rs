@@ -46,18 +46,12 @@ impl OpProofs {
                 op_proof::samples::SampleProof as _,
             },
             proofs::channel_multi_sig_proof::ChannelMultiSigProof,
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // proofs::leader_claim_proof::Groth16LeaderClaimProof,
         };
 
         Self::from([
             OpProof::Ed25519Sig(Ed25519Signature::sample()),
             OpProof::ZkTransfer(ZkTransferProof::sample()),
             OpProof::ZkAndEd25519Sigs(ZkAndEd25519Proof::sample()),
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // OpProof::PoC(Groth16LeaderClaimProof::sample()),
             OpProof::ChannelMultiSigProof(ChannelMultiSigProof::sample()),
             OpProof::None(NoOpProof::sample()),
             OpProof::ChannelInscribe(ChannelInscribeProof::sample()),

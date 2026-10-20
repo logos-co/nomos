@@ -30,9 +30,6 @@ use lb_log_targets::zone_sdk;
 use reqwest::Url;
 use tracing::warn;
 
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// use crate::{Deposit, Withdraw, ZoneBlock, ZoneMessage};
 use crate::{Deposit, ZoneBlock, ZoneMessage};
 
 const TARGET: &str = zone_sdk::ADAPTER;
@@ -244,16 +241,6 @@ pub(crate) struct DepositOpKey {
     pub op_id: Hash,
 }
 
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// /// A deposit's block-event payload: the deposited total and the channel
-// /// notes the deposit re-created.
-// #[derive(Debug, Clone)]
-// pub(crate) struct DepositEvent {
-//     pub amount: Value,
-//     pub notes: DepositRecreatedNotes,
-// }
-
 /// Per-block lookup of deposit event payloads by op identity.
 pub(crate) type DepositEvents = HashMap<DepositOpKey, TxEventPayload>;
 
@@ -353,18 +340,6 @@ fn op_to_zone_message(
                         );
                         None
                     },
-                    // TODO(RFC-480): channel notes are private and move by
-                    // steps; the bridge is rebuilt on ChannelStep.
-                    // |event| {
-                    //     Some(ZoneMessage::Deposit(Deposit {
-                    //         tx_hash,
-                    //         op_id,
-                    //         inputs: deposit.inputs.clone(),
-                    //         notes: event.notes.clone(),
-                    //         amount: event.amount,
-                    //         metadata: deposit.metadata.clone(),
-                    //     }))
-                    // },
                     |event| {
                         Some(ZoneMessage::Deposit(deposit_message(
                             tx_hash, deposit, event,
@@ -372,31 +347,12 @@ fn op_to_zone_message(
                     },
                 )
         }
-        // TODO(RFC-480): channel notes are private and move by steps; the
-        // bridge is rebuilt on ChannelStep.
-        // OpRef::ChannelWithdraw(withdraw) if withdraw.channel_id == channel_id => {
-        //     Some(ZoneMessage::Withdraw(Withdraw {
-        //         tx_hash,
-        //         op_id: withdraw.op_id(),
-        //         inputs: withdraw.inputs.clone(),
-        //     }))
-        // }
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // use lb_core::mantle::{
-    //     NoteId, Op,
-    //     ledger::BoundedInputs,
-    //     ops::channel::{
-    //         deposit::{DepositOp, Metadata},
-    //         withdraw::ChannelWithdrawOp,
-    //     },
-    // };
     use lb_core::mantle::{
         Op,
         notes::{NoteCm, NoteNf, OutputCms},
@@ -410,9 +366,6 @@ mod tests {
     fn deposit_op(channel_id: ChannelId, input_seed: u32, metadata: Metadata) -> DepositOp {
         DepositOp {
             channel_id,
-            // TODO(RFC-480): a deposit consumes ledger nullifiers and creates
-            // channel commitments.
-            // inputs: BoundedInputs::from(NoteId::from(Fr::from(input_seed))).into(),
             inputs: [NoteNf(Fr::from(input_seed))].into(),
             cm_merkle_root: Fr::from(0u64),
             outputs: [NoteCm(Fr::from(input_seed))].into(),
@@ -420,109 +373,6 @@ mod tests {
             metadata,
         }
     }
-
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// A withdraw op is identified by `hash(channel_id || inputs)` — it
-    // /// carries no nonce — so distinct `input_seed`s are what give two
-    // /// withdraws distinct `op_id`s. That mirrors the chain, where the notes
-    // /// being released are spent-once.
-    // fn withdraw_op(channel_id: ChannelId, input_seed: u32) -> ChannelWithdrawOp {
-    //     ChannelWithdrawOp {
-    //         channel_id,
-    //         inputs: BoundedInputs::from(NoteId::from(Fr::from(input_seed))).into(),
-    //     }
-    // }
-    //
-    // /// Each indexer-facing message must carry the identity of the op it was
-    // /// built from — not a neighbouring op's, and not a neighbouring tx's.
-    // /// Zone consumers correlate an L2 mint to a finalized L1 deposit by
-    // /// `(tx_hash, op_id)`, so a crossed identity is silent corruption of the
-    // /// exactly-once key rather than a visible failure.
-    // #[test]
-    // fn block_to_messages_stamps_each_op_with_its_own_identity() {
-    //     let channel_id = ChannelId::from([0; 32]);
-    //     let other_channel = ChannelId::from([9; 32]);
-    //
-    //     // tx_a mixes three ops so a walker that reused the wrong op's id
-    //     // (or the wrong channel's) would surface here.
-    //     let our_deposit = deposit_op(channel_id, 1, b"to Alice".into());
-    //     let foreign_deposit = deposit_op(other_channel, 2, b"to Bob".into());
-    //     let our_withdraw = withdraw_op(channel_id, 42);
-    //     let tx_a = unverified_tx_with_ops(vec![
-    //         Op::ChannelDeposit(our_deposit.clone()),
-    //         Op::ChannelDeposit(foreign_deposit.clone()),
-    //         Op::ChannelWithdraw(our_withdraw.clone()),
-    //     ]);
-    //     let tx_a_hash = tx_a.hash();
-    //
-    //     // A second tx proves `tx_hash` is stamped per-tx, not per-block.
-    //     let later_withdraw = withdraw_op(channel_id, 7);
-    //     let tx_b = unverified_tx_with_ops(vec![Op::ChannelWithdraw(later_withdraw.clone())]);
-    //     let tx_b_hash = tx_b.hash();
-    //
-    //     // Both deposits get an event, so channel filtering is proven to be
-    //     // the reason the foreign one is dropped — not a missing amount.
-    //     let deposit_events = DepositEvents::from([
-    //         (
-    //             DepositOpKey {
-    //                 tx_hash: tx_a_hash,
-    //                 op_id: our_deposit.op_id(),
-    //             },
-    //             DepositEvent {
-    //                 amount: 1234,
-    //                 notes: DepositRecreatedNotes::default(),
-    //             },
-    //         ),
-    //         (
-    //             DepositOpKey {
-    //                 tx_hash: tx_a_hash,
-    //                 op_id: foreign_deposit.op_id(),
-    //             },
-    //             DepositEvent {
-    //                 amount: 999,
-    //                 notes: DepositRecreatedNotes::default(),
-    //             },
-    //         ),
-    //     ]);
-    //
-    //     let messages = block_to_messages(vec![tx_a, tx_b], channel_id, &deposit_events);
-    //
-    //     assert_eq!(
-    //         messages.len(),
-    //         3,
-    //         "two ops on our channel in tx_a, one in tx_b"
-    //     );
-    //     match &messages[0] {
-    //         ZoneMessage::Deposit(deposit) => {
-    //             assert_eq!(deposit.tx_hash, tx_a_hash);
-    //             assert_eq!(deposit.op_id, our_deposit.op_id());
-    //             assert_eq!(deposit.amount, 1234);
-    //             assert_eq!(deposit.inputs, our_deposit.inputs);
-    //             assert_ne!(
-    //                 deposit.op_id,
-    //                 our_withdraw.op_id(),
-    //                 "deposit must not inherit its tx-mate's identity"
-    //             );
-    //         }
-    //         other => panic!("expected Deposit, got {other:?}"),
-    //     }
-    //     match &messages[1] {
-    //         ZoneMessage::Withdraw(withdraw) => {
-    //             assert_eq!(withdraw.tx_hash, tx_a_hash);
-    //             assert_eq!(withdraw.op_id, our_withdraw.op_id());
-    //             assert_eq!(withdraw.inputs, our_withdraw.inputs);
-    //         }
-    //         other => panic!("expected Withdraw, got {other:?}"),
-    //     }
-    //     match &messages[2] {
-    //         ZoneMessage::Withdraw(withdraw) => {
-    //             assert_eq!(withdraw.tx_hash, tx_b_hash);
-    //             assert_eq!(withdraw.op_id, later_withdraw.op_id());
-    //         }
-    //         other => panic!("expected Withdraw, got {other:?}"),
-    //     }
-    // }
 
     /// Pins the public backend contract: an external [`Node`] implementation
     /// (here [`MockNode`], which is not [`NodeHttpClient`]) satisfies the

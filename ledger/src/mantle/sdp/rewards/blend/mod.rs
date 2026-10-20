@@ -10,8 +10,6 @@ use lb_blend_proofs::quota::{
     Quota,
     inputs::prove::public::{LeaderInputs, PowInputs},
 };
-// TODO(RFC-480): reward notes are private notes of the ledger note set; `Utxo` left the
-// imports.
 use lb_core::{
     blend::core_quota,
     mantle::{Value, notes::Note},

@@ -178,11 +178,6 @@ mod tests {
     use super::*;
     use crate::{
         mantle::{
-            // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-            // ZkTransfer over the channel note set.
-            // NoteId,
-            // channel_notes,
-            // ledger::BoundedInputs,
             TxHash,
             channel::{Channels, Error},
             gas::MainnetGasProfile,
@@ -202,7 +197,6 @@ mod tests {
             },
             transactions::hash::TxHashView,
         },
-        // proofs::channel_multi_sig_proof::ChannelMultiSigProof,
         proofs::channel_multi_sig_proof::ChannelMultiSigProof,
     };
 
@@ -227,20 +221,6 @@ mod tests {
         ChannelId::from([29u8; 32])
     }
 
-    // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-    // ZkTransfer over the channel note set.
-    // fn verified_withdraw(
-    //     note_id: NoteId,
-    // ) -> SignedOperation<ChannelWithdrawOp, Verified, StandardMode> {
-    //     SignedOperation::<_, Unverified, StandardMode>::new(
-    //         ChannelWithdrawOp {
-    //             channel_id: channel_id(),
-    //             inputs: BoundedInputs::from(note_id).into(),
-    //         },
-    //         ChannelMultiSigProof::sample_with_signatures(1),
-    //     )
-    //     .into_state_trusted()
-    // }
     fn verified_withdraw() -> SignedOperation<ChannelWithdrawOp, Verified, StandardMode> {
         SignedOperation::<_, Unverified, StandardMode>::new(
             ChannelWithdrawOp {
@@ -285,59 +265,6 @@ mod tests {
 
         assert_eq!(preverified_signed_operation, Err(Error::InvalidSignature));
     }
-
-    // TODO(RFC-480): an inscription defers its step proofs.
-    // #[test]
-    // fn into_verified_preserves_the_operation_and_the_proof() {
-    //     let operation = inscription(MsgId::root());
-    //     let proof = inscription_signature();
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation.clone(), proof.clone())
-    //             .into_state_trusted::<Preverified>();
-    //     let channels = Channels::new();
-    //
-    //     let verified = signed_operation
-    //         .into_verified(&InscriptionValidationContext {
-    //             channels: &channels,
-    //             block_slot: Slot::default(),
-    //         })
-    //         .expect("an inscription rooted at the genesis message opens a new channel");
-    //
-    //     assert_eq!(verified.operation(), &operation);
-    //     assert_eq!(verified.proof(), &proof);
-    // }
-    //
-    // #[test]
-    // fn into_verified_returns_the_operation_alongside_the_error() {
-    //     let parent = MsgId::from([27u8; 32]);
-    //     let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-    //         inscription(parent),
-    //         inscription_signature(),
-    //     )
-    //     .into_state_trusted::<Preverified>();
-    //     let channels = Channels::new();
-    //
-    //     let verified_signed_operation =
-    //         signed_operation
-    //             .clone()
-    //             .into_verified(&InscriptionValidationContext {
-    //                 channels: &channels,
-    //                 block_slot: Slot::default(),
-    //             });
-    //
-    //     let Err((returned, error)) = verified_signed_operation else {
-    //         panic!("An inscription with an unknown parent fails verification.")
-    //     };
-    //     assert_eq!(signed_operation, returned);
-    //     assert_eq!(
-    //         error,
-    //         Error::InvalidParent {
-    //             channel_id: InscriptionOp::sample().channel_id,
-    //             parent: parent.into(),
-    //             actual: MsgId::root().into(),
-    //         }
-    //     );
-    // }
 
     #[test]
     fn into_verified_preserves_the_operation_and_the_proof() {
@@ -396,23 +323,12 @@ mod tests {
 
     #[test]
     fn into_verified_defers_a_zk_proof_to_the_batch() {
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let input_utxo = Utxo {
-        //     op_id: [32u8; 32],
-        //     output_index: 0,
-        //     note: Note::new(10, ZkPublicKey::from(Fr::from(33u64))),
-        // };
-        // let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
         let note_sets = NoteSets::new();
         let root = note_sets
             .get(LEDGER_SET)
             .expect("the ledger note set always exists")
             .cm_root();
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-            // TransferOp::new(
-            //     BoundedInputs::from(input_utxo.id()).into(),
-            //     Outputs::empty(),
-            // ),
             TransferOp::new(
                 [NoteNf(Fr::from(2u64))].into(),
                 OutputCms::default(),
@@ -423,12 +339,6 @@ mod tests {
         )
         .into_state_trusted::<Preverified>();
 
-        // let context = TransferValidationContext {
-        //     service_notes: &ServiceNotes::new(),
-        //     channels: &Channels::new(),
-        //     utxos: &utxos,
-        //     tx_hash_view: &tx_hash_view(),
-        // };
         let context = TransferValidationContext {
             note_sets: &note_sets,
             block_number: 1,
@@ -440,31 +350,11 @@ mod tests {
             .into_verified_deferred(&context, &mut deferred_proofs)
             .expect("the input is a ledger note no channel owns");
 
-        // assert_eq!(deferred_proofs.zk_sigs().len(), 1);
         assert_eq!(deferred_proofs.zk_transfers().len(), 1);
-        // TODO(RFC-480): the PoC circuit is retired in circuits v0.6.0 and
-        // LEADER_CLAIM is retired.
-        // assert!(deferred_proofs.leader_claims().is_empty());
     }
 
     #[test]
     fn execute_returns_what_the_operation_produced() {
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // let note_id = NoteId(Fr::from(28u64));
-        // let channels = Channels::new()
-        //     .register_channel_note(&note_id, &channel_id())
-        //     .expect("the note is not owned by another channel");
-        //
-        // let (context, events) = verified_withdraw(note_id)
-        //     .execute(WithdrawExecutionContext {
-        //         channels,
-        //         tx_hash: TxHash::from([30u8; 32]),
-        //     })
-        //     .expect("the input is a channel note of this channel");
-        //
-        // assert_eq!(context.channels, Channels::new());
-        // assert_eq!(events, vec![]);
         let keys = UnverifiedChannelKeys::from(
             Ed25519Key::from_bytes(&[15; 32])
                 .public_key()
@@ -487,23 +377,6 @@ mod tests {
 
     #[test]
     fn execute_returns_the_operation_alongside_the_error() {
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // let note_id = NoteId(Fr::from(28u64));
-        // let signed_operation = verified_withdraw(note_id);
-        //
-        // let execute_result = signed_operation.clone().execute(WithdrawExecutionContext {
-        //     channels: Channels::new(),
-        //     tx_hash: TxHash::from([30u8; 32]),
-        // });
-        //
-        // assert_eq!(
-        //     execute_result,
-        //     Err((
-        //         signed_operation,
-        //         Error::ChannelNotes(channel_notes::Error::NotInChannel(note_id))
-        //     ))
-        // );
         let signed_operation = verified_withdraw();
         let channels = Channels::new();
 

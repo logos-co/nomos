@@ -16,9 +16,6 @@ use crate::{
         ops::channel::{
             ChannelId,
             MsgId,
-            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-            // the steps of CHANNEL_INSCRIBE.
-            // channel_transfer::ChannelTransferOp,
             config::ChannelConfigOp,
             deposit::{DepositOp, Metadata},
             inscribe::{ChannelStep, ChannelSteps, InscriptionOp, Step},
@@ -40,9 +37,6 @@ codec_fixtures!(
         posting_timeframe: SlotTimeframe::from(0u32),
         posting_timeout: SlotTimeout::from(0u32),
         configuration_threshold: 0u16,
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // transfer_threshold: 0u16,
     } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100010101010101010101010101010101010101010101010101010101010101010100000000000000000000",
     CHANNEL_CONFIG.clone() => CHANNEL_CONFIG_PAYLOAD_HEX,
 );
@@ -118,17 +112,6 @@ codec_fixtures!(
     } => "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     CHANNEL_WITHDRAW.clone() => CHANNEL_WITHDRAW_PAYLOAD_HEX,
 );
-// TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-// the steps of CHANNEL_INSCRIBE.
-// codec_fixtures!(
-//     ChannelTransferOp,
-//     Self {
-//         channel_id: ChannelId::from([0u8; 32]),
-//         inputs: Inputs::empty(),
-//         outputs: Outputs::empty(),
-//     } => "00000000000000000000000000000000000000000000000000000000000000000000",
-//     CHANNEL_TRANSFER.clone() => CHANNEL_TRANSFER_PAYLOAD_HEX,
-// );
 
 codec_fixtures!(ChannelMultiSigProof,
     Self::empty() => "0000",

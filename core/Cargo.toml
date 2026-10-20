@@ -28,15 +28,11 @@ lb-imt                        = { workspace = true }
 lb-key-management-system-keys = { workspace = true }
 lb-log-targets                = { workspace = true }
 lb-mmr                        = { workspace = true }
-# TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader reward is a note in the block.
-# lb-poc                        = { workspace = true }
 lb-pol                        = { workspace = true }
 lb-poseidon2                  = { workspace = true }
 lb-program-spend              = { workspace = true }
 lb-utils                      = { workspace = true }
 lb-utxotree                   = { workspace = true }
-# TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
-# lb-zksign                     = { workspace = true }
 lb-zktransfer                 = { workspace = true }
 multiaddr                     = { workspace = true }
 num-bigint                    = { workspace = true }

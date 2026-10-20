@@ -1,36 +1,8 @@
 use core::ptr;
-// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-// block.
-// use std::{
-//     ffi::{CStr, CString, c_char},
-//     time::Duration,
-// };
 use std::ffi::{CStr, CString, c_char};
 
 use lb_api_service::http::mempool;
 use lb_c_macros::panic_to_error;
-// TODO(RFC-480): notes are private; Operations are proven by ZkTransfers.
-// use lb_core::{
-//     header::HeaderId as CoreHeaderId,
-//     mantle::{
-//         Note, NoteId as CoreNoteId, Op, OpProof, SignedOps,
-//         gas::GasCost,
-//         ledger::{BoundedInputs, Inputs, Outputs, verification_mode::StandardMode},
-//         ops::{
-//             channel::{
-//                 ChannelId,
-//                 deposit::{DepositOp, Metadata},
-//             },
-//             transfer::TransferOp,
-//         },
-//         traits::Hashable,
-//         transactions::{
-//             MantleTxBuilder, OpProofs, Ops,
-//             states::{Preverified, Unverified},
-//         },
-//     },
-// };
-// use lb_groth16::{fr_from_bytes, fr_to_bytes};
 use lb_core::{
     header::HeaderId as CoreHeaderId,
     mantle::{
@@ -52,26 +24,15 @@ use lb_core::{
 use lb_groth16::{fr_from_bytes, fr_from_mod_bytes, fr_to_bytes};
 use lb_http_api_common::bodies::wallet::fund::{WalletFundRequestBody, WalletFundResponseBody};
 use lb_key_management_system_keys::keys::ZkPublicKey;
-// TODO(RFC-480): the exact deposit note is split by the wallet.
-// use lb_node::{
-//     RuntimeServiceId,
-//     generic_services::{CryptarchiaService, WalletService as NodeWalletService},
-// };
 use lb_node::{
     RuntimeServiceId,
     generic_services::{
         CryptarchiaService, WalletService as NodeWalletService, sdp::wallet::split_root,
     },
 };
-// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-// block.
-// use lb_wallet_service::{ClaimableVouchersInfo, LeaderAgedNotesInfo, TipResponse, api::WalletApi};
-// use overwatch::services::status::ServiceStatus;
 use lb_wallet_service::{LeaderAgedNotesInfo, TipResponse, api::WalletApi};
 use rand::{RngCore as _, rngs::OsRng};
 
-// TODO(RFC-480): `NoteId` (notes are private, named by their commitment) and
-// `claimable_vouchers` (LEADER_CLAIM is removed) are no longer imported.
 use crate::{
     LogosBlockchainNode,
     api::{
@@ -88,15 +49,8 @@ use crate::{
     return_error_if_null_pointer, unwrap_or_return_error,
 };
 
-// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-// block.
-// pub type FfiClaimableVouchersResult = FfiStatusResult<ClaimableVouchers>;
-
 type WalletService = NodeWalletService<CryptarchiaService<RuntimeServiceId>, RuntimeServiceId>;
 
-// TODO(RFC-480): notes are private, named by their commitment.
-// /// Resolved tip plus the `(note ID, value)` pairs for a wallet address.
-// type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteId, Value)>);
 /// Resolved tip plus the `(note commitment, value)` pairs for a wallet address.
 type WalletNotesData = (lb_core::header::HeaderId, Vec<(CoreNoteCm, Value)>);
 
@@ -304,150 +258,6 @@ pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> Oper
     OperationStatus::OK
 }
 
-// TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-// block.
-/*
-/// Gets the claimable vouchers tracked by the wallet.
-///
-/// This is a synchronous wrapper around [`WalletApi::get_claimable_vouchers`].
-///
-/// # Arguments
-///
-/// - `node`: A [`LogosBlockchainNode`] instance.
-/// - `tip`: The header ID to query claimable vouchers at.
-///
-/// # Returns
-///
-/// A [`Result`] containing the tip-scoped claimable vouchers on success, or an
-/// [`OperationStatus`] error on failure.
-pub(crate) fn get_claimable_vouchers_sync(
-    node: &LogosBlockchainNode,
-    tip: Option<CoreHeaderId>,
-) -> StatusResult<TipResponse<ClaimableVouchersInfo>> {
-    let runtime_handle = node.get_runtime_handle()?;
-    runtime_handle.block_on(async {
-        let mut status_watcher = node
-            .get_overwatch_handle()
-            .status_watcher::<WalletService>()
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::ServiceError,
-                    format!("Failed to request wallet service status watcher: {error}"),
-                )
-            })?;
-
-        if let Err(status) = status_watcher
-            .wait_for(ServiceStatus::Ready, Some(Duration::from_millis(100)))
-            .await
-        {
-            return Err(OperationStatus::error(
-                OperationStatusCode::ServiceError,
-                format!("Wallet service is not ready: {status:?}"),
-            ));
-        }
-
-        let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(
-            node.get_overwatch_handle(),
-        )
-        .await;
-        api.get_claimable_vouchers(tip).await.map_err(|error| {
-            OperationStatus::error(OperationStatusCode::DynError, format!("{error:?}"))
-        })
-    })
-}
-
-/// Gets the claimable vouchers tracked by the wallet.
-///
-/// # Arguments
-///
-/// - `node`: A non-null pointer to a [`LogosBlockchainNode`] instance.
-/// - `optional_tip`: An optional pointer to the header ID to query at. If null,
-///   the current tip will be used.
-///
-/// # Returns
-///
-/// A [`FfiClaimableVouchersResult`] containing the tip and claimable vouchers
-/// on success, or an [`OperationStatus`] error on failure.
-///
-/// # Safety
-///
-/// This function is unsafe because it dereferences raw pointers. The caller
-/// must ensure that all pointers are valid.
-#[panic_to_error]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn get_claimable_vouchers(
-    node: *const LogosBlockchainNode,
-    optional_tip: *const HeaderId,
-) -> FfiClaimableVouchersResult {
-    return_error_if_null_pointer!(node);
-    let node = unsafe { &*node };
-    let tip = if optional_tip.is_null() {
-        None
-    } else {
-        Some(CoreHeaderId::from(unsafe { *optional_tip }))
-    };
-
-    let response = unwrap_or_return_error!(get_claimable_vouchers_sync(node, tip));
-    let TipResponse {
-        tip,
-        response: info,
-    } = response;
-    let vouchers: Vec<ClaimableVoucher> = info
-        .vouchers
-        .into_iter()
-        .map(|voucher| {
-            let nullifier = voucher.nullifier.into();
-            ClaimableVoucher {
-                commitment: voucher.commitment.to_bytes(),
-                nullifier: fr_to_bytes(&nullifier),
-            }
-        })
-        .collect();
-
-    let len = vouchers.len();
-    let vouchers_ptr = Box::leak(vouchers.into_boxed_slice()).as_mut_ptr();
-
-    FfiClaimableVouchersResult::ok(ClaimableVouchers {
-        tip: tip.into(),
-        vouchers: vouchers_ptr,
-        len,
-        reward_amount: info.reward_amount,
-        total_claimable: info.total_claimable,
-    })
-}
-
-/// Frees the memory allocated for a [`ClaimableVouchers`] structure.
-///
-/// # Arguments
-///
-/// - `vouchers`: A [`ClaimableVouchers`] structure previously returned by
-///   [`get_claimable_vouchers`].
-///
-/// # Safety
-///
-/// This function is unsafe because it reconstructs a boxed slice from a raw
-/// pointer. The caller must only pass values returned by
-/// [`get_claimable_vouchers`] and must call this exactly once per result.
-///
-/// The value must be passed back exactly as it was returned: its pointer and
-/// length decide what is freed.
-#[panic_to_error]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_claimable_vouchers(vouchers: ClaimableVouchers) -> OperationStatus {
-    return_error_if_null_pointer!(vouchers.vouchers);
-    let vouchers = unsafe {
-        Box::from_raw(ptr::slice_from_raw_parts_mut(
-            vouchers.vouchers,
-            vouchers.len,
-        ))
-    };
-
-    drop(vouchers);
-    OperationStatus::OK
-}
-*/
-
 /// Get the balance of a wallet address
 ///
 /// This is a synchronous wrapper around [`WalletApi::get_balance`].
@@ -652,14 +462,6 @@ pub unsafe extern "C" fn get_wallet_notes(
 
     match get_wallet_notes_sync(node, tip, wallet_address) {
         Ok(Some((resolved_tip, notes))) => {
-            // TODO(RFC-480): notes are private, named by their commitment.
-            // let notes: Vec<WalletNote> = notes
-            //     .into_iter()
-            //     .map(|(id, value)| WalletNote {
-            //         id: fr_to_bytes(id.as_fr()),
-            //         value,
-            //     })
-            //     .collect();
             let notes: Vec<WalletNote> = notes
                 .into_iter()
                 .map(|(commitment, value)| WalletNote {
@@ -762,8 +564,6 @@ pub unsafe extern "C" fn get_leader_aged_notes(
         .notes
         .into_iter()
         .map(|note| LeaderAgedNote {
-            // TODO(RFC-480): notes are private, named by their commitment.
-            // id: fr_to_bytes(note.note_id.as_fr()),
             commitment: fr_to_bytes(&note.commitment.0),
             note_set: note.note_set,
             value: note.value,
@@ -949,9 +749,6 @@ pub(crate) fn transfer_funds_sync(
     })
 }
 
-// TODO(RFC-480): the recipient needs the nonce of its note to import it.
-// pub type FfiTransferFundsResult = FfiStatusResult<Hash>;
-
 /// A submitted transfer and the nonce of the note it creates for the
 /// recipient, who needs it, with the amount and its public key, to import
 /// the note.
@@ -1043,8 +840,6 @@ pub unsafe extern "C" fn transfer_funds(
         recipient_public_key,
         amount,
     ));
-    // TODO(RFC-480): the recipient note's nonce is returned with the hash.
-    // FfiTransferFundsResult::ok(transaction.hash().0)
     FfiTransferFundsResult::ok(TransferFunds {
         hash: transaction.hash().0,
         recipient_note_nonce: fr_to_bytes(&recipient_note.nonce),
@@ -1073,341 +868,6 @@ pub(crate) unsafe fn parse_public_key(pointer: *const u8) -> StatusResult<ZkPubl
 
 pub type FfiChannelDepositResult = FfiStatusResult<Hash>;
 
-// TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
-/*
-/// Arguments for [`channel_deposit_with_notes`].
-///
-/// Mirrors the node's `POST /channel/deposit` request body: the caller supplies
-/// the exact notes to deposit (their whole value enters the channel), so
-/// callers must select notes themselves (see [`get_wallet_notes`]).
-#[repr(C)]
-pub struct ChannelDepositWithNotesArguments {
-    /// Optional pointer to the header ID to build against. If null, the current
-    /// tip is used.
-    pub optional_tip: *const HeaderId,
-    /// The 32-byte channel ID to deposit into.
-    pub channel_id: *const u8,
-    /// Array of note IDs to deposit. Their combined value is the deposited
-    /// amount.
-    pub input_note_ids: *const NoteId,
-    pub input_note_ids_len: usize,
-    /// Optional metadata bytes attached to the deposit. May be null iff
-    /// `metadata_len` is 0.
-    pub metadata: *const u8,
-    pub metadata_len: usize,
-    /// The 32-byte public key to receive any change from funding the gas fee.
-    pub change_public_key: *const u8,
-    /// Array of pointers to 32-byte public keys used to fund the gas fee.
-    pub funding_public_keys: *const *const u8,
-    pub funding_public_keys_len: usize,
-    /// The maximum gas fee the caller is willing to pay. The deposit is
-    /// rejected if the computed fee exceeds this.
-    pub max_tx_fee: u64,
-}
-
-impl ChannelDepositWithNotesArguments {
-    /// Validates that all required pointers are non-null.
-    ///
-    /// # Safety
-    ///
-    /// This function dereferences raw pointers. The caller must ensure the
-    /// pointer-array lengths are accurate.
-    pub unsafe fn validate(&self) -> Result<(), OperationStatus> {
-        if self.channel_id.is_null() {
-            return Err(OperationStatus::error(
-                OperationStatusCode::NullPointer,
-                "ChannelDeposit contains a null `channel_id` pointer.",
-            ));
-        }
-        if self.input_note_ids.is_null() {
-            return Err(OperationStatus::error(
-                OperationStatusCode::NullPointer,
-                "ChannelDeposit contains a null `input_note_ids` pointer.",
-            ));
-        }
-        if self.input_note_ids_len == 0 {
-            return Err(OperationStatus::error(
-                OperationStatusCode::RuntimeError,
-                "ChannelDeposit requires at least one input note.",
-            ));
-        }
-        if self.metadata.is_null() && self.metadata_len != 0 {
-            return Err(OperationStatus::error(
-                OperationStatusCode::NullPointer,
-                "ChannelDeposit contains a null `metadata` pointer with non-zero length.",
-            ));
-        }
-        if self.change_public_key.is_null() {
-            return Err(OperationStatus::error(
-                OperationStatusCode::NullPointer,
-                "ChannelDeposit contains a null `change_public_key` pointer.",
-            ));
-        }
-        if self.funding_public_keys.is_null() {
-            return Err(OperationStatus::error(
-                OperationStatusCode::NullPointer,
-                "ChannelDeposit contains a null `funding_public_keys` pointer.",
-            ));
-        }
-        for i in 0..self.funding_public_keys_len {
-            let element_pointer = unsafe { self.funding_public_keys.add(i) };
-            let funding_public_key_pointer = unsafe { *element_pointer };
-            if funding_public_key_pointer.is_null() {
-                return Err(OperationStatus::error(
-                    OperationStatusCode::NullPointer,
-                    format!(
-                        "ChannelDeposit contains a null pointer at `funding_public_keys[{i}]`."
-                    ),
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Builds, funds, signs and submits a channel deposit consuming the given
-/// notes.
-///
-/// This is a synchronous wrapper that mirrors the node's `channel_deposit` HTTP
-/// handler: it builds a [`DepositOp`], funds the gas fee from
-/// `funding_public_keys` (change to `change_public_key`), rejects the deposit
-/// if the fee exceeds `max_tx_fee`, signs the transaction and adds it to the
-/// mempool.
-///
-/// # Arguments
-///
-/// - `node`: A [`LogosBlockchainNode`] instance.
-/// - `tip`: Optional header ID to build against (`None` uses the current tip).
-/// - `deposit`: The fully-formed [`DepositOp`].
-/// - `change_public_key`: Receives any change from funding the fee.
-/// - `funding_public_keys`: Fund the gas fee.
-/// - `max_tx_fee`: Maximum acceptable gas fee.
-///
-/// # Returns
-///
-/// A [`Result`] containing the submitted [`SignedOps`] on success, or
-/// an [`OperationStatus`] error on failure.
-pub(crate) fn channel_deposit_with_notes_sync(
-    node: &LogosBlockchainNode,
-    tip: lb_core::header::HeaderId,
-    deposit: DepositOp,
-    change_public_key: ZkPublicKey,
-    funding_public_keys: Vec<ZkPublicKey>,
-    max_tx_fee: GasCost,
-) -> StatusResult<SignedOps<Preverified, StandardMode>> {
-    let runtime_handle = node.get_runtime_handle()?;
-    runtime_handle.block_on(async {
-        let handle = node.get_overwatch_handle();
-        let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
-
-        // Mirrors the node's `channel_deposit` handler: build -> fund -> check
-        // fee -> sign -> submit.
-        let tx_builder = MantleTxBuilder::new()
-            .push_op(Op::ChannelDeposit(deposit))
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to push deposit op: {error}"),
-                )
-            })?;
-        let TipResponse {
-            tip: funded_tip,
-            response: funded_tx_builder,
-        } = api
-            .fund_tx(
-                Some(tip),
-                tx_builder,
-                change_public_key,
-                funding_public_keys,
-                0,
-            )
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to fund tx: {error}"),
-                )
-            })?;
-
-        let tx_fee = funded_tx_builder.tx_fee().map_err(|error| {
-            OperationStatus::error(
-                OperationStatusCode::DynError,
-                format!("Failed to compute tx fee: {error}"),
-            )
-        })?;
-        if tx_fee > max_tx_fee {
-            return Err(OperationStatus::error(
-                OperationStatusCode::DynError,
-                format!("tx_fee({tx_fee}) exceeds max_tx_fee({max_tx_fee})"),
-            ));
-        }
-
-        let signed_tx = api
-            .sign_tx(Some(funded_tip), funded_tx_builder)
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to sign tx: {error}"),
-                )
-            })?
-            .response;
-
-        if let Err(error) = mempool::add_tx(handle, signed_tx.clone(), Hashable::hash).await {
-            return Err(OperationStatus::error(
-                OperationStatusCode::DynError,
-                format!("Failed to add transaction to mempool: {error}"),
-            ));
-        }
-        Ok(signed_tx)
-    })
-}
-
-/// Submits a channel deposit consuming caller-specified notes.
-///
-/// The whole value of each supplied note enters the channel, so the deposited
-/// amount equals the sum of the notes' values. Callers that want to deposit an
-/// arbitrary amount should use the amount-based variant instead.
-///
-/// # Arguments
-///
-/// - `node`: A non-null pointer to a [`LogosBlockchainNode`] instance.
-/// - `arguments`: A non-null pointer to a [`ChannelDepositWithNotesArguments`].
-///
-/// # Returns
-///
-/// A [`FfiChannelDepositResult`] containing the submitted transaction [`Hash`]
-/// (little-endian) on success, or an [`OperationStatus`] error on failure.
-///
-/// # Safety
-///
-/// This function is unsafe because it dereferences raw pointers. The caller
-/// must ensure that all pointers are valid and that the array lengths are
-/// accurate.
-#[panic_to_error]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn channel_deposit_with_notes(
-    node: *const LogosBlockchainNode,
-    arguments: *const ChannelDepositWithNotesArguments,
-) -> FfiChannelDepositResult {
-    return_error_if_null_pointer!(node);
-    return_error_if_null_pointer!(arguments);
-    let arguments = unsafe { &*arguments };
-    unwrap_or_return_error!(unsafe { arguments.validate() });
-
-    let node = unsafe { &*node };
-    let tip = if arguments.optional_tip.is_null() {
-        unwrap_or_return_error!(get_cryptarchia_info_sync(node))
-            .cryptarchia_info
-            .tip
-    } else {
-        CoreHeaderId::from(unsafe { *arguments.optional_tip })
-    };
-
-    let channel_id = {
-        let bytes = unsafe { std::slice::from_raw_parts(arguments.channel_id, 32) };
-        let Ok(array): Result<[u8; 32], _> = bytes.try_into() else {
-            return FfiChannelDepositResult::err(OperationStatus::error(
-                OperationStatusCode::RuntimeError,
-                "Invalid channel_id length.",
-            ));
-        };
-        ChannelId::from(array)
-    };
-
-    let input_note_ids = unsafe {
-        std::slice::from_raw_parts(arguments.input_note_ids, arguments.input_note_ids_len)
-    };
-    let mut note_ids = Vec::with_capacity(arguments.input_note_ids_len);
-    for note_id_bytes in input_note_ids {
-        let note_id =
-            unwrap_or_return_error!(fr_from_bytes(note_id_bytes).map(CoreNoteId).map_err(
-                |error| {
-                    OperationStatus::error(
-                        OperationStatusCode::DynError,
-                        format!("Invalid note ID: {error:?}"),
-                    )
-                }
-            ));
-        note_ids.push(note_id);
-    }
-    let inputs = unwrap_or_return_error!(Inputs::try_new(note_ids).map_err(|error| {
-        OperationStatus::error(
-            OperationStatusCode::DynError,
-            format!("Invalid deposit inputs: {error:?}"),
-        )
-    }));
-
-    let metadata_bytes = if arguments.metadata_len == 0 {
-        Vec::new()
-    } else {
-        unsafe { std::slice::from_raw_parts(arguments.metadata, arguments.metadata_len) }.to_vec()
-    };
-    let metadata = unwrap_or_return_error!(Metadata::try_from(metadata_bytes).map_err(|error| {
-        OperationStatus::error(
-            OperationStatusCode::DynError,
-            format!("Invalid metadata: {error:?}"),
-        )
-    }));
-
-    let deposit = DepositOp {
-        channel_id,
-        inputs,
-        metadata,
-    };
-
-    let change_public_key =
-        unwrap_or_return_error!(unsafe { parse_public_key(arguments.change_public_key) });
-    let funding_public_key_pointers = unsafe {
-        std::slice::from_raw_parts(
-            arguments.funding_public_keys,
-            arguments.funding_public_keys_len,
-        )
-    };
-    let funding_public_keys = unwrap_or_return_error!(
-        funding_public_key_pointers
-            .iter()
-            .map(|pointer| unsafe { parse_public_key(*pointer) })
-            .collect::<StatusResult<Vec<_>>>()
-    );
-    let max_tx_fee = GasCost::new(arguments.max_tx_fee);
-
-    let transaction = unwrap_or_return_error!(channel_deposit_with_notes_sync(
-        node,
-        tip,
-        deposit,
-        change_public_key,
-        funding_public_keys,
-        max_tx_fee,
-    ));
-    FfiChannelDepositResult::ok(transaction.hash().0)
-}
-*/
-
-// TODO(RFC-480): the wallet splits the exact deposit note.
-/*
-/// Selects notes (largest-first) whose combined value covers `amount`.
-///
-/// Returns the selected note IDs and their combined value, or `None` if the
-/// supplied notes cannot cover `amount`.
-fn select_notes_covering(
-    mut notes: Vec<(CoreNoteId, Value)>,
-    amount: Value,
-) -> Option<(Vec<CoreNoteId>, Value)> {
-    notes.sort_by_key(|(_, value)| std::cmp::Reverse(*value));
-    let mut selected = Vec::new();
-    let mut total: Value = 0;
-    for (id, value) in notes {
-        if total >= amount {
-            break;
-        }
-        selected.push(id);
-        total = total.saturating_add(value);
-    }
-    (total >= amount).then_some((selected, total))
-}
-*/
-
 /// Arguments for [`channel_deposit`].
 ///
 /// The node's wallet splits a note of exactly `amount` from the notes of
@@ -1420,9 +880,6 @@ pub struct ChannelDepositArguments {
     pub optional_tip: *const HeaderId,
     /// The 32-byte channel ID to deposit into.
     pub channel_id: *const u8,
-    // TODO(RFC-480): the deposited note is held by `holder_public_key`.
-    // /// The 32-byte public key funding the deposit (owns the funding notes, the
-    // /// deposit note and any change).
     /// The 32-byte public key funding the deposit (owns the funding notes and
     /// any change).
     pub funding_public_key: *const u8,
@@ -1476,162 +933,6 @@ impl ChannelDepositArguments {
         Ok(())
     }
 }
-
-// TODO(RFC-480): the wallet splits the exact deposit note and proves both
-// Operations with ZkTransfers.
-/*
-/// Builds, signs and submits an amount-based channel deposit, splitting a note
-/// via a transfer when no exact-value note is available.
-///
-/// This mirrors the atomic deposit path used in the e2e tests: a [`TransferOp`]
-/// produces the exact deposit note (plus change), the [`DepositOp`] consumes
-/// that freshly-created note, and both ops are signed with a single ZK
-/// signature over the transaction by `funding_public_key` (which owns every
-/// input). Gas is not funded because the platform gas price is currently 0.
-///
-/// # Arguments
-///
-/// - `node`: A [`LogosBlockchainNode`] instance.
-/// - `tip`: The header ID to query notes and sign against.
-/// - `channel_id`: The channel to deposit into.
-/// - `funding_public_key`: Owns the funding notes, deposit note and change.
-/// - `amount`: The exact amount to deposit.
-/// - `metadata`: Metadata attached to the deposit.
-///
-/// # Returns
-///
-/// A [`Result`] containing the submitted [`SignedOps`] on success, or
-/// an [`OperationStatus`] error on failure.
-pub(crate) fn channel_deposit_sync(
-    node: &LogosBlockchainNode,
-    tip: lb_core::header::HeaderId,
-    channel_id: ChannelId,
-    funding_public_key: ZkPublicKey,
-    amount: Value,
-    metadata: Metadata,
-) -> StatusResult<SignedOps<Preverified, StandardMode>> {
-    let runtime_handle = node.get_runtime_handle()?;
-    runtime_handle.block_on(async {
-        let handle = node.get_overwatch_handle();
-        let api = WalletApi::<WalletService, RuntimeServiceId>::from_overwatch_handle(handle).await;
-
-        // 1. Fetch the funding key's spendable notes.
-        let balance = api
-            .get_balance(Some(tip), funding_public_key)
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to get balance: {error}"),
-                )
-            })?;
-        let notes: Vec<(CoreNoteId, Value)> = balance
-            .response
-            .map(|balance| balance.notes.into_iter().collect())
-            .ok_or_else(|| {
-                OperationStatus::error(OperationStatusCode::NotFound, "Unknown funding address.")
-            })?;
-
-        // 2. Select notes covering the deposit amount.
-        let (selected_ids, selected_total) =
-            select_notes_covering(notes, amount).ok_or_else(|| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    "Insufficient funds to cover deposit amount.",
-                )
-            })?;
-        let change = selected_total - amount;
-
-        // 3. Build a transfer whose output[0] is the exact deposit note, with any
-        //    remainder returned as change to the same key.
-        let mut outputs = vec![Note::new(amount, funding_public_key)];
-        if change > 0 {
-            outputs.push(Note::new(change, funding_public_key));
-        }
-        let transfer = TransferOp {
-            inputs: Inputs::try_new(selected_ids).map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Invalid transfer inputs: {error:?}"),
-                )
-            })?,
-            outputs: Outputs::try_new(outputs).map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Invalid transfer outputs: {error:?}"),
-                )
-            })?,
-        };
-
-        // 4. The deposit consumes the freshly-created note at output index 0.
-        let deposit_note_id = transfer
-            .outputs
-            .utxo_by_index(0, &transfer)
-            .ok_or_else(|| {
-                OperationStatus::error(
-                    OperationStatusCode::RuntimeError,
-                    "Transfer did not produce a deposit note.",
-                )
-            })?
-            .id();
-        let deposit = DepositOp {
-            channel_id,
-            inputs: BoundedInputs::from(deposit_note_id).into(),
-            metadata,
-        };
-
-        // 5. Assemble [transfer, deposit] in order and sign both ops with a single ZK
-        //    signature by the funding key (which owns every input).
-        //
-        //    NOTE: we deliberately sign with `sign_tx_with_zk` (explicit keys)
-        // rather    than the usual `WalletApi::sign_tx`. `sign_tx`
-        // resolves each op's input    public keys from the *committed*
-        // ledger state, but the deposit consumes    the note this same
-        // transaction's transfer creates (it is not on-chain
-        //    yet), so `sign_tx` would fail with `MissingInputNote`. Both the
-        // transfer    inputs and the deposit's input note are owned by
-        // `funding_public_key`, so    one signature over the tx hash
-        // satisfies both op proofs. Do not "simplify"    this to
-        // `sign_tx`.
-        let tx = Ops::from([Op::Transfer(transfer), Op::ChannelDeposit(deposit)]);
-        let tx_hash = tx.hash();
-        let user_sig = api
-            .sign_tx_with_zk(tx_hash, vec![funding_public_key])
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to sign deposit tx: {error}"),
-                )
-            })?;
-        let op_proofs =
-            OpProofs::from([OpProof::ZkSig(user_sig.clone()), OpProof::ZkSig(user_sig)]);
-        let signed_tx = SignedOps::from_parts(tx, op_proofs)
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to assemble signed tx: {error:?}"),
-                )
-            })?
-            .preverify()
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::DynError,
-                    format!("Failed to assemble signed tx: {error:?}"),
-                )
-            })?;
-
-        // 6. Submit to the mempool.
-        if let Err(error) = mempool::add_tx(handle, signed_tx.clone(), Hashable::hash).await {
-            return Err(OperationStatus::error(
-                OperationStatusCode::DynError,
-                format!("Failed to add transaction to mempool: {error}"),
-            ));
-        }
-        Ok(signed_tx)
-    })
-}
-*/
 
 /// Builds, signs and submits a channel deposit of exactly `amount`.
 ///
@@ -1911,37 +1212,6 @@ pub(crate) fn wallet_fund_tx_sync(
             ));
         }
 
-        // TODO(RFC-480): the ZkSignature scheme is removed; the wallet proves
-        // the funding ZkTransfer.
-        // // Owners of the funding inputs, in input order — the ledger verifies
-        // // the transfer proof against this exact list.
-        // let funding_note_pks: Vec<ZkPublicKey> = funded_tx_builder
-        //     .ledger_inputs()
-        //     .iter()
-        //     .map(|utxo| utxo.note.pk)
-        //     .collect();
-        //
-        // let funded_tx = funded_tx_builder.build().map_err(|error| {
-        //     OperationStatus::error(
-        //         OperationStatusCode::DynError,
-        //         format!("Failed to build funded tx: {error}"),
-        //     )
-        // })?;
-        // let transfer_proof = if funding_note_pks.is_empty() {
-        //     None
-        // } else {
-        //     let tx_hash = funded_tx.hash();
-        //     let signature = api
-        //         .sign_tx_with_zk(tx_hash, funding_note_pks)
-        //         .await
-        //         .map_err(|error| {
-        //             OperationStatus::error(
-        //                 OperationStatusCode::DynError,
-        //                 format!("Failed to sign fee transfer: {error}"),
-        //             )
-        //         })?;
-        //     Some(OpProof::ZkSig(signature))
-        // };
         let (funded_tx, transfer_proof) = api
             .prove_funding(Some(tip), funded_tx_builder)
             .await

@@ -8,8 +8,6 @@ use lb_blend_service::message::NetworkInfo as BlendNetworkInfo;
 use lb_chain_service::ChainServiceInfo;
 use lb_core::{
     header::HeaderId,
-    // TODO(RFC-480): the wallet funds the declaration stake. Dropped import:
-    // NoteId.
     mantle::{
         SignedOps, Value,
         ledger::verification_mode::StandardMode,
@@ -445,17 +443,11 @@ impl NodeHttpClient {
     pub async fn join_blend_network(
         &self,
         locator: Locator,
-        // TODO(RFC-480): the wallet funds the declaration stake.
-        // service_note_id: Option<NoteId>,
         amount: Option<Value>,
     ) -> Result<SdpSubmission, Error> {
         self.http_client
             .join_blend_network(
                 &self.base_url,
-                // JoinBlendRequestBody {
-                //     locator,
-                //     service_note_id,
-                // },
                 JoinBlendRequestBody { locator, amount },
             )
             .await

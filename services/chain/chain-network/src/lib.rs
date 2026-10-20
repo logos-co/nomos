@@ -20,8 +20,6 @@ use lb_chain_service::{
     api::{CryptarchiaServiceApi, CryptarchiaServiceData},
 };
 use lb_core::{
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature, `verify_header_signature` left.
     block::{Block, BlockTransactions, Proposal, verify_header_alone},
     header::HeaderId,
     mantle::{
@@ -93,10 +91,6 @@ pub enum Error {
     InvalidBlock(String),
     #[error("Header is not valid on its own: {0}")]
     InvalidHeader(#[from] lb_core::block::HeaderError),
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // #[error("Invalid block header signature")]
-    // InvalidSignature,
     #[error("No combination of candidate transactions reproduces the block root")]
     NoMatchingReconstruction,
     #[error("Reference {index} ({prefix}) matches no local transaction")]
@@ -114,15 +108,9 @@ pub enum Error {
 impl From<lb_core::block::Error> for Error {
     fn from(e: lb_core::block::Error) -> Self {
         match e {
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // lb_core::block::Error::Signature => Self::InvalidSignature,
             lb_core::block::Error::Serialisation(_)
             | lb_core::block::Error::Header(_)
             | lb_core::block::Error::BodyRootMismatch
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // | lb_core::block::Error::KeyMismatch
             | lb_core::block::Error::BoundedError(_)
             | lb_core::block::Error::ContentTooBig { .. } => Self::InvalidBlock(e.to_string()),
         }
@@ -910,14 +898,8 @@ where
         Ok(()) => Ok(()),
         Err(e) => {
             let block_id = proposal.header().id();
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks
-            // carry no signature.
-            // if matches!(e, Error::InvalidSignature) {
-            //     error!(target: LOG_TARGET, %e, ?block_id, "invalid proposal signature: not caching block ID as rejected in orphan downloader");
-            // } else {
             error!(target: LOG_TARGET, %e, ?block_id, "invalid proposal header: caching block ID as rejected in orphan downloader");
             orphan_downloader.insert_rejected_block(proposal.header().id());
-            // }
             Err(e)
         }
     }
@@ -925,14 +907,6 @@ where
 
 /// Verifies the proposal header without mempool scanning.
 fn verify_proposal(proposal: &Proposal) -> Result<(), Error> {
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // verify_header_alone(proposal.header())?;
-    //
-    // Ok(verify_header_signature(
-    //     proposal.header(),
-    //     proposal.signature(),
-    // )?)
     Ok(verify_header_alone(proposal.header())?)
 }
 
@@ -1144,9 +1118,6 @@ where
         proposal.header().clone(),
         proposal.uncle_headers().clone(),
         BlockTransactions::try_from(transactions)?,
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-        // no signature.
-        // *proposal.signature(),
     )
     .map_err(|_| Error::NoMatchingReconstruction)
 }
@@ -1197,8 +1168,6 @@ mod tests {
     };
 
     use futures::stream;
-    // TODO(RFC-480): the leader proof of the tests is proven, not decoded.
-    // use lb_binary_codec::canonical::BinaryDecodeExt as _;
     use lb_core::{
         block::UncleHeaders,
         mantle::{
@@ -1209,9 +1178,6 @@ mod tests {
     };
     use lb_cryptarchia_sync::GetTipResponse;
     use lb_groth16::{AdditiveGroup as _, Fr};
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry
-    // no signature.
-    // use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519PublicKey, Ed25519Signature};
     use lb_key_management_system_keys::keys::ZkPublicKey;
     use lb_network_service::{backends::mock::Mock, message::ChainSyncEvent};
     use lb_tx_service::TxsWithCommonPrefix;
@@ -1401,50 +1367,6 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // /// A block ID rejected due to a tampered signature must not be cached by
-    // /// the orphan downloader, because the genuine proposal (with the same ID)
-    // /// may arrive later and must be accepted.
-    // #[test]
-    // fn tampered_signature_block_is_not_cached_by_orphan_downloader() {
-    //     let leader_key = Ed25519Key::from_bytes(&[1; 32]);
-    //     let genuine = Block::create(
-    //         HeaderId::from([0; 32]),
-    //         Slot::new(1),
-    //         UncleHeaders::empty(),
-    //         leader_proof(&leader_key.public_key()),
-    //         BlockTransactions::<Ops>::empty(),
-    //         &leader_key,
-    //     )
-    //     .expect("block must be created")
-    //     .to_proposal();
-    //
-    //     let mut signature = genuine.signature().to_bytes();
-    //     signature[0] ^= 1;
-    //     let tampered = Proposal {
-    //         signature: Ed25519Signature::from_bytes(&signature),
-    //         ..genuine.clone()
-    //     };
-    //     let block_id = genuine.header().id();
-    //     // The tampered proposal has the same block ID as the genuine one,
-    //     // because the block ID doesn't commit to the signature.
-    //     assert_eq!(tampered.header().id(), block_id);
-    //
-    //     let mut orphan_downloader =
-    //         OrphanBlocksDownloader::<_, usize>::new(NoopNetworkAdapter, NonZeroUsize::MIN, 1);
-    //
-    //     assert!(matches!(
-    //         verify_proposal_and_cache_rejected(&tampered, &mut orphan_downloader),
-    //         Err(Error::InvalidSignature)
-    //     ));
-    //     // check that the rejected block was not cached in the orphan downloader.
-    //     assert!(!orphan_downloader.has_rejected_block(&block_id));
-    //
-    //     verify_proposal_and_cache_rejected(&genuine, &mut orphan_downloader)
-    //         .expect("genuine proposal must pass");
-    // }
-
     /// The block ID does not cover the proof of leadership, so a copy carrying an
     /// invalid proof must not get the ID rejected: the genuine block shares it.
     #[test]
@@ -1528,16 +1450,6 @@ mod tests {
             unimplemented!()
         }
     }
-
-    // TODO(RFC-480): the header carries the reward_key of the leader reward; the
-    // PoL is bound to the header by pol_msg.
-    // /// A dummy leader proof carrying only `leader_key`
-    // fn leader_proof(leader_key: &Ed25519PublicKey) -> Groth16LeaderProof {
-    //     // Layout: `proof (128B) || entropy_contribution (32B) || leader_key (32B) ||
-    //     // voucher_cm (32B)`
-    //     let bytes = [&[0u8; 160][..], leader_key.as_bytes(), &[0u8; 32]].concat();
-    //     Groth16LeaderProof::decode_all(&bytes).expect("leader proof bytes must decode")
-    // }
 
     /// A leader proof of a note set witness, bound to no header
     fn leader_proof() -> Groth16LeaderProof {

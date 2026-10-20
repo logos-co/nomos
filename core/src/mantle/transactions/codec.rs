@@ -54,26 +54,10 @@ pub fn minimum_signed_transaction_size(op_refs: &OpRefs<'_>, context: &OpsGasCon
                 OpRef::SDPActive(_) => ED25519_SIGNATURE_SIZE,
 
                 // ZkTransferProof = ZkTransfer = Groth16Proof
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // OpRef::LeaderClaim(_)
                 OpRef::Transfer(_)
                 | OpRef::ChannelDeposit(_)
                 | OpRef::ChannelWithdraw(_) => COMPRESSED_PROOF_SIZE,
 
-                // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-                // ZkTransfer over the channel note set.
-                // // ChannelMultiSigProof
-                // OpRef::ChannelWithdraw(operation) => calculate_channel_multi_sig_proof_byte_size(
-                //     thresholds.transfer_threshold(&operation.channel_id),
-                // ),
-
-                // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-                // the steps of CHANNEL_INSCRIBE.
-                // // ChannelMultiSigProof
-                // OpRef::ChannelTransfer(operation) => calculate_channel_multi_sig_proof_byte_size(
-                //     thresholds.transfer_threshold(&operation.channel_id),
-                // ),
                 OpRef::ClaimPowReward(_) | OpRef::ProgramRegister(_) => 0, // no proof
             };
             thresholds.apply(*op);
@@ -95,21 +79,17 @@ mod tests {
         selection::VerifiedProofOfSelection,
     };
     use lb_groth16::{CompressedGroth16Proof, Fr};
-    use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519Signature, ZkKey, ZkPublicKey};
+    use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519Signature, ZkKey};
     use lb_utils::bounded::BoundedError;
     use multiaddr::Multiaddr;
     use num_bigint::BigUint;
 
     use super::*;
-    // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-    // `mantle::Utxo` built the service note.
     use crate::{
         mantle::{
-            NoteId, Op, OpProof,
-            ledger::{
-                BoundedInputs, BoundedOutputs, Inputs, Note, verification_mode::StandardMode,
-            },
-            notes::{NoteCm, NoteNf, OutputCms},
+            Op, OpProof,
+            ledger::verification_mode::StandardMode,
+            notes::{InputNfs, NoteCm, NoteNf, OutputCms},
             ops::{
                 ChannelInscribeProof, StepProof, ZkAndEd25519Proof, ZkTransferProof,
                 channel::{
@@ -118,9 +98,6 @@ mod tests {
                     inscribe::{self, ChannelStep, ChannelSteps, Inscription, InscriptionOp, Step},
                     withdraw::ChannelWithdrawOp,
                 },
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // leader_claim::{LeaderClaimOp, RewardsRoot, VoucherNullifier},
                 op_proof::samples::SampleProof as _,
                 sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
                 transfer::TransferOp,
@@ -129,9 +106,6 @@ mod tests {
             transactions::{GasPrices, OpProofs, SignedOps, states::Unverified, tx_list::Ops},
         },
         proofs::channel_multi_sig_proof::ChannelMultiSigProof,
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // proofs::leader_claim_proof::Groth16LeaderClaimProof,
         sdp::{
             ActivityMetadata, DeclarationId, Locator, MAX_LOCATOR_BYTE_SIZE, ProviderId,
             ServiceType, blend::ActivityProof,
@@ -195,10 +169,6 @@ mod tests {
             + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" // Parent (32Byte)
             + "ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c" // Signer (32Byte)
             + "0000"                                                             // StepCount
-            // TODO(RFC-480 M4): the step count changes the transaction hash the
-            // signature is over.
-            // + "4ec789fc67b7f7bfba02f8cc7f3f671a107225faefbe60ca0b8e9e7e8e43e8db" // Signature (64Byte)
-            // + "835075aed539fac37e0fdc03acc2aba873e43eef8a835476c4c6bdaaba866901";
             + "27e257e71726bad757bf67bf377009c37f7403117b6cc841216bfc5679a8e1a3" // Signature (64Byte)
             + "55a193639cc35b06b4d0992279c95292237e403d68ebbb543773b3311b4aca0c";
 
@@ -233,9 +203,6 @@ mod tests {
                 posting_timeframe: 1.into(),
                 posting_timeout: 2.into(),
                 configuration_threshold: 3,
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: 4,
             }),
         ]);
 
@@ -329,12 +296,6 @@ mod tests {
     #[test]
     fn test_encode_decode_roundtrip_with_transfer() {
         // Create a MantleTx with ledger inputs and outputs
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let pk = ZkPublicKey::from(BigUint::from(42u64));
-        // let note = Note::new(1000, pk);
-        // let note_id = NoteId(BigUint::from(123u64).into());
-        // let transfer_op =
-        //     TransferOp::new(BoundedInputs::from(note_id).into(), Outputs::new([note]));
         let transfer_op = TransferOp::new(
             [NoteNf(Fr::from(123u64))].into(),
             [NoteCm(Fr::from(1000u64))].into(),
@@ -466,9 +427,6 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 0,
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 0,
         };
 
         let mantle_tx = Ops::new_unchecked(vec![Op::ChannelConfig(config_op)]);
@@ -495,16 +453,6 @@ mod tests {
         let locator1: Multiaddr = "/ip4/127.0.0.1/tcp/8080".parse().unwrap();
         let locator2: Multiaddr = "/ip6/::1/tcp/9090".parse().unwrap();
 
-        // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-        // let service_note_sk = ZkKey::from(BigUint::from(1u64));
-        // let service_note = Utxo {
-        //     op_id: [1u8; 32],
-        //     output_index: 12,
-        //     note: Note {
-        //         value: 500,
-        //         pk: service_note_sk.to_public_key(),
-        //     },
-        // };
         let sdp_declare_op = SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locators: vec![
@@ -515,8 +463,6 @@ mod tests {
             .unwrap(),
             provider_id: ProviderId(signing_key.public_key()),
             zk_id: zk_sk.to_public_key(),
-            // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-            // service_note_id: service_note.id(),
             inputs: [NoteNf(Fr::from(500u64))].into(),
             cm_merkle_root: Fr::ZERO,
             amount: 500,
@@ -529,12 +475,6 @@ mod tests {
         let predicted_size = minimum_signed_transaction_size(&mantle_tx.op_refs(), &gas_context);
 
         // Create a signed tx and encode it to get actual size
-        // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-        // let tx_hash = mantle_tx.hash();
-        // let proof = ZkAndEd25519Proof {
-        //     zk_sig: ZkKey::multi_sign(&[service_note_sk, zk_sk], &tx_hash.to_fr()).unwrap(),
-        //     ed25519_sig: Ed25519Signature::from_bytes(&[0u8; 64]),
-        // };
         let proof = ZkAndEd25519Proof {
             zk_proof: ZkTransferProof::sample(),
             ed25519_sig: Ed25519Signature::from_bytes(&[0u8; 64]),
@@ -549,14 +489,9 @@ mod tests {
 
     #[test]
     fn test_minimum_signed_mantle_tx_size_with_sdp_withdraw() {
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-        // commitment.
-        // let service_note_id = NoteId(BigUint::from(123u64).into());
-
         let sdp_withdraw_op = SDPWithdrawOp {
             declaration_id: DeclarationId([0x11; 32]),
             nonce: 42,
-            // service_note_id,
             service_note_nf: NoteNf(Fr::from(123u64)),
             outputs: [NoteCm(Fr::from(124u64))].into(),
             excess_value: 1,
@@ -564,20 +499,11 @@ mod tests {
 
         let mantle_tx = Ops::new_unchecked(vec![Op::SDPWithdraw(sdp_withdraw_op)]);
 
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-        // commitment.
-        // let tx_hash = mantle_tx.hash();
-
         // Predict size
         let gas_context = OpsGasContext::new(HashMap::new(), GasPrices::new(0, 0));
         let predicted_size = minimum_signed_transaction_size(&mantle_tx.op_refs(), &gas_context);
 
         // Create a signed tx and encode it to get actual size
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-        // commitment.
-        // let op_proofs = OpProofs::from([OpProof::ZkSig(
-        //     ZkKey::multi_sign(&[ZkKey::zero()], &tx_hash.to_fr()).unwrap(),
-        // )]);
         let op_proofs = OpProofs::from([OpProof::ZkAndEd25519Sigs(ZkAndEd25519Proof::sample())]);
         let signed_tx = SignedOps::<_, StandardMode>::from_parts(mantle_tx, op_proofs).unwrap();
         let encoded = signed_tx.encode();
@@ -640,9 +566,6 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 0,
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 0,
         };
 
         let blend_proof = ActivityProof {
@@ -688,23 +611,6 @@ mod tests {
 
     #[test]
     fn test_minimum_signed_mantle_tx_size_with_ledger_inputs_outputs() {
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let pk1 = ZkPublicKey::from(BigUint::from(100u64));
-        // let pk2 = ZkPublicKey::from(BigUint::from(200u64));
-        //
-        // let note1 = Note::new(1000, pk1);
-        // let note2 = Note::new(2000, pk2);
-        //
-        // let note_id1 = NoteId(BigUint::from(111u64).into());
-        // let note_id2 = NoteId(BigUint::from(222u64).into());
-        // let note_id3 = NoteId(BigUint::from(333u64).into());
-        //
-        // let transfer_op = TransferOp::new(
-        //     BoundedInputs::try_from_iter([note_id1, note_id2, note_id3])
-        //         .unwrap()
-        //         .into(),
-        //     Outputs::new([note1, note2]),
-        // );
         let transfer_op = TransferOp::new(
             [111u64, 222, 333].map(|n| NoteNf(Fr::from(n))).into(),
             [1000u64, 2000].map(|n| NoteCm(Fr::from(n))).into(),
@@ -747,18 +653,8 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 0,
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 0,
         };
 
-        // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-        // let service_note_sk = ZkKey::from(BigUint::from(1u64));
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // let transfer_op = TransferOp {
-        //     inputs: BoundedInputs::from(NoteId(BigUint::from(777u64).into())).into(),
-        //     outputs: Outputs::new([Note::new(5000, service_note_sk.to_public_key())]),
-        // };
         let transfer_op = TransferOp::new(
             [NoteNf(Fr::from(777u64))].into(),
             [NoteCm(Fr::from(5000u64))].into(),
@@ -773,14 +669,6 @@ mod tests {
             locators: Locator::new_unchecked(locator).into(),
             provider_id: ProviderId(signing_key1.public_key()),
             zk_id: zk_sk.to_public_key(),
-            // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-            // service_note_id: transfer_op
-            //     .outputs
-            //     .utxo_by_index(0, &transfer_op)
-            //     .unwrap()
-            //     .id(),
-            // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-            // service_note_id: NoteId(Fr::from(5000u64)),
             inputs: [NoteNf(Fr::from(500u64))].into(),
             cm_merkle_root: Fr::ZERO,
             amount: 500,
@@ -819,70 +707,8 @@ mod tests {
         assert_eq!(predicted_size, actual_size);
     }
 
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // #[test]
-    // fn test_minimum_signed_mantle_tx_size_with_leader_claim() {
-    //     let leader_claim_op = LeaderClaimOp {
-    //         rewards_root: RewardsRoot::default(),
-    //         voucher_nullifier: VoucherNullifier::default(),
-    //         pk: ZkPublicKey::from(BigUint::from(0u64)),
-    //     };
-    //
-    //     let mantle_tx = Ops::new_unchecked(vec![Op::LeaderClaim(leader_claim_op)]);
-    //
-    //     let empty_gas_context = OpsGasContext::new(HashMap::new(), GasPrices::new(0, 0));
-    //     let predicted_size =
-    //         minimum_signed_transaction_size(&mantle_tx.op_refs(), &empty_gas_context);
-    //
-    //     let poc_proof =
-    //         Groth16LeaderClaimProof::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
-    //
-    //     // Construct directly to skip proof verification (dummy proof won't verify)
-    //     let op_proofs = OpProofs::from([OpProof::PoC(poc_proof)]);
-    //     let signed_tx = SignedOps::<_, StandardMode>::from_parts(mantle_tx, op_proofs).unwrap();
-    //
-    //     let encoded = signed_tx.encode();
-    //     assert_eq!(predicted_size, encoded.len());
-    // }
-
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // #[test]
-    // fn test_encode_decode_leader_claim_op() {
-    //     let leader_claim_op = LeaderClaimOp {
-    //         rewards_root: RewardsRoot::default(),
-    //         voucher_nullifier: VoucherNullifier::default(),
-    //         pk: ZkPublicKey::from(BigUint::from(0u64)),
-    //     };
-    //     let op = Op::LeaderClaim(leader_claim_op);
-    //
-    //     let encoded = op.encode();
-    //     let (remaining, decoded_op) = Op::decode(&encoded).unwrap();
-    //     assert_eq!(remaining, b"");
-    //     assert_eq!(decoded_op, op);
-    // }
-
     #[test]
     fn test_encode_decode_channel_withdraw_tx() {
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // let signing_key = Ed25519Key::from_bytes(&[21u8; 32]);
-        // let mantle_tx = Ops::new_unchecked(vec![Op::ChannelWithdraw(ChannelWithdrawOp {
-        //     channel_id: ChannelId::from([0xAB; 32]),
-        //     inputs: BoundedInputs::try_from_iter([
-        //         NoteId(BigUint::from(100u64).into()),
-        //         NoteId(BigUint::from(200u64).into()),
-        //     ])
-        //     .unwrap()
-        //     .into(),
-        // })]);
-        // let tx_hash = mantle_tx.hash();
-        // let proof = ChannelMultiSigProof::new(IndexedSignatures::from((
-        //     0,
-        //     signing_key.sign_payload(tx_hash.as_signing_bytes()),
-        // )));
-        // let op_proofs = OpProofs::from([OpProof::ChannelMultiSigProof(proof)]);
         let mantle_tx = Ops::new_unchecked(vec![Op::ChannelWithdraw(ChannelWithdrawOp {
             channel_id: ChannelId::from([0xAB; 32]),
             inputs: [NoteNf(Fr::ZERO)].into(),
@@ -941,9 +767,6 @@ mod tests {
                 posting_timeframe: 0.into(),
                 posting_timeout: 0.into(),
                 configuration_threshold: 0,
-                // TODO(RFC-480): transfer_threshold is removed, holders
-                // withdraw their own channel notes.
-                // transfer_threshold: 0,
             });
             u8::MAX as usize + 1
         ];
@@ -1022,9 +845,6 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 0,
-            // TODO(RFC-480): transfer_threshold is removed, holders
-            // withdraw their own channel notes.
-            // transfer_threshold: 0,
         }
         .encode();
 
@@ -1142,8 +962,6 @@ mod tests {
             locators: Locator::new_unchecked(invalid_locator).into(),
             provider_id: ProviderId(Ed25519Key::from_bytes(&[1; 32]).public_key()),
             zk_id: ZkKey::zero().to_public_key(),
-            // TODO(RFC-480): a declaration consumes ledger notes by their nullifiers.
-            // service_note_id: NoteId(BigUint::from(111u64).into()),
             inputs: [NoteNf(Fr::from(500u64))].into(),
             cm_merkle_root: Fr::ZERO,
             amount: 500,
@@ -1160,8 +978,8 @@ mod tests {
 
     #[test]
     fn test_encode_decode_max_inputs() {
-        let inputs = (0..u8::MAX).map(|index| NoteId(BigUint::from(index).into()));
-        let inputs: Inputs = BoundedInputs::try_from_iter(inputs).unwrap().into();
+        let inputs = (0..u8::MAX).map(|index| NoteNf(BigUint::from(index).into()));
+        let inputs = InputNfs::try_from_iter(inputs).unwrap();
 
         // Encode should succeed
         let encoded = inputs.encode();
@@ -1171,7 +989,7 @@ mod tests {
         );
 
         // Decode should succeed and produce the same number of inputs
-        let result = BoundedInputs::decode(&encoded);
+        let result = InputNfs::decode(&encoded);
         assert!(result.is_ok(), "Should decode max input count");
         let (_, decoded_inputs) = result.unwrap();
         assert_eq!(
@@ -1183,9 +1001,9 @@ mod tests {
 
     #[test]
     fn test_encode_decode_max_outputs() {
-        let note = Note::new(1000, ZkPublicKey::from(BigUint::from(42u64)));
+        let note = NoteCm(BigUint::from(42u64).into());
         let outputs = [note; u8::MAX as usize];
-        let outputs = BoundedOutputs::from(outputs);
+        let outputs = OutputCms::from(outputs);
 
         // Encode should succeed
         let encoded = outputs.encode();
@@ -1195,7 +1013,7 @@ mod tests {
         );
 
         // Decode should succeed and produce the same number of outputs
-        let result = BoundedOutputs::decode(&encoded);
+        let result = OutputCms::decode(&encoded);
         assert!(result.is_ok(), "Should decode max output count");
         let (_, decoded_outputs) = result.unwrap();
         assert_eq!(
@@ -1214,12 +1032,12 @@ mod tests {
         // Add MAX_INPUT_COUNT distinct field elements (each 32 bytes, little
         // endian)
         for index in 0..u8::MAX {
-            let mut note_id = [0x01; 32];
-            note_id[0] = index;
-            valid_input.extend_from_slice(&note_id);
+            let mut note_nf = [0x01; 32];
+            note_nf[0] = index;
+            valid_input.extend_from_slice(&note_nf);
         }
 
-        let result = BoundedInputs::decode(&valid_input);
+        let result = InputNfs::decode(&valid_input);
         assert!(result.is_ok(), "Should accept max input count");
         let (_, inputs) = result.unwrap();
         assert_eq!(inputs.len(), u8::MAX as usize);
@@ -1227,13 +1045,12 @@ mod tests {
         // Test that output_count = MAX_OUTPUT_COUNT works
         let mut valid_output = u8::MAX.to_le_bytes().to_vec();
 
-        // Add MAX_OUTPUT_COUNT notes (each: 8 bytes value + 32 bytes key)
+        // Add MAX_OUTPUT_COUNT note commitments (each 32 bytes)
         for _ in 0..u8::MAX {
-            valid_output.extend_from_slice(&42u64.to_le_bytes()); // value
-            valid_output.extend_from_slice(&[0x02; 32]); // public key
+            valid_output.extend_from_slice(&[0x02; 32]);
         }
 
-        let result = BoundedOutputs::decode(&valid_output);
+        let result = OutputCms::decode(&valid_output);
         assert!(result.is_ok(), "Should accept max output count");
         let (_, outputs) = result.unwrap();
         assert_eq!(outputs.len(), u8::MAX as usize);

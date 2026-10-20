@@ -1,17 +1,9 @@
 use lb_binary_codec::canonical::BinaryCodec;
 use lb_cryptarchia_engine::{MAX_UNCLES, Slot, UncleSlots};
-// TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-// signature.
-// use lb_key_management_system_keys::keys::Ed25519Signature;
 use lb_utils::bounded::UpperBoundedVec;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // block::Error,
-    header::{Header, HeaderId},
-};
+use crate::header::{Header, HeaderId};
 
 /// Headers of the uncles referenced by a block.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, BinaryCodec)]
@@ -62,40 +54,3 @@ impl UncleHeaders {
         self.0.iter()
     }
 }
-
-// TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-// blocks carry no signature.
-// /// A header together with the signature its leader produced over it.
-// #[derive(
-//     Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, BinaryCodec,
-// )]
-// pub struct SignedHeader {
-//     header: Header,
-//     signature: Ed25519Signature,
-// }
-//
-// impl SignedHeader {
-//     /// The fixed-size canonical representation of a signed header.
-//     pub const CANONICAL_ENCODED_SIZE: usize = Header::CANONICAL_ENCODED_SIZE
-//         + Ed25519Signature::CANONICAL_ENCODED_SIZE;
-//
-//     #[must_use]
-//     pub const fn new(header: Header, signature: Ed25519Signature) -> Self {
-//         Self { header, signature }
-//     }
-//
-//     #[must_use]
-//     pub const fn header(&self) -> &Header {
-//         &self.header
-//     }
-//
-//     #[must_use]
-//     pub const fn signature(&self) -> &Ed25519Signature {
-//         &self.signature
-//     }
-//
-//     pub fn verify(&self) -> Result<(), Error> {
-//         crate::block::verify_header_alone(&self.header)?;
-//         crate::block::verify_header_signature(&self.header, &self.signature)
-//     }
-// }

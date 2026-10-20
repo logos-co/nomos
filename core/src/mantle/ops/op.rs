@@ -19,18 +19,10 @@ use crate::{
         ops::{
             OPERATION_ID_V1, OpRef,
             channel::{
-                // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-                // the steps of CHANNEL_INSCRIBE.
-                // channel_transfer::ChannelTransferOp,
-                config::ChannelConfigOp,
-                deposit::DepositOp,
-                inscribe::InscriptionOp,
+                config::ChannelConfigOp, deposit::DepositOp, inscribe::InscriptionOp,
                 withdraw::ChannelWithdrawOp,
             },
             internal::{OpDe, OpSer},
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::LeaderClaimOp,
             pow::ClaimPowRewardOp,
             program::ProgramRegisterOp,
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
@@ -74,15 +66,9 @@ pub enum Op {
     ChannelConfig(ChannelConfigOp),
     ChannelDeposit(DepositOp),
     ChannelWithdraw(ChannelWithdrawOp),
-    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-    // the steps of CHANNEL_INSCRIBE.
-    // ChannelTransfer(ChannelTransferOp),
     SDPDeclare(SDPDeclareOp),
     SDPWithdraw(SDPWithdrawOp),
     SDPActive(SDPActiveOp),
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // LeaderClaim(LeaderClaimOp),
     Transfer(TransferOp),
     ClaimPowReward(ClaimPowRewardOp),
     ProgramRegister(ProgramRegisterOp),
@@ -155,10 +141,6 @@ impl BinaryDecode for Op {
             }
             ChannelWithdrawOp::CODE => ChannelWithdrawOp::decode(input, &())
                 .map(|(rest, op)| (rest, Self::ChannelWithdraw(op))),
-            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-            // the steps of CHANNEL_INSCRIBE.
-            // ChannelTransferOp::CODE => ChannelTransferOp::decode(input, &())
-            //     .map(|(rest, op)| (rest, Self::ChannelTransfer(op))),
             SDPDeclareOp::CODE => {
                 SDPDeclareOp::decode(input, &()).map(|(rest, op)| (rest, Self::SDPDeclare(op)))
             }
@@ -168,11 +150,6 @@ impl BinaryDecode for Op {
             SDPActiveOp::CODE => {
                 SDPActiveOp::decode(input, &()).map(|(rest, op)| (rest, Self::SDPActive(op)))
             }
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // LeaderClaimOp::CODE => {
-            //     LeaderClaimOp::decode(input, &()).map(|(rest, op)| (rest, Self::LeaderClaim(op)))
-            // }
             TransferOp::CODE => {
                 TransferOp::decode(input, &()).map(|(rest, op)| (rest, Self::Transfer(op)))
             }
@@ -216,15 +193,9 @@ impl Op {
             Self::ChannelConfig(op) => sample_proof_for(op),
             Self::ChannelDeposit(op) => sample_proof_for(op),
             Self::ChannelWithdraw(op) => sample_proof_for(op),
-            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-            // the steps of CHANNEL_INSCRIBE.
-            // Self::ChannelTransfer(op) => sample_proof_for(op),
             Self::SDPDeclare(op) => sample_proof_for(op),
             Self::SDPWithdraw(op) => sample_proof_for(op),
             Self::SDPActive(op) => sample_proof_for(op),
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // Self::LeaderClaim(op) => sample_proof_for(op),
             Self::Transfer(op) => sample_proof_for(op),
             Self::ClaimPowReward(op) => sample_proof_for(op),
             Self::ProgramRegister(op) => sample_proof_for(op),
@@ -249,15 +220,9 @@ impl_from_operation! {
     ChannelConfig => ChannelConfigOp,
     ChannelDeposit => DepositOp,
     ChannelWithdraw => ChannelWithdrawOp,
-    // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-    // the steps of CHANNEL_INSCRIBE.
-    // ChannelTransfer => ChannelTransferOp,
     SDPDeclare => SDPDeclareOp,
     SDPWithdraw => SDPWithdrawOp,
     SDPActive => SDPActiveOp,
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // LeaderClaim => LeaderClaimOp,
     Transfer => TransferOp,
     ClaimPowReward => ClaimPowRewardOp,
     ProgramRegister => ProgramRegisterOp,
@@ -324,7 +289,7 @@ mod tests {
     fn leader_claim_opcode_is_no_operation() {
         use lb_binary_codec::canonical::BinaryDecode as _;
 
-        // 0x40 was LEADER_CLAIM (moved there by M3), followed by its 96 byte payload.
+        // 0x40 was LEADER_CLAIM, followed by its 96 byte payload.
         let mut bytes = vec![0u8; 97];
         bytes[0] = 0x40;
         assert!(Op::decode(&bytes, &()).is_err());
@@ -336,22 +301,10 @@ mod tests {
             Op::ChannelInscribe(_) => matches!(op_proof, OpProof::ChannelInscribe(_)),
             Op::ChannelConfig(_) => matches!(op_proof, OpProof::ChannelMultiSigProof(_)),
             Op::ChannelDeposit(_) => matches!(op_proof, OpProof::ZkTransfer(_)),
-            // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-            // ZkTransfer over the channel note set.
-            // Op::ChannelWithdraw(_) => matches!(op_proof, OpProof::ChannelMultiSigProof(_)),
             Op::ChannelWithdraw(_) => matches!(op_proof, OpProof::ZkTransfer(_)),
-            // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-            // the steps of CHANNEL_INSCRIBE.
-            // Op::ChannelTransfer(_) => matches!(op_proof, OpProof::ChannelMultiSigProof(_)),
             Op::SDPDeclare(_) => matches!(op_proof, OpProof::ZkAndEd25519Sigs(_)),
-            // TODO(RFC-480): the service note is consumed by its nullifier against the root of
-            // its commitment.
-            // Op::SDPWithdraw(_) => matches!(op_proof, OpProof::ZkSig(_)),
             Op::SDPWithdraw(_) => matches!(op_proof, OpProof::ZkAndEd25519Sigs(_)),
             Op::SDPActive(_) => matches!(op_proof, OpProof::Ed25519Sig(_)),
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // Op::LeaderClaim(_) => matches!(op_proof, OpProof::PoC(_)),
             Op::Transfer(_) => matches!(op_proof, OpProof::ZkTransfer(_)),
             Op::ClaimPowReward(_) => matches!(op_proof, OpProof::None(_)),
             Op::ProgramRegister(_) => matches!(op_proof, OpProof::None(_)),

@@ -7,9 +7,6 @@ use std::{
 
 use futures::StreamExt as _;
 use lb_binary_codec::canonical::BinaryEncode as _;
-// TODO(RFC-480): leader witnesses and transfers run on private notes; `mantle::Utxo`,
-// `mantle::ledger::{BoundedInputs, Outputs}` and `mantle::ops::leader_claim::{VoucherCm,
-// VoucherSecret}` left.
 use lb_core::{
     block::{
         Block, BlockTransactions, UncleHeaders, body_root,
@@ -47,9 +44,6 @@ use lb_core::{
 use lb_cryptarchia_engine::{EpochConfig, Slot, UncleSlots};
 use lb_cryptarchia_sync::HeaderId;
 use lb_groth16::{AdditiveGroup as _, CompressedGroth16Proof, Fr};
-// TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-// signature.
-// use lb_key_management_system_keys::keys::{Ed25519Key, ZkKey};
 use lb_key_management_system_keys::keys::{UnverifiedEd25519PublicKey, ZkKey, ZkPublicKey};
 use lb_ledger::{
     LedgerState,
@@ -806,50 +800,6 @@ fn ledger_is_not_committed_if_block_contains_invalid_deferred_proof() {
     assert_eq!(cryptarchia.tip(), genesis_id, "tip should not advance");
 }
 
-// TODO(RFC-480): transfers spend private notes by nullifier with a ZkTransfer.
-// /// Creates a transfer tx with a fake sig.
-// fn transfer_tx_with_fake_sig(utxo: Utxo, fake_key: &ZkKey) -> SignedOps<Preverified, StandardMode> {
-//     let mut output_note = Note::new(1, fake_key.to_public_key());
-//     let gas_context = OpsGasContext::from_channels(&Channels::new(), GasPrices::default());
-//     let fees = transfer_tx(utxo, output_note, fake_key)
-//         .op_refs()
-//         .total_gas_cost::<MainnetGasProfile>(&gas_context)
-//         .unwrap();
-//     output_note.value = utxo.note.value - fees.into_inner();
-//
-//     transfer_tx(utxo, output_note, fake_key)
-//         .preverify()
-//         .expect("a fake signature is only caught by the stateful checks")
-// }
-//
-// /// Creates a tx spending `utxo` with no outputs, so its whole value pays the
-// /// fee.
-// fn burn_tx(utxo: Utxo, key: &ZkKey) -> SignedOps<Preverified, StandardMode> {
-//     let ops = Ops::from([Op::Transfer(TransferOp::new(
-//         BoundedInputs::from(utxo.id()).into(),
-//         Outputs::new([]),
-//     ))]);
-//     let op_proofs = OpProofs::from([OpProof::ZkSig(
-//         ZkKey::multi_sign(std::slice::from_ref(key), &ops.hash().to_fr()).unwrap(),
-//     )]);
-//     SignedOps::from_parts(ops, op_proofs)
-//         .unwrap()
-//         .preverify()
-//         .unwrap()
-// }
-//
-// fn transfer_tx(utxo: Utxo, output_note: Note, key: &ZkKey) -> SignedOps<Unverified, StandardMode> {
-//     let transfer_op = TransferOp::new(
-//         BoundedInputs::from(utxo.id()).into(),
-//         Outputs::new([output_note]),
-//     );
-//     let ops = Ops::from([Op::Transfer(transfer_op)]);
-//     let op_proofs = OpProofs::from([OpProof::ZkSig(
-//         ZkKey::multi_sign(std::slice::from_ref(key), &ops.hash().to_fr()).unwrap(),
-//     )]);
-//     SignedOps::from_parts(ops, op_proofs).expect("")
-// }
-
 /// Creates a transfer tx with a fake sig.
 fn transfer_tx_with_fake_sig(
     note: &Note,
@@ -1016,9 +966,6 @@ pub fn ledger_config(security_param: NonZero<u32>) -> lb_ledger::Config {
 pub fn try_build_block(
     cryptarchia: &Cryptarchia,
     parent: HeaderId,
-    // TODO(RFC-480): the leader wins with a private note.
-    // utxo: Utxo,
-    // key: &ZkKey,
     note: &Note,
     secret_key: Fr,
     start_slot: Slot,
@@ -1046,9 +993,6 @@ pub fn try_build_block(
 pub fn try_build_block_with_transactions(
     cryptarchia: &Cryptarchia,
     parent: HeaderId,
-    // TODO(RFC-480): the leader wins with a private note.
-    // utxo: Utxo,
-    // key: &ZkKey,
     note: &Note,
     secret_key: Fr,
     aged_path: &MerklePath,
@@ -1064,9 +1008,6 @@ pub fn try_build_block_with_transactions(
         let epoch_state = cryptarchia.epoch_state_for_slot(slot.into()).unwrap();
         let tip_state = cryptarchia.ledger.state(&cryptarchia.tip()).unwrap();
         let public_inputs = LeaderPublic::new(
-            // TODO(RFC-480): the PoL is proven against the eligible roots.
-            // epoch_state.utxo_merkle_root(),
-            // tip_state.latest_utxos().root(),
             epoch_state.eligible_root(),
             tip_state.latest_note_sets().eligible_root(),
             epoch_state.nonce,
@@ -1075,39 +1016,10 @@ pub fn try_build_block_with_transactions(
             epoch_state.lottery_1,
         );
 
-        // TODO(RFC-480): the lottery runs on notes.
-        // if !check_winning(utxo, public_inputs, &key.to_public_key(), *key.as_fr()) {
         if !check_winning(note, public_inputs, &public_key, secret_key) {
             continue;
         }
 
-        // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-        // blocks carry no signature.
-        // let signing_key = Ed25519Key::generate(&mut thread_rng());
-        // let private_inputs = LeaderPrivate::new(
-        //     public_inputs,
-        //     utxo,
-        //     &epoch_state.utxo_merkle_path(&utxo).unwrap(),
-        //     &tip_state.latest_utxos().path(&utxo.id()).unwrap(),
-        //     *key.as_fr(),
-        //     &signing_key.public_key(),
-        // );
-        // let proof = Groth16LeaderProof::prove(
-        //     private_inputs,
-        //     VoucherCm::from_secret(VoucherSecret::from(Fr::ZERO)),
-        // )
-        // .unwrap();
-        //
-        // let block = Block::create(
-        //     parent,
-        //     slot.into(),
-        //     uncle_headers,
-        //     proof,
-        //     transactions,
-        //     &signing_key,
-        // )
-        // .unwrap();
-        // return Some((block, signing_key));
         // A fresh reward key, so that two forks won at one slot get distinct IDs.
         let reward_key = ZkPublicKey::new(Fr::from(thread_rng().next_u64()));
         let mut wallet = pol_wallet_inputs(
@@ -1144,10 +1056,6 @@ pub fn chain_with_fork() -> (
     Cryptarchia,
     Block<SignedOps<Preverified, StandardMode>>,
     Block<SignedOps<Preverified, StandardMode>>,
-    // TODO(RFC-480): the leader wins with a private note and the block carries a reward key.
-    // Ed25519Key,
-    // ZkKey,
-    // Utxo,
     ZkPublicKey,
     Fr,
     Note,
@@ -1236,24 +1144,8 @@ pub fn commitment_paths(notes: &[Note]) -> Vec<MerklePath> {
 }
 
 pub fn signed_header(block: &Block<SignedOps<Preverified, StandardMode>>) -> Header {
-    // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg, blocks carry no
-    // signature.
-    // SignedHeader::new(block.header().clone(), *block.signature())
     block.header().clone()
 }
-
-// TODO(RFC-480): the leader wins with a private note.
-// pub fn utxo() -> (ZkKey, Utxo) {
-//     let mut op_id = [0u8; 32];
-//     thread_rng().fill_bytes(&mut op_id);
-//     let zk_sk = ZkKey::from(Fr::ZERO);
-//     let utxo = Utxo {
-//         op_id,
-//         output_index: 0,
-//         note: Note::new(10000, zk_sk.to_public_key()),
-//     };
-//     (zk_sk, utxo)
-// }
 
 // A note under a random secret key, so that the notes of one test differ.
 pub fn note() -> (Fr, Note) {

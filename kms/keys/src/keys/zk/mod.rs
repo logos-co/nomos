@@ -3,9 +3,6 @@ use std::hash::{Hash, Hasher};
 
 use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
 use lb_groth16::Fr;
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-// use lb_zksign::ZkSignError;
 use num_bigint::BigUint;
 use serde::Deserialize;
 use zeroize::ZeroizeOnDrop;
@@ -15,15 +12,6 @@ use crate::keys::{errors::KeyError, secured_key::SecuredKey};
 mod private;
 pub use self::private::SecretKey as UnsecuredZkKey;
 mod public;
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-// pub use self::public::{
-//     MAX_ZK_SIGNING_KEYS, PublicKey, PublicKeys, inputs_from_pks as public_inputs_from_pks,
-// };
-// mod signature;
-// pub use self::signature::Signature;
-// TODO(RFC-480): the ZkSignature circuit is retired (circuits v0.6.0).
-// pub use self::public::{MAX_ZK_SIGNING_KEYS, PublicKey, PublicKeys};
 pub use self::public::PublicKey;
 
 // The input secret keys are set by the KMS.
@@ -53,21 +41,6 @@ impl ZkKey {
     pub const fn as_fr(&self) -> &Fr {
         self.0.as_fr()
     }
-
-    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-    // Components 1.3.0).
-    /*
-    pub fn sign_payload(&self, data: &Fr) -> Result<Signature, ZkSignError> {
-        self.0.sign(data)
-    }
-
-    pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, ZkSignError> {
-        UnsecuredZkKey::multi_sign(
-            &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
-            data,
-        )
-    }
-    */
 
     #[must_use]
     pub fn to_public_key(&self) -> PublicKey {
@@ -141,32 +114,10 @@ impl BinaryDecode for PublicKey {
 
 #[async_trait::async_trait]
 impl SecuredKey for ZkKey {
-    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-    // Components 1.3.0).
-    // type Payload = Fr;
-    // type Signature = Signature;
     type Payload = ZkTransferPayload;
     type Signature = lb_zktransfer::ZkTransferProof;
     type PublicKey = PublicKey;
     type Error = KeyError;
-
-    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-    // Components 1.3.0).
-    /*
-    fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {
-        Ok(self.0.sign(payload)?)
-    }
-
-    fn sign_multiple(
-        keys: &[&Self],
-        payload: &Self::Payload,
-    ) -> Result<Self::Signature, Self::Error> {
-        Ok(UnsecuredZkKey::multi_sign(
-            &keys.iter().map(|key| key.0.clone()).collect::<Vec<_>>(),
-            payload,
-        )?)
-    }
-    */
 
     // Every active input is proven with this key.
     fn sign(&self, payload: &Self::Payload) -> Result<Self::Signature, Self::Error> {

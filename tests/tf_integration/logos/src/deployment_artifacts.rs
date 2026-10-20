@@ -86,9 +86,6 @@ fn deployment_settings(
         hostnames,
         topology.config().blend_core_nodes,
     )?;
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // let transfer_op = genesis_block.genesis_tx().transfer().operation().clone();
     let transfer_op = genesis_block.genesis_tx().distribution();
     let genesis_block = create_genesis_block_with_declarations(
         transfer_op,

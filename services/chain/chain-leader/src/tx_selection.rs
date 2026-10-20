@@ -116,8 +116,6 @@ pub fn select_transactions(
                             %err,
                             "deferred proof verification failed during block assembly",
                         );
-                        // TODO(RFC-480): a proof failure is permanent.
-                        // still_pending.push(tx);
                         invalid_tx_hashes.push(tx.hash());
                     }
                 },
@@ -173,18 +171,6 @@ pub fn select_transactions(
 #[cfg(test)]
 mod tests {
     use futures::stream;
-    // TODO(RFC-480): Transfers spend notes by nullifier and are proven by a ZkTransfer.
-    // use lb_core::{
-    //     block::MAX_BLOCK_TRANSACTIONS_SIZE,
-    //     mantle::{
-    //         Note, Op, OpProof, Utxo,
-    //         gas::TxGasCalculator as _,
-    //         ledger::{Inputs, Outputs},
-    //         ops::transfer::TransferOp,
-    //         traits::StorageSize,
-    //         transactions::{OpProofs, Ops, states::Unverified},
-    //     },
-    // };
     use lb_core::{
         block::MAX_BLOCK_TRANSACTIONS_SIZE,
         mantle::{
@@ -202,42 +188,6 @@ mod tests {
 
     use super::*;
     use crate::{leadership, txs_for_block};
-
-    // TODO(RFC-480): Transfers spend notes by nullifier and are proven by a ZkTransfer.
-    // fn transfer_heavy_transaction(
-    //     transaction_index: usize,
-    //     funding_key: &ZkKey,
-    //     transfer_count: usize,
-    // ) -> (Vec<Utxo>, SignedOps<Preverified, StandardMode>) {
-    //     let funding_utxos = (0..transfer_count)
-    //         .map(|transfer_index| {
-    //             let utxo_index = transaction_index * transfer_count + transfer_index;
-    //             let mut op_id = [0; 32];
-    //             op_id[..size_of::<usize>()].copy_from_slice(&utxo_index.to_le_bytes());
-    //             Utxo::new(op_id, 0, Note::new(10_000_000, funding_key.to_public_key()))
-    //         })
-    //         .collect::<Vec<_>>();
-    //     let ops = Ops::try_from_iter(funding_utxos.iter().map(|utxo| {
-    //         Op::Transfer(TransferOp::new(
-    //             Inputs::try_new(vec![utxo.id()]).unwrap(),
-    //             Outputs::try_new(Vec::new()).unwrap(),
-    //         ))
-    //     }))
-    //     .unwrap();
-    //     let tx_hash = ops.hash();
-    //     let signature =
-    //         ZkKey::multi_sign(std::slice::from_ref(funding_key), &tx_hash.to_fr()).unwrap();
-    //     let proofs = OpProofs::try_from_iter(
-    //         std::iter::repeat_with(|| OpProof::ZkSig(signature.clone())).take(transfer_count),
-    //     )
-    //     .unwrap();
-    //     let transaction = SignedOps::<Unverified, StandardMode>::from_parts(ops, proofs)
-    //         .unwrap()
-    //         .preverify()
-    //         .unwrap();
-    //
-    //     (funding_utxos, transaction)
-    // }
 
     fn funding_notes(
         transaction_index: usize,
@@ -286,10 +236,10 @@ mod tests {
             .unwrap()
     }
 
-    // TODO(RFC-480): the selection only keeps transactions whose deferred proofs
-    // verify, so the zero proofs keep every candidate out; proving the 5,610
-    // Transfers with `prove_transfer` is too slow for a unit test.
-    #[ignore = "TODO(RFC-480): needs 5,610 real ZkTransfer proofs"]
+    // The selection only keeps transactions whose deferred proofs verify, so
+    // the zero proofs keep every candidate out; proving the 5,610 Transfers
+    // with `prove_transfer` is too slow for a unit test.
+    #[ignore = "slow: needs 5,610 real ZkTransfer proofs"]
     #[tokio::test]
     async fn gas_limited_selection_returns_canonically_applicable_prefix() {
         const CANDIDATE_COUNT: usize = 22;
@@ -297,18 +247,6 @@ mod tests {
 
         let config = leadership::test_config();
         let funding_key = ZkKey::zero();
-        // TODO(RFC-480): Transfers spend notes by nullifier and are proven by a ZkTransfer.
-        // let (funding_utxos, candidates): (Vec<_>, Vec<_>) = (0..CANDIDATE_COUNT)
-        //     .map(|transaction_index| {
-        //         transfer_heavy_transaction(
-        //             transaction_index,
-        //             &funding_key,
-        //             TRANSFERS_PER_TRANSACTION,
-        //         )
-        //     })
-        //     .unzip();
-        //
-        // let ledger_state = LedgerState::from_utxos(funding_utxos.into_iter().flatten(), &config);
         let funding_notes = (0..CANDIDATE_COUNT)
             .map(|transaction_index| {
                 funding_notes(transaction_index, &funding_key, TRANSFERS_PER_TRANSACTION)

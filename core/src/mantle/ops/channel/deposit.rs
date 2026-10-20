@@ -1,7 +1,5 @@
 use lb_binary_codec::canonical::{BinaryCodec, BinaryEncode as _};
 use lb_groth16::{Fr, serde::serde_fr};
-// TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-// use lb_key_management_system_keys::keys::ZkSignature;
 use lb_utils::bounded::UpperBoundedVec;
 use lb_zktransfer::{MAX_INPUTS, MAX_OUTPUTS, ZkTransferInputsError, ZkTransferVerifierInput};
 use serde::{Deserialize, Serialize};
@@ -45,23 +43,6 @@ pub struct DepositOp {
 }
 
 impl DepositOp {
-    // TODO(RFC-480): the outputs are commitments carried by the payload.
-    // // The notes re-created in the channel
-    // pub fn outputs(&self, utxos: &Utxos) -> Result<Outputs, Error> {
-    //     let notes = self
-    //         .inputs
-    //         .iter()
-    //         .map(|note_id| {
-    //             utxos
-    //                 .get(note_id)
-    //                 .map(|utxo| utxo.note)
-    //                 .ok_or(InputsError::InexistingNote(*note_id))
-    //         })
-    //         .collect::<Result<Vec<_>, _>>()?;
-    //
-    //     Ok(Outputs::try_new(notes)?)
-    // }
-
     #[cfg(any(test, feature = "test-utils"))]
     #[must_use]
     pub fn sample() -> Self {
@@ -85,20 +66,12 @@ impl OpId for DepositOp {
 
 pub struct DepositValidationContext<'a> {
     pub channels: &'a Channels,
-    // TODO(RFC-480): inputs are nullifiers of the ledger set and outputs
-    // commitments of the channel set.
-    // pub service_notes: &'a ServiceNotes,
-    // pub utxos: &'a Utxos,
     pub note_sets: &'a NoteSets,
     pub block_number: BlockNumber,
     pub tx_hash_view: &'a TxHashView,
 }
 
 pub struct DepositExecutionContext<'a> {
-    // TODO(RFC-480): inputs are nullifiers of the ledger set and outputs
-    // commitments of the channel set.
-    // pub channels: Channels,
-    // pub utxos: Utxos,
     pub channels: &'a Channels,
     pub note_sets: NoteSets,
     pub tx_hash: TxHash,
@@ -117,8 +90,6 @@ pub(super) fn channel_note_set(
 }
 
 impl ProvableOperation for DepositOp {
-    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-    // type Proof = ZkSignature;
     type Proof = ZkTransferProof;
     const CODE: u8 = 0x12;
 }
@@ -135,11 +106,6 @@ impl PreverifiableOperation<StandardMode> for SignedOperation<DepositOp, Unverif
 
     fn preverify(&self, _context: &Self::Context<'_>) -> Result<(), Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): UTXO deposit tests, inputs are nullifiers of the ledger set
-        // and outputs commitments of the channel set.
-        // // Ensure the inputs is non-empty
-        // self.operation().inputs.preverify()?;
 
         // Ensure the inputs is non-empty
         if operation.inputs.is_empty() {
@@ -165,32 +131,6 @@ impl VerifiableOperation<StandardMode> for SignedOperation<DepositOp, Preverifie
 
     fn verify(&self, context: &Self::Context<'_>) -> Result<Self::DeferredProof, Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): UTXO deposit tests, inputs are nullifiers of the ledger set
-        // and outputs commitments of the channel set.
-        // // Check that the channel exists
-        // if !context
-        //     .channels
-        //     .channels
-        //     .contains_key(&operation.channel_id)
-        // {
-        //     return Err(Error::ChannelNotFound {
-        //         channel_id: operation.channel_id,
-        //     });
-        // }
-        //
-        // // Check that inputs are spendable and not already channel notes
-        // operation.inputs.validate_not_in_channel(
-        //     context.service_notes,
-        //     context.channels,
-        //     context.utxos,
-        // )?;
-        //
-        // // Defer the proof verification, so that the caller can batch it.
-        // let public_keys = operation.inputs.get_pk(context.utxos)?;
-        // let inputs = public_inputs_from_pks((*context.tx_hash_view.as_fr()).into(), &public_keys)
-        //     .map_err(|_| Error::InvalidSignature)?;
-        // Ok(DeferredZkSig::new(*self.proof().as_proof(), inputs))
 
         // Check that the channel exists and holds a note set
         channel_note_set(context.channels, operation.channel_id)?;
@@ -234,44 +174,6 @@ impl<Mode: VerificationMode> ExecutableOperation for SignedOperation<DepositOp, 
         mut context: Self::Context<'a>,
     ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error> {
         let operation = self.operation();
-
-        // TODO(RFC-480): UTXO deposit tests, inputs are nullifiers of the ledger set
-        // and outputs commitments of the channel set.
-        // // Get the amount deposited for the event payload
-        // let amount_deposited = operation.inputs.amount(&context.utxos)?;
-        // let outputs = operation.outputs(&context.utxos)?;
-        //
-        // // Remove the inputs from the ledger.
-        // context.utxos = operation.inputs.execute(context.utxos)?;
-        //
-        // // Add the re-created notes to the ledger and register them as channel
-        // // notes.
-        // context.utxos = outputs.execute(context.utxos, operation);
-        // let mut notes = DepositRecreatedNotes::default();
-        // for utxo in outputs.utxos(operation) {
-        //     context.channels = context
-        //         .channels
-        //         .register_channel_note(&utxo.id(), &operation.channel_id)?;
-        //     notes
-        //         .try_push(DepositNote {
-        //             note_id: utxo.id(),
-        //             value: utxo.note.value,
-        //             pk: utxo.note.pk,
-        //         })
-        //         .map_err(InputsError::from)?;
-        // }
-        //
-        // let events = std::iter::once(TxEvent::new(
-        //     context.tx_hash,
-        //     operation.op_id(),
-        //     TxEventPayload::Deposit {
-        //         channel_id: operation.channel_id,
-        //         amount: amount_deposited,
-        //         metadata: operation.metadata.clone(),
-        //         notes,
-        //     },
-        // ))
-        // .collect();
 
         // Resolved again here since the genesis mode executes unverified
         let channel_set = channel_note_set(context.channels, operation.channel_id)?;
@@ -328,345 +230,6 @@ mod test {
             op_proof::samples::SampleProof as _,
         },
     };
-
-    // TODO(RFC-480): UTXO deposit tests, inputs are nullifiers of the ledger set
-    // and outputs commitments of the channel set.
-    // #[test]
-    // fn preverify_rejects_empty_inputs() {
-    //     let deposit = DepositOp {
-    //         channel_id: ChannelId::from([0u8; 32]),
-    //         inputs: Inputs::empty(),
-    //         metadata: Metadata::empty(),
-    //     };
-    //     let proof = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
-    //     let signed_operation = SignedOperation::new(deposit, proof);
-    //
-    //     assert_eq!(
-    //         signed_operation.preverify(&()),
-    //         Err(Error::Inputs(InputsError::EmptyInputs))
-    //     );
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M4): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn verify_rejects_an_unregistered_channel() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //
-    //     let operation = DepositOp {
-    //         inputs: BoundedInputs::from(input_utxo.id()).into(),
-    //         ..DepositOp::sample()
-    //     };
-    //     let channel_id = operation.channel_id;
-    //
-    //     let signed_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(&[input_key], signed_view.as_fr()).expect("signing should succeed");
-    //
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //             .into_preverified(&())
-    //             .expect("preverify should accept a non-empty deposit");
-    //
-    //     let locked_notes = ServiceNotes::new();
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .verify(&DepositValidationContext {
-    //                 channels: &Channels::new(),
-    //                 service_notes: &locked_notes,
-    //                 utxos: &utxos,
-    //                 tx_hash_view: &signed_view,
-    //             })
-    //             .unwrap_err(),
-    //         Error::ChannelNotFound { channel_id }
-    //     );
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M4): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn verify_rejects_an_input_missing_from_the_ledger() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //
-    //     let operation = DepositOp {
-    //         inputs: BoundedInputs::from(input_utxo.id()).into(),
-    //         ..DepositOp::sample()
-    //     };
-    //
-    //     let mut channels = Channels::new();
-    //     channels
-    //         .channels
-    //         .insert_mut(operation.channel_id, make_channel_state(1, None));
-    //     let locked_notes = ServiceNotes::new();
-    //
-    //     let signed_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(&[input_key], signed_view.as_fr()).expect("signing should succeed");
-    //
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //             .into_preverified(&())
-    //             .expect("preverify should accept a non-empty deposit");
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .verify(&DepositValidationContext {
-    //                 channels: &channels,
-    //                 service_notes: &locked_notes,
-    //                 utxos: &Utxos::new(),
-    //                 tx_hash_view: &signed_view,
-    //             })
-    //             .unwrap_err(),
-    //         Error::Inputs(InputsError::InexistingNote(input_utxo.id()))
-    //     );
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M4): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn verify_rejects_an_input_already_owned_by_a_channel() {
-    //     let input_key = ZkKey::from(BigUint::from(1u8));
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key.to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //
-    //     let operation = DepositOp {
-    //         inputs: BoundedInputs::from(input_utxo.id()).into(),
-    //         ..DepositOp::sample()
-    //     };
-    //
-    //     let mut channels = Channels::new();
-    //     channels
-    //         .channels
-    //         .insert_mut(operation.channel_id, make_channel_state(1, None));
-    //     let channels = channels
-    //         .register_channel_note(&input_utxo.id(), &ChannelId::from([21u8; 32]))
-    //         .expect("the note is not owned by another channel");
-    //     let locked_notes = ServiceNotes::new();
-    //
-    //     let signed_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(&[input_key], signed_view.as_fr()).expect("signing should succeed");
-    //
-    //     let signed_operation =
-    //         SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //             .into_preverified(&())
-    //             .expect("preverify should accept a non-empty deposit");
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .verify(&DepositValidationContext {
-    //                 channels: &channels,
-    //                 service_notes: &locked_notes,
-    //                 utxos: &utxos,
-    //                 tx_hash_view: &signed_view,
-    //             })
-    //             .unwrap_err(),
-    //         Error::Inputs(InputsError::ChannelNote(input_utxo.id()))
-    //     );
-    // }
-    //
-    // fn input_utxo(seed: u8) -> Utxo {
-    //     Utxo {
-    //         op_id: [seed; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, ZkKey::from(BigUint::from(seed)).to_public_key()),
-    //     }
-    // }
-    //
-    // fn verified(inputs: Inputs) -> SignedOperation<DepositOp, Verified, StandardMode> {
-    //     SignedOperation::<_, Unverified, StandardMode>::new(
-    //         DepositOp {
-    //             inputs,
-    //             ..DepositOp::sample()
-    //         },
-    //         <DepositOp as ProvableOperation>::Proof::sample(),
-    //     )
-    //     .into_state_trusted()
-    // }
-    //
-    // #[test]
-    // fn execute_recreates_every_input_as_a_channel_note_and_emits_a_deposit_event() {
-    //     let first = input_utxo(1);
-    //     let second = input_utxo(2);
-    //     let (utxos, _) = Utxos::new().insert(first.id(), first);
-    //     let (utxos, _) = utxos.insert(second.id(), second);
-    //
-    //     let signed_operation = verified(
-    //         BoundedInputs::try_from_iter([first.id(), second.id()])
-    //             .unwrap()
-    //             .into(),
-    //     );
-    //     let operation = signed_operation.operation().clone();
-    //     let tx_hash = TxHash::from([9u8; 32]);
-    //
-    //     let (context, events) = signed_operation
-    //         .execute(DepositExecutionContext {
-    //             channels: Channels::new(),
-    //             utxos,
-    //             tx_hash,
-    //         })
-    //         .expect("both inputs are in the ledger");
-    //
-    //     let first_deposited = Utxo::new(operation.op_id(), 0, first.note).id();
-    //     let second_deposited = Utxo::new(operation.op_id(), 1, second.note).id();
-    //     assert!(!context.utxos.contains(&first.id()));
-    //     assert!(!context.utxos.contains(&second.id()));
-    //     assert!(!context.channels.is_channel_note(&first.id()));
-    //     assert!(!context.channels.is_channel_note(&second.id()));
-    //     assert!(context.utxos.contains(&first_deposited));
-    //     assert!(context.utxos.contains(&second_deposited));
-    //     assert!(
-    //         context
-    //             .channels
-    //             .is_channel_note_of(&first_deposited, &operation.channel_id)
-    //     );
-    //     assert!(
-    //         context
-    //             .channels
-    //             .is_channel_note_of(&second_deposited, &operation.channel_id)
-    //     );
-    //
-    //     assert_eq!(
-    //         events,
-    //         vec![TxEvent::new(
-    //             tx_hash,
-    //             operation.op_id(),
-    //             TxEventPayload::Deposit {
-    //                 channel_id: operation.channel_id,
-    //                 amount: first.note.value + second.note.value,
-    //                 metadata: operation.metadata,
-    //                 notes: DepositRecreatedNotes::try_from(vec![
-    //                     DepositNote {
-    //                         note_id: first_deposited,
-    //                         value: first.note.value,
-    //                         pk: first.note.pk,
-    //                     },
-    //                     DepositNote {
-    //                         note_id: second_deposited,
-    //                         value: second.note.value,
-    //                         pk: second.note.pk,
-    //                     },
-    //                 ])
-    //                 .expect("two recreated notes are within bounds"),
-    //             },
-    //         )]
-    //     );
-    // }
-    //
-    // #[test]
-    // fn execute_rejects_an_input_missing_from_the_ledger() {
-    //     let input = input_utxo(1);
-    //     let signed_operation = verified(BoundedInputs::from(input.id()).into());
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .execute(DepositExecutionContext {
-    //                 channels: Channels::new(),
-    //                 utxos: Utxos::new(),
-    //                 tx_hash: TxHash::from([9u8; 32]),
-    //             })
-    //             .map(|_| ())
-    //             .map_err(|(_, error)| error),
-    //         Err(Error::Inputs(InputsError::InexistingNote(input.id())))
-    //     );
-    // }
-    //
-    // #[test]
-    // fn execute_rejects_a_recreated_note_another_channel_already_owns() {
-    //     let other_channel = ChannelId::from([21u8; 32]);
-    //     let input = input_utxo(1);
-    //     let (utxos, _) = Utxos::new().insert(input.id(), input);
-    //
-    //     let signed_operation = verified(BoundedInputs::from(input.id()).into());
-    //     let deposited = Utxo::new(signed_operation.operation().op_id(), 0, input.note).id();
-    //     let channels = Channels::new()
-    //         .register_channel_note(&deposited, &other_channel)
-    //         .expect("the recreated note is not owned by another channel yet");
-    //
-    //     assert_eq!(
-    //         signed_operation
-    //             .execute(DepositExecutionContext {
-    //                 channels,
-    //                 utxos,
-    //                 tx_hash: TxHash::from([9u8; 32]),
-    //             })
-    //             .map(|_| ())
-    //             .map_err(|(_, error)| error),
-    //         Err(Error::ChannelNotes(
-    //             channel_notes::Error::AlreadyAChannelNote {
-    //                 note_id: deposited,
-    //                 channel_id: other_channel,
-    //             }
-    //         ))
-    //     );
-    // }
-    //
-    // fn input_key() -> ZkKey {
-    //     ZkKey::from(BigUint::from(1u8))
-    // }
-    //
-    // fn unrelated_key() -> ZkKey {
-    //     ZkKey::from(BigUint::from(7u8))
-    // }
-    //
-    // fn deferred_proof_signed_by(signers: &[ZkKey]) -> DeferredZkSig {
-    //     let input_utxo = Utxo {
-    //         op_id: [1u8; 32],
-    //         output_index: 0,
-    //         note: Note::new(10_000, input_key().to_public_key()),
-    //     };
-    //     let (utxos, _) = Utxos::new().insert(input_utxo.id(), input_utxo);
-    //     let operation = DepositOp {
-    //         inputs: BoundedInputs::from(input_utxo.id()).into(),
-    //         ..DepositOp::sample()
-    //     };
-    //     let mut channels = Channels::new();
-    //     channels
-    //         .channels
-    //         .insert_mut(operation.channel_id, make_channel_state(1, None));
-    //     let tx_hash_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(signers, tx_hash_view.as_fr()).expect("signing should succeed");
-    //
-    //     SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //         .into_preverified(&())
-    //         .expect("preverify should accept a non-empty deposit")
-    //         .verify(&DepositValidationContext {
-    //             channels: &channels,
-    //             service_notes: &ServiceNotes::new(),
-    //             utxos: &utxos,
-    //             tx_hash_view: &tx_hash_view,
-    //         })
-    //         .expect("verify leaves the proof to the batch")
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M4): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn deferred_proof_is_accepted() {
-    //     assert!(batch_verify(deferred_proof_signed_by(&[input_key()])).is_ok());
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M4): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn wrong_deferred_proof_is_rejected() {
-    //     assert!(matches!(
-    //         batch_verify(deferred_proof_signed_by(&[unrelated_key()])),
-    //         Err(BatchError::InvalidZkSignatures)
-    //     ));
-    // }
 
     #[test]
     fn deposit_op_execution_gas_does_not_scale_with_the_threshold() {

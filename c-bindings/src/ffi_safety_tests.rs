@@ -42,10 +42,6 @@ use overwatch::overwatch::ServicePanic;
 use serial_test::serial;
 use tempfile::TempDir;
 
-// TODO(RFC-480): `leader::leader_claim`, `claimable_vouchers::ClaimableVouchers`,
-// `free_claimable_vouchers`, `get_claimable_vouchers` (LEADER_CLAIM is removed),
-// `ChannelDepositWithNotesArguments` and `channel_deposit_with_notes` (a client
-// cannot name nullifiers) are no longer imported.
 use crate::{
     LogosBlockchainNode, OperationStatus, OperationStatusCode,
     api::{
@@ -229,9 +225,6 @@ mod no_node {
         // dereference; the other pointers are live locals or static C strings.
         unsafe {
             assert_eq!(code(get_chain_id(node)), np);
-            // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-            // block.
-            // assert_eq!(code(leader_claim(node)), np);
             assert_eq!(code(get_network_info(node)), np);
             assert_eq!(code(get_channel_state(node, id.as_ptr())), np);
             assert_eq!(code(get_time_info(node)), np);
@@ -251,15 +244,10 @@ mod no_node {
             assert_eq!(code(subscribe_to_processed_blocks(node, None)), np);
             assert_eq!(code(subscribe_to_lib_blocks(node, None)), np);
             assert_eq!(code(get_known_addresses(node)), np);
-            // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-            // block.
-            // assert_eq!(code(get_claimable_vouchers(node, ptr::null())), np);
             assert_eq!(code(get_balance(node, id.as_ptr(), ptr::null())), np);
             assert_eq!(code(get_wallet_notes(node, id.as_ptr(), ptr::null())), np);
             assert_eq!(code(get_leader_aged_notes(node, ptr::null())), np);
             assert_eq!(code(transfer_funds(node, ptr::null())), np);
-            // TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
-            // assert_eq!(code(channel_deposit_with_notes(node, ptr::null())), np);
             assert_eq!(code(channel_deposit(node, ptr::null())), np);
             assert_eq!(code(wallet_fund_tx(node, s)), np);
             assert_eq!(code(submit_signed_transaction(node, s)), np);
@@ -270,8 +258,6 @@ mod no_node {
             assert_eq!(code(pow_claim(node, ptr::null())), np);
             assert_eq!(code(pow_claimable_rewards(node)), np);
             assert_eq!(code(pow_status(node)), np);
-            // TODO(RFC-480): the wallet funds the declaration stake.
-            // assert_eq!(code(blend_join_as_core_node(node, s, id.as_ptr())), np);
             assert_eq!(code(blend_join_as_core_node(node, s, 1)), np);
             assert_eq!(code(blend_info(node)), np);
             assert_eq!(code(shutdown_node(ptr::null_mut())), np);
@@ -325,9 +311,6 @@ mod no_node {
                 free_cryptarchia_info(ptr::null_mut()),
                 free_deployment_info(ptr::null_mut()),
                 free_known_addresses(KnownAddresses::default()),
-                // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-                // block.
-                // free_claimable_vouchers(ClaimableVouchers::default()),
                 free_pow_claimable_rewards(PoWClaimableRewards::default()),
                 free_wallet_notes(WalletNotes::default()),
                 free_leader_aged_notes(LeaderAgedNotes::default()),
@@ -1031,14 +1014,6 @@ mod with_node {
                     let _ = (*value.notes.add(note)).value;
                 }
                 freed(free_leader_aged_notes(value));
-
-                // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of
-                // the block.
-                // let FfiResult { value, error } = get_claimable_vouchers(node, tip_pointer);
-                // let status = log("get_claimable_vouchers", error);
-                // if status == OperationStatusCode::Ok {
-                //     assert!(free_claimable_vouchers(value).is_ok());
-                // }
             }
 
             // ---- transactions: argument validation, then a real attempt ----
@@ -1121,37 +1096,6 @@ mod with_node {
             deposit(zero.as_ptr(), key.as_ptr(), 1, 3);
             deposit(zero.as_ptr(), key.as_ptr(), u64::MAX, 3);
 
-            // TODO(RFC-480): a client cannot name nullifiers; the node builds the deposit.
-            // let note_ids = [zero, invalid_key];
-            // let deposit_with_notes = |notes: *const [u8; 32], notes_len: usize| {
-            //     let arguments = ChannelDepositWithNotesArguments {
-            //         optional_tip: &raw const tip,
-            //         channel_id: zero.as_ptr(),
-            //         input_note_ids: notes,
-            //         input_note_ids_len: notes_len,
-            //         metadata: ptr::null(),
-            //         metadata_len: 0,
-            //         change_public_key: key.as_ptr(),
-            //         funding_public_keys: funding.as_ptr(),
-            //         funding_public_keys_len: 1,
-            //         max_tx_fee: 0,
-            //     };
-            //     log(
-            //         "channel_deposit_with_notes",
-            //         channel_deposit_with_notes(node, &raw const arguments),
-            //     )
-            // };
-            // assert_eq!(deposit_with_notes(ptr::null(), 1), np);
-            // assert_ne!(
-            //     deposit_with_notes(note_ids.as_ptr(), 0),
-            //     OperationStatusCode::Ok
-            // );
-            // assert_ne!(
-            //     deposit_with_notes(note_ids.as_ptr(), 2),
-            //     OperationStatusCode::Ok
-            // );
-            // deposit_with_notes(note_ids.as_ptr(), 1);
-
             let not_utf8 = CString::new(vec![0xFF, 0xFE]).unwrap();
             for json in [c"{", c"{}", c"null", not_utf8.as_c_str()] {
                 assert_ne!(
@@ -1168,9 +1112,6 @@ mod with_node {
             }
 
             // ---- leader / blend / pow ----
-            // TODO(RFC-480): LEADER_CLAIM is removed; the leader reward is a note of the
-            // block.
-            // log("leader_claim", leader_claim(node));
             for locator in [
                 c"not a locator",
                 c"/ip4/127.0.0.1/udp/3400/quic-v1",
@@ -1178,23 +1119,9 @@ mod with_node {
             ] {
                 log(
                     "blend_join_as_core_node",
-                    // TODO(RFC-480): the wallet funds the declaration stake.
-                    // blend_join_as_core_node(node, locator.as_ptr(), zero.as_ptr()),
                     blend_join_as_core_node(node, locator.as_ptr(), 1),
                 );
             }
-            // TODO(RFC-480): the wallet funds the declaration stake.
-            // assert_ne!(
-            //     log(
-            //         "blend_join_as_core_node(invalid note)",
-            //         blend_join_as_core_node(
-            //             node,
-            //             c"/ip4/127.0.0.1/udp/3400/quic-v1".as_ptr(),
-            //             invalid_key.as_ptr()
-            //         )
-            //     ),
-            //     OperationStatusCode::Ok
-            // );
 
             let FfiResult { mut value, error } = pow_status(node);
             log("pow_status", error);

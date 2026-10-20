@@ -3,14 +3,6 @@ use num_bigint::BigUint;
 use serde::Serialize;
 
 // TODO: These consts should live in a common crate shared among circuits.
-// TODO(RFC-480): replaced by NOTE_SET_TREE_DEPTH
-// pub const AGED_NOTE_MERKLE_TREE_HEIGHT: usize = 32;
-// TODO(RFC-480): depth 32 UTXO tree witness
-// pub type AgedNotePath = [Fr; AGED_NOTE_MERKLE_TREE_HEIGHT];
-// pub type AgedSelectorPath = [bool; AGED_NOTE_MERKLE_TREE_HEIGHT];
-// pub const LATEST_NOTE_MERKLE_TREE_HEIGHT: usize = 32;
-// pub type LatestNotePath = [Fr; LATEST_NOTE_MERKLE_TREE_HEIGHT];
-// pub type LatestSelectorPath = [bool; LATEST_NOTE_MERKLE_TREE_HEIGHT];
 // Depth of the commitment MMR, the nullifier IMT and the eligible tree.
 pub const NOTE_SET_TREE_DEPTH: usize = 40;
 
@@ -18,13 +10,6 @@ pub const NOTE_SET_TREE_DEPTH: usize = 40;
 #[derive(Clone, Debug)]
 pub struct PolWalletInputs {
     note_value: Groth16Input,
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // transaction_hash: Groth16Input,
-    // output_number: Groth16Input,
-    // aged_path: [Groth16Input; AGED_NOTE_MERKLE_TREE_HEIGHT], // leaf-to-root
-    // aged_selectors: [Groth16Input; AGED_NOTE_MERKLE_TREE_HEIGHT], // root-to-leaf
-    // latest_path: [Groth16Input; LATEST_NOTE_MERKLE_TREE_HEIGHT], // leaf-to-root
-    // latest_selectors: [Groth16Input; LATEST_NOTE_MERKLE_TREE_HEIGHT], // root-to-leaf
     // every path and selector list from the leaf level up
     note_nonce: Groth16Input,
     set_selectors: [Groth16Input; NOTE_SET_TREE_DEPTH],
@@ -46,13 +31,6 @@ pub struct PolWalletInputs {
 #[derive(Clone, Debug)]
 pub struct PolWalletInputsData {
     pub note_value: u64,
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // pub transaction_hash: Fr,
-    // pub output_number: u64,
-    // pub aged_path: AgedNotePath,              // leaf-to-root
-    // pub aged_selectors: AgedSelectorPath,     // root-to-leaf
-    // pub latest_path: LatestNotePath,          // leaf-to-root
-    // pub latest_selectors: LatestSelectorPath, // root-to-leaf
     // every path and selector list from the leaf level up
     pub note_nonce: Fr,
     pub set_selectors: [bool; NOTE_SET_TREE_DEPTH],
@@ -72,23 +50,8 @@ pub struct PolWalletInputsData {
 
 #[derive(Serialize)]
 pub struct PolWalletInputsJson {
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // #[serde(rename = "v")]
     #[serde(rename = "value")]
     note_value: Groth16InputDeser,
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // #[serde(rename = "note_tx_hash")]
-    // transaction_hash: Groth16InputDeser,
-    // #[serde(rename = "note_output_number")]
-    // output_number: Groth16InputDeser,
-    // #[serde(rename = "noteid_aged_path")]
-    // aged_path: [Groth16InputDeser; AGED_NOTE_MERKLE_TREE_HEIGHT], // leaf-to-root
-    // #[serde(rename = "noteid_aged_selectors")]
-    // aged_selectors: [Groth16InputDeser; AGED_NOTE_MERKLE_TREE_HEIGHT], // root-to-leaf
-    // #[serde(rename = "noteid_latest_path")]
-    // latest_path: [Groth16InputDeser; LATEST_NOTE_MERKLE_TREE_HEIGHT], // leaf-to-root
-    // #[serde(rename = "noteid_latest_selectors")]
-    // latest_selectors: [Groth16InputDeser; LATEST_NOTE_MERKLE_TREE_HEIGHT], // root-to-leaf
     // serde serializes arrays only up to length 32
     #[serde(rename = "nonce")]
     note_nonce: Groth16InputDeser,
@@ -111,13 +74,6 @@ impl From<&PolWalletInputs> for PolWalletInputsJson {
     fn from(
         PolWalletInputs {
             note_value,
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // transaction_hash,
-            // output_number,
-            // aged_path,
-            // aged_selectors,
-            // latest_path,
-            // latest_selectors,
             note_nonce,
             set_selectors,
             cm_aged_path,
@@ -136,13 +92,6 @@ impl From<&PolWalletInputs> for PolWalletInputsJson {
     ) -> Self {
         Self {
             note_value: note_value.into(),
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // transaction_hash: transaction_hash.into(),
-            // output_number: output_number.into(),
-            // aged_path: aged_path.map(|path| (&path).into()),
-            // aged_selectors: aged_selectors.map(|selector| (&selector).into()),
-            // latest_path: latest_path.map(|path| (&path).into()),
-            // latest_selectors: latest_selectors.map(|selector| (&selector).into()),
             note_nonce: note_nonce.into(),
             set_selectors: set_selectors.iter().map(Into::into).collect(),
             cm_aged_path: cm_aged_path.iter().map(Into::into).collect(),
@@ -165,13 +114,6 @@ impl From<PolWalletInputsData> for PolWalletInputs {
     fn from(
         PolWalletInputsData {
             note_value,
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // transaction_hash,
-            // output_number,
-            // aged_path,
-            // aged_selectors,
-            // latest_path,
-            // latest_selectors,
             note_nonce,
             set_selectors,
             cm_aged_path,
@@ -190,15 +132,6 @@ impl From<PolWalletInputsData> for PolWalletInputs {
     ) -> Self {
         Self {
             note_value: Groth16Input::new(Fr::from(BigUint::from(note_value))),
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // transaction_hash: transaction_hash.into(),
-            // output_number: Groth16Input::new(Fr::from(BigUint::from(output_number))),
-            // aged_path: aged_path.map(Into::into),
-            // aged_selectors: aged_selectors
-            //     .map(|selector| Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO })),
-            // latest_path: latest_path.map(Into::into),
-            // latest_selectors: latest_selectors
-            //     .map(|selector| Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO })),
             note_nonce: note_nonce.into(),
             set_selectors: set_selectors
                 .map(|selector| Groth16Input::new(if selector { Fr::ONE } else { Fr::ZERO })),

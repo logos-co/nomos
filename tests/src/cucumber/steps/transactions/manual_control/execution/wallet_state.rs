@@ -266,8 +266,6 @@ fn exported_secret_key(
 
 fn exported_utxo(utxo: &OwnedNote) -> Result<ExportedUtxo, StepError> {
     Ok(ExportedUtxo {
-        // TODO(RFC-480): UTXO test wallet, a note is named by its nullifier.
-        // utxo_id: hex::encode(utxo.id().as_bytes()),
         utxo_id: hex::encode(fr_to_bytes(&utxo.nullifier.0)),
         value: utxo.note.value,
         encoded_utxo: bincode::serialize(utxo).map(hex::encode).map_err(|error| {

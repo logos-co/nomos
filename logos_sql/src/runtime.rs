@@ -1485,9 +1485,6 @@ mod tests {
             node,
             FundingConfig {
                 funding_pk: lb_groth16::Fr::from(1u64).into(),
-                // TODO(RFC-480): channel notes are private and move by steps;
-                // the bridge is rebuilt on ChannelStep.
-                // change_pk: None,
                 max_tx_fee: u64::MAX.into(),
                 priority_fee_percent: FundingConfig::DEFAULT_PRIORITY_FEE_PERCENT,
             },
@@ -1508,9 +1505,6 @@ mod tests {
                 pending_txs: Vec::new(),
                 lib: HeaderId::from([1; 32]),
                 lib_slot: Slot::from(1),
-                // TODO(RFC-480): channel notes are private and move by steps;
-                // the bridge is rebuilt on ChannelStep.
-                // channel_notes: Vec::new(),
                 finalized_config: MsgId::root(),
                 funding: Vec::new(),
             },

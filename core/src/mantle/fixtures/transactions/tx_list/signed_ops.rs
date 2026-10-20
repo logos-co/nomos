@@ -9,19 +9,12 @@ use crate::mantle::{
     fixtures::{
         ops::op_values::{
             ALL_OPS_COLUMN_HEX, CHANNEL_CONFIG, CHANNEL_WITHDRAW, CLAIM_POW_REWARD, DEPOSIT,
-            INSCRIPTION,
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // LEADER_CLAIM,
-            SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, TRANSFER,
+            INSCRIPTION, SDP_ACTIVE, SDP_DECLARE, SDP_WITHDRAW, TRANSFER,
         },
         proofs::proof_values::{
             CHANNEL_MULTI_SIG, CHANNEL_MULTI_SIG_HEX, ED25519_SIG, ED25519_SIG_HEX,
-            PROGRAM_STEP_PROOF, PROGRAM_STEP_PROOF_HEX,
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // POC, POC_HEX,
-            ZK_AND_ED25519_SIGS, ZK_AND_ED25519_SIGS_HEX, ZK_TRANSFER, ZK_TRANSFER_HEX,
+            PROGRAM_STEP_PROOF, PROGRAM_STEP_PROOF_HEX, ZK_AND_ED25519_SIGS,
+            ZK_AND_ED25519_SIGS_HEX, ZK_TRANSFER, ZK_TRANSFER_HEX,
         },
     },
     ledger::verification_mode::VerificationMode,
@@ -74,11 +67,6 @@ const TWO_OPS_HEX: &str = concat!(
 
 fn two_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<State, Mode> {
     let transfer = SignedOperation::<TransferOp, Unverified, Mode>::new(
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // TransferOp {
-        //     inputs: BoundedInputs::from(NoteId(Fr::ZERO)).into(),
-        //     outputs: Outputs::empty(),
-        // },
         TransferOp::new([NoteNf(Fr::ZERO)].into(), OutputCms::default(), Fr::ZERO, 0),
         ZkTransferProof::new(CompressedGroth16Proof::from_bytes(&[0xAAu8; 128])),
     );
@@ -104,30 +92,14 @@ fn all_ops_hex() -> String {
         ALL_OPS_COLUMN_HEX,
         ZK_TRANSFER_HEX,
         CHANNEL_MULTI_SIG_HEX,
-        // TODO(RFC-480 M4): the inscription carries one step.
-        // ED25519_SIG_HEX,
-        // TODO(RFC-481): the inscription carries a user step and a program step.
-        // CHANNEL_INSCRIBE_PROOF_HEX,
         ED25519_SIG_HEX,
         ZK_TRANSFER_HEX,
         PROGRAM_STEP_PROOF_HEX,
         ZK_TRANSFER_HEX,
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // CHANNEL_MULTI_SIG_HEX,
         ZK_TRANSFER_HEX,
-        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-        // the steps of CHANNEL_INSCRIBE.
-        // CHANNEL_MULTI_SIG_HEX,
         ZK_AND_ED25519_SIGS_HEX,
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
-        // its commitment.
-        // ZK_SIG_HEX,
         ZK_AND_ED25519_SIGS_HEX,
         ED25519_SIG_HEX,
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // POC_HEX,
     ]
     .concat()
 }
@@ -142,14 +114,6 @@ fn all_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<Stat
     SignedOps::from([
         signed!(Transfer, TRANSFER, *ZK_TRANSFER),
         signed!(ChannelConfig, CHANNEL_CONFIG, CHANNEL_MULTI_SIG.clone()),
-        // TODO(RFC-480 M4): the inscription carries one step.
-        // signed!(
-        //     ChannelInscribe,
-        //     INSCRIPTION,
-        //     ChannelInscribeProof::without_steps(*ED25519_SIG)
-        // ),
-        // TODO(RFC-481): the inscription carries a user step and a program step.
-        // signed!(ChannelInscribe, INSCRIPTION, CHANNEL_INSCRIBE_PROOF.clone()),
         signed!(
             ChannelInscribe,
             INSCRIPTION,
@@ -162,22 +126,10 @@ fn all_ops<State: VerificationState, Mode: VerificationMode>() -> SignedOps<Stat
             )
         ),
         signed!(ChannelDeposit, DEPOSIT, *ZK_TRANSFER),
-        // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-        // ZkTransfer over the channel note set.
-        // signed!(ChannelWithdraw, CHANNEL_WITHDRAW, CHANNEL_MULTI_SIG.clone()),
         signed!(ChannelWithdraw, CHANNEL_WITHDRAW, *ZK_TRANSFER),
-        // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-        // the steps of CHANNEL_INSCRIBE.
-        // signed!(ChannelTransfer, CHANNEL_TRANSFER, CHANNEL_MULTI_SIG.clone()),
         signed!(SDPDeclare, SDP_DECLARE, ZK_AND_ED25519_SIGS.clone()),
-        // TODO(RFC-480): the service note is consumed by its nullifier against the root of
-        // its commitment.
-        // signed!(SDPWithdraw, SDP_WITHDRAW, ZK_SIG.clone()),
         signed!(SDPWithdraw, SDP_WITHDRAW, ZK_AND_ED25519_SIGS.clone()),
         signed!(SDPActive, SDP_ACTIVE, *ED25519_SIG),
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // signed!(LeaderClaim, LEADER_CLAIM, POC.clone()),
         signed!(ClaimPowReward, CLAIM_POW_REWARD, NoOpProof),
     ])
 }

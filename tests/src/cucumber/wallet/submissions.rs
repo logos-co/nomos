@@ -10,12 +10,6 @@ use std::{
 };
 
 use futures::{StreamExt as _, stream::FuturesUnordered};
-// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-// use lb_core::mantle::{
-//     NoteId, SignedOps, TxHash, Utxo,
-//     ledger::{MAX_TRANSACTION_INPUTS, verification_mode::StandardMode},
-//     transactions::{GasPrices, OpProofs, states::Preverified},
-// };
 use lb_core::mantle::{
     SignedOps, TxHash,
     ledger::verification_mode::StandardMode,
@@ -26,7 +20,6 @@ use lb_http_api_common::bodies::wallet::transfer_funds::WalletTransferFundsReque
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_testing_framework::{NodeHttpClient, configs::wallet::WalletAccount, is_truthy_env};
 use lb_wallet::{OwnedNote, WalletError};
-// TODO(RFC-480): a ZkTransfer spends at most four notes.
 use lb_zktransfer::MAX_INPUTS as MAX_TRANSACTION_INPUTS;
 use tokio::{task::JoinSet, time::timeout};
 use tracing::{debug, info, warn};
@@ -1516,9 +1509,6 @@ fn user_wallet_funding_resources(
 fn wallet_transaction_error(error: WalletTransactionError) -> StepError {
     match error {
         WalletTransactionError::Funding(error) => StepError::WalletError(error),
-        // TODO(RFC-480): the ZkSignature scheme is removed, transfers are
-        // proven by ZkTransfers.
-        // WalletTransactionError::Signing(error) => StepError::ZkSignError(error),
         WalletTransactionError::Proving(error) => StepError::ProvingError(error),
         WalletTransactionError::Verification(error) => StepError::VerificationError(error),
         WalletTransactionError::Gas(error) => StepError::LogicalError {
@@ -1706,14 +1696,6 @@ mod cache_removal_tests {
     use super::*;
     use crate::common::wallet::TransactionFeeHorizon;
 
-    // TODO(RFC-480): UTXO test wallet, a note is named by its nullifier.
-    // fn utxo(value: u64, output_index: usize) -> Utxo {
-    //     Utxo::new(
-    //         [output_index as u8; 32],
-    //         output_index,
-    //         Note::new(value, ZkPublicKey::new(1u8.into())),
-    //     )
-    // }
     fn utxo(value: u64, output_index: usize) -> OwnedNote {
         owned_note(value, output_index as u64, ZkPublicKey::new(1u8.into()))
     }
@@ -1961,11 +1943,6 @@ mod cache_removal_tests {
 
     fn workload_utxo(value: u64, output_index: usize) -> OwnedNote {
         let account = workload_account();
-        // Utxo::new(
-        //     [output_index as u8; 32],
-        //     output_index,
-        //     Note::new(value, account.public_key()),
-        // )
         owned_note(value, output_index as u64, account.public_key())
     }
 
@@ -2562,11 +2539,6 @@ mod cache_removal_tests {
         let fee_sponsor_account = WalletAccount::deterministic(101, 1_000_000, false)
             .expect("fee sponsor test account should build");
         let mut remaining_sponsor_utxos = (0..11).map(|index| {
-            // Utxo::new(
-            //     [0xFE; 32],
-            //     index,
-            //     Note::new(10_000_000, fee_sponsor_account.public_key()),
-            // )
             owned_note(10_000_000, 0xFE00 + index, fee_sponsor_account.public_key())
         });
 

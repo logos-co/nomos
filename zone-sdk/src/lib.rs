@@ -89,10 +89,6 @@ pub mod node_types {
     pub use lb_common_http_client::{
         ApiBlock, BlockInfo, ChainServiceInfo, Error, Events, ProcessedBlockEvent, Slot, TimeInfo,
     };
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // pub use lb_core::events::DepositRecreatedNotes;
-    // pub use lb_core::mantle::ledger::Inputs;
     pub use lb_core::{
         crypto::Hash,
         header::HeaderId,
@@ -110,9 +106,6 @@ pub mod node_types {
 }
 
 pub use lb_common_http_client::{CommonHttpClient, Slot};
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// use lb_core::{events::DepositRecreatedNotes, mantle::{Value, ledger::Inputs}};
 use lb_core::{
     crypto::Hash,
     mantle::{
@@ -130,10 +123,6 @@ pub enum ZoneMessage {
     Block(ZoneBlock),
     /// A deposit operation submitted to a channel
     Deposit(Deposit),
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// An withdraw operation submitted to a channel
-    // Withdraw(Withdraw),
 }
 
 /// A zone block from a zone channel, included/finalized in Bedrock
@@ -155,16 +144,6 @@ pub struct Deposit {
     /// The `op_id` of the deposit op: its stable identity within the tx,
     /// matching `DepositInfo::op_id` on the sequencer side.
     pub op_id: Hash,
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// Notes consumed by the deposit (spent-once at the UTXO layer).
-    // pub inputs: Inputs,
-    // /// The channel notes the deposit re-created its inputs as, sourced from
-    // /// the block's events. These carry new `NoteId`s and are what the channel
-    // /// now owns.
-    // pub notes: DepositRecreatedNotes,
-    // /// Total value deposited, sourced from the block's events.
-    // pub amount: Value,
     /// Nullifiers of the ledger notes the deposit consumed.
     pub inputs: InputNfs,
     /// Commitments of the notes the deposit created in the channel's note
@@ -173,19 +152,6 @@ pub struct Deposit {
     /// Opaque metadata associated with this deposit
     pub metadata: Metadata,
 }
-
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// /// An withdrawal from a zone channel, included/finalized in Bedrock
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct Withdraw {
-//     /// The transaction hash containing this withdraw op.
-//     pub tx_hash: TxHash,
-//     /// The `op_id` of the withdraw op: its stable identity within the tx.
-//     pub op_id: Hash,
-//     /// The channel notes released by the withdrawal
-//     pub inputs: Inputs,
-// }
 
 impl Deposit {
     #[must_use]

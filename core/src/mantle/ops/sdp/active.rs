@@ -1,6 +1,4 @@
 use lb_cryptarchia_engine::Epoch;
-// TODO(RFC-480): active messages are signed by the provider_id with Ed25519.
-// use lb_key_management_system_keys::keys::{ZkSignature, public_inputs_from_pks};
 use lb_key_management_system_keys::keys::Ed25519Signature;
 use lb_log_targets::mantle;
 use tracing::info;
@@ -9,8 +7,6 @@ use super::{SDPActiveOp, SdpError};
 use crate::{
     events::TxEvent,
     mantle::{
-        // TODO(RFC-480): active messages are signed by the provider_id with Ed25519.
-        // batch::DeferredZkSig,
         gas::{Gas, MainnetGasProfile, OpGasCalculator, OperationGas},
         ledger::{
             Declarations, ExecutableOperation, PreverifiableOperation, ProvableOperation,
@@ -92,13 +88,6 @@ impl VerifiableOperation<StandardMode> for SignedOperation<SDPActiveOp, Preverif
                 declaration_nonce: declaration.nonce,
             });
         }
-
-        // TODO(RFC-480): active messages are signed by the provider_id with Ed25519.
-        // // Defer the proof verification, so that the caller can batch it.
-        // let inputs =
-        //     public_inputs_from_pks((*context.tx_hash_view.as_fr()).into(), &[declaration.zk_id])
-        //         .map_err(|_| SdpError::InvalidZkSignature)?;
-        // Ok(DeferredZkSig::new(*self.proof().as_proof(), inputs))
 
         // Ensure the `provider_id` attached to this declaration authorized this Operation.
         declaration
@@ -182,19 +171,6 @@ mod tests {
 
         (message, declaration)
     }
-
-    // TODO(RFC-480): active messages are signed by the provider_id with Ed25519.
-    // fn preverified(
-    //     operation: SDPActiveOp,
-    //     tx_hash_view: &TxHashView,
-    // ) -> SignedOperation<SDPActiveOp, Preverified, StandardMode> {
-    //     let proof = ZkKey::multi_sign(&[declaration_key()], tx_hash_view.as_fr())
-    //         .expect("signing should succeed");
-    //
-    //     SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //         .into_preverified(&())
-    //         .expect("preverify accepts every active message")
-    // }
 
     // The provider of `DeclarationMessage::sample()`.
     fn provider_key() -> Ed25519Key {
@@ -372,49 +348,6 @@ mod tests {
             }
         );
     }
-
-    // TODO(RFC-480): active messages are signed by the provider_id with Ed25519.
-    // fn unrelated_key() -> ZkKey {
-    //     ZkKey::from(BigUint::from(7u8))
-    // }
-    //
-    // fn deferred_proof_signed_by(signers: &[ZkKey]) -> DeferredZkSig {
-    //     let (message, declaration) = declaration();
-    //     let declaration_id = message.id();
-    //     let declarations = Declarations::new_sync().insert(declaration_id, declaration);
-    //     let operation = SDPActiveOp {
-    //         declaration_id,
-    //         ..SDPActiveOp::sample()
-    //     };
-    //     let tx_hash_view = TxHashView::from(TxHash::from([9u8; 32]));
-    //     let proof =
-    //         ZkKey::multi_sign(signers, tx_hash_view.as_fr()).expect("signing should succeed");
-    //
-    //     SignedOperation::<_, Unverified, StandardMode>::new(operation, proof)
-    //         .into_preverified(&())
-    //         .expect("preverify accepts every active message")
-    //         .verify(&SDPActiveValidationContext {
-    //             declarations: &declarations,
-    //             tx_hash_view: &tx_hash_view,
-    //             epoch: Epoch::from(0),
-    //         })
-    //         .expect("verify leaves the proof to the batch")
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M5): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn deferred_proof_is_accepted() {
-    //     assert!(batch_verify(deferred_proof_signed_by(&[declaration_key()])).is_ok());
-    // }
-    //
-    // #[test]
-    // #[ignore = "TODO(RFC-480 M5): proves a ZkSignature or a PoC, both circuits are retired in circuits v0.6.0"]
-    // fn wrong_deferred_proof_is_rejected() {
-    //     assert!(matches!(
-    //         batch_verify(deferred_proof_signed_by(&[unrelated_key()])),
-    //         Err(BatchError::InvalidZkSignatures)
-    //     ));
-    // }
 
     #[test]
     fn verify_accepts_a_declaration_whose_withdrawal_epoch_is_still_ahead() {

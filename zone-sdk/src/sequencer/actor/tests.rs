@@ -1,11 +1,3 @@
-// TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations;
-// channel notes are private and move by steps.
-// use lb_core::mantle::{
-//     Note, Utxo, ledger::BoundedInputs, ops::channel::withdraw::ChannelWithdrawOp,
-// };
-// use lb_key_management_system_service::keys::ZkKey;
-// use num_bigint::BigUint;
-// use rand::{RngCore as _, thread_rng};
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -41,21 +33,6 @@ use crate::test_support::{
     single_key_channel_state, unverified_tx_with_ops,
 };
 
-// TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle Operations.
-// #[must_use]
-// pub fn utxo_with_sk() -> (ZkKey, Utxo) {
-//     let mut op_id = [0u8; 32];
-//     thread_rng().fill_bytes(&mut op_id);
-//     let zk_sk = ZkKey::from(BigUint::from(0u64));
-//     let utxo = Utxo {
-//         op_id,
-//         output_index: 0,
-//         note: Note::new(10, zk_sk.to_public_key()),
-//     };
-//
-//     (zk_sk, utxo)
-// }
-
 #[tokio::test]
 async fn prepare_submit_deposit_and_inscription() {
     // Init a sequencer
@@ -73,14 +50,6 @@ async fn prepare_submit_deposit_and_inscription() {
     }
 
     // Prepare a deposit op
-    // TODO(RFC-480): a deposit consumes ledger nullifiers and creates channel
-    // commitments.
-    // let (sk, utxo) = utxo_with_sk();
-    // let deposit_op = DepositOp {
-    //     channel_id,
-    //     inputs: BoundedInputs::from(utxo.id()).into(),
-    //     metadata: b"to Alice".into(),
-    // };
     let deposit_op = DepositOp {
         channel_id,
         metadata: b"to Alice".into(),
@@ -99,15 +68,7 @@ async fn prepare_submit_deposit_and_inscription() {
     assert_eq!(tx.inner()[0], Op::ChannelDeposit(deposit_op));
     assert!(matches!(tx.inner()[1], Op::ChannelInscribe(_)));
 
-    // Sign the `MantleTx`
-    // TODO(RFC-480): a ZkTransfer replaces the ZkSignature of Mantle
-    // Operations; the mock node never verifies it.
-    // let op_proofs = OpProofs::from([
-    //     OpProof::ZkSig(
-    //         ZkKey::multi_sign(std::slice::from_ref(&sk), &tx.clone().hash().to_fr()).unwrap(),
-    //     ),
-    //     OpProof::Ed25519Sig(inscription_sig),
-    // ]);
+    // Sign the `MantleTx`; the mock node never verifies the transfer proof.
     let op_proofs = OpProofs::from([
         OpProof::ZkTransfer(ZkTransferProof::new(CompressedGroth16Proof::from_bytes(
             &[0u8; 128],
@@ -157,11 +118,6 @@ async fn submit_signed_tx_refuses_a_parent_with_a_pending_child() {
         .handle()
         .prepare_tx(Ops::new_unchecked(Vec::new()), b"prepared first".into())
         .unwrap();
-    // TODO(RFC-480): an inscription is proven by its signature and the proofs
-    // of its steps.
-    // let signed_tx =
-    //     SignedOps::from_parts(tx, OpProofs::from([OpProof::Ed25519Sig(inscription_sig)]))
-    //         .expect("a valid inscription-only tx");
     let signed_tx = SignedOps::from_parts(
         tx,
         OpProofs::from([OpProof::ChannelInscribe(
@@ -195,10 +151,6 @@ async fn gap_deposits_surface_after_a_failed_backfill_and_a_fork_switch() {
         sync::{Arc, atomic::AtomicUsize},
     };
 
-    // TODO(RFC-480): a deposit consumes ledger nullifiers and creates channel
-    // commitments, which its event carries.
-    // use lb_core::{events::DepositNote, mantle::ledger::NoteId};
-    // use lb_key_management_system_service::keys::ZkPublicKey;
     use lb_core::mantle::{
         notes::{NoteCm, NoteNf},
         ops::{OpId as _, channel::deposit::Metadata},
@@ -211,13 +163,7 @@ async fn gap_deposits_surface_after_a_failed_backfill_and_a_fork_switch() {
     //             \- C(Z)                    canonical in between
     let channel_id = ChannelId::from([0; 32]);
     let sequencer_key = Ed25519Key::from_bytes(&[0; 32]);
-    // let pk = ZkPublicKey::from(Fr::from(7u64));
     let deposit = |n: u32| {
-        // let op = DepositOp {
-        //     channel_id,
-        //     inputs: BoundedInputs::from(NoteId::from(Fr::from(n))).into(),
-        //     metadata: Metadata::try_from(vec![u8::try_from(n).unwrap()]).unwrap(),
-        // };
         let op = DepositOp {
             channel_id,
             inputs: [NoteNf(Fr::from(n))].into(),
@@ -227,12 +173,6 @@ async fn gap_deposits_surface_after_a_failed_backfill_and_a_fork_switch() {
             metadata: Metadata::try_from(vec![u8::try_from(n).unwrap()]).unwrap(),
         };
         let tx = unverified_tx_with_ops(vec![Op::ChannelDeposit(op.clone())]);
-        // let note = DepositNote {
-        //     note_id: NoteId::from(Fr::from(1000 + u64::from(n))),
-        //     value: 50,
-        //     pk,
-        // };
-        // let event = deposit_event(&tx, &op, 50, vec![note]);
         let event = deposit_event(&tx, &op);
         (op.op_id(), tx, event)
     };
@@ -1025,9 +965,6 @@ async fn publish_after_bundle_chains_on_the_bundle_inscription_tip() {
         posting_timeframe: SlotTimeframe::from(0u32),
         posting_timeout: SlotTimeout::from(0u32),
         configuration_threshold: 1,
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // transfer_threshold: 1,
     };
     let inscribe_msg = inscribe.id();
     let bundle = unverified_tx_with_ops(vec![
@@ -1070,9 +1007,6 @@ async fn config_only_block_orphans_pending_inscription_but_keeps_message_tip() {
         posting_timeframe: SlotTimeframe::from(0u32),
         posting_timeout: SlotTimeout::from(0u32),
         configuration_threshold: 1,
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // transfer_threshold: 1,
     };
     let config_tx = unverified_tx_with_ops(vec![Op::ChannelConfig(config_op)]);
     let config_hash = config_tx.hash();
@@ -1172,54 +1106,6 @@ async fn config_only_block_orphans_pending_inscription_but_keeps_message_tip() {
         "the pointer resets to the message tip (root)"
     );
 }
-
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// #[test]
-// fn track_pending_tx_classifies_atomic_bundle_with_withdraws() {
-//     // Bundle: [ChannelWithdraw(channel_id), ChannelInscribe(channel_id)]
-//     // Restore should put it in pending (not pending_other) with the
-//     // withdraws field populated, so on orphan we emit
-//     // ChannelUpdateTx::AtomicWithdraw (not Inscription).
-//     use lb_core::mantle::NoteId;
-//     use lb_groth16::Fr;
-//
-//     let channel_id = ChannelId::from([1u8; 32]);
-//     let withdraw_op = ChannelWithdrawOp {
-//         channel_id,
-//         inputs: BoundedInputs::from(NoteId::from(Fr::from(0u64))).into(),
-//     };
-//     let inscribe_op = InscriptionOp {
-//         channel_id,
-//         inscription: Inscription::try_from(b"hello".to_vec()).unwrap(),
-//         parent: MsgId::root(),
-//         signer: Ed25519Key::from_bytes(&[0; 32])
-//             .public_key()
-//             .into_unverified(),
-//     };
-//     let mantle_tx = Ops::from([
-//         Op::ChannelWithdraw(withdraw_op.clone()),
-//         Op::ChannelInscribe(inscribe_op),
-//     ]);
-//     let tx_hash = mantle_tx.hash();
-//     let signed_tx = SignedOps::from_ops_with_sample_proofs(mantle_tx);
-//
-//     let mut state = TxState::new(HeaderId::from([0; 32]), MsgId::root());
-//     track_pending_tx(&mut state, signed_tx, channel_id).unwrap();
-//
-//     let pending = state
-//         .pending_inscription(&tx_hash)
-//         .expect("bundle should be in pending inscriptions");
-//     let PendingBundle::Withdraw { withdraws, .. } = &pending.bundle else {
-//         panic!("bundle should be a withdraw bundle");
-//     };
-//     assert_eq!(withdraws.len(), 1, "bundle should carry one WithdrawInfo");
-//     assert_eq!(withdraws[0].op, withdraw_op);
-//     assert!(
-//         !state.pending_other_contains(&tx_hash),
-//         "bundle should not be in pending_other"
-//     );
-// }
 
 #[test]
 fn track_pending_tx_classifies_plain_inscription_with_none_withdraws() {
@@ -1432,9 +1318,6 @@ async fn resume_backfill_refines_finalized_config_from_a_replayed_config() {
         posting_timeframe: SlotTimeframe::from(0u32),
         posting_timeout: SlotTimeout::from(0u32),
         configuration_threshold: 1,
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // transfer_threshold: 1,
     };
     let config_id = config_op.id();
     let config_tx = unverified_tx_with_ops(vec![Op::ChannelConfig(config_op)]);
@@ -1490,8 +1373,6 @@ async fn resume_backfill_refines_finalized_config_from_a_replayed_config() {
 /// live path does, or it is re-funded every window from then on.
 #[tokio::test]
 async fn resume_backfill_retires_a_pending_entry_finalized_under_another_hash() {
-    // TODO(RFC-480): a transfer consumes nullifiers and creates commitments.
-    // use lb_core::mantle::{NoteId, ledger::Outputs, ops::transfer::TransferOp};
     use lb_core::mantle::{
         notes::{NoteCm, NoteNf},
         ops::transfer::TransferOp,
@@ -1504,13 +1385,8 @@ async fn resume_backfill_retires_a_pending_entry_finalized_under_another_hash() 
 
     let m = inscribe_op(channel_id, MsgId::root(), b"m");
     let m_id = m.id();
-    // let pk = lb_key_management_system_service::keys::ZkPublicKey::from(Fr::from(7u64));
     let original = unverified_tx_with_ops(vec![
         Op::ChannelInscribe(m.clone()),
-        // Op::Transfer(TransferOp::new(
-        //     BoundedInputs::from(NoteId::from(Fr::from(1u64))).into(),
-        //     Outputs::new([Note::new(50, pk)]),
-        // )),
         Op::Transfer(TransferOp::new(
             [NoteNf(Fr::from(1u64))].into(),
             [NoteCm(Fr::from(50u64))].into(),
@@ -1799,9 +1675,6 @@ async fn channel_config_signs_with_own_current_accredited_index() {
             SlotTimeframe::from(0u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await
         .expect("config update from an accredited non-leading key must build");
@@ -1847,9 +1720,6 @@ async fn channel_config_on_unclaimed_channel_carries_empty_proof() {
             SlotTimeframe::from(0u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await
         .expect("claiming an unclaimed channel must build");
@@ -1883,9 +1753,6 @@ async fn channel_config_fails_when_not_accredited() {
             SlotTimeframe::from(0u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await
         .expect_err("config update from a non-accredited key must fail locally");
@@ -1920,9 +1787,6 @@ async fn channel_config_rejects_multi_sig_threshold() {
             SlotTimeframe::from(0u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await
         .expect_err("multi-sig threshold config update must fail locally");
@@ -1931,87 +1795,6 @@ async fn channel_config_rejects_multi_sig_threshold() {
         "unexpected error: {error}"
     );
 }
-
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// /// A bundle carries its preparer's inscription signature, and the ledger
-// /// only accepts an inscription from the turn holder. Submitting another
-// /// sequencer's bundle through this runtime would post it in *our* turn
-// /// under *their* signature — unlandable. Reject at submit instead.
-// #[tokio::test]
-// async fn submit_atomic_bundle_rejects_a_bundle_prepared_by_another_sequencer() {
-//     use lb_core::{
-//         mantle::{
-//             ledger::{BoundedInputs, NoteId},
-//             transactions::MantleTxBuilder,
-//         },
-//         proofs::channel_multi_sig_proof::IndexedSignatures,
-//     };
-//     use lb_groth16::Fr;
-//
-//     use super::super::types::{PreparedAtomicBundle, PreparedBundleKind};
-//
-//     let own_key = Ed25519Key::from_bytes(&[7; 32]);
-//     let peer_key = Ed25519Key::from_bytes(&[8; 32]);
-//     let channel = ChannelState {
-//         accredited_keys: UnverifiedChannelKeys::new_unchecked(vec![
-//             own_key.public_key().into_unverified(),
-//             peer_key.public_key().into_unverified(),
-//         ])
-//         .into(),
-//         transfer_threshold: 2,
-//         ..single_key_channel_state()
-//     };
-//     let mut sequencer = ready_sequencer_with_channel(Some(channel), own_key.clone()).await;
-//
-//     let sign_payload = vec![0xab; 32];
-//     let bundle_by = |preparer: &Ed25519Key| PreparedAtomicBundle {
-//         tx: Ops::new_unchecked(Vec::new()),
-//         transfer_proof: None,
-//         pre_fund: MantleTxBuilder::new(),
-//         inscribe_sig: preparer.sign_payload(&sign_payload),
-//         parent: MsgId::root(),
-//         msg_id: MsgId::root(),
-//         inscribe: Inscription::new_unchecked(b"pin".to_vec()),
-//         signer: preparer.public_key(),
-//         kind: PreparedBundleKind::PinDeposit {
-//             consumed_notes: BoundedInputs::from(NoteId::from(Fr::from(1u64))).into(),
-//         },
-//         sign_payload: sign_payload.clone(),
-//         accredited_keys: vec![
-//             own_key.public_key().into_unverified(),
-//             peer_key.public_key().into_unverified(),
-//         ],
-//         signing_threshold: 2,
-//     };
-//
-//     // Prepared by the peer: refused before anything is tracked.
-//     let error = sequencer
-//         .handle()
-//         .submit_atomic_bundle(bundle_by(&peer_key), IndexedSignatures::empty())
-//         .expect_err("another sequencer's bundle must be refused");
-//     assert!(
-//         matches!(&error, Error::InvalidMultiSig(msg) if msg.contains("another sequencer")),
-//         "unexpected error: {error}"
-//     );
-//     assert!(
-//         sequencer
-//             .checkpoint()
-//             .is_none_or(|checkpoint| checkpoint.pending_txs.is_empty()),
-//         "refused bundle must not be tracked"
-//     );
-//
-//     // Prepared by us: passes the ownership check and fails later, on the
-//     // (empty) multi-sig set — proving the check above is what fired.
-//     let error = sequencer
-//         .handle()
-//         .submit_atomic_bundle(bundle_by(&own_key), IndexedSignatures::empty())
-//         .expect_err("empty signature set under 2-of-2 must be refused");
-//     assert!(
-//         matches!(&error, Error::InvalidMultiSig(msg) if !msg.contains("another sequencer")),
-//         "unexpected error: {error}"
-//     );
-// }
 
 fn config_op_of(tx: &SignedOps<Unverified, StandardMode>) -> ChannelConfigOp {
     tx.op_refs()
@@ -2041,9 +1824,6 @@ async fn a_second_config_on_a_pending_config_position_is_refused() {
             SlotTimeframe::from(0u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await
         .expect("first config should be accepted");
@@ -2054,9 +1834,6 @@ async fn a_second_config_on_a_pending_config_position_is_refused() {
             SlotTimeframe::from(1u32),
             SlotTimeout::from(0u32),
             1,
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // 1,
         )
         .await;
 

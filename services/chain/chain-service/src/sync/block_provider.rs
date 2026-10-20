@@ -557,10 +557,6 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero};
 
     use lb_binary_codec::bincode::DeserializeOp as _;
-    // TODO(RFC-480): leader witnesses come from the note sets; `crypto::ZkHasher`,
-    // `mantle::{Note, ledger::Utxo, ops::leader_claim::VoucherCm}`,
-    // `proofs::leader_proof::{LeaderPrivate, LeaderPublic}`, `Ed25519Key`, `UnsecuredZkKey`
-    // and `lb_utxotree::UtxoTree` left.
     use lb_core::{
         block::{BlockTransactions, UncleHeaders},
         events::Events,
@@ -882,18 +878,12 @@ mod tests {
             prev_header: HeaderId,
             slot: Slot,
         ) -> Option<Block<SignedOps<Unverified, StandardMode>>> {
-            // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-            // blocks carry no signature.
-            // let dummy_signing_key = Ed25519Key::from_bytes(&[1u8; 32]);
             Block::create(
                 prev_header,
                 slot,
                 UncleHeaders::empty(),
                 self.proof.clone(),
                 BlockTransactions::empty(),
-                // TODO(RFC-480): the proof of leadership is bound to the header by pol_msg,
-                // blocks carry no signature.
-                // &dummy_signing_key,
             )
             .ok()
         }
@@ -1043,70 +1033,6 @@ mod tests {
                 "Expected {expected_reason} but got {actual_outcome}",
             );
         }
-
-        // TODO(RFC-480): leader witnesses come from the note sets.
-        // fn make_test_proof(
-        //     cryptarchia: &lb_cryptarchia_engine::Cryptarchia<HeaderId>,
-        // ) -> lb_core::proofs::leader_proof::Groth16LeaderProof {
-        //     let leader_sk = UnsecuredZkKey::zero();
-        //     let utxo = Utxo {
-        //         op_id: [1u8; 32],
-        //         output_index: 0,
-        //         note: Note::new(1000, leader_sk.to_public_key()),
-        //     };
-        //     let utxo_tree = UtxoTree::<_, _, ZkHasher>::new().insert(utxo.id(), utxo).0;
-        //     let utxo_tree_root = utxo_tree.root();
-        //     let utxo_merkle_path = utxo_tree.path(&utxo.id()).expect("note must exist in tree");
-        //     let (lottery_0, lottery_1) = cryptarchia
-        //         .config()
-        //         .lottery_constants()
-        //         .compute_lottery_values(1000);
-        //
-        //     // We grind the nonce here to find a winning PoL
-        //     let public_inputs = {
-        //         let mut nonce = 0;
-        //         while nonce < 1000 {
-        //             let inputs = LeaderPublic::new(
-        //                 utxo_tree_root,
-        //                 utxo_tree_root,
-        //                 Fr::from(nonce),
-        //                 0,
-        //                 lottery_0,
-        //                 lottery_1,
-        //             );
-        //
-        //             if inputs.check_winning(utxo.note.value, *utxo.id().as_fr(), *leader_sk.as_fr())
-        //             {
-        //                 break;
-        //             }
-        //
-        //             nonce += 1;
-        //         }
-        //         LeaderPublic::new(
-        //             utxo_tree_root,
-        //             utxo_tree_root,
-        //             Fr::from(nonce),
-        //             0,
-        //             lottery_0,
-        //             lottery_1,
-        //         )
-        //     };
-        //
-        //     let private_inputs = LeaderPrivate::new(
-        //         public_inputs,
-        //         utxo,
-        //         &utxo_merkle_path, // aged path
-        //         &utxo_merkle_path, // latest path
-        //         *leader_sk.as_fr(),
-        //         &Ed25519Key::from_bytes(&[1u8; 32]).public_key(),
-        //     );
-        //
-        //     lb_core::proofs::leader_proof::Groth16LeaderProof::prove(
-        //         private_inputs,
-        //         VoucherCm::default(),
-        //     )
-        //     .expect("Proof generation should succeed")
-        // }
 
         fn make_test_proof() -> lb_core::proofs::leader_proof::Groth16LeaderProof {
             let (_, private_inputs) =

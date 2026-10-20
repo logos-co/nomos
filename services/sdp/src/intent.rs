@@ -165,7 +165,6 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    // TODO(RFC-480): the ledger starts from private notes; `mantle::Utxo` left.
     use lb_core::{
         mantle::Note,
         sdp::{MinStake, ServiceParameters, ServiceType},
@@ -499,8 +498,6 @@ mod tests {
     }
 
     fn lib_ledger_state() -> LedgerState {
-        // TODO(RFC-480): the ledger starts from private notes.
-        // ledger_state([Utxo::new([0; 32], 0, Note::new(1, ZkPublicKey::zero()))])
         ledger_state([Note::new(1, Fr::ZERO, ZkPublicKey::zero())])
     }
 
@@ -508,8 +505,6 @@ mod tests {
         ledger_state([])
     }
 
-    // TODO(RFC-480): the ledger starts from private notes.
-    // fn ledger_state(utxos: impl IntoIterator<Item = Utxo>) -> LedgerState {
     fn ledger_state(notes: impl IntoIterator<Item = Note>) -> LedgerState {
         let consensus_config = lb_cryptarchia_engine::Config::new(
             NonZero::new(2).unwrap(),

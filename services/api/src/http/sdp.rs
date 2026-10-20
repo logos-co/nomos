@@ -1,8 +1,6 @@
 use std::fmt::{Debug, Display};
 
 use lb_chain_service::api::CryptarchiaServiceData;
-// TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-// use lb_core::sdp::{ActivityMetadata, DeclarationId, DeclarationMessage};
 use lb_core::sdp::{ActivityMetadata, DeclarationId};
 use lb_sdp_service::{
     DeclarationRequest, SdpService, SdpSubmission, mempool::SdpMempoolAdapter,
@@ -18,8 +16,6 @@ pub async fn post_declaration_handler<
     RuntimeServiceId,
 >(
     handle: OverwatchHandle<RuntimeServiceId>,
-    // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-    // declaration: DeclarationMessage,
     declaration: DeclarationRequest,
 ) -> Result<SdpSubmission, DynError>
 where

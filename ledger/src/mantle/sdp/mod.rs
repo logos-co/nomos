@@ -5,17 +5,11 @@ pub(crate) mod test_utils;
 use std::collections::HashMap;
 
 use lb_blend_message::crypto::proofs::RealProofsVerifier;
-// TODO(RFC-480): SDP Operations run on the note sets. `channel::Channels` served the genesis
-// declarations.
-// TODO(RFC-480): service notes live in the SDP note set and are consumed by SDP_WITHDRAW;
-// `service_notes::{self, ServiceNotes}` left the `sdp` imports.
-// TODO(RFC-480): reward notes are private notes of the ledger note set; `Utxo` left the
-// `mantle` imports for the tests.
 use lb_core::{
     block::BlockNumber,
     events::{HeaderEvent, TxEvent},
     mantle::{
-        NoteId, Value,
+        Value,
         ledger::verification_mode::{GenesisMode, StandardMode},
         note_set::NoteSets,
         notes::{Note, NoteCm, OutputCms},
@@ -42,7 +36,6 @@ use lb_log_targets::{diagnostic::BLEND_REACHABILITY, ledger};
 use rewards::{Error as RewardsError, Rewards};
 use tracing::debug;
 
-// TODO(RFC-480): SDP Operations run on the note sets. `UtxoTree` served the declarations.
 use crate::{EpochState, mantle::sdp::rewards::blend};
 
 const LOG_TARGET: &str = ledger::mantle::SDP;
@@ -60,9 +53,6 @@ impl Service {
         self,
         last_epoch_state: &EpochState,
         epoch_state: &EpochState,
-        // TODO(RFC-480): the withdrawal consumed the service note; its outputs are released
-        // instead.
-        // service_notes: &mut ServiceNotes,
         config: ServiceParameters,
         rewards_params: &ServiceRewardsParameters,
     ) -> (Self, Vec<Note>, Released, Vec<HeaderEvent>) {
@@ -71,7 +61,6 @@ impl Service {
                 let (new_state, reward_notes, released, events) = state.try_apply_header(
                     last_epoch_state,
                     epoch_state,
-                    // service_notes,
                     config,
                     &rewards_params.blend,
                 );
@@ -186,14 +175,8 @@ pub enum Error {
         current: BlockNumber,
         incoming: BlockNumber,
     },
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // #[error("Something went wrong while locking/unlocking a note: {0:?}")]
-    // LockingError(#[from] service_notes::Error),
     #[error("Invalid signature")]
     InvalidSignature,
-    #[error("Note not found: {0:?}")]
-    NoteNotFound(NoteId),
     #[error("Invalid proof")]
     InvalidProof,
     #[error("Error while computing rewards: {0:?}")]
@@ -218,9 +201,6 @@ impl<R: Rewards> ServiceState<R> {
         mut self,
         last_epoch_state: &EpochState,
         epoch_state: &EpochState,
-        // TODO(RFC-480): the withdrawal consumed the service note; its outputs are released
-        // instead.
-        // service_notes: &mut ServiceNotes,
         service_params: ServiceParameters,
         rewards_params: &R::Params,
     ) -> (Self, Vec<Note>, Released, Vec<HeaderEvent>) {
@@ -251,12 +231,7 @@ impl<R: Rewards> ServiceState<R> {
                 }
             }));
 
-            // Remove withdrawn declarations and unlock their notes.
-            // TODO(RFC-480): the withdrawal consumed the service note; its outputs are released
-            // instead.
-            // events.extend(
-            //     self.unlock_and_remove_withdrawn_declarations(service_notes, epoch_state.epoch()),
-            // );
+            // Remove withdrawn declarations and release their withdrawal outputs.
             let release_events;
             (released, release_events) =
                 self.release_and_remove_withdrawn_declarations(epoch_state.epoch());
@@ -265,53 +240,6 @@ impl<R: Rewards> ServiceState<R> {
 
         (self, reward_notes, released, events)
     }
-
-    // TODO(RFC-480): the withdrawal consumed the service note; its outputs are released instead.
-    // /// For every withdrawn declaration whose `withdraw_at + 1` epoch has been
-    // /// reached, unlock the service note and remove the declaration from the
-    // /// set.
-    // ///
-    // /// Returns one [`HeaderEvent::SdpNoteUnlocked`] event per unlocked note.
-    // fn unlock_and_remove_withdrawn_declarations(
-    //     &mut self,
-    //     service_notes: &mut ServiceNotes,
-    //     epoch: Epoch,
-    // ) -> Vec<HeaderEvent> {
-    //     let mut events = Vec::new();
-    //
-    //     // Collect IDs to remove first, and remove them in a second pass.
-    //     // `rpds` doesn't support `retain`, and we can't remove entries while iterating
-    //     // over them.
-    //     let to_remove: Vec<DeclarationId> = self
-    //         .declarations
-    //         .iter()
-    //         .filter_map(|(id, declaration)| {
-    //             if epoch <= declaration.withdraw_at? {
-    //                 return None;
-    //             }
-    //             if service_notes
-    //                 .is_used_for_service(&declaration.service_note_id, &declaration.service_type)
-    //             {
-    //                 service_notes
-    //                     .unlock(declaration.service_type, &declaration.service_note_id)
-    //                     .expect("unlocking note from withdrawn declaration must be successful if it hasn't been unlocked yet");
-    //                 events.push(
-    //                     HeaderEvent::SdpNoteUnlocked {
-    //                         note_id: declaration.service_note_id,
-    //                         service_type: declaration.service_type,
-    //                         declaration_id: *id,
-    //                     }
-    //                 );
-    //             }
-    //             Some(*id)
-    //         })
-    //         .collect();
-    //     for id in &to_remove {
-    //         self.declarations.remove_mut(id);
-    //     }
-    //
-    //     events
-    // }
 
     /// For every withdrawn declaration whose `withdraw_at + 1` epoch has been
     /// reached, release the outputs of its withdrawal and remove it.
@@ -374,9 +302,6 @@ fn is_active(declaration: &Declaration, current_epoch: Epoch, config: ServicePar
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SdpLedger {
     services: rpds::HashTrieMapSync<ServiceType, Service>,
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // service_notes: ServiceNotes,
     // The epoch when this ledger was created
     epoch: Epoch,
 }
@@ -386,18 +311,12 @@ impl SdpLedger {
     pub fn new(epoch: Epoch) -> Self {
         Self {
             services: rpds::HashTrieMapSync::new_sync(),
-            // TODO(RFC-480): service notes live in the SDP note set and are
-            // consumed by SDP_WITHDRAW.
-            // service_notes: ServiceNotes::new(),
             epoch,
         }
     }
 
     pub fn from_genesis(
         config: &Config,
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // utxo_tree: &UtxoTree,
-        // channels: &Channels,
         mut note_sets: NoteSets,
         epoch_state: &EpochState,
         tx_hash_view: &TxHashView,
@@ -417,10 +336,6 @@ impl SdpLedger {
 
             let verified_declaration = declaration
                 .into_verified(&SDPDeclareGenesisValidationContext {
-                    // TODO(RFC-480): SDP Operations run on the note sets.
-                    // utxo_tree,
-                    // channels,
-                    // service_notes: &sdp.service_notes,
                     note_sets: &note_sets,
                     tx_hash_view,
                     declarations: service_state.declarations(),
@@ -428,8 +343,6 @@ impl SdpLedger {
                 })
                 .map_err(|(_signed_operation, error)| error)?;
 
-            // let (result, events) =
-            //     sdp.try_apply_genesis_sdp_declaration(utxo_tree, verified_declaration, config)?;
             let (result, result_note_sets, events) =
                 sdp.try_apply_genesis_sdp_declaration(note_sets, verified_declaration, config)?;
             sdp = result;
@@ -500,9 +413,6 @@ impl SdpLedger {
         let mut all_reward_notes = Vec::new();
         let mut all_released = Vec::new();
         let mut all_events = Vec::new();
-        // TODO(RFC-480): the withdrawal consumed the service note; its outputs are released
-        // instead.
-        // let mut service_notes = self.service_notes().clone();
 
         let services = self
             .services
@@ -516,7 +426,6 @@ impl SdpLedger {
                     service_state.clone().try_apply_header(
                         last_epoch_state,
                         epoch_state,
-                        // &mut service_notes,
                         *service_params,
                         &config.service_rewards_params,
                     );
@@ -533,10 +442,6 @@ impl SdpLedger {
         let ledger = Self {
             epoch: epoch_state.epoch(),
             services,
-            // service_notes,
-            // TODO(RFC-480): service notes live in the SDP note set and are
-            // consumed by SDP_WITHDRAW.
-            // service_notes: self.service_notes.clone(),
         };
         // Service Reward Distribution debits the whole income of the settled epochs
         // from blend_rewards_pending, paid or not.
@@ -559,8 +464,6 @@ impl SdpLedger {
 
     pub fn try_apply_genesis_sdp_declaration(
         mut self,
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // utxo_tree: &UtxoTree,
         note_sets: NoteSets,
         declaration: SignedOperation<SDPDeclareOp, Verified, GenesisMode>,
         config: &Config,
@@ -575,13 +478,9 @@ impl SdpLedger {
         // Execute SDP Declare
         let (result, events) = declaration
             .execute(SDPDeclareExecutionContext {
-                // TODO(RFC-480): SDP Operations run on the note sets.
-                // utxo_tree: utxo_tree.clone(),
                 note_sets,
                 epoch: self.epoch,
                 declarations: service_state.declarations_clone(),
-                // service_notes: self.service_notes.clone(),
-                // min_stake: config.min_stake,
             })
             .map_err(|(_signed_operation, error)| error)?;
 
@@ -607,16 +506,12 @@ impl SdpLedger {
             );
         }
 
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // self.service_notes = result.service_notes;
         service_state.update_declarations(result.declarations);
         Ok((self, result.note_sets, events))
     }
 
     pub fn try_apply_sdp_declaration(
         mut self,
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // utxo_tree: &UtxoTree,
         note_sets: NoteSets,
         signed_operation: SignedOperation<SDPDeclareOp, Verified, StandardMode>,
         _config: &Config,
@@ -630,18 +525,12 @@ impl SdpLedger {
 
         let (result, events) = signed_operation
             .execute(SDPDeclareExecutionContext {
-                // TODO(RFC-480): SDP Operations run on the note sets.
-                // utxo_tree: utxo_tree.clone(),
                 note_sets,
                 epoch: self.epoch,
                 declarations: service_state.declarations_clone(),
-                // service_notes: self.service_notes.clone(),
-                // min_stake: config.min_stake,
             })
             .map_err(|(_signed_operation, error)| error)?;
 
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // self.service_notes = result.service_notes;
         self.services
             .get_mut(&operation_service_type)
             .expect("service was checked before execution")
@@ -706,15 +595,11 @@ impl SdpLedger {
         let (result, events) = signed_operation
             .execute(SDPWithdrawExecutionContext {
                 declarations: service_state.declarations_clone(),
-                // TODO(RFC-480): SDP Operations run on the note sets.
-                // service_notes: self.service_notes.clone(),
                 note_sets,
                 epoch: self.epoch,
             })
             .map_err(|(_signed_operation, error)| error)?;
 
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // self.service_notes = result.service_notes;
         service_state.update_declarations(result.declarations);
 
         Ok((self, result.note_sets, events))
@@ -739,13 +624,6 @@ impl SdpLedger {
                     .expect("the pending service income fits in a Value")
             })
     }
-
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // #[must_use]
-    // pub const fn service_notes(&self) -> &ServiceNotes {
-    //     &self.service_notes
-    // }
 
     /// Declarations of all services, which have been accumulated until the
     /// current block, regardless of whether they are active or not.
@@ -846,8 +724,6 @@ impl SdpLedger {
 }
 
 pub struct HeaderEffect {
-    // TODO(RFC-480): reward notes are private notes of the ledger note set.
-    // pub reward_utxos: Vec<Utxo>,
     // per service, ascending zk_id
     pub reward_notes: Vec<Note>,
     // income the epoch transition settled
@@ -863,11 +739,8 @@ mod tests {
 
     use lb_core::{
         mantle::{
-            // TODO(RFC-480): SDP Operations run on the note sets.
-            // ledger::Utxos,
-            Utxo,
             note_set::NoteSet,
-            notes::NoteNf,
+            notes::{NoteNf, derive_note_nf},
             ops::{ZkAndEd25519Proof, ZkTransferProof, op_proof::samples::SampleProof as _},
         },
         sdp::{Locator, SNAPSHOT_FINALIZATION_DELAY},
@@ -879,7 +752,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        cryptarchia::tests::utxo_with_sk, mantle::sdp::test_utils::generate_activity_proof,
+        cryptarchia::tests::note_with_sk, mantle::sdp::test_utils::generate_activity_proof,
     };
 
     fn setup(service_params: ServiceParameters) -> Config {
@@ -912,24 +785,19 @@ mod tests {
         Ed25519Key::from_bytes(&[0; 32])
     }
 
-    // TODO(RFC-480): SDP Operations run on the note sets.
-    // fn utxo_tree(utxos: Vec<Utxo>) -> Utxos {
-    //     let mut utxo_tree = Utxos::new();
-    //     for utxo in utxos {
-    //         (utxo_tree, _) = utxo_tree.insert(utxo.id(), utxo);
-    //     }
-    //     utxo_tree
-    // }
-
-    fn declare_op(zk_key: &ZkKey, signing_key: &Ed25519Key, input: &Utxo) -> SDPDeclareOp {
+    fn declare_op(
+        zk_key: &ZkKey,
+        signing_key: &Ed25519Key,
+        (input_sk, input): &(Fr, Note),
+    ) -> SDPDeclareOp {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
             locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
             provider_id: ProviderId(signing_key.public_key()),
             zk_id: zk_key.to_public_key(),
-            inputs: [NoteNf(input.id().0)].into(),
+            inputs: [derive_note_nf(&input.commitment(), input_sk)].into(),
             cm_merkle_root: NoteSet::empty().cm_root(),
-            amount: input.note.value,
+            amount: input.value,
         }
     }
 
@@ -1007,7 +875,7 @@ mod tests {
         });
         let epoch0 = dummy_epoch_state(0.into());
         let ledger = dummy_sdp_ledger(0.into(), &config);
-        let (_utxo_sk, utxo) = utxo_with_sk();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1069,7 +937,7 @@ mod tests {
             .unwrap();
         last_epoch_state = new_epoch_state;
 
-        let (_utxo_sk, utxo) = utxo_with_sk();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1122,7 +990,7 @@ mod tests {
 
         // Build an SDP ledger with a declaration at epoch 0.
         let ledger = dummy_sdp_ledger(0.into(), &config);
-        let (_utxo_sk, utxo) = utxo_with_sk();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1174,9 +1042,7 @@ mod tests {
             .try_apply_header(&config, &last_epoch_state, &new_epoch_state)
             .unwrap();
 
-        let (_utxo_sk, utxo) = utxo_with_sk();
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // let note_id = utxo.id();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1250,9 +1116,7 @@ mod tests {
         (ledger, _) = ledger.try_apply_header(&config, &epoch0, &epoch1).unwrap();
 
         // Add a declaration at epoch 1
-        let (_utxo_sk, utxo) = utxo_with_sk();
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // let note_id = utxo.id();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = &declare_op(&zk_key, &signing_key, &utxo);
@@ -1360,9 +1224,7 @@ mod tests {
         let epoch1 = next_epoch_state(1.into(), &ledger, &config);
         (ledger, _) = ledger.try_apply_header(&config, &epoch0, &epoch1).unwrap();
 
-        let (_utxo_sk, utxo) = utxo_with_sk();
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // let note_id = utxo.id();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1467,8 +1329,8 @@ mod tests {
 
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
-        let (_utxo_sk_a, utxo_a) = utxo_with_sk();
-        let (_utxo_sk_b, utxo_b) = utxo_with_sk();
+        let utxo_a = note_with_sk();
+        let utxo_b = note_with_sk();
 
         let declare_a = declare_op(&zk_key, &signing_key, &utxo_a);
         let declaration_id_a = declare_a.id();
@@ -1481,8 +1343,6 @@ mod tests {
 
         let epoch0 = dummy_epoch_state(0.into());
         let sdp_ledger = dummy_sdp_ledger(0.into(), &config);
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // let utxos = utxo_tree(vec![utxo_a, utxo_b]);
 
         let sdp_ledger = sdp_ledger
             .try_apply_sdp_declaration(NoteSets::new(), signed_operation_declare_a, &config)
@@ -1547,10 +1407,7 @@ mod tests {
             epoch: 0.into(),
         });
 
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // let service_a = ServiceType::BlendNetwork;
-        let (_utxo_sk, utxo) = utxo_with_sk();
-        // let note_id = utxo.id();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
 
@@ -1561,15 +1418,11 @@ mod tests {
             ed25519_sig: Ed25519Signature::zero(),
         };
         let signed_operation_declare = SignedOperation::new(declare_op, proof).into_state_trusted();
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // let operation_service_note_id = signed_operation_declare.operation().service_note_id;
 
         // Initialize ledger with service config and declare
         let epoch0 = dummy_epoch_state(0.into());
         let sdp_ledger = dummy_sdp_ledger(0.into(), &config);
 
-        // TODO(RFC-480): SDP Operations run on the note sets.
-        // let utxo_tree = utxo_tree(vec![utxo]);
         let sdp_ledger = sdp_ledger
             .try_apply_sdp_declaration(NoteSets::new(), signed_operation_declare, &config)
             .map(|(sdp_ledger, _, _)| sdp_ledger)
@@ -1621,13 +1474,6 @@ mod tests {
             sdp_ledger.get_declaration(&declaration_id).is_some(),
             "declaration must still exist at `withdraw_at`"
         );
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // assert!(
-        //     sdp_ledger
-        //         .service_notes()
-        //         .is_used_for_service(&operation_service_note_id, &ServiceType::BlendNetwork),
-        //     "the provider's note must still be used by the service at `withdraw_at`"
-        // );
 
         // Move forward to the `withdraw_at + 1` epoch. The declaration must
         // be removed and the note must be unlocked.
@@ -1654,13 +1500,6 @@ mod tests {
             sdp_ledger.get_declaration(&declaration_id).is_none(),
             "declaration must be removed the epoch after `withdraw_at`"
         );
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // assert!(
-        //     !sdp_ledger
-        //         .service_notes()
-        //         .is_used_for_service(&operation_service_note_id, &ServiceType::BlendNetwork),
-        //     "the provider's note must no longer be used by the service the epoch after `withdraw_at`"
-        // );
     }
 
     /// A withdrawal included in epoch `e` sets `withdraw_at = e + 2`. The node
@@ -1685,9 +1524,7 @@ mod tests {
         let epoch1 = next_epoch_state(1.into(), &ledger, &config);
         (ledger, _) = ledger.try_apply_header(&config, &epoch0, &epoch1).unwrap();
 
-        let (_utxo_sk, utxo) = utxo_with_sk();
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // let note_id = utxo.id();
+        let utxo = note_with_sk();
         let signing_key = create_signing_key();
         let zk_key = create_zk_key(1);
         let declare_op = declare_op(&zk_key, &signing_key, &utxo);
@@ -1805,12 +1642,6 @@ mod tests {
             ledger.get_declaration(&declaration_id).is_none(),
             "declaration must be removed the epoch after `withdraw_at`"
         );
-        // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-        // assert!(
-        //     !ledger
-        //         .service_notes()
-        //         .is_used_for_service(&note_id, &ServiceType::BlendNetwork)
-        // );
     }
 
     #[test]
@@ -1827,7 +1658,7 @@ mod tests {
                 declare_op(
                     &create_zk_key(u64::from(seed)),
                     &Ed25519Key::from_bytes(&[seed; 32]),
-                    &utxo_with_sk().1,
+                    &note_with_sk(),
                 )
             })
             .collect();
@@ -1883,28 +1714,6 @@ mod tests {
                 .all(|declaration| ledger.get_declaration(&declaration.id()).is_none())
         );
     }
-
-    // TODO(RFC-480): withdrawals release their outputs instead of unlocking a note.
-    // fn count_unlock_events(
-    //     events: Vec<HeaderEvent>,
-    //     note_id: NoteId,
-    //     service_type: ServiceType,
-    //     declaration_id: DeclarationId,
-    // ) -> usize {
-    //     events
-    //         .into_iter()
-    //         .filter(|event| {
-    //             matches!(
-    //                 event,
-    //                 HeaderEvent::SdpNoteUnlocked {
-    //                     note_id: n,
-    //                     service_type: s,
-    //                     declaration_id: d,
-    //                 } if *n == note_id && *s == service_type && *d == declaration_id
-    //             )
-    //         })
-    //         .count()
-    // }
 
     fn count_release_events(events: Vec<HeaderEvent>, declaration_id: DeclarationId) -> usize {
         events

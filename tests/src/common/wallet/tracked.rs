@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::{TxHash, Utxo};
 use lb_core::mantle::TxHash;
 use lb_wallet::OwnedNote;
 use serde::{Deserialize, Serialize};
@@ -435,14 +433,6 @@ mod tests {
 
     use super::*;
 
-    // TODO(RFC-480): UTXO test wallet.
-    // fn utxo(value: u64, output_index: usize) -> Utxo {
-    //     Utxo::new(
-    //         [output_index as u8; 32],
-    //         output_index,
-    //         Note::new(value, ZkPublicKey::zero()),
-    //     )
-    // }
     fn utxo(value: u64, output_index: u64) -> OwnedNote {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::zero()),

@@ -5,28 +5,19 @@ use lb_cryptarchia_engine::Epoch;
 use lb_groth16::Fr;
 use lb_key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
 
-// TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-// commitment. `NoteId` named the withdrawn service note.
 use crate::{
     mantle::{
         channel::{SlotTimeframe, SlotTimeout},
         notes::{NoteCm, NoteNf},
         ops::{
             channel::{
-                ChannelId,
-                MsgId,
-                // TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-                // the steps of CHANNEL_INSCRIBE.
-                // channel_transfer::ChannelTransferOp,
+                ChannelId, MsgId,
                 config::ChannelConfigOp,
                 deposit::{DepositOp, Metadata},
                 inscribe::{ChannelStep, InscriptionOp, Step},
                 program_step::{Payment, ProgramOutputs, ProgramStep},
                 withdraw::ChannelWithdrawOp,
             },
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::LeaderClaimOp,
             pow::ClaimPowRewardOp,
             program::ProgramRegisterOp,
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
@@ -40,9 +31,6 @@ use crate::{
 };
 
 pub static TRANSFER: LazyLock<TransferOp> = LazyLock::new(|| TransferOp {
-    // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-    // inputs: BoundedInputs::from(NoteId::from(Fr::from(0x01u64))).into(),
-    // outputs: [Note::new(0x02, ZkPublicKey::from(Fr::from(0x03u64)))].into(),
     inputs: [NoteNf(Fr::from(0x01u64)), NoteNf(Fr::from(0x02u64))].into(),
     outputs: [NoteCm(Fr::from(0x03u64)), NoteCm(Fr::from(0x04u64))].into(),
     cm_merkle_root: Fr::from(0x05u64),
@@ -70,19 +58,9 @@ pub static CHANNEL_CONFIG: LazyLock<ChannelConfigOp> = LazyLock::new(|| ChannelC
     posting_timeframe: SlotTimeframe::from(0x13u32),
     posting_timeout: SlotTimeout::from(0x14u32),
     configuration_threshold: 0x15u16,
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // transfer_threshold: 0x16u16,
 });
 
 pub static INSCRIPTION: LazyLock<InscriptionOp> = LazyLock::new(|| InscriptionOp {
-    // TODO(RFC-480 M4): the spec test vector values, with one step.
-    // channel_id: ChannelId::from([0x20u8; 32]),
-    // inscription: b"fixture".into(),
-    // parent: MsgId::from([0x21u8; 32]),
-    // signer: Ed25519Key::from_bytes(&[0x22u8; 32])
-    //     .public_key()
-    //     .into_unverified(),
     channel_id: ChannelId::from([14u8; 32]),
     inscription: b"hello logos".into(),
     parent: MsgId::root(),
@@ -128,23 +106,11 @@ pub static DEPOSIT: LazyLock<DepositOp> = LazyLock::new(|| DepositOp {
 });
 
 pub static CHANNEL_WITHDRAW: LazyLock<ChannelWithdrawOp> = LazyLock::new(|| ChannelWithdrawOp {
-    // TODO(RFC-480): multi signature withdrawal tests; the holder proves a
-    // ZkTransfer over the channel note set.
-    // channel_id: ChannelId::from([0x40u8; 32]),
-    // inputs: BoundedInputs::from(NoteId(Fr::from(0x41u64))).into(),
     channel_id: ChannelId::from([18u8; 32]),
     inputs: [NoteNf(Fr::from(0x13u64))].into(),
     cm_merkle_root: Fr::from(0x29u64),
     outputs: [NoteCm(Fr::from(0x2au64))].into(),
 });
-
-// TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-// the steps of CHANNEL_INSCRIBE.
-// pub static CHANNEL_TRANSFER: LazyLock<ChannelTransferOp> = LazyLock::new(|| ChannelTransferOp {
-//     channel_id: ChannelId::from([0x50u8; 32]),
-//     inputs: BoundedInputs::from(NoteId(Fr::from(0x51u64))).into(),
-//     outputs: Outputs::new([Note::new(0x52, ZkPublicKey::from(Fr::from(0x53u64)))]),
-// });
 
 pub static SDP_DECLARE: LazyLock<SDPDeclareOp> = LazyLock::new(|| SDPDeclareOp {
     service_type: ServiceType::BlendNetwork,
@@ -153,11 +119,6 @@ pub static SDP_DECLARE: LazyLock<SDPDeclareOp> = LazyLock::new(|| SDPDeclareOp {
     )]
     .try_into()
     .unwrap(),
-    // TODO(RFC-480): the declaration consumes ledger notes and creates its own
-    // service note. The spec test vector values.
-    // provider_id: ProviderId(Ed25519Key::from_bytes(&[0x60u8; 32]).public_key()),
-    // zk_id: ZkPublicKey::from(Fr::from(0x61u64)),
-    // service_note_id: NoteId(Fr::from(0x62u64)),
     provider_id: ProviderId(Ed25519Key::from_bytes(&[24u8; 32]).public_key()),
     zk_id: ZkPublicKey::from(Fr::from(25u64)),
     inputs: [NoteNf(Fr::from(26u64))].into(),
@@ -166,11 +127,6 @@ pub static SDP_DECLARE: LazyLock<SDPDeclareOp> = LazyLock::new(|| SDPDeclareOp {
 });
 
 pub static SDP_WITHDRAW: LazyLock<SDPWithdrawOp> = LazyLock::new(|| SDPWithdrawOp {
-    // TODO(RFC-480): the service note is consumed by its nullifier against the root
-    // of its commitment. The spec test vector values.
-    // declaration_id: DeclarationId([0x70u8; 32]),
-    // service_note_id: NoteId(Fr::from(0x71u64)),
-    // nonce: 0x72u64,
     declaration_id: DeclarationId([27u8; 32]),
     nonce: 29,
     service_note_nf: NoteNf(Fr::from(28u64)),
@@ -189,19 +145,7 @@ pub static SDP_ACTIVE: LazyLock<SDPActiveOp> = LazyLock::new(|| SDPActiveOp {
     })),
 });
 
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block.
-// pub static LEADER_CLAIM: LazyLock<LeaderClaimOp> = LazyLock::new(|| LeaderClaimOp {
-//     rewards_root: Fr::from(0x90u64).into(),
-//     voucher_nullifier: Fr::from(0x91u64).into(),
-//     pk: ZkPublicKey::from(Fr::from(0x92u64)),
-// });
-
 pub static CLAIM_POW_REWARD: LazyLock<ClaimPowRewardOp> = LazyLock::new(|| ClaimPowRewardOp {
-    // TODO(RFC-480): the spec test vector values.
-    // epoch_nonce: Fr::from(0xa0u64),
-    // block_hash: [0xa1u8; 32],
-    // public_key: ZkPublicKey::new(Fr::from(0xa2u64)),
     epoch_nonce: Fr::from(0x30u64),
     block_hash: [0x31u8; 32],
     public_key: ZkPublicKey::new(Fr::from(0x32u64)),
@@ -220,20 +164,12 @@ pub const DEPOSIT_PAYLOAD_HEX: &str = "10101010101010101010101010101010101010101
 pub const DEPOSIT_HEX: &str = "12101010101010101010101010101010101010101010101010101010101010101001110000000000000000000000000000000000000000000000000000000000000026000000000000000000000000000000000000000000000000000000000000000127000000000000000000000000000000000000000000000000000000000000002800000000000000100000006465706f7369742d6d65746164617461";
 pub const CHANNEL_WITHDRAW_PAYLOAD_HEX: &str = "12121212121212121212121212121212121212121212121212121212121212120113000000000000000000000000000000000000000000000000000000000000002900000000000000000000000000000000000000000000000000000000000000012a00000000000000000000000000000000000000000000000000000000000000";
 pub const CHANNEL_WITHDRAW_HEX: &str = "1312121212121212121212121212121212121212121212121212121212121212120113000000000000000000000000000000000000000000000000000000000000002900000000000000000000000000000000000000000000000000000000000000012a00000000000000000000000000000000000000000000000000000000000000";
-// TODO(RFC-480): CHANNEL_TRANSFER is removed, channel notes move by
-// the steps of CHANNEL_INSCRIBE.
-// pub const CHANNEL_TRANSFER_PAYLOAD_HEX: &str = "50505050505050505050505050505050505050505050505050505050505050500151000000000000000000000000000000000000000000000000000000000000000152000000000000005300000000000000000000000000000000000000000000000000000000000000";
-// pub const CHANNEL_TRANSFER_HEX: &str = "1450505050505050505050505050505050505050505050505050505050505050500151000000000000000000000000000000000000000000000000000000000000000152000000000000005300000000000000000000000000000000000000000000000000000000000000";
 pub const SDP_DECLARE_PAYLOAD_HEX: &str = "00010b00047f00000191020bb8cd0353470962558a6e0839022ae65c6b2723b32772e5c0c5f4776cb8e6a3e10ba2f31900000000000000000000000000000000000000000000000000000000000000011a000000000000000000000000000000000000000000000000000000000000002c000000000000000000000000000000000000000000000000000000000000002d00000000000000";
 pub const SDP_DECLARE_HEX: &str = "2000010b00047f00000191020bb8cd0353470962558a6e0839022ae65c6b2723b32772e5c0c5f4776cb8e6a3e10ba2f31900000000000000000000000000000000000000000000000000000000000000011a000000000000000000000000000000000000000000000000000000000000002c000000000000000000000000000000000000000000000000000000000000002d00000000000000";
 pub const SDP_WITHDRAW_PAYLOAD_HEX: &str = "1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1d000000000000001c00000000000000000000000000000000000000000000000000000000000000012e000000000000000000000000000000000000000000000000000000000000002f00000000000000";
 pub const SDP_WITHDRAW_HEX: &str = "211b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1d000000000000001c00000000000000000000000000000000000000000000000000000000000000012e000000000000000000000000000000000000000000000000000000000000002f00000000000000";
 pub const SDP_ACTIVE_PAYLOAD_HEX: &str = "808080808080808080808080808080808080808080808080808080808080808081000000000000000182000000d76dfc6e3d5e78f46c54e9421c979dcdc0d9d03981b61a865ab202b1808dce90828484a45c99c0fc61a31191f3b31c34cad3818117f9e313314421c29ee7bb238484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484838585a55d9ac1fd62a41292f4b41d35cbd4828218fae414324522c39fe8bc24";
 pub const SDP_ACTIVE_HEX: &str = "22808080808080808080808080808080808080808080808080808080808080808081000000000000000182000000d76dfc6e3d5e78f46c54e9421c979dcdc0d9d03981b61a865ab202b1808dce90828484a45c99c0fc61a31191f3b31c34cad3818117f9e313314421c29ee7bb238484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484848484838585a55d9ac1fd62a41292f4b41d35cbd4828218fae414324522c39fe8bc24";
-// TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the leader
-// reward is a note in the block.
-// pub const LEADER_CLAIM_PAYLOAD_HEX: &str = "900000000000000000000000000000000000000000000000000000000000000091000000000000000000000000000000000000000000000000000000000000009200000000000000000000000000000000000000000000000000000000000000";
-// pub const LEADER_CLAIM_HEX: &str = "40900000000000000000000000000000000000000000000000000000000000000091000000000000000000000000000000000000000000000000000000000000009200000000000000000000000000000000000000000000000000000000000000";
 pub const CLAIM_POW_REWARD_PAYLOAD_HEX: &str = "3000000000000000000000000000000000000000000000000000000000000000313131313131313131313131313131313131313131313131313131313131313132000000000000000000000000000000000000000000000000000000000000003300000000000000000000000000000000000000000000000000000000000000";
 pub const CLAIM_POW_REWARD_HEX: &str = "303000000000000000000000000000000000000000000000000000000000000000313131313131313131313131313131313131313131313131313131313131313132000000000000000000000000000000000000000000000000000000000000003300000000000000000000000000000000000000000000000000000000000000";
 

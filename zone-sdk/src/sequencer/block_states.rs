@@ -15,9 +15,6 @@ use lb_core::{
 };
 use rpds::HashTrieSetSync;
 
-// TODO(RFC-480): channel notes are private and move by steps; the bridge is
-// rebuilt on ChannelStep.
-// use super::types::{AtomicWithdrawInfo, InscriptionInfo, PinDepositInfo};
 use super::types::InscriptionInfo;
 
 #[derive(Debug)]
@@ -66,13 +63,6 @@ struct StoredBlock {
 pub enum BlockChannelTx {
     /// `publish` shape: a single inscription.
     Inscription(InscriptionInfo),
-    // TODO(RFC-480): channel notes are private and move by steps; the bridge is
-    // rebuilt on ChannelStep.
-    // /// `publish_atomic_withdraw` shape: an inscription + its withdraws.
-    // AtomicWithdraw(AtomicWithdrawInfo),
-    // /// `publish_pin_deposit` shape: an inscription + a transfer
-    // /// consuming an observed deposited note.
-    // PinDeposit(PinDepositInfo),
     /// A pure `channel_config` tx: a single config on the config lineage
     /// (`this_msg` = config id, `parent_msg` = config parent), which does not
     /// advance the message tip.
@@ -95,10 +85,6 @@ impl BlockChannelTx {
     pub fn infos(&self) -> &[InscriptionInfo] {
         match self {
             Self::Inscription(i) => std::slice::from_ref(i),
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // Self::AtomicWithdraw(a) => std::slice::from_ref(&a.inscription),
-            // Self::PinDeposit(a) => std::slice::from_ref(&a.inscription),
             Self::Config(_) => &[],
             Self::Custom {
                 message_entries, ..
@@ -113,9 +99,6 @@ impl BlockChannelTx {
     /// [`Self::Config`]; mixed/unknown configs ride in [`Self::Custom`].
     pub fn config_entries(&self) -> &[InscriptionInfo] {
         match self {
-            // TODO(RFC-480): channel notes are private and move by steps; the
-            // bridge is rebuilt on ChannelStep.
-            // Self::Inscription(_) | Self::AtomicWithdraw(_) | Self::PinDeposit(_) => &[],
             Self::Inscription(_) => &[],
             Self::Config(c) => std::slice::from_ref(c),
             Self::Custom { config_entries, .. } => config_entries,

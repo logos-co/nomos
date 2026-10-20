@@ -7,8 +7,6 @@ use std::collections::HashMap;
 use lb_binary_codec::bincode::SerializeOp as _;
 use lb_core::{
     crypto::{Digest, Hash, Hasher},
-    // TODO(RFC-480): reward notes are private notes, their nonce derived from the reward op_id.
-    // mantle::{Utxo, Value, ledger::Note},
     mantle::{
         Value,
         notes::{Note, derive_note_nonce},
@@ -140,9 +138,6 @@ fn distribute_rewards(
         .into_iter()
         .enumerate()
         .map(|(output_number, (zk_id, reward_amount))| {
-            // TODO(RFC-480): reward notes are private notes, their nonce derived from the
-            // reward op_id.
-            // Utxo::new(op_id, output_index, Note::new(reward_amount, zk_id))
             Note::new(
                 reward_amount,
                 derive_note_nonce(&op_id, output_number, reward_amount, &zk_id),

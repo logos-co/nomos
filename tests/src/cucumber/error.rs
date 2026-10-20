@@ -7,9 +7,6 @@ use lb_key_management_system_service::keys::errors::KeyError;
 use lb_testing_framework::configs::wallet::WalletConfigError;
 use lb_utils::bounded::BoundedError;
 use lb_wallet::WalletError;
-// TODO(RFC-480): the ZkSignature scheme is removed, transfers are proven by
-// ZkTransfers.
-// use lb_zksign::ZkSignError;
 use testing_framework_core::scenario::{DynError, ScenarioBuildError};
 use testing_framework_runner_local::ManualClusterError;
 use thiserror::Error;
@@ -66,10 +63,6 @@ pub enum StepError {
     WalletConfigError(#[from] WalletConfigError),
     #[error(transparent)]
     WalletError(#[from] WalletError),
-    // TODO(RFC-480): the ZkSignature scheme is removed, transfers are proven
-    // by ZkTransfers.
-    // #[error(transparent)]
-    // ZkSignError(#[from] ZkSignError),
     #[error(transparent)]
     ProvingError(#[from] KeyError),
     #[error(transparent)]

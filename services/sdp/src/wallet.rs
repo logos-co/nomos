@@ -5,8 +5,6 @@ use lb_core::{
         ledger::verification_mode::StandardMode,
         transactions::{MantleTxBuilder, TxBuilderError, states::Preverified},
     },
-    // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-    // sdp::{ActiveMessage, DeclarationMessage, WithdrawMessage},
     sdp::{ActiveMessage, Nonce},
 };
 use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -48,8 +46,6 @@ pub trait SdpWalletAdapter {
     async fn declare_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: DeclarationMessage,
         declaration: DeclarationRequest,
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError>;
@@ -66,8 +62,6 @@ pub trait SdpWalletAdapter {
     async fn withdraw_tx(
         &self,
         tx_builder: MantleTxBuilder,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // withdraw: WithdrawMessage,
         declaration: &RuntimeDeclaration,
         nonce: Nonce,
         config: &SdpWalletConfig,

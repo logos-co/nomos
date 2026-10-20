@@ -1,11 +1,5 @@
 use std::cmp::Reverse;
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::{
-//     Note, NoteId, Utxo,
-//     ledger::{Inputs, Outputs},
-//     ops::transfer::TransferOp,
-// };
 use lb_core::mantle::notes::NoteNf;
 use lb_key_management_system_service::keys::{ZkKey, ZkPublicKey};
 use lb_testing_framework::configs::wallet::WalletAccount;
@@ -252,59 +246,6 @@ impl WalletSelectedInputs {
     }
 }
 
-// TODO(RFC-480): UTXO test wallet. A Transfer is built and proven by the
-// funding of the transaction builder.
-/*
-/// Transfer operation together with the concrete input UTXOs selected for it.
-pub struct WalletFundedTransfer {
-    transfer: TransferOp,
-    selected_inputs: Vec<Utxo>,
-}
-
-impl WalletFundedTransfer {
-    #[must_use]
-    pub fn into_parts(self) -> (TransferOp, Vec<Utxo>) {
-        (self.transfer, self.selected_inputs)
-    }
-}
-
-/// Build a transfer operation and change output from available UTXOs.
-///
-/// Inputs are selected largest-first, and change is returned to `change_pk`.
-/// `fee` is deliberately left unreturned — it becomes the transaction's
-/// excess balance, which pays the mandatory fees at non-zero gas prices.
-pub fn build_wallet_funded_transfer(
-    available_utxos: Vec<Utxo>,
-    outputs: Vec<Note>,
-    change_pk: ZkPublicKey,
-    fee: u64,
-) -> Result<WalletFundedTransfer, WalletError> {
-    let output_total = outputs
-        .iter()
-        .fold(0u64, |total, output| total.saturating_add(output.value));
-    let funding_target = output_total.saturating_add(fee);
-    let selected_inputs =
-        WalletSelectedInputs::largest_first_covering(available_utxos, funding_target)?;
-    let change = selected_inputs.total() - funding_target;
-    let mut transfer_outputs = outputs;
-
-    if change > 0 {
-        transfer_outputs.push(Note::new(change, change_pk));
-    }
-
-    let selected_inputs = selected_inputs.into_utxos();
-    let transfer = TransferOp {
-        inputs: Inputs::try_new(selected_inputs.iter().map(Utxo::id).collect::<Vec<_>>())?,
-        outputs: Outputs::try_new(transfer_outputs)?,
-    };
-
-    Ok(WalletFundedTransfer {
-        transfer,
-        selected_inputs,
-    })
-}
-*/
-
 /// Result of trying to fund a transaction while iterating candidate inputs.
 pub enum WalletFundingOutcome<T> {
     /// More inputs are needed before the transaction can be funded.
@@ -403,12 +344,6 @@ impl WalletReservedInputs {
     }
 
     #[must_use]
-    // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-    // pub fn input_note_ids_list(&self) -> Vec<NoteId> {
-    //     let mut input_notes = self.sender.iter().map(Utxo::id).collect::<Vec<_>>();
-    //     input_notes.extend_from_slice(&self.fee_sponsor.iter().map(Utxo::id).collect::<Vec<_>>());
-    //     input_notes
-    // }
     pub fn input_note_ids_list(&self) -> Vec<NoteNf> {
         self.sender
             .iter()
@@ -416,17 +351,6 @@ impl WalletReservedInputs {
             .map(|utxo| utxo.nullifier)
             .collect()
     }
-
-    // TODO(RFC-480): UTXO test wallet, the paid fee is the excess of the
-    // funding Transfer.
-    // #[must_use]
-    // pub(crate) fn total_value(&self) -> u64 {
-    //     self.sender
-    //         .iter()
-    //         .chain(self.fee_sponsor.iter())
-    //         .map(|utxo| utxo.note.value)
-    //         .sum()
-    // }
 }
 
 #[cfg(test)]
@@ -437,14 +361,6 @@ mod tests {
 
     use super::*;
 
-    // TODO(RFC-480): UTXO test wallet.
-    // fn utxo(value: u64, output_index: usize) -> Utxo {
-    //     Utxo::new(
-    //         [output_index as u8; 32],
-    //         output_index,
-    //         Note::new(value, ZkPublicKey::new(1u8.into())),
-    //     )
-    // }
     fn utxo(value: u64, output_index: u64) -> OwnedNote {
         OwnedNote {
             note: Note::new(value, Fr::from(output_index), ZkPublicKey::new(1u8.into())),

@@ -13,15 +13,8 @@ use crate::{
     crypto::{Hash, ZkDigest as _, ZkHash, ZkHasher},
     events::{TxEvent, TxEventPayload},
     mantle::{
-        // TODO(RFC-480): the reward is a note of the ledger set.
-        // Note, TxHash, Utxo, Value,
-        TxHash,
-        Value,
+        TxHash, Value,
         gas::{Gas, MainnetGasProfile, OpGasCalculator, OperationGas},
-        // ledger::{
-        //     ExecutableOperation, PreverifiableOperation, ProvableOperation, Utxos,
-        //     VerifiableOperation, verification_mode::StandardMode,
-        // },
         ledger::{
             ExecutableOperation, PreverifiableOperation, ProvableOperation, VerifiableOperation,
             verification_mode::StandardMode,
@@ -117,12 +110,7 @@ impl ClaimPowRewardOp {
     #[cfg(any(test, feature = "test-utils"))]
     #[must_use]
     pub fn sample() -> Self {
-        // TODO(RFC-480): the spec test vector values.
-        // Self {
-        //     epoch_nonce: ZkHash::from(Fr::from(35u64)),
-        //     block_hash: Hash::from([36u8; 32]),
-        //     public_key: ZkPublicKey::from(Fr::from(37u64)),
-        // }
+        // The spec test vector values.
         Self {
             epoch_nonce: Fr::from(0x30u64),
             block_hash: [0x31u8; 32],
@@ -286,9 +274,6 @@ pub struct ClaimPoWRewardExecutionContext {
     pub nullifiers: HashTrieMapSync<PowNullifier, Slot>,
     /// Hash of the transaction carrying this claim.
     pub tx_hash: TxHash,
-    // TODO(RFC-480): the reward is a note of the ledger set.
-    // /// Unspent transaction outputs, extended with the reward note.
-    // pub utxos: Utxos,
     /// Note sets, the ledger set extended with the reward note.
     pub note_sets: NoteSets,
     /// Recorded block slots
@@ -366,15 +351,7 @@ impl ExecutableOperation for SignedOperation<ClaimPowRewardOp, Verified, Standar
         let nullifier = operation.get_puzzle_ticket();
         context.nullifiers.insert_mut(nullifier, *slot);
         // create output note
-        // TODO(RFC-480): the reward is a note of the ledger set.
-        // let note = Note::new(context.epoch_reward, operation.public_key);
         let op_id = operation.op_id();
-        // let utxo = Utxo {
-        //     op_id,
-        //     output_index: 0,
-        //     note,
-        // };
-        // context.utxos = context.utxos.insert(utxo.id(), utxo).0;
         let note = notes::Note::new(
             context.epoch_reward,
             derive_note_nonce(&op_id, 0, context.epoch_reward, &operation.public_key),
@@ -400,7 +377,6 @@ impl ExecutableOperation for SignedOperation<ClaimPowRewardOp, Verified, Standar
                 op_id,
                 TxEventPayload::PoWRewardClaimed {
                     pow_nullifier: nullifier,
-                    // utxo,
                     note,
                 },
             )],
@@ -755,67 +731,6 @@ mod tests {
             ClaimPowRewardError::DoubleClaimed
         );
     }
-
-    // TODO(RFC-480): the reward is a note of the ledger set.
-    // #[test]
-    // fn execute_issues_reward_utxo_and_registers_nullifier() {
-    //     let op = claim_op(CURRENT_EPOCH);
-    //     let signed_operation = SignedOperation::new(op, NoOpProof)
-    //         .into_preverified(&())
-    //         .unwrap()
-    //         .into_verified(&accepting_context(&HashTrieMapSync::new_sync()))
-    //         .unwrap();
-    //     let puzzle_ticket = signed_operation.operation().get_puzzle_ticket();
-    //     let operation_op_id = signed_operation.operation().op_id();
-    //     let operation_public_key = signed_operation.operation().public_key;
-    //     let epoch_reward = 10;
-    //     let tx_hash = TxHash::from([11u8; 32]);
-    //
-    //     let (ctx, events) = signed_operation
-    //         .execute(ClaimPoWRewardExecutionContext {
-    //             reward_pool: 1_000,
-    //             epoch_reward,
-    //             nullifiers: HashTrieMapSync::new_sync(),
-    //             tx_hash,
-    //             utxos: Utxos::new(),
-    //             block_slots: std::iter::once((CLAIM_BLOCK_HASH, Slot::from(45u64))).collect(),
-    //         })
-    //         .expect("claim execution should succeed");
-    //
-    //     // The spent solution is recorded against the anchor block's slot,
-    //     // and the pool pays out sigma_e.
-    //     assert_eq!(ctx.nullifiers.get(&puzzle_ticket), Some(&Slot::from(45u64)));
-    //     assert_eq!(ctx.reward_pool, 990);
-    //
-    //     // The reward note lands in the UTXO set, payable to the op's key
-    //     // (§5.3 execution step 3). Regression: the persistent-tree insert
-    //     // result used to be discarded, so the note never reached the set.
-    //     let expected_utxo = Utxo {
-    //         op_id: operation_op_id,
-    //         output_index: 0,
-    //         note: Note::new(epoch_reward, operation_public_key),
-    //     };
-    //     assert_eq!(ctx.utxos.get(&expected_utxo.id()), Some(expected_utxo));
-    //
-    //     let mut events = events.iter();
-    //     let Some(TxEvent {
-    //         tx_hash: event_tx_hash,
-    //         op_id,
-    //         payload:
-    //             TxEventPayload::PoWRewardClaimed {
-    //                 pow_nullifier,
-    //                 utxo,
-    //             },
-    //     }) = events.next()
-    //     else {
-    //         panic!("expected PoWRewardClaimed tx event");
-    //     };
-    //     assert_eq!(*event_tx_hash, tx_hash);
-    //     assert_eq!(*op_id, operation_op_id);
-    //     assert_eq!(*pow_nullifier, puzzle_ticket);
-    //     assert_eq!(*utxo, expected_utxo);
-    //     assert!(events.next().is_none());
-    // }
 
     #[test]
     fn execute_adds_the_reward_note_to_the_ledger_set() {

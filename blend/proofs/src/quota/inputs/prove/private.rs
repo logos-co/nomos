@@ -136,10 +136,6 @@ impl From<ProofOfCoreQuotaInputs> for ProofType {
 pub struct ProofOfLeadershipQuotaInputs {
     pub slot: u64,
     pub note_value: u64,
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // pub transaction_hash: ZkHash,
-    // pub output_number: u64,
-    // pub aged_path_and_selectors: AgedNotePathAndSelectors,
     pub note_nonce: ZkHash,
     pub cm_aged_path_and_selectors: AgedNotePathAndSelectors,
     pub nf_root_aged: ZkHash,

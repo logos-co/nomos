@@ -46,13 +46,9 @@ where
     async fn declare_tx(
         &self,
         mut tx_builder: MantleTxBuilder,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: DeclarationMessage,
         declaration: DeclarationRequest,
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError> {
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // tx_builder = tx_builder.push_op(Op::SDPDeclare(declaration))?;
         let TipResponse {
             tip: split_tip,
             response: (split_builder, exact),
@@ -121,14 +117,10 @@ where
     async fn withdraw_tx(
         &self,
         mut tx_builder: MantleTxBuilder,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // withdraw: WithdrawMessage,
         declaration: &RuntimeDeclaration,
         nonce: Nonce,
         config: &SdpWalletConfig,
     ) -> Result<SignedOps<Preverified, StandardMode>, SdpWalletError> {
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // tx_builder = tx_builder.push_op(Op::SDPWithdraw(withdraw))?;
         let service_note = self
             .api
             .owned_note(None, declaration.service_note)

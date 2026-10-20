@@ -77,10 +77,6 @@ impl PoQWitnessInputs {
         PoQWalletInputs::from(PoQWalletInputsData {
             slot: 0,
             note_value: 0,
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // transaction_hash: Fr::ZERO,
-            // output_number: 0,
-            // aged_path_and_selectors: [(Fr::ZERO, false); _],
             note_nonce: Fr::ZERO,
             cm_aged_path_and_selectors: [(Fr::ZERO, false); _],
             nf_root_aged: Fr::ZERO,

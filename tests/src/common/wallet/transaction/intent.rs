@@ -47,18 +47,11 @@ impl WalletTransactionIntent {
 
     pub fn transfer(receivers: &[(ZkPublicKey, u64)]) -> Result<Self, WalletTransactionError> {
         let empty_context = OpsContext {
-            // TODO(RFC-480): transfer_threshold is removed, holders withdraw
-            // their own channel notes.
-            // gas_context: OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::default()),
             gas_context: OpsGasContext::new(HashMap::new(), GasPrices::default()),
-            // TODO(RFC-480): the leader reward is a note of the block.
-            // ..OpsContext::default()
         };
         let mut tx_builder = MantleTxBuilder::new();
 
         for (receiver_pk, value) in receivers {
-            // TODO(RFC-480): UTXO test wallet.
-            // tx_builder = tx_builder.add_ledger_output(Note::new(*value, *receiver_pk))?;
             tx_builder =
                 tx_builder.add_ledger_output(Note::new(*value, random_nonce(), *receiver_pk))?;
         }
@@ -80,9 +73,6 @@ impl WalletTransactionIntent {
 
     #[must_use]
     pub fn with_gas_prices(mut self, gas_prices: GasPrices) -> Self {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // self.context.gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), gas_prices);
         self.context.gas_context = OpsGasContext::new(HashMap::new(), gas_prices);
         self
     }
@@ -99,20 +89,8 @@ impl WalletTransactionIntent {
 }
 
 fn transfer_output_total(tx_builder: &MantleTxBuilder) -> Result<u64, WalletTransactionError> {
-    // TODO(RFC-480): UTXO test wallet, the outputs are commitments and their
-    // values are in the openings of the builder.
-    // let ops = tx_builder.clone().build()?;
-    // ops.iter()
-    //     .filter_map(|op| match op {
-    //         Op::Transfer(transfer) => Some(transfer),
-    //         _ => None,
-    //     })
-    //     .flat_map(|transfer| transfer.outputs.iter())
-    //     .try_fold(0u64, |total, note| {
-    //         total
-    //             .checked_add(note.value)
-    //             .ok_or(WalletTransactionError::OutputTotalOverflow)
-    //     })
+    // The outputs are commitments, their values are in the openings of the
+    // builder.
     tx_builder
         .openings()
         .values()
@@ -138,14 +116,9 @@ mod tests {
         let intent = WalletTransactionIntent::transfer(&[(ZkPublicKey::zero(), 10)])
             .expect("plain transfer intent");
         let (builder, _, sender_output_total, inscription_signers) = intent.into_parts();
-        // TODO(RFC-480): UTXO test wallet, the funding Transfer is built once
-        // the funding notes are added.
-        // let ops = builder.build().expect("transfer builder");
 
         assert_eq!(sender_output_total, 10);
         assert_eq!(inscription_signers, Vec::new());
-        // assert_eq!(ops.len(), 1);
-        // assert!(matches!(ops.iter().next(), Some(Op::Transfer(_))));
         assert_eq!(builder.openings().keys().copied().collect::<Vec<_>>(), vec![0]);
     }
 
@@ -165,13 +138,6 @@ mod tests {
             .with_leading_inscription(inscription, signing_key)
             .expect("hybrid intent");
         let (builder, _, _, inscription_signers) = intent.into_parts();
-        // TODO(RFC-480): UTXO test wallet, the funding Transfer is built once
-        // the funding notes are added.
-        // let ops = builder.build().expect("hybrid builder");
-        //
-        // assert_eq!(ops.len(), 2);
-        // assert!(matches!(ops.iter().next(), Some(Op::ChannelInscribe(_))));
-        // assert!(matches!(ops.get(1), Some(Op::Transfer(_))));
         // the funding Transfer follows the inscription
         assert_eq!(builder.openings().keys().copied().collect::<Vec<_>>(), vec![1]);
         assert_eq!(inscription_signers.len(), 1);

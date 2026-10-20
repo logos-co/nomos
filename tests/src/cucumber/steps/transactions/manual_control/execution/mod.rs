@@ -46,11 +46,6 @@ use std::{
     time::Duration,
 };
 
-// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-// use lb_core::mantle::{
-//     NoteId, Utxo,
-//     transactions::{GasPrices, hash::TxHash},
-// };
 use lb_core::mantle::{
     notes::NoteNf,
     transactions::{GasPrices, hash::TxHash},

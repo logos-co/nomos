@@ -3,8 +3,6 @@ use std::{
     num::NonZero,
 };
 
-// TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-// use lb_core::mantle::{NoteId, Utxo, transactions::GENESIS_STORAGE_GAS_PRICE};
 use lb_core::mantle::{notes::NoteNf, transactions::GENESIS_STORAGE_GAS_PRICE};
 use lb_testing_framework::configs::wallet::WalletAccount;
 use lb_wallet::OwnedNote;
@@ -179,8 +177,6 @@ impl ScenarioFeeReservations {
 
         on_chain_utxos
             .into_iter()
-            // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-            // .filter(|utxo| !reserved_note_ids.contains(&utxo.id()))
             .filter(|utxo| !reserved_note_ids.contains(&utxo.nullifier))
             .collect()
     }
@@ -189,8 +185,6 @@ impl ScenarioFeeReservations {
         self.reserved_by_wallet
             .values()
             .filter(|reservation| reservation.group_key == group_key)
-            // TODO(RFC-480): UTXO test wallet, a note is spent by its nullifier.
-            // .flat_map(|reservation| reservation.utxos.iter().copied())
             .flat_map(|reservation| reservation.utxos.iter().cloned())
             .collect()
     }
@@ -199,7 +193,6 @@ impl ScenarioFeeReservations {
         self.reserved_by_wallet
             .values()
             .filter(|reservation| reservation.group_key == group_key)
-            // .flat_map(|reservation| reservation.utxos.iter().map(Utxo::id))
             .flat_map(|reservation| reservation.utxos.iter().map(|utxo| utxo.nullifier))
             .collect()
     }

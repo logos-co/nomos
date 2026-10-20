@@ -42,14 +42,6 @@ mod tests {
     };
 
     fn create_random_tx(seed: u32) -> Ops {
-        // TODO(RFC-480): inputs are nullifiers and outputs commitments.
-        // Ops::from([Op::Transfer(TransferOp::new(
-        //     Inputs::empty(),
-        //     Outputs::new([Note {
-        //         value: seed.into(),
-        //         pk: ZkPublicKey::zero(),
-        //     }]),
-        // ))])
         Ops::from([Op::Transfer(TransferOp::new(
             InputNfs::default(),
             [NoteCm(Fr::from(u64::from(seed)))].into(),

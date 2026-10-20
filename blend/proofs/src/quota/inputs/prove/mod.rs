@@ -80,10 +80,6 @@ fn witness_input_for_proof_type(
         }
         ProofType::LeadershipQuota(leadership_quota_private_inputs) => {
             let ProofOfLeadershipQuotaInputs {
-                // TODO(RFC-480): depth 32 UTXO tree witness
-                // aged_path_and_selectors,
-                // output_number,
-                // transaction_hash,
                 note_value,
                 slot,
                 secret_key,
@@ -94,10 +90,6 @@ fn witness_input_for_proof_type(
             } = *leadership_quota_private_inputs;
 
             let wallet_input_data = PoQWalletInputsData {
-                // TODO(RFC-480): depth 32 UTXO tree witness
-                // aged_path_and_selectors,
-                // output_number,
-                // transaction_hash,
                 note_value,
                 slot,
                 pol_secret_key: secret_key,

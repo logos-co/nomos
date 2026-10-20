@@ -1,10 +1,5 @@
 use std::ptr;
 
-// TODO(RFC-480): notes are private, named by their commitment.
-// use crate::api::{
-//     cryptarchia::{HeaderId, NoteId},
-//     types::value::Value,
-// };
 use crate::api::{
     cryptarchia::{HeaderId, NoteCm},
     types::value::Value,
@@ -13,9 +8,6 @@ use crate::api::{
 /// A single spendable wallet note: its commitment and value.
 #[repr(C)]
 pub struct WalletNote {
-    // TODO(RFC-480): notes are private, named by their commitment.
-    // /// The note ID.
-    // pub id: NoteId,
     /// The note commitment.
     pub commitment: NoteCm,
     /// The value held by the note.

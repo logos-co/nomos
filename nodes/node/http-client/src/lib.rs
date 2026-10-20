@@ -3,8 +3,6 @@ use std::sync::Arc;
 use futures::{Stream, StreamExt as _, TryStreamExt as _};
 pub use lb_chain_broadcast_service::BlockInfo;
 pub use lb_chain_service::{ChainServiceInfo, CryptarchiaInfo, PhaseTag, Slot, State};
-// TODO(RFC-480): the wallet builds the declaration's ZkTransfer (dropped
-// `sdp::DeclarationMessage`).
 use lb_core::{
     block::MAX_BLOCK_TRANSACTIONS_SIZE,
     header::{ContentId, HeaderId},
@@ -20,9 +18,6 @@ pub use lb_core::{
 };
 use lb_groth16::fr_to_bytes;
 pub use lb_http_api_common::TimeInfo;
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed (dropped
-// `claimable_vouchers::WalletClaimableVouchersResponseBody`,
-// `LEADER_CLAIM_VOUCHERS`).
 use lb_http_api_common::{
     MAX_BLOCKS_STREAM_BLOCKS, MAX_BLOCKS_STREAM_CHUNK_SIZE,
     bodies::{
@@ -47,8 +42,6 @@ use lb_http_api_common::{
     queries::BlocksStreamQuery,
     settings::default_max_body_size,
 };
-// TODO(RFC-480): uncle headers are not signed.
-// use lb_key_management_system_keys::keys::{Ed25519Signature, ZkPublicKey};
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_log_targets::http_client;
 use lb_sdp_service::DeclarationRequest;
@@ -80,20 +73,9 @@ pub struct ApiHeader {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ApiBlock {
     pub header: ApiHeader,
-    // TODO(RFC-480): uncle headers are not signed.
-    // pub uncle_headers: Vec<ApiSignedHeader>,
     pub uncle_headers: Vec<ApiHeader>,
     pub transactions: Vec<SignedOps<Unverified, StandardMode>>,
 }
-
-// TODO(RFC-480): uncle headers are not signed.
-// /// Client-side signed header representation matching the server's
-// /// `ApiSignedHeader`.
-// #[derive(Clone, Debug, Deserialize)]
-// pub struct ApiSignedHeader {
-//     pub header: ApiHeader,
-//     pub signature: Ed25519Signature,
-// }
 
 /// Processed block event from the block stream.
 /// Matches the server's `ApiProcessedBlockEvent`.
@@ -362,8 +344,6 @@ impl CommonHttpClient {
     pub async fn post_declaration(
         &self,
         base_url: Url,
-        // TODO(RFC-480): the wallet builds the declaration's ZkTransfer.
-        // declaration: &DeclarationMessage,
         declaration: &DeclarationRequest,
     ) -> Result<SdpSubmission, Error> {
         let request_url = base_url
@@ -659,27 +639,6 @@ impl CommonHttpClient {
         self.get::<(), WalletBalanceResponseBody>(request_url, None)
             .await
     }
-
-    // TODO(RFC-480): LEADER_CLAIM and the vouchers are removed.
-    // /// Get claimable reward vouchers tracked by the wallet.
-    // pub async fn get_claimable_vouchers(
-    //     &self,
-    //     base_url: Url,
-    //     tip: Option<HeaderId>,
-    // ) -> Result<WalletClaimableVouchersResponseBody, Error> {
-    //     let mut request_url = base_url
-    //         .join(LEADER_CLAIM_VOUCHERS.trim_start_matches('/'))
-    //         .map_err(Error::Url)?;
-    //
-    //     if let Some(t) = tip {
-    //         request_url
-    //             .query_pairs_mut()
-    //             .append_pair("tip", &t.to_string());
-    //     }
-    //
-    //     self.get::<(), WalletClaimableVouchersResponseBody>(request_url, None)
-    //         .await
-    // }
 
     /// Get the wallet notes that are aged enough to take part in the
     /// leadership lottery at `tip`, or at the current tip when `tip` is

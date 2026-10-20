@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-// TODO(RFC-480): UTXO test wallet.
-// use lb_core::mantle::Utxo;
 use lb_wallet::OwnedNote;
 
 use crate::common::wallet::{WalletId, WalletUtxos};

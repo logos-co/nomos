@@ -4,10 +4,6 @@ use lb_cryptarchia_engine::{Epoch, Slot};
 use lb_key_management_system_keys::keys::UnverifiedEd25519PublicKey;
 use rpds::HashTrieMapSync;
 
-// TODO(RFC-480): service notes live in the SDP note set and are consumed by
-// SDP_WITHDRAW; `service_notes::ServiceNotes` left the `sdp` imports.
-// TODO(RFC-480): no Operation reads legacy UTXOs since M9. `Utxos` left the
-// `ledger` imports.
 use crate::{
     block::BlockNumber,
     crypto::{Hash, ZkHash},
@@ -18,9 +14,6 @@ use crate::{
         note_set::NoteSets,
         ops::{
             channel::{ChannelId, ChannelKeyIndex},
-            // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-            // retired; the leader reward is a note in the block.
-            // leader_claim::{RewardsRoot, VoucherNullifier},
             pow::{PowNullifier, PowReward, PowTarget},
         },
         programs::Programs,
@@ -30,13 +23,6 @@ use crate::{
 
 pub trait OperationVerificationHelper {
     fn get_channels(&self) -> &Channels;
-
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW.
-    // fn get_service_notes(&self) -> &ServiceNotes;
-
-    // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-    // fn get_utxos(&self) -> &Utxos;
 
     fn get_note_sets(&self) -> &NoteSets;
 
@@ -59,19 +45,6 @@ pub trait OperationVerificationHelper {
     fn get_epoch(&self) -> Epoch;
 
     fn get_block_slot(&self) -> Slot;
-
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block.
-    // fn get_nullifiers(&self) -> &rpds::HashTrieSetSync<VoucherNullifier>;
-    //
-    // fn get_claimable_vouchers_root(&self) -> &RewardsRoot;
-
-    // TODO(RFC-480): transfer_threshold is removed, holders
-    // withdraw their own channel notes.
-    // fn get_channel_transfer_threshold(
-    //     &self,
-    //     channel_id: &ChannelId,
-    // ) -> Result<ChannelKeyIndex, VerificationError>;
 
     fn get_key_from_channel_at_index(
         &self,
@@ -121,15 +94,8 @@ pub mod test_utils {
 
     use lb_cryptarchia_engine::{Epoch, Slot};
     use lb_key_management_system_keys::keys::UnverifiedEd25519PublicKey;
-    // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired; the
-    // leader reward is a note in the block. `HashTrieSetSync` held the voucher
-    // nullifiers.
     use rpds::HashTrieMapSync;
 
-    // TODO(RFC-480): service notes live in the SDP note set and are consumed by
-    // SDP_WITHDRAW; `service_notes::ServiceNotes` left the `sdp` imports.
-    // TODO(RFC-480): no Operation reads legacy UTXOs since M9. `Utxo` and
-    // `Utxos` left the `mantle` imports.
     use crate::{
         block::BlockNumber,
         crypto::{Hash, ZkHash},
@@ -140,9 +106,6 @@ pub mod test_utils {
             note_set::NoteSets,
             ops::{
                 channel::{ChannelId, ChannelKeyIndex},
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // leader_claim::{RewardsRoot, VoucherNullifier},
                 pow::{PowNullifier, PowReward, PowTarget},
             },
             programs::Programs,
@@ -154,11 +117,6 @@ pub mod test_utils {
     pub struct TestOperationVerificationHelper {
         channels: Channels,
         keys: HashMap<(ChannelId, ChannelKeyIndex), UnverifiedEd25519PublicKey>,
-        // TODO(RFC-480): service notes live in the SDP note set and are consumed
-        // by SDP_WITHDRAW.
-        // service_notes: ServiceNotes,
-        // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-        // utxos: Utxos,
         note_sets: NoteSets,
         programs: Programs,
         block_number: BlockNumber,
@@ -166,10 +124,6 @@ pub mod test_utils {
         min_stake: MinStake,
         epoch: Epoch,
         block_slot: Slot,
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // nullifiers: HashTrieSetSync<VoucherNullifier>,
-        // claimable_vouchers_root: RewardsRoot,
         pow_reward_difficulty: PowTarget,
         pow_nullifiers: HashTrieMapSync<PowNullifier, Slot>,
         epoch_pow_reward: PowReward,
@@ -189,11 +143,6 @@ pub mod test_utils {
             Self {
                 channels,
                 keys: keys.into_iter().collect(),
-                // TODO(RFC-480): service notes live in the SDP note set and are
-                // consumed by SDP_WITHDRAW.
-                // service_notes: ServiceNotes::new(),
-                // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-                // utxos: Utxos::new(),
                 note_sets: NoteSets::new(),
                 programs: Programs::new(),
                 block_number: 0,
@@ -204,10 +153,6 @@ pub mod test_utils {
                 },
                 epoch: Epoch::from(0u32),
                 block_slot: Slot::from(0u64),
-                // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are
-                // retired; the leader reward is a note in the block.
-                // nullifiers: HashTrieSetSync::new_sync(),
-                // claimable_vouchers_root: RewardsRoot::default(),
                 pow_reward_difficulty: PowTarget::default(),
                 pow_nullifiers: HashTrieMapSync::new_sync(),
                 epoch_pow_reward: 0,
@@ -218,15 +163,6 @@ pub mod test_utils {
                 pow_slot_window: NonZeroU64::new(100).expect("100 is not 0"),
             }
         }
-
-        // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-        // #[must_use]
-        // pub fn with_utxos(mut self, utxos: impl IntoIterator<Item = Utxo>) -> Self {
-        //     for utxo in utxos {
-        //         self.utxos = self.utxos.insert(utxo.id(), utxo).0;
-        //     }
-        //     self
-        // }
 
         #[must_use]
         pub const fn with_block_slot(mut self, slot: Slot) -> Self {
@@ -306,17 +242,6 @@ pub mod test_utils {
             &self.channels
         }
 
-        // TODO(RFC-480): service notes live in the SDP note set and are consumed
-        // by SDP_WITHDRAW.
-        // fn get_service_notes(&self) -> &ServiceNotes {
-        //     &self.service_notes
-        // }
-
-        // TODO(RFC-480): no Operation reads legacy UTXOs since M9.
-        // fn get_utxos(&self) -> &Utxos {
-        //     &self.utxos
-        // }
-
         fn get_note_sets(&self) -> &NoteSets {
             &self.note_sets
         }
@@ -354,31 +279,6 @@ pub mod test_utils {
         fn get_block_slot(&self) -> Slot {
             self.block_slot
         }
-
-        // TODO(RFC-480): LEADER_CLAIM, the vouchers and the PoC are retired;
-        // the leader reward is a note in the block.
-        // fn get_nullifiers(&self) -> &HashTrieSetSync<VoucherNullifier> {
-        //     &self.nullifiers
-        // }
-        //
-        // fn get_claimable_vouchers_root(&self) -> &RewardsRoot {
-        //     &self.claimable_vouchers_root
-        // }
-
-        // TODO(RFC-480): transfer_threshold is removed, holders
-        // withdraw their own channel notes.
-        // fn get_channel_transfer_threshold(
-        //     &self,
-        //     channel_id: &ChannelId,
-        // ) -> Result<ChannelKeyIndex, VerificationError> {
-        //     self.channels
-        //         .channels
-        //         .get(channel_id)
-        //         .ok_or(VerificationError::ChannelNotFound {
-        //             channel_id: *channel_id,
-        //         })
-        //         .map(|channel| channel.transfer_threshold)
-        // }
 
         fn get_key_from_channel_at_index(
             &self,

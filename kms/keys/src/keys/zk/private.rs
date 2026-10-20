@@ -2,9 +2,6 @@ use std::sync::LazyLock;
 
 use lb_groth16::{AdditiveGroup as _, Field as _, Fr, fr_from_bytes_unchecked, fr_from_mod_bytes};
 use lb_poseidon2::{Digest, Poseidon2Bn254Hasher};
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-// use lb_zksign::{ZkSignError, ZkSignPrivateKeysData, ZkSignWitnessInputs};
 use lb_zktransfer::ZkTransferProof;
 use num_bigint::BigUint;
 use rand_core::{CryptoRng, RngCore};
@@ -12,9 +9,6 @@ use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq as _;
 use zeroize::ZeroizeOnDrop;
 
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-// use crate::keys::zk::{public::PublicKey, signature::Signature};
 use crate::keys::{
     errors::KeyError,
     zk::{ZkTransferPayload, public::PublicKey},
@@ -55,22 +49,6 @@ impl SecretKey {
     pub fn into_inner(self) -> Fr {
         self.0
     }
-
-    // TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-    // Components 1.3.0).
-    /*
-    pub fn sign(&self, data: &Fr) -> Result<Signature, ZkSignError> {
-        Self::multi_sign(std::slice::from_ref(self), data)
-    }
-
-    pub fn multi_sign(keys: &[Self], data: &Fr) -> Result<Signature, ZkSignError> {
-        let sk_inputs = try_from_secret_keys(keys)?;
-        let inputs = ZkSignWitnessInputs::from_witness_data_and_message_hash(sk_inputs, *data);
-
-        let (signature, _) = lb_zksign::prove(inputs).expect("Signature should succeed");
-        Ok(Signature::new(signature))
-    }
-    */
 
     // keys[i] proves the i-th active input
     pub fn prove_transfer(
@@ -126,19 +104,3 @@ impl From<BigUint> for SecretKey {
         Self(value.into())
     }
 }
-
-// TODO(RFC-480): the ZkSignature scheme is removed (Common Cryptographic
-// Components 1.3.0).
-/*
-fn try_from_secret_keys(keys: &[SecretKey]) -> Result<ZkSignPrivateKeysData, ZkSignError> {
-    let len = keys.len();
-    if len > 32 {
-        return Err(ZkSignError::TooManyKeys(len));
-    }
-    let mut buff: [Fr; 32] = [Fr::ZERO; 32];
-    for (i, sk) in keys.iter().enumerate() {
-        buff[i] = sk.clone().into_inner();
-    }
-    Ok(buff.into())
-}
-*/

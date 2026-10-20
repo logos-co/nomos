@@ -2,8 +2,6 @@ use lb_core::{
     header::HeaderId,
     mantle::{
         gas::GasOverflow,
-        // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
-        // ledger::{InputsError, OutputsError},
         note_set::NoteSetIndex,
         ops::channel::ChannelId,
         transactions::builder::TxBuilderError,
@@ -25,15 +23,6 @@ pub enum WalletError {
     TxBuilder(String),
     #[error(transparent)]
     BoundedError(#[from] BoundedError),
-    // TODO(RFC-480): UTXO wallet; notes are tracked per note set.
-    // #[error(transparent)]
-    // InputsError(#[from] InputsError),
-    // #[error(transparent)]
-    // OutputsError(#[from] OutputsError),
-    // #[error(transparent)]
-    // InvalidVoucherPath(#[from] MerklePathError),
-    // #[error("Voucher MMR is full")]
-    // VoucherMmrFull,
     #[error("The commitment MMR of note set {0} is full")]
     MmrFull(NoteSetIndex),
     #[error(transparent)]

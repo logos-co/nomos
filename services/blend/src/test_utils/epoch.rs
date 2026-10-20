@@ -38,15 +38,6 @@ impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for OncePolStreamProvid
                     lib_slot: Slot::from(0),
                 },
             },
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
-            //     slot: 1,
-            //     note_value: 1,
-            //     transaction_hash: ZkHash::ZERO,
-            //     output_number: 1,
-            //     aged_path_and_selectors: [(ZkHash::ZERO, false); _],
-            //     secret_key: ZkHash::ZERO,
-            // })),
             winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
                 slot: 1,
                 note_value: 1,
@@ -118,15 +109,6 @@ impl<RuntimeServiceId> PolInfoProvider<RuntimeServiceId> for GatedPolStreamProvi
                         lib_slot: Slot::from(0),
                     },
                 },
-                // TODO(RFC-480): depth 32 UTXO tree witness
-                // winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
-                //     slot: 1,
-                //     note_value: 1,
-                //     transaction_hash: ZkHash::ZERO,
-                //     output_number: 1,
-                //     aged_path_and_selectors: [(ZkHash::ZERO, false); _],
-                //     secret_key: ZkHash::ZERO,
-                // })),
                 winning_pol_info_stream: Box::pin(repeat(ProofOfLeadershipQuotaInputs {
                     slot: 1,
                     note_value: 1,

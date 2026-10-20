@@ -1,7 +1,4 @@
 pub mod blend;
-// TODO(RFC-480): service notes live in the SDP note set and are consumed by
-// SDP_WITHDRAW.
-// pub mod service_notes;
 
 use core::{
     cmp::Ordering,
@@ -31,8 +28,6 @@ use multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
-// TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-// commitment. `NoteId` named the locked service note.
 use crate::{
     block::BlockNumber,
     mantle::{
@@ -438,8 +433,6 @@ impl BoundedSerializeOp for DeclarationId {
 pub struct Declaration {
     pub service_type: ServiceType,
     pub provider_id: ProviderId,
-    // TODO(RFC-480): the declaration consumes ledger notes and creates its own service note.
-    // pub service_note_id: NoteId,
     pub service_note: NoteCm,
     // empty until the withdrawal
     pub withdraw_outputs: OutputCms,
@@ -474,9 +467,6 @@ impl Declaration {
         Self {
             service_type: declaration_msg.service_type,
             provider_id: declaration_msg.provider_id,
-            // TODO(RFC-480): the declaration consumes ledger notes and creates its own service
-            // note.
-            // service_note_id: declaration_msg.service_note_id,
             service_note: declaration_msg.service_note().commitment(),
             withdraw_outputs: OutputCms::default(),
             locators: declaration_msg.locators.clone(),
@@ -547,8 +537,6 @@ pub struct DeclarationMessage {
     pub locators: Locators,
     pub provider_id: ProviderId,
     pub zk_id: ZkPublicKey,
-    // TODO(RFC-480): the declaration consumes ledger notes and creates its own service note.
-    // pub service_note_id: NoteId,
     pub inputs: InputNfs,
     #[serde(with = "serde_fr")]
     pub cm_merkle_root: Fr,
@@ -602,9 +590,6 @@ impl DeclarationMessage {
                 .into(),
             provider_id: ProviderId(Ed25519Key::from_bytes(&[24; 32]).public_key()),
             zk_id: ZkPublicKey::from(Fr::from(25u64)),
-            // TODO(RFC-480): the declaration consumes ledger notes and creates its own service
-            // note.
-            // service_note_id: NoteId(Fr::from(26u64)),
             inputs: [NoteNf(Fr::from(26u64))].into(),
             cm_merkle_root: Fr::from(44u64),
             amount: 45,
@@ -639,9 +624,6 @@ pub fn declaration_id(
 pub struct WithdrawMessage {
     pub declaration_id: DeclarationId,
     pub nonce: Nonce,
-    // TODO(RFC-480): the service note is consumed by its nullifier against the root of its
-    // commitment.
-    // pub service_note_id: NoteId,
     pub service_note_nf: NoteNf,
     pub outputs: OutputCms,
     pub excess_value: Value,
@@ -889,9 +871,6 @@ impl WithdrawMessage {
     pub fn sample() -> Self {
         Self {
             declaration_id: DeclarationId([27u8; 32]),
-            // TODO(RFC-480): the service note is consumed by its nullifier against the root of
-            // its commitment.
-            // service_note_id: NoteId(Fr::from(28u64)),
             nonce: 29,
             service_note_nf: NoteNf(Fr::from(28u64)),
             outputs: [NoteCm(Fr::from(46u64))].into(),

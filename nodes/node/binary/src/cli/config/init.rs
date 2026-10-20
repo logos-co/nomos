@@ -65,13 +65,9 @@ pub fn run(args: InitArgs) -> Result<()> {
     let user_config = build_user_config(&keystore, args)?;
 
     let user_config_yaml = serde_yaml::to_string(&user_config)?;
-    // TODO(RFC-480): replaced by an owner only, no follow write of the secret keys.
-    // std::fs::write(&user_config_path, &user_config_yaml)?;
     write_secret_file(&user_config_path, &user_config_yaml)?;
 
     let keystore_yaml = serde_yaml::to_string(&keystore)?;
-    // TODO(RFC-480): replaced by an owner only, no follow write of the secret keys.
-    // std::fs::write(&keystore_path, &keystore_yaml)?;
     write_secret_file(&keystore_path, &keystore_yaml)?;
 
     Ok(())

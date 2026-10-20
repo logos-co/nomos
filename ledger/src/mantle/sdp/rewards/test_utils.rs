@@ -28,13 +28,9 @@ pub fn create_epoch_state(
         .iter()
         .enumerate()
         .map(|(i, provider_id)| {
-            // TODO(RFC-480): the declaration consumes ledger notes and creates its own service
-            // note.
-            // let note_id = Fr::from(i as u64).into();
             let declaration = Declaration {
                 service_type,
                 provider_id: *provider_id,
-                // service_note_id: note_id,
                 service_note: NoteCm(Fr::from(i as u64)),
                 withdraw_outputs: OutputCms::default(),
                 locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),

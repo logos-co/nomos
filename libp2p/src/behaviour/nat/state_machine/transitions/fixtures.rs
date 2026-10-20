@@ -159,12 +159,6 @@ pub static ADDR: LazyLock<Multiaddr> = LazyLock::new(|| Multiaddr::from_str("/me
 pub static LISTENER_ID: LazyLock<ListenerId> = LazyLock::new(ListenerId::next);
 pub static ADDR_1: LazyLock<Multiaddr> =
     LazyLock::new(|| Multiaddr::from_str("/memory/1").unwrap());
-// TODO: obsolete, the failed autonat fixtures no longer fabricate an upstream
-// `autonat::v2::client::Event` (layout UB), remove.
-// pub static AUTONAT_FAILED: LazyLock<BinaryCompatAutonatEvent> =
-//     LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/0"));
-// pub static AUTONAT_FAILED_1: LazyLock<BinaryCompatAutonatEvent> =
-//     LazyLock::new(|| BinaryCompatAutonatEvent::new("/memory/1"));
 pub static PEER_ID: LazyLock<PeerId> = LazyLock::new(PeerId::random);
 
 pub fn autonat_ok<'a>() -> TestEvent<'a> {
@@ -174,40 +168,6 @@ pub fn autonat_ok<'a>() -> TestEvent<'a> {
 pub fn autonat_ok_address_mismatch<'a>() -> TestEvent<'a> {
     TestEvent::autonat_ok(ADDR_1.clone())
 }
-
-// TODO: obsolete, a repr(Rust) look alike cast to the upstream
-// `autonat::v2::client::Event` is layout UB, remove.
-// #[derive(Debug)]
-// pub struct BinaryCompatAutonatEvent {
-//     pub _tested_addr: Multiaddr,
-//     pub _bytes_sent: usize,
-//     pub _server: PeerId,
-//     pub _result: Result<(), BinaryCompatAutonatError>,
-// }
-//
-// impl BinaryCompatAutonatEvent {
-//     pub fn new(tested_addr: &str) -> Self {
-//         Self {
-//             _tested_addr: Multiaddr::from_str(tested_addr).unwrap(),
-//             _bytes_sent: 0,
-//             _server: *PEER_ID,
-//             _result: Err(BinaryCompatAutonatError {
-//                 _inner: BinaryCompatDialBackError::NoConnection,
-//             }),
-//         }
-//     }
-// }
-//
-// #[derive(Debug)]
-// pub struct BinaryCompatAutonatError {
-//     pub(crate) _inner: BinaryCompatDialBackError,
-// }
-//
-// #[derive(thiserror::Error, Debug)]
-// pub enum BinaryCompatDialBackError {
-//     #[error("server failed to establish a connection")]
-//     NoConnection,
-// }
 
 pub fn autonat_failed<'a>() -> TestEvent<'a> {
     TestEvent::AutonatClientFailed(ADDR.clone())

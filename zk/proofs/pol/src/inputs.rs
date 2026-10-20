@@ -88,11 +88,6 @@ pub struct PolVerifierInput {
     pub epoch_nonce: Groth16Input,
     pub lottery_0: Groth16Input,
     pub lottery_1: Groth16Input,
-    // TODO(RFC-480): depth 32 UTXO tree witness
-    // pub aged_root: Groth16Input,
-    // pub latest_root: Groth16Input,
-    // pub leader_pk1: Groth16Input,
-    // pub leader_pk2: Groth16Input,
     pub eligible_aged: Groth16Input,
     pub eligible_latest: Groth16Input,
     pub msg: Groth16Input,
@@ -108,11 +103,6 @@ impl TryFrom<PolVerifierInputJson> for PolVerifierInput {
             epoch_nonce,
             lottery_0,
             lottery_1,
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // aged_root,
-            // latest_root,
-            // leader_pk1,
-            // leader_pk2,
             eligible_aged,
             eligible_latest,
             msg,
@@ -123,11 +113,6 @@ impl TryFrom<PolVerifierInputJson> for PolVerifierInput {
             epoch_nonce: epoch_nonce.try_into()?,
             lottery_0: lottery_0.try_into()?,
             lottery_1: lottery_1.try_into()?,
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // aged_root: aged_root.try_into()?,
-            // latest_root: latest_root.try_into()?,
-            // leader_pk1: leader_pk1.try_into()?,
-            // leader_pk2: leader_pk2.try_into()?,
             eligible_aged: eligible_aged.try_into()?,
             eligible_latest: eligible_latest.try_into()?,
             msg: msg.try_into()?,
@@ -144,11 +129,6 @@ impl PolVerifierInput {
             self.epoch_nonce.into_inner(),
             self.lottery_0.into_inner(),
             self.lottery_1.into_inner(),
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // self.aged_root.into_inner(),
-            // self.latest_root.into_inner(),
-            // self.leader_pk1.into_inner(),
-            // self.leader_pk2.into_inner(),
             self.eligible_aged.into_inner(),
             self.eligible_latest.into_inner(),
             self.msg.into_inner(),
@@ -161,15 +141,10 @@ impl PolVerifierInput {
         entropy_contribution: Fr,
         slot_number: u64,
         epoch_nonce: Fr,
-        // TODO(RFC-480): depth 32 UTXO tree witness
-        // aged_root: Fr,
-        // latest_root: Fr,
         eligible_aged: Fr,
         eligible_latest: Fr,
         lottery_0: Fr,
         lottery_1: Fr,
-        // TODO(RFC-480): depth 32 UTXO tree witness
-        // leader_pk: (Fr, Fr),
         msg: Fr,
     ) -> Self {
         Self {
@@ -178,11 +153,6 @@ impl PolVerifierInput {
             epoch_nonce: epoch_nonce.into(),
             lottery_0: lottery_0.into(),
             lottery_1: lottery_1.into(),
-            // TODO(RFC-480): depth 32 UTXO tree witness
-            // aged_root: aged_root.into(),
-            // latest_root: latest_root.into(),
-            // leader_pk1: leader_pk.0.into(),
-            // leader_pk2: leader_pk.1.into(),
             eligible_aged: eligible_aged.into(),
             eligible_latest: eligible_latest.into(),
             msg: msg.into(),

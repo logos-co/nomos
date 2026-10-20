@@ -4,8 +4,6 @@ use std::{
     time::Duration,
 };
 
-// TODO(RFC-480): UTXO test wallet, a ZkTransfer spends at most four notes.
-// Dropped imports: Utxo, MAX_TRANSACTION_INPUTS.
 use lb_core::mantle::{
     Note,
     gas::{GasCost, MainnetGasProfile},
@@ -46,7 +44,6 @@ use crate::{
     },
 };
 
-// const DRAIN_MAX_INPUTS_PER_TRANSACTION: usize = MAX_TRANSACTION_INPUTS;
 const DRAIN_MAX_INPUTS_PER_TRANSACTION: usize = MAX_INPUTS;
 const DRAIN_TRANSACTION_TIMEOUT: Duration = Duration::from_mins(3);
 
@@ -88,8 +85,6 @@ fn select_tranche_utxos(utxos: &[OwnedNote]) -> Result<(Vec<OwnedNote>, u64, u64
             .saturating_sub(selected_set[selected_index].note.value)
             .saturating_add(replacement.note.value);
 
-        // TODO(RFC-480): UTXO test wallet.
-        // selected_set[selected_index] = *replacement;
         selected_set[selected_index] = replacement.clone();
 
         fee_estimate = estimate_drain_fee_with_inputs(&selected_set)?;
@@ -436,16 +431,6 @@ fn drain_amount(total: u64, tranches: usize, fee: u64) -> Result<u64, StepError>
 
 fn estimate_drain_fee_with_values(input_count: NonZeroUsize, value: u64) -> Result<u64, StepError> {
     let input_value = value / input_count.get() as u64;
-    // TODO(RFC-480): UTXO test wallet, the estimate spends placeholder notes.
-    // let input_utxos = (0..input_count.get())
-    //     .map(|index| {
-    //         Utxo::new(
-    //             [index as u8; 32],
-    //             index,
-    //             Note::new(input_value, ZkPublicKey::zero()),
-    //         )
-    //     })
-    //     .collect::<Vec<_>>();
     let input_utxos = (0..input_count.get())
         .map(|index| OwnedNote {
             note: Note::new(input_value, Fr::from(index as u64), ZkPublicKey::zero()),
@@ -472,8 +457,6 @@ fn fee_estimate_builder() -> Result<MantleTxBuilder, StepError> {
     MantleTxBuilder::new()
         // Simulate the receiver output. A correctly estimated drain consumes
         // the remaining input value as its fee and therefore has no change.
-        // TODO(RFC-480): a note carries a nonce.
-        // .add_ledger_output(Note::new(0, ZkPublicKey::zero()))
         .add_ledger_output(Note::new(0, Fr::from(0u64), ZkPublicKey::zero()))
         .map_err(|error| StepError::LogicalError {
             message: error.to_string(),
@@ -482,18 +465,13 @@ fn fee_estimate_builder() -> Result<MantleTxBuilder, StepError> {
 
 fn finalize_fee(builder: &MantleTxBuilder) -> Result<u64, StepError> {
     let context = OpsContext {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
         gas_context: OpsGasContext::new(
             HashMap::new(),
-            // HashMap::new(),
             GasPrices::new(
                 GENESIS_EXECUTION_GAS_PRICE.into_inner(),
                 DEFAULT_STORAGE_GAS_PRICE,
             ),
         ),
-        // TODO(RFC-480): the gas context is the only field left.
-        // ..OpsContext::default()
     };
     builder
         .minimum_gas_cost::<MainnetGasProfile>(&context)

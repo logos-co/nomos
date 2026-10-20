@@ -6,9 +6,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-// TODO(RFC-480): genesis notes are private notes spent by nullifier, the
-// Transfer is proven by a ZkTransfer. Dropped imports: slice, Utxo, OpId,
-// ZkKey.
 use lb_core::mantle::{
     Note, OpProof, SignedOps,
     gas::{MainnetGasProfile, TxGasCalculator as _},
@@ -74,8 +71,6 @@ pub struct WorkloadImpl {
 #[derive(Clone)]
 struct WalletInput {
     account: WalletAccount,
-    // TODO(RFC-480): genesis notes are private notes spent by nullifier.
-    // utxo: Utxo,
     note: GenesisNote,
 }
 
@@ -140,10 +135,6 @@ fn prepare_accounts(
     let mut accounts = wallet_accounts
         .into_iter()
         .filter_map(|account| {
-            // utxo_map
-            //     .get(&account.public_key())
-            //     .copied()
-            //     .map(|utxo| WalletInput { account, utxo })
             utxo_map
                 .get(&account.public_key())
                 .cloned()
@@ -212,9 +203,6 @@ impl<'a> Submission<'a> {
     }
 
     async fn execute(mut self) -> Result<(), DynError> {
-        // TODO(RFC-480): transfer_threshold is removed, holders withdraw their
-        // own channel notes.
-        // let gas_context = OpsGasContext::new(HashMap::new(), HashMap::new(), GasPrices::default());
         let gas_context = OpsGasContext::new(HashMap::new(), GasPrices::default());
         while let Some(input) = self.plan.pop_front() {
             submit_wallet_transaction(self.ctx, &input, gas_context.clone()).await?;
@@ -296,56 +284,6 @@ fn cluster_client_exhausted_error() -> DynError {
     TxWorkloadError::ClusterClientExhausted.into()
 }
 
-// TODO(RFC-480): genesis notes are private notes spent by nullifier, the
-// Transfer is proven by a ZkTransfer.
-/*
-fn build_wallet_transaction(
-    input: &WalletInput,
-    gas_context: &OpsGasContext,
-) -> Result<SignedOps<Preverified, StandardMode>, DynError> {
-    let receiver = input.account.public_key();
-
-    let provisional_tx = MantleTxBuilder::new()
-        .add_ledger_input(input.utxo)
-        .map_err(|err| format!("failed to add provisional input: {err}"))?
-        .add_ledger_output(Note::new(input.utxo.note.value, receiver))
-        .map_err(|err| format!("failed to add provisional output: {err}"))?
-        .build()
-        .map_err(|err| format!("failed to build provisional tx: {err}"))?;
-
-    let fee = provisional_tx
-        .by_ref()
-        .total_gas_cost::<MainnetGasProfile>(gas_context)?
-        .into_inner();
-    let output_value = input.utxo.note.value.checked_sub(fee).ok_or_else(|| {
-        format!(
-            "input note value {} below fee {}",
-            input.utxo.note.value, fee
-        )
-    })?;
-
-    let tx = MantleTxBuilder::new()
-        .add_ledger_input(input.utxo)
-        .map_err(|err| format!("failed to add input: {err}"))?
-        .add_ledger_output(Note::new(output_value, receiver))
-        .map_err(|err| format!("failed to add output: {err}"))?
-        .build()
-        .map_err(|err| format!("failed to build tx: {err}"))?;
-
-    let signature = ZkKey::multi_sign(
-        slice::from_ref(&input.account.secret_key),
-        &tx.hash().to_fr(),
-    )
-    .map_err(|err| format!("failed to sign transaction: {err}"))?;
-
-    let op_proofs = OpProofs::from([OpProof::ZkSig(signature)]);
-    SignedOps::from_parts(tx, op_proofs)
-        .map_err(|err| format!("failed to build signed transaction: {err}"))?
-        .preverify()
-        .map_err(|err| format!("failed to build signed transaction: {err}").into())
-}
-*/
-
 fn build_wallet_transaction(
     input: &WalletInput,
     gas_context: &OpsGasContext,
@@ -408,21 +346,8 @@ fn random_nonce() -> Fr {
     Fr::from(rand::random::<u128>())
 }
 
-// TODO(RFC-480): genesis notes are private notes; the opening of an allocation
-// is named by its index, its path leads to the genesis ledger set root.
-// fn wallet_utxo_map(
-//     genesis_tx: &lb_core::mantle::transactions::GenesisTx,
-// ) -> HashMap<ZkPublicKey, Utxo> {
-//     let transfer_op = genesis_tx.transfer().operation().clone();
-//     let op_id = transfer_op.op_id();
-//
-//     transfer_op
-//         .outputs
-//         .iter()
-//         .enumerate()
-//         .map(|(idx, note)| (note.pk, Utxo::new(op_id, idx, *note)))
-//         .collect()
-// }
+// The opening of a genesis allocation is named by its index; its path leads to
+// the genesis ledger set root.
 fn wallet_utxo_map(
     genesis_tx: &lb_core::mantle::transactions::GenesisTx,
 ) -> HashMap<ZkPublicKey, GenesisNote> {

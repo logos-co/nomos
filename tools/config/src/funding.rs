@@ -1,8 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-// TODO(RFC-480): the genesis notes are the allocations the distribution
-// publishes.
-// use lb_core::mantle::{Note, ledger::Outputs, ops::transfer::TransferOp};
 use lb_core::mantle::transactions::{Distribution, GenesisAllocation};
 use lb_key_management_system_service::keys::{ZkKey, ZkPublicKey};
 
@@ -12,9 +9,6 @@ use crate::consensus::{GENESIS_TRANSFER_OUTPUT_LIMIT, SdpFundingConfig, ServiceN
 /// genesis is signed. This operates on protocol data, without native node
 /// configuration.
 pub fn fund_wallets(
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // transfer: &mut TransferOp,
     transfer: &mut Distribution,
     leader_keys: &[ZkPublicKey],
     funding_keys: &[ZkPublicKey],
@@ -35,19 +29,6 @@ pub fn fund_wallets(
     let total = wallets.iter().map(|(_, value)| *value).sum();
     let stake = leader_stake_amount(total, leader_keys.len());
 
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // for output in &mut transfer.outputs {
-    //     if leader_keys.contains(&output.pk) {
-    //         output.value = stake;
-    //     }
-    // }
-    // for (key, value) in wallets {
-    //     transfer
-    //         .outputs
-    //         .try_push(Note::new(*value, key.to_public_key()))
-    //         .expect("wallet account outputs must fit transfer output bounds");
-    // }
     for output in transfer.iter_mut() {
         if leader_keys.contains(&output.public_key) {
             output.value = stake;
@@ -65,22 +46,6 @@ pub fn fund_wallets(
 
 /// Funding can move outputs. Refresh references before building provider
 /// declarations or handing notes to an adapter.
-// TODO(RFC-480): a genesis note is named by its allocation index, whose
-// opening takes the index as nonce.
-// pub fn refresh_service_note(note: &mut ServiceNote, transfer: &TransferOp) {
-//     let (index, output) = transfer
-//         .outputs
-//         .iter()
-//         .enumerate()
-//         .find(|(_, output)| output.pk == note.pk)
-//         .expect("service note must be present in genesis");
-//     note.output_index = index;
-//     note.note = *output;
-//     note.note_id = transfer
-//         .utxo_by_index(index)
-//         .expect("service output must exist")
-//         .id();
-// }
 pub fn refresh_service_note(note: &mut ServiceNote, transfer: &Distribution) {
     let (index, output) = transfer
         .iter()
@@ -106,21 +71,12 @@ pub fn leader_stake_amount(total_wallet_funds: u64, n_participants: usize) -> u6
 }
 
 fn fit_sdp_funding_outputs_to_genesis_capacity(
-    // TODO(RFC-480): the genesis notes are the allocations the distribution
-    // publishes.
-    // transfer_op: &mut TransferOp,
     transfer_op: &mut Distribution,
     funding_keys: &HashSet<ZkPublicKey>,
     additional_wallet_outputs: usize,
     sdp_funding_config: SdpFundingConfig,
 ) {
     let n_participants = funding_keys.len();
-    // let current_sdp_outputs = transfer_op
-    //     .outputs
-    //     .iter()
-    //     .filter(|note| funding_keys.contains(&note.pk))
-    //     .count();
-    // let non_sdp_outputs = transfer_op.outputs.len() - current_sdp_outputs;
     let current_sdp_outputs = transfer_op
         .iter()
         .filter(|note| funding_keys.contains(&note.public_key))
@@ -155,18 +111,13 @@ fn fit_sdp_funding_outputs_to_genesis_capacity(
     let mut retained_per_key = HashMap::new();
     if current_sdp_outputs > required_sdp_outputs {
         let retained_notes = transfer_op
-            // TODO(RFC-480): the genesis notes are the allocations the
-            // distribution publishes.
-            // .outputs
             .iter()
             .copied()
             .filter_map(|mut note| {
-                // if !funding_keys.contains(&note.pk) {
                 if !funding_keys.contains(&note.public_key) {
                     return Some(note);
                 }
 
-                // let retained = retained_per_key.entry(note.pk).or_insert(0);
                 let retained = retained_per_key.entry(note.public_key).or_insert(0);
                 if *retained >= selected_sdp_notes_per_node {
                     return None;
@@ -180,16 +131,9 @@ fn fit_sdp_funding_outputs_to_genesis_capacity(
                 Some(note)
             })
             .collect::<Vec<_>>();
-        // TODO(RFC-480): the genesis notes are the allocations the distribution
-        // publishes.
-        // transfer_op.outputs = Outputs::try_new(retained_notes)
-        //     .expect("trimmed genesis transfer outputs must fit the output bound");
         *transfer_op = Distribution::try_from(retained_notes)
             .expect("trimmed genesis transfer outputs must fit the output bound");
     } else {
-        // for note in &mut transfer_op.outputs {
-        //     if funding_keys.contains(&note.pk) {
-        //         let retained = retained_per_key.entry(note.pk).or_insert(0);
         for note in transfer_op.iter_mut() {
             if funding_keys.contains(&note.public_key) {
                 let retained = retained_per_key.entry(note.public_key).or_insert(0);

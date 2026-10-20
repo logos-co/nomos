@@ -7,8 +7,6 @@ pub mod balance {
     };
     use lb_core::{
         header::HeaderId,
-        // TODO(RFC-480): a wallet note is named by its commitment.
-        // mantle::{NoteId, Value},
         mantle::{Value, notes::NoteCm},
     };
     use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -22,8 +20,6 @@ pub mod balance {
     pub struct WalletBalanceResponseBody {
         pub tip: HeaderId,
         pub balance: Value,
-        // TODO(RFC-480): a wallet note is named by its commitment.
-        // pub notes: HashMap<NoteId, Value>,
         pub notes: HashMap<NoteCm, Value>,
         pub address: ZkPublicKey,
     }
@@ -46,66 +42,6 @@ pub mod balance {
     }
 }
 
-// TODO(RFC-480): LEADER_CLAIM and the vouchers are removed; the leader reward
-// is a note of the block.
-// pub mod claimable_vouchers {
-//     use axum::{
-//         http::StatusCode,
-//         response::{IntoResponse, Response},
-//     };
-//     use lb_core::{
-//         header::HeaderId,
-//         mantle::{
-//             Value,
-//             ops::leader_claim::{VoucherCm, VoucherNullifier},
-//         },
-//     };
-//     use lb_log_targets::api;
-//     use serde::{Deserialize, Serialize};
-//     use tracing::error;
-//
-//     const LOG_TARGET: &str = api::http::wallet::CLAIMABLE_VOUCHERS;
-//
-//     #[derive(Serialize, Deserialize)]
-//     pub struct ClaimableVoucherInfoResponseBody {
-//         pub commitment: VoucherCm,
-//         pub nullifier: VoucherNullifier,
-//     }
-//
-//     #[derive(Serialize, Deserialize)]
-//     pub struct WalletClaimableVouchersResponseBody {
-//         pub tip: HeaderId,
-//         pub vouchers: Vec<ClaimableVoucherInfoResponseBody>,
-//         /// What a single voucher pays out at `tip`.
-//         ///
-//         /// The reward pool is split evenly across every unclaimed voucher on
-//         /// the chain, so this is the same for each entry in `vouchers` and it
-//         /// moves as other leaders claim. It is a snapshot at `tip`, not a
-//         /// guarantee of what a claim submitted now will settle for.
-//         pub reward_amount: Value,
-//         /// `reward_amount` times the number of `vouchers`: what this wallet
-//         /// could claim in total at `tip`.
-//         pub total_claimable: Value,
-//     }
-//
-//     impl IntoResponse for WalletClaimableVouchersResponseBody {
-//         fn into_response(self) -> Response {
-//             let json = serde_json::to_string(&self).unwrap_or_else(|e| {
-//                 error!(
-//                     target: LOG_TARGET,
-//                     "WalletClaimableVouchersResponseBody serialization failed: {e}"
-//                 );
-//                 // We panic here because this should never happen, and if it does, it's a
-//                 // critical error that we want to be immediately visible during
-//                 // development and testing.
-//                 panic!("WalletClaimableVouchersResponseBody serialization failed: {e}")
-//             });
-//
-//             (StatusCode::OK, json).into_response()
-//         }
-//     }
-// }
-
 pub mod aged_notes {
     use axum::{
         http::StatusCode,
@@ -113,8 +49,6 @@ pub mod aged_notes {
     };
     use lb_core::{
         header::HeaderId,
-        // TODO(RFC-480): a wallet note is named by its commitment.
-        // mantle::{NoteId, Value},
         mantle::{Value, note_set::NoteSetIndex, notes::NoteCm},
     };
     use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -128,8 +62,6 @@ pub mod aged_notes {
     /// lottery.
     #[derive(Serialize, Deserialize)]
     pub struct LeaderAgedNoteResponseBody {
-        // TODO(RFC-480): a wallet note is named by its commitment.
-        // pub note_id: NoteId,
         pub commitment: NoteCm,
         /// The note set holding the note.
         pub note_set: NoteSetIndex,
@@ -183,15 +115,6 @@ pub mod transfer_funds {
         http::StatusCode,
         response::{IntoResponse, Response},
     };
-    // TODO(RFC-480): the response carries the recipient note, whose opening the
-    // recipient needs to spend it.
-    // use lb_core::{
-    //     header::HeaderId,
-    //     mantle::{
-    //         SignedOps, Value, ledger::verification_mode::StandardMode, traits::Hashable as _,
-    //         transactions::states::VerificationState,
-    //     },
-    // };
     use lb_core::{
         header::HeaderId,
         mantle::{Note, TxHash, Value},
@@ -214,25 +137,12 @@ pub mod transfer_funds {
 
     #[derive(Serialize, Deserialize)]
     pub struct WalletTransferFundsResponseBody {
-        // TODO(RFC-480): the response carries the recipient note, whose opening
-        // the recipient needs to spend it.
-        // pub hash: lb_core::mantle::transactions::TxHash,
         pub tip: HeaderId,
         pub tx_hash: TxHash,
         /// The note paid to the recipient. A recipient whose wallet is not this
         /// node's imports it to spend it.
         pub recipient_note: Note,
     }
-
-    // TODO(RFC-480): the response carries the recipient note, whose opening the
-    // recipient needs to spend it.
-    // impl<State: VerificationState> From<SignedOps<State, StandardMode>>
-    //     for WalletTransferFundsResponseBody
-    // {
-    //     fn from(value: SignedOps<State, StandardMode>) -> Self {
-    //         Self { hash: value.hash() }
-    //     }
-    // }
 
     impl IntoResponse for WalletTransferFundsResponseBody {
         fn into_response(self) -> Response {
@@ -304,10 +214,6 @@ pub mod fund {
 
 pub mod sign {
     use lb_core::mantle::transactions::hash::TxHash;
-    // TODO(RFC-480): the ZkSignature scheme is removed.
-    // use lb_key_management_system_keys::keys::{
-    //     Ed25519Key, ZkPublicKeys, ZkSignature, secured_key::SecuredKey,
-    // };
     use lb_key_management_system_keys::keys::{Ed25519Key, secured_key::SecuredKey};
     use serde::{Deserialize, Serialize};
 
@@ -321,18 +227,6 @@ pub mod sign {
     pub struct WalletSignTxEd25519ResponseBody {
         pub sig: <Ed25519Key as SecuredKey>::Signature,
     }
-
-    // TODO(RFC-480): the ZkSignature scheme is removed.
-    // #[derive(Serialize, Deserialize)]
-    // pub struct WalletSignTxZkRequestBody {
-    //     pub tx_hash: TxHash,
-    //     pub pks: ZkPublicKeys,
-    // }
-    //
-    // #[derive(Serialize, Deserialize)]
-    // pub struct WalletSignTxZkResponseBody {
-    //     pub sig: ZkSignature,
-    // }
 }
 
 pub mod import {
