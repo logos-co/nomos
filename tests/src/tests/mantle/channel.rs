@@ -6,14 +6,25 @@ use lb_core::{
     events::{Event, Events, TxEvent, TxEventPayload},
     header::HeaderId,
     mantle::{
+        Op, OpProof, SignedOps,
         gas::GasCost,
-        ops::channel::{ChannelId, deposit::Metadata},
+        ops::{
+            ChannelInscribeProof,
+            channel::{
+                ChannelId, MsgId,
+                deposit::Metadata,
+                inscribe::{ChannelSteps, Inscription, InscriptionOp},
+            },
+        },
         traits::Hashable as _,
-        transactions::{UNITS_PER_LGO, hash::TxHash},
+        transactions::{MantleTxBuilder, OpProofs, UNITS_PER_LGO, hash::TxHash},
     },
 };
-use lb_http_api_common::bodies::channel::{ChannelDepositRequestBody, ChannelDepositResponseBody};
-use lb_key_management_system_service::keys::ZkPublicKey;
+use lb_http_api_common::bodies::{
+    channel::{ChannelDepositRequestBody, ChannelDepositResponseBody},
+    wallet::fund::{WalletFundRequestBody, WalletFundResponseBody},
+};
+use lb_key_management_system_service::keys::{Ed25519Key, ZkPublicKey};
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
     DeploymentBuilder, NodeHttpClient, TopologyConfig as TfTopologyConfig,
@@ -54,7 +65,7 @@ async fn channel_deposit() {
     let deposit_amount = 1;
     let (wallet_config, funding_pk, _funding_account) =
         channel_deposit_wallet_config(deposit_amount, FEE_NOTE_AMOUNT);
-    let (base, nodes) = start_local_manual_cluster_with_layout(
+    let (_base, nodes) = start_local_manual_cluster_with_layout(
         "channel-deposit",
         "mantle-channel",
         DeploymentBuilder::new(
@@ -83,30 +94,15 @@ async fn channel_deposit() {
     )
     .await;
 
-    let balance_before = get_wallet_balance(&validator.client, funding_pk).await;
-
-    // Also, record the channel balance before deposit
-    // We use the channel created by the genesis inscription for simplicity.
-    let channel_id = base
-        .deployment()
-        .config
-        .genesis_block
-        .as_ref()
-        .expect("manual-cluster deployment should include genesis block")
-        .genesis_tx()
-        .inscription()
-        .operation()
-        .channel_id;
-    // TODO: assert the channel balance again once channel notes are tracked. A
-    //  channel's balance is now the sum of its channel notes rather than a
-    //  field on `ChannelState`, so the `channel/{id}` API no longer reports it.
-    // let channel_balance_before = get_channel_balance(&validator.client,
-    // channel_id).await; println!("Channel balance before deposit:
-    // {channel_balance_before}");
-
-    // Subscribe before submitting so we can locate the block that includes the
-    // deposit tx and then query its events via the HTTP API.
+    // Subscribe before submitting so we can locate the blocks that include the
+    // inscription and deposit txs and then query their events via the HTTP API.
     let mut block_stream = validator.client.blocks_stream().await.unwrap();
+
+    // The null channel of the genesis inscription has no note set, so the
+    // deposit goes to a channel this test creates.
+    let channel_id = create_channel(&validator.client, &mut block_stream, funding_pk).await;
+
+    let balance_before = get_wallet_balance(&validator.client, funding_pk).await;
 
     let deposit_metadata: Metadata = format!("Mint {deposit_amount} to Alice in Zone")
         .into_bytes()
@@ -192,17 +188,55 @@ async fn channel_deposit() {
         spent >= deposit_amount && spent <= deposit_amount + MAX_CHANNEL_TX_FEE,
         "wallet balance should decrease by deposit plus fee: before={balance_before}, after={balance_after}, deposit_amount={deposit_amount}",
     );
+}
 
-    // TODO: assert the channel balance again once channel notes are tracked.
-    //  The deposit is still covered above by the wallet balance drop and the
-    //  `Deposit` event assertions.
-    // let channel_balance_after = get_channel_balance(&validator.client,
-    // channel_id).await; assert_eq!(
-    //     channel_balance_after,
-    //     channel_balance_before + deposit_amount,
-    //     "channel balance should increase after deposit:
-    // before={channel_balance_before}, after={channel_balance_after},
-    // deposit_amount={deposit_amount}", );
+// Creates a channel with an inscription the node's wallet funds from
+// `funding_pk`, and waits for its inclusion.
+async fn create_channel(
+    node: &NodeHttpClient,
+    block_stream: &mut (impl futures::Stream<Item = ProcessedBlockEvent> + Unpin),
+    funding_pk: ZkPublicKey,
+) -> ChannelId {
+    let signing_key = Ed25519Key::from_bytes(&[7u8; 32]);
+    let channel_id = ChannelId::from(signing_key.public_key().to_bytes());
+    let tx_builder = MantleTxBuilder::new()
+        .push_op(Op::ChannelInscribe(InscriptionOp {
+            channel_id,
+            inscription: Inscription::try_from(b"channel deposit test".to_vec())
+                .expect("inscription payload should fit"),
+            parent: MsgId::root(),
+            signer: signing_key.public_key().into_unverified(),
+            steps: ChannelSteps::default(),
+        }))
+        .expect("inscription op should fit");
+    let WalletFundResponseBody {
+        funded_tx: ops,
+        transfer_proof,
+        ..
+    } = node
+        .fund_tx(WalletFundRequestBody {
+            tip: None,
+            tx_builder,
+            change_public_key: funding_pk,
+            funding_public_keys: vec![funding_pk],
+            max_tx_fee: GasCost::new(MAX_CHANNEL_TX_FEE),
+            priority_fee_percent: 0,
+        })
+        .await
+        .expect("inscription should be funded");
+    let tx_hash = ops.hash();
+    let op_proofs = OpProofs::from([
+        OpProof::ChannelInscribe(ChannelInscribeProof::without_steps(
+            signing_key.sign_payload(tx_hash.as_signing_bytes()),
+        )),
+        transfer_proof.expect("funding at non-zero gas prices should add a transfer"),
+    ]);
+    let signed_tx = SignedOps::from_parts(ops, op_proofs).expect("funded tx should be valid");
+    node.submit_transaction(&signed_tx)
+        .await
+        .expect("inscription should be submitted");
+    wait_for_tx_inclusion(block_stream, tx_hash, "inscription").await;
+    channel_id
 }
 
 /// End-to-end test for the channel withdraw wallet path:
@@ -418,10 +452,6 @@ fn channel_test_config(mut config: RunConfig) -> RunConfig {
     config
 }
 
-#[expect(
-    dead_code,
-    reason = "Used by `channel_withdraw_updates_wallet_balance`, restore when wallet tracks channel notes."
-)]
 async fn wait_for_tx_inclusion(
     block_stream: &mut (impl futures::Stream<Item = ProcessedBlockEvent> + Unpin),
     tx_hash: TxHash,

@@ -349,7 +349,9 @@ impl WalletState {
         pks: impl IntoIterator<Item = impl Borrow<ZkPublicKey>>,
         excluded: &HashSet<NoteNullifier>,
     ) -> Result<(TransferOp, ZkTransferOpening), WalletError> {
-        let candidates = self.funding_candidates(pks, excluded);
+        // Smallest first, so the larger notes stay free to fund the fee.
+        let mut candidates = self.funding_candidates(pks, excluded);
+        candidates.reverse();
         let mut inputs = Vec::new();
         let mut total: Value = 0;
         for owned in candidates.into_iter().take(MAX_INPUTS) {
@@ -864,6 +866,30 @@ mod tests {
                 .verify::<ZkHasher>(channel_note.commitment().0, root)
         );
         assert_eq!(state.balance(pk(1)), None);
+    }
+
+    #[test]
+    fn exact_note_split_leaves_the_largest_note_to_fund_the_fee() {
+        let small = Note::new(1, Fr::from(1u64), pk(1));
+        let large = Note::new(1000, Fr::from(2u64), pk(1));
+        let known = known(&[
+            (small, LEDGER_SET, nullifier(1)),
+            (large, LEDGER_SET, nullifier(2)),
+        ]);
+        let state =
+            WalletState::from_genesis(&known, &[small, large], &[], Epoch::new(0)).unwrap();
+        let (_, opening) = state
+            .exact_note_split(
+                1,
+                pk(1),
+                Fr::from(3u64),
+                pk(1),
+                Fr::from(4u64),
+                [pk(1)],
+                &HashSet::new(),
+            )
+            .unwrap();
+        assert_eq!(opening.inputs, vec![small]);
     }
 
     #[test]
