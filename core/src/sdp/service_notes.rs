@@ -10,7 +10,7 @@ use crate::{
     sdp::{Declaration, DeclarationId, MinStake, ServiceType},
 };
 
-type ServiceBindings = rpds::RedBlackTreeMapSync<ServiceType, DeclarationId>;
+type DeclarationIdsByService = rpds::RedBlackTreeMapSync<ServiceType, DeclarationId>;
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -40,7 +40,7 @@ pub struct ServiceNotes {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct ServiceNote {
     note: Note,
-    services: ServiceBindings,
+    services: DeclarationIdsByService,
 }
 
 impl ServiceNotes {
@@ -87,7 +87,7 @@ impl ServiceNotes {
                 .services
                 .insert_mut(service_type, declaration_id);
         } else {
-            let services = ServiceBindings::new_sync().insert(service_type, declaration_id);
+            let services = DeclarationIdsByService::new_sync().insert(service_type, declaration_id);
             self.service_notes = self
                 .service_notes
                 .insert(*note_id, ServiceNote { note, services });

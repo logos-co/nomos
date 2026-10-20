@@ -86,10 +86,10 @@ impl SDPDeclareValidationExt for SDPDeclareOp {
     ) -> Result<(SDPDeclareExecutionContext, Vec<TxEvent>), SdpError> {
         let declaration_id = self.id();
         let declaration = Declaration::new(context.epoch, self);
-        context.declarations = context.declarations.insert(declaration_id, declaration);
-        context.provider_index = context
+        context.declarations.insert_mut(declaration_id, declaration);
+        context
             .provider_index
-            .insert(self.provider_id, declaration_id);
+            .insert_mut(self.provider_id, declaration_id);
         let utxo = context
             .utxo_tree
             .utxos()
