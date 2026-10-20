@@ -9,6 +9,7 @@ use lb_core::{
     mantle::NoteId,
     sdp::Locator,
 };
+use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_sdp_service::SdpSubmission;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
@@ -36,6 +37,9 @@ pub enum ProxyServiceMessage<InnerMessage> {
         locator: Locator,
         service_note_id: NoteId,
         reply: oneshot::Sender<Result<SdpSubmission, lb_sdp_service::api::Error>>,
+    },
+    GetZkId {
+        reply: oneshot::Sender<ZkPublicKey>,
     },
 }
 

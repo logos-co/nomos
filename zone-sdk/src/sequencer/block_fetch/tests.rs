@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use lb_core::{
     crypto::Hash,
     events::{DepositNote, DepositRecreatedNotes},
@@ -219,19 +221,14 @@ fn deposit_plus_inscription_is_adopted_as_custom() {
     let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
     assert_eq!(classified.len(), 1);
     assert!(
-        matches!(&classified[0], BlockChannelTx::Custom { message_entries, .. } if message_entries.len() == 1)
+        matches!(&classified[0].kind, ChannelTxKind::Custom { message_entries, .. } if message_entries.len() == 1)
     );
 
     let genesis = header_id(0);
     let block = header_id(1);
     let mut state = TxState::new(genesis, MsgId::root());
     let old_lineage = state.channel_lineage(genesis);
-    mirror_channel_txs(
-        &mut state,
-        &classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-    );
+    mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
         block,
         genesis,
@@ -239,6 +236,7 @@ fn deposit_plus_inscription_is_adopted_as_custom() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -266,7 +264,7 @@ fn deposit_plus_inscription_is_adopted_as_custom() {
 }
 
 /// An `[inscribe, channel_transfer]` whose transfer re-creates its inputs
-/// unchanged is a sound `PinDeposit`.
+/// unchanged is a `PinDeposit` carrying both sides of the transfer.
 #[test]
 fn inscribe_plus_identity_transfer_is_pin_deposit() {
     use crate::sequencer::types::ChannelNote;
@@ -291,29 +289,18 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
     let genesis = header_id(0);
     let block = header_id(1);
     let mut state = TxState::new(genesis, MsgId::root());
-    state.apply_finalized_note_ops(vec![NoteOp::Add(ChannelNote {
+    state.restore_channel_notes(vec![ChannelNote {
         note_id: input_id,
         value: 50,
         pk,
         slot: Slot::from(0),
-    })]);
+    }]);
     let old_lineage = state.channel_lineage(genesis);
 
-    let mut classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
-    demote_non_identity_pin_deposits(
-        &mut classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-        &state,
-    );
-    assert!(matches!(&classified[0], BlockChannelTx::PinDeposit(_)));
+    let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
+    assert!(matches!(&classified[0].kind, ChannelTxKind::PinDeposit(_)));
 
-    mirror_channel_txs(
-        &mut state,
-        &classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-    );
+    mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
         block,
         genesis,
@@ -321,6 +308,7 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     let update = state
@@ -331,16 +319,18 @@ fn inscribe_plus_identity_transfer_is_pin_deposit() {
     match &update.adopted[0] {
         ChannelUpdateTx::PinDeposit(a) => {
             assert_eq!(a.consumed_notes, BoundedInputs::from(input_id).into());
+            assert_eq!(a.outputs, Outputs::new([Note::new(50, pk)]));
         }
         other => panic!("expected PinDeposit, got {other:?}"),
     }
 }
 
 /// A re-keying transfer (balance-preserving, but not an identity
-/// re-creation) falls to `Custom` — its payload still reaches the consumer
-/// via `adopted`, and it is not mirrored for retry.
+/// re-creation) is still a `PinDeposit`: the shape is what classifies, and
+/// the report carries the transfer's real outputs. It is mirrored for retry
+/// like any pin deposit.
 #[test]
-fn inscribe_plus_non_identity_transfer_is_custom() {
+fn inscribe_plus_non_identity_transfer_is_pin_deposit_with_its_outputs() {
     use crate::sequencer::types::ChannelNote;
 
     let channel_id = ChannelId::from([0; 32]);
@@ -364,31 +354,18 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
     let genesis = header_id(0);
     let block = header_id(1);
     let mut state = TxState::new(genesis, MsgId::root());
-    state.apply_finalized_note_ops(vec![NoteOp::Add(ChannelNote {
+    state.restore_channel_notes(vec![ChannelNote {
         note_id: input_id,
         value: 50,
         pk,
         slot: Slot::from(0),
-    })]);
+    }]);
     let old_lineage = state.channel_lineage(genesis);
 
-    let mut classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
-    demote_non_identity_pin_deposits(
-        &mut classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-        &state,
-    );
-    assert!(
-        matches!(&classified[0], BlockChannelTx::Custom { message_entries, .. } if message_entries.len() == 1)
-    );
+    let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
+    assert!(matches!(&classified[0].kind, ChannelTxKind::PinDeposit(_)));
 
-    mirror_channel_txs(
-        &mut state,
-        &classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-    );
+    mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
         block,
         genesis,
@@ -396,6 +373,7 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -408,10 +386,12 @@ fn inscribe_plus_non_identity_transfer_is_custom() {
     assert_eq!(update.new_channel_tip, msg_id);
     assert_eq!(update.adopted.len(), 1);
     match &update.adopted[0] {
-        ChannelUpdateTx::Custom(adopted_tx) => {
-            assert_eq!(adopted_tx.hash(), tx_hash);
+        ChannelUpdateTx::PinDeposit(a) => {
+            assert_eq!(a.tx_hash, tx_hash);
+            assert_eq!(a.consumed_notes, BoundedInputs::from(input_id).into());
+            assert_eq!(a.outputs, Outputs::new([Note::new(50, rekeyed)]));
         }
-        other => panic!("expected Custom, got {other:?}"),
+        other => panic!("expected PinDeposit, got {other:?}"),
     }
 }
 
@@ -425,7 +405,7 @@ fn classify_shed_other_types_config_only_as_config_and_the_rest_as_custom() {
         MsgId::root(),
     ))]);
     let config_hash = config_tx.hash();
-    match classify_shed_other(config_tx, channel_id) {
+    match classify_shed_other(config_tx.into(), channel_id) {
         ChannelUpdateTx::Config(tx) => assert_eq!(tx.hash(), config_hash),
         other => panic!("expected Config, got {other:?}"),
     }
@@ -436,7 +416,7 @@ fn classify_shed_other_types_config_only_as_config_and_the_rest_as_custom() {
         Op::ChannelInscribe(inscribe_op(channel_id, MsgId::root(), b"m")),
     ]);
     assert!(matches!(
-        classify_shed_other(mixed, channel_id),
+        classify_shed_other(mixed.into(), channel_id),
         ChannelUpdateTx::Custom(_)
     ));
 
@@ -447,7 +427,7 @@ fn classify_shed_other_types_config_only_as_config_and_the_rest_as_custom() {
         b"x",
     ))]);
     assert!(matches!(
-        classify_shed_other(no_config, channel_id),
+        classify_shed_other(no_config.into(), channel_id),
         ChannelUpdateTx::Custom(_)
     ));
 }
@@ -471,8 +451,8 @@ fn mixed_config_tx_is_custom_but_advances_the_config_tip() {
     // Classification keeps the config in `config_entries`.
     let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
     assert_eq!(classified.len(), 1);
-    match &classified[0] {
-        BlockChannelTx::Custom { config_entries, .. } => {
+    match &classified[0].kind {
+        ChannelTxKind::Custom { config_entries, .. } => {
             assert_eq!(config_entries.len(), 1);
             assert_eq!(config_entries[0].this_msg, config_id);
         }
@@ -491,6 +471,7 @@ fn mixed_config_tx_is_custom_but_advances_the_config_tip() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
     assert_eq!(state.config_tip_at(block), config_id);
 }
@@ -515,19 +496,14 @@ fn multi_inscribe_tx_advances_tip_and_delivers_adopted_entries() {
     let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
     assert_eq!(classified.len(), 1);
     assert!(
-        matches!(&classified[0], BlockChannelTx::Custom { message_entries, .. } if message_entries.len() == 2)
+        matches!(&classified[0].kind, ChannelTxKind::Custom { message_entries, .. } if message_entries.len() == 2)
     );
 
     let genesis = header_id(0);
     let block = header_id(1);
     let mut state = TxState::new(genesis, MsgId::root());
     let old_lineage = state.channel_lineage(genesis);
-    mirror_channel_txs(
-        &mut state,
-        &classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-    );
+    mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
         block,
         genesis,
@@ -535,6 +511,7 @@ fn multi_inscribe_tx_advances_tip_and_delivers_adopted_entries() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     assert!(
@@ -583,18 +560,16 @@ fn adopted_bundle_carries_its_withdraws() {
     let tx_hash = tx.hash();
 
     let classified = classify_channel_txs(std::slice::from_ref(&tx), channel_id);
-    assert!(matches!(classified[0], BlockChannelTx::AtomicWithdraw(_)));
+    assert!(matches!(
+        classified[0].kind,
+        ChannelTxKind::AtomicWithdraw(_)
+    ));
 
     let genesis = header_id(0);
     let block = header_id(1);
     let mut state = TxState::new(genesis, MsgId::root());
     let old_lineage = state.channel_lineage(genesis);
-    mirror_channel_txs(
-        &mut state,
-        &classified,
-        std::slice::from_ref(&tx),
-        channel_id,
-    );
+    mirror_channel_txs(&mut state, &classified, channel_id);
     state.process_block(
         block,
         genesis,
@@ -602,6 +577,7 @@ fn adopted_bundle_carries_its_withdraws() {
         vec![tx_hash],
         classified,
         Vec::new(),
+        vec![],
     );
 
     let update = state
@@ -769,6 +745,7 @@ fn config_in_block_does_not_advance_channel_tip() {
         vec![tx_hash],
         extracted,
         Vec::new(),
+        vec![],
     );
 
     assert_eq!(
@@ -1128,7 +1105,9 @@ fn fork_event(block: &ApiBlock, tip: &ApiBlock) -> ProcessedBlockEvent {
 struct Driven {
     result: BlockEventResult,
     shed: Vec<PendingTx>,
-    shed_other: Vec<SignedOps<Unverified, StandardMode>>,
+    shed_other: Vec<SharedTx>,
+    /// The conflict prefix the actor would report after the shed passes.
+    common_prefix: Vec<ChannelUpdateTx>,
 }
 
 /// Run `events` as the actor would: handle each, then the shed passes.
@@ -1165,10 +1144,12 @@ async fn drive_with(
         let mut shed = s.shed_bundles_with_missing_inputs(tip, channel_id);
         shed.extend(s.shed_off_branch_pending(tip));
         let shed_other = s.shed_off_branch_pending_other(tip);
+        let common_prefix = common_prefix(s, tip, channel_id, &result.view_before);
         driven.push(Driven {
             result,
             shed,
             shed_other,
+            common_prefix,
         });
     }
     driven
@@ -1228,6 +1209,115 @@ async fn fork_block_inscription_is_adopted_on_the_switch() {
     assert!(
         s.pending_txs(be.header.id).is_empty(),
         "nothing to resubmit: both are safe at the tip"
+    );
+}
+
+/// A fork block's pin deposit is adopted as one when its branch wins and
+/// shed as one when the branch loses: the kind stored at block scan serves
+/// the view, the pending set and the shed alike.
+#[tokio::test]
+async fn fork_switch_mirrors_the_stored_classification() {
+    // G <- B1(a) <- B2(y) canonical; B1 <- F(pin) fork; F <- E: F wins;
+    // B2 <- B3: F loses, y takes the pin's parent and the pin is shed.
+    let ch = ChannelId::from([0u8; 32]);
+    let pk = lb_key_management_system_service::keys::ZkPublicKey::from(Fr::from(7u64));
+    let (a_id, a_tx) = ins(ch, MsgId::root(), b"a");
+    let (_, y_tx) = ins(ch, a_id, b"y");
+    let pin = unverified_tx_with_ops(vec![
+        Op::ChannelInscribe(inscribe_op(ch, a_id, b"pin")),
+        Op::ChannelTransfer(ChannelTransferOp {
+            channel_id: ch,
+            inputs: BoundedInputs::from(NoteId::from(Fr::from(1010u64))).into(),
+            outputs: Outputs::new([Note::new(50, pk)]),
+        }),
+    ]);
+    let pin_hash = pin.hash();
+    let b1 = api_block(1, 0, 1, vec![a_tx]);
+    let f = api_block(2, 1, 2, vec![pin]);
+    let b2 = api_block(3, 1, 3, vec![y_tx]);
+    let e = api_block(4, 2, 4, Vec::new());
+    let b3 = api_block(5, 3, 5, Vec::new());
+
+    let mut state = None;
+    let r = drive(
+        &mut state,
+        ch,
+        &[
+            live_event(&b1),
+            fork_event(&f, &b1),
+            live_event(&b2),
+            live_event(&e),
+            live_event(&b3),
+        ],
+    )
+    .await;
+
+    let switched = r[3]
+        .result
+        .channel_update
+        .as_ref()
+        .expect("F's branch wins");
+    assert!(
+        matches!(switched.adopted.as_slice(), [ChannelUpdateTx::PinDeposit(pin)] if pin.tx_hash == pin_hash)
+    );
+    assert!(
+        matches!(r[4].shed.as_slice(), [PendingTx::PinDeposit(pin)] if pin.tx_hash == pin_hash),
+        "shed the way it was mirrored"
+    );
+    assert_eq!(r[4].shed_other.len(), 0, "nothing shed as custom");
+}
+
+/// A fork block's deposit is reported when its branch wins the tip, not
+/// when the block arrives, and again each time the branch wins it back.
+#[tokio::test]
+async fn fork_block_deposit_is_reported_when_its_branch_turns_canonical() {
+    // G <- B1 canonical; B1 <- F(deposit d) fork; B1 <- B2 canonical;
+    // F <- E: F wins; B2 <- B3: F loses; E <- E2: F wins again.
+    let ch = ChannelId::from([0u8; 32]);
+    let pk = lb_key_management_system_service::keys::ZkPublicKey::from(Fr::from(7u64));
+    let dep = deposit_op(ch, 1, Metadata::try_from(b"d".to_vec()).unwrap());
+    let d = dep.op_id();
+    let dep_tx = unverified_tx_with_ops(vec![Op::ChannelDeposit(dep.clone())]);
+    let note = DepositNote {
+        note_id: NoteId::from(Fr::from(1010u64)),
+        value: 50,
+        pk,
+    };
+    let b1 = api_block(1, 0, 1, Vec::new());
+    let f = api_block(2, 1, 2, vec![dep_tx.clone()]);
+    let b2 = api_block(3, 1, 3, Vec::new());
+    let e = api_block(4, 2, 4, Vec::new());
+    let b3 = api_block(5, 3, 5, Vec::new());
+    let e2 = api_block(6, 4, 6, Vec::new());
+    let node = MockNode {
+        events: HashMap::from([(header_id(2), deposit_event(&dep_tx, &dep, 50, vec![note]))]),
+        ..MockNode::default()
+    };
+
+    let mut state = None;
+    let r = drive_with(
+        &node,
+        &mut state,
+        ch,
+        &[
+            live_event(&b1),
+            fork_event(&f, &b1),
+            live_event(&b2),
+            live_event(&e),
+            live_event(&b3),
+            live_event(&e2),
+        ],
+    )
+    .await;
+
+    let reported: Vec<Vec<_>> = r
+        .iter()
+        .map(|driven| driven.result.deposits.iter().map(|d| d.op_id).collect())
+        .collect();
+    assert_eq!(
+        reported,
+        vec![vec![], vec![], vec![], vec![d], vec![], vec![d]],
+        "reported on each switch to F's branch, never on F's arrival"
     );
 }
 
@@ -1351,7 +1441,7 @@ async fn opaque_pending_tx_stays_in_the_view_across_a_bare_unmine() {
     assert_eq!(orphaned, vec![x1_id, x2_id]);
     assert_eq!(msg_ids(&u.adopted), vec![y_id]);
     assert!(r[1].shed_other.is_empty() && r[2].shed_other.is_empty());
-    let shed: Vec<TxHash> = r[3].shed_other.iter().map(SignedOps::hash).collect();
+    let shed: Vec<TxHash> = r[3].shed_other.iter().map(|tx| tx.hash()).collect();
     assert_eq!(shed, vec![custom_hash]);
 }
 
@@ -1398,6 +1488,7 @@ fn pin_fixture(ch: ChannelId) -> PinFixture {
             pin_id,
             pin_op.inscription,
             BoundedInputs::from(recreated).into(),
+            Outputs::new([Note::new(50, pk)]),
         )
         .unwrap();
     PinFixture {
@@ -1500,7 +1591,7 @@ async fn foreign_custom_tx_is_kept_through_un_mine_and_orphaned_by_a_competitor(
     assert_eq!(orphaned, vec![c_hash]);
     assert_eq!(adopted, vec![i_hash]);
     assert_eq!(u.new_channel_tip, i_id);
-    let shed: Vec<TxHash> = r[4].shed_other.iter().map(SignedOps::hash).collect();
+    let shed: Vec<TxHash> = r[4].shed_other.iter().map(|tx| tx.hash()).collect();
     assert_eq!(shed, vec![c_hash]);
 }
 
@@ -1562,7 +1653,7 @@ async fn foreign_config_is_adopted_kept_through_un_mine_and_orphaned_by_a_rival(
     );
     assert_eq!(adopted, vec![rival_hash]);
     // The rival takes the config position: cfg is displaced with it.
-    let shed: Vec<TxHash> = r[4].shed_other.iter().map(SignedOps::hash).collect();
+    let shed: Vec<TxHash> = r[4].shed_other.iter().map(|tx| tx.hash()).collect();
     assert_eq!(shed, vec![cfg_hash]);
     assert!(!state.as_ref().unwrap().is_tracked(&cfg_hash));
 }
@@ -1588,7 +1679,6 @@ async fn first_event_after_restore_keeps_restored_pending_in_the_prefix() {
     let r = drive(&mut Some(state), ch, &[live_event(&b1)]).await;
 
     let prefix: Vec<TxHash> = r[0]
-        .result
         .common_prefix
         .iter()
         .map(ChannelUpdateTx::tx_hash)
@@ -1619,7 +1709,6 @@ async fn view_split_keeps_each_lineage_in_order() {
     let r = drive(&mut Some(state), ch, &[live_event(&b1)]).await;
 
     let prefix: Vec<TxHash> = r[0]
-        .result
         .common_prefix
         .iter()
         .map(ChannelUpdateTx::tx_hash)
@@ -1733,7 +1822,6 @@ async fn restored_pending_mined_under_another_hash_is_neither_adopted_nor_droppe
         "our own message landing is not a view change"
     );
     let prefix: Vec<TxHash> = r[0]
-        .result
         .common_prefix
         .iter()
         .map(ChannelUpdateTx::tx_hash)
@@ -1914,7 +2002,7 @@ async fn restored_pending_survives_its_parent_being_rediscovered() {
         "M was the view P chained on: nothing changed"
     );
     assert_eq!(
-        hashes(&r[0].result.common_prefix),
+        hashes(&r[0].common_prefix),
         vec![m_hash, p_hash],
         "the view in lineage order"
     );
@@ -1926,7 +2014,7 @@ async fn restored_pending_survives_its_parent_being_rediscovered() {
         r[1].result.channel_update.is_none(),
         "nothing new to report"
     );
-    assert_eq!(hashes(&r[1].result.common_prefix), vec![m_hash, p_hash]);
+    assert_eq!(hashes(&r[1].common_prefix), vec![m_hash, p_hash]);
 }
 
 /// After a restore, a pending P whose parent M is never mined is shed the
@@ -1962,7 +2050,7 @@ async fn restored_pending_is_orphaned_when_a_rival_takes_its_parents_slot() {
         .expect("rival is adopted");
     assert!(u.orphaned.is_empty(), "nothing mined was dropped");
     assert_eq!(hashes(&u.adopted), vec![rival_hash]);
-    assert!(r[0].result.common_prefix.is_empty());
+    assert!(r[0].common_prefix.is_empty());
 }
 
 fn hashes(txs: &[ChannelUpdateTx]) -> Vec<TxHash> {
@@ -2168,10 +2256,10 @@ async fn flip_flop_reorg_re_mirrors_the_readopted_block() {
         "bare un-mine of B: i2 is pending again"
     );
     // `common_prefix ++ adopted` is the view above LIB on every event.
-    assert!(r[0].result.common_prefix.is_empty());
-    assert_eq!(msg_ids(&r[1].result.common_prefix), vec![i1_id]);
-    assert_eq!(msg_ids(&r[3].result.common_prefix), vec![i1_id]);
-    assert_eq!(msg_ids(&r[8].result.common_prefix), vec![i1_id, i2_id]);
+    assert!(r[0].common_prefix.is_empty());
+    assert_eq!(msg_ids(&r[1].common_prefix), vec![i1_id]);
+    assert_eq!(msg_ids(&r[3].common_prefix), vec![i1_id]);
+    assert_eq!(msg_ids(&r[8].common_prefix), vec![i1_id, i2_id]);
     // Each switch sheds only the loser; the winner, re-mirrored from the
     // store, reads as mined on its branch.
     let shed: Vec<TxHash> = r[3].shed.iter().map(PendingTx::tx_hash).collect();
