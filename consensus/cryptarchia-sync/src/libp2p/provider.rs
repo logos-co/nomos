@@ -2,7 +2,7 @@ use futures::{TryStreamExt as _, stream::BoxStream};
 use lb_log_targets::cryptarchia;
 use libp2p::{PeerId, Stream as Libp2pStream};
 use tokio::sync::mpsc;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{
     BlocksProviderResponse, BlocksUnavailableReason, DynError, ProviderResponse,
@@ -13,7 +13,7 @@ use crate::{
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
-    messages::{SerialisedBlock, TipResponse},
+    messages::{SerialisedBlock, TipResponse, TipResponseFailureReason},
 };
 
 const LOG_TARGET: &str = cryptarchia::sync::libp2p::PROVIDER;
@@ -50,12 +50,12 @@ impl Provider {
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive tip from channel".to_owned(),
-            ),
-        })?;
+        let response = reply_receiver.recv().await.unwrap_or_else(|| {
+            debug!(target: LOG_TARGET, %peer_id, "no tip provider answered; replying unknown error");
+            ProviderResponse::Unavailable {
+                reason: TipResponseFailureReason::Unknown,
+            }
+        });
 
         let send_result = match response {
             ProviderResponse::Available(tip) => {
@@ -77,12 +77,12 @@ impl Provider {
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive blocks stream from channel".to_owned(),
-            ),
-        })?;
+        let response = reply_receiver.recv().await.unwrap_or_else(|| {
+            debug!(target: LOG_TARGET, %peer_id, "no block provider answered; replying unknown error");
+            ProviderResponse::Unavailable {
+                reason: BlocksUnavailableReason::Unknown,
+            }
+        });
 
         match response {
             ProviderResponse::Available(stream) => {

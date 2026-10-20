@@ -18,8 +18,10 @@ pub type SerialisedBlock = Bytes;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 pub enum TipResponseFailureReason {
-    #[error("Node is not in online mode")]
+    #[error("node is not in online mode")]
     NodeNotOnline,
+    #[error("unknown error")]
+    Unknown,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -51,10 +53,16 @@ mod tests {
             slot: Slot::new(u64::MAX),
             height: u64::MAX,
         };
-        let reasons = [(
-            TipResponseFailureReason::NodeNotOnline,
-            2 * bincode::BINCODE_ENUM_DISCRIMINANT_SIZE,
-        )];
+        let reasons = [
+            (
+                TipResponseFailureReason::NodeNotOnline,
+                2 * bincode::BINCODE_ENUM_DISCRIMINANT_SIZE,
+            ),
+            (
+                TipResponseFailureReason::Unknown,
+                2 * bincode::BINCODE_ENUM_DISCRIMINANT_SIZE,
+            ),
+        ];
 
         let tip_bytes = tip.to_bytes().unwrap();
         assert_eq!(tip_bytes.len(), MAX_TIP_RESPONSE_BINCODE_SIZE);
@@ -68,7 +76,7 @@ mod tests {
             assert_eq!(response.to_bounded_bytes().unwrap().as_slice(), bytes);
             assert!(matches!(
                 TipResponse::from_bytes(&bytes).unwrap(),
-                TipResponse::Failure(TipResponseFailureReason::NodeNotOnline)
+                TipResponse::Failure(decoded) if decoded == reason
             ));
         }
     }

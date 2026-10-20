@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     fs::OpenOptions,
     io,
     path::{Path, PathBuf},
@@ -9,8 +10,8 @@ use std::{
 };
 
 use cucumber::{
-    StatsWriter as _, World as _, WriterExt as _, event::ScenarioFinished, writer,
-    writer::Verbosity,
+    StatsWriter as _, World, WriterExt as _, codegen::WorldInventory, event::ScenarioFinished,
+    step::Collection, writer, writer::Verbosity,
 };
 use lb_testing_framework::{
     hash_str, is_truthy_env, record_system_monitor_event, register_system_monitor_output_file,
@@ -26,10 +27,23 @@ use crate::cucumber::{
         init_tracing,
     },
     deployment::LocalImplementation,
+    error::StepResult,
     world::{CucumberWorld, DeployerKind},
 };
 
 type ScenarioAttempts = Arc<Mutex<HashMap<String, u8>>>;
+
+/// Releases a suite's resources after every scenario, including failed ones.
+/// Client suites stop their clients before stopping the nodes they use.
+pub trait ScenarioCleanup {
+    fn cleanup(&mut self) -> impl Future<Output = StepResult>;
+}
+
+impl ScenarioCleanup for CucumberWorld {
+    async fn cleanup(&mut self) -> StepResult {
+        self.stop_background_activity().await
+    }
+}
 
 // Get the maximum number of concurrent scenarios from env var, defaults to 1
 fn get_max_concurrent_scenarios() -> usize {
@@ -63,6 +77,34 @@ fn increment_attempts(
     reason = "Cucumber uses non-Send futures; entry points await the runner directly"
 )]
 pub async fn run(implementation: LocalImplementation) -> ExitCode {
+    run_suite::<CucumberWorld>(
+        implementation,
+        get_feature_path_for_deployer(selected_deployer()),
+        CucumberWorld::collection(),
+        CucumberWorld::full_debug_info_string,
+    )
+    .await
+}
+
+/// Runs a suite using the shared node setup, diagnostics and reporting.
+///
+/// Hooks access the embedded node world through `AsMut`. The suite supplies
+/// its step collection and debug formatter so client state stays in its own
+/// crate while still appearing in scenario diagnostics. `ScenarioCleanup` runs
+/// after those diagnostics are captured and before artifacts can be removed.
+#[expect(
+    clippy::future_not_send,
+    reason = "Cucumber uses non-Send futures; entry points await the runner directly"
+)]
+pub async fn run_suite<W>(
+    implementation: LocalImplementation,
+    feature_path: PathBuf,
+    steps: Collection<W>,
+    debug_info: fn(&W) -> String,
+) -> ExitCode
+where
+    W: World + WorldInventory + AsMut<CucumberWorld> + ScenarioCleanup + Debug,
+{
     println!("args: {:?}", std::env::args());
 
     let deployer = selected_deployer();
@@ -88,7 +130,8 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
         .open(output_dir.join("cucumber-output-junit.xml"))
         .inspect_err(|err| println!("Failed to open output file: {err}"))
         .expect("should create or open output file");
-    let mut world = CucumberWorld::cucumber()
+    let mut world = W::cucumber()
+        .steps(steps)
         // Re-outputs Failed steps for easier navigation.
         .repeat_failed()
         // .fail_fast() // Remove comment to enable fail-fast behavior for development
@@ -105,7 +148,7 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
                 writer::Coloring::Never,
                 Verbosity::ShowWorldAndDocString,
             ))
-            .tee::<CucumberWorld, _>(writer::JUnit::for_tee(junit_xml_file, 0))
+            .tee::<W, _>(writer::JUnit::for_tee(junit_xml_file, 0))
             .normalized(),
         )
         // Ensure that all the steps were covered. Keep this after `with_writer`, which replaces
@@ -122,6 +165,7 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
                         "\nStarting - {}: {} ({}: {})\n",
                         scenario.keyword, scenario.name, feature.keyword, feature.name,
                     );
+                    let world = world.as_mut();
                     world.cluster.implementation = implementation;
                     prepare_world_for_scenario(
                         world,
@@ -144,7 +188,7 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
     }
 
     let failed = world
-        .after(|feature, _rule, scenario, scenario_finished, world| {
+        .after(move |feature, _rule, scenario, scenario_finished, world| {
             Box::pin(async move {
                 // Runs after the scenario has completed; useful for capturing final state/logs.
                 println!(
@@ -156,6 +200,7 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
                     finish_scenario(
                         world,
                         matches!(scenario_finished, ScenarioFinished::StepPassed),
+                        debug_info,
                     )
                     .await;
                 }
@@ -163,7 +208,7 @@ pub async fn run(implementation: LocalImplementation) -> ExitCode {
         })
         // Runs Cucumber. Features sourced from a Parser are fed to a Runner, which
         // produces events handled by a Writer.
-        .run(get_feature_path_for_deployer(deployer))
+        .run(feature_path)
         .await;
 
     // Release this process's reserved port block before exiting.
@@ -266,10 +311,14 @@ fn scenario_output_dir(
         .join(run_attempt)
 }
 
-async fn finish_scenario(world: &mut CucumberWorld, successful: bool) {
-    if let Err(error) = world.stop_background_activity().await {
-        println!("Scenario background cleanup failed: {error}");
-    }
+async fn finish_scenario<W: AsMut<CucumberWorld> + ScenarioCleanup>(
+    world: &mut W,
+    successful: bool,
+    debug_info: fn(&W) -> String,
+) {
+    let debug_info = debug_info(world);
+    let cleanup = world.cleanup().await;
+    let world = world.as_mut();
 
     let path = world
         .lifecycle
@@ -278,9 +327,9 @@ async fn finish_scenario(world: &mut CucumberWorld, successful: bool) {
     if let Some(parent) = path.parent() {
         let _unused = std::fs::create_dir_all(parent);
     }
-    let _unused = std::fs::write(&path, world.full_debug_info_string());
+    let _unused = std::fs::write(&path, debug_info);
 
-    if successful && is_truthy_env(CUCUMBER_REMOVE_ARTEFACTS_IF_SUCCESSFUL) {
+    if successful && cleanup.is_ok() && is_truthy_env(CUCUMBER_REMOVE_ARTEFACTS_IF_SUCCESSFUL) {
         println!(
             "Env var '{CUCUMBER_REMOVE_ARTEFACTS_IF_SUCCESSFUL}' set, removing all \
             artefacts\n"
@@ -296,4 +345,85 @@ async fn finish_scenario(world: &mut CucumberWorld, successful: bool) {
             .scenario_base_dir
             .join("system_stats.ndjson"),
     );
+
+    // Cucumber reports an after-hook panic as a scenario failure. Keep the
+    // diagnostics and artifacts above even when cleanup fails.
+    cleanup.expect("scenario cleanup failed");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::read_to_string, future::ready, panic::AssertUnwindSafe};
+
+    use futures::FutureExt as _;
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::cucumber::error::StepError;
+
+    #[derive(Default)]
+    struct CleanupWorld {
+        node: CucumberWorld,
+        cleaned: bool,
+        fail_cleanup: bool,
+    }
+
+    impl AsMut<CucumberWorld> for CleanupWorld {
+        fn as_mut(&mut self) -> &mut CucumberWorld {
+            &mut self.node
+        }
+    }
+
+    impl ScenarioCleanup for CleanupWorld {
+        fn cleanup(&mut self) -> impl Future<Output = StepResult> {
+            self.cleaned = true;
+
+            if self.fail_cleanup {
+                return ready(Err(StepError::StepFail {
+                    message: "cleanup error".to_owned(),
+                }));
+            }
+
+            ready(Ok(()))
+        }
+    }
+
+    fn debug_info(world: &CleanupWorld) -> String {
+        format!("cleaned: {}", world.cleaned)
+    }
+
+    #[tokio::test]
+    async fn cleanup_runs_after_passed_and_failed_scenarios() {
+        for successful in [true, false] {
+            let directory = tempdir().expect("temporary directory");
+            let mut world = CleanupWorld::default();
+            world.node.lifecycle.scenario_base_dir = directory.path().to_owned();
+
+            finish_scenario(&mut world, successful, debug_info).await;
+
+            assert!(world.cleaned);
+        }
+    }
+
+    #[tokio::test]
+    async fn cleanup_failure_keeps_diagnostics_and_fails_the_hook() {
+        let directory = tempdir().expect("temporary directory");
+        let mut world = CleanupWorld {
+            fail_cleanup: true,
+            ..CleanupWorld::default()
+        };
+        world.node.lifecycle.scenario_base_dir = directory.path().to_owned();
+
+        let result = AssertUnwindSafe(finish_scenario(&mut world, true, debug_info))
+            .catch_unwind()
+            .await;
+
+        assert!(result.is_err());
+        assert!(world.cleaned);
+        assert_eq!(
+            read_to_string(directory.path().join("debug_dump_file.log"))
+                .expect("diagnostics are preserved"),
+            "cleaned: false",
+        );
+    }
 }

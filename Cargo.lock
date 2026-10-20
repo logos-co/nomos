@@ -4924,6 +4924,7 @@ name = "logos-blockchain-cryptarchia-sync"
 version = "0.0.0"
 dependencies = [
  "bytes",
+ "educe 0.7.6",
  "futures",
  "libp2p",
  "libp2p-stream",
@@ -5204,6 +5205,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "educe 0.7.6",
  "futures",
  "logos-blockchain-core",
  "logos-blockchain-cryptarchia-sync",
@@ -5444,6 +5446,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "logos-blockchain-sql-tests"
+version = "0.0.0"
+dependencies = [
+ "blockchain-test-logos",
+ "cucumber",
+ "futures",
+ "hex",
+ "logos-blockchain-common-http-client",
+ "logos-blockchain-core",
+ "logos-blockchain-groth16",
+ "logos-blockchain-tests",
+ "logos-blockchain-zone-sdk",
+ "logos-blockchain-zone-tests",
+ "logos-sql",
+ "rand 0.8.8",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "logos-blockchain-storage-service"
 version = "0.0.0"
 dependencies = [
@@ -5515,14 +5541,11 @@ dependencies = [
  "logos-blockchain-utxotree",
  "logos-blockchain-wallet",
  "logos-blockchain-zksign",
- "logos-blockchain-zone-sdk",
- "logos-sql",
  "num-bigint",
  "rand 0.8.8",
  "rand_chacha 0.3.1",
  "reqwest 0.12.28",
  "rpds",
- "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -5817,6 +5840,28 @@ dependencies = [
  "rpds",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "logos-blockchain-zone-tests"
+version = "0.0.0"
+dependencies = [
+ "blockchain-test-logos",
+ "cucumber",
+ "futures",
+ "logos-blockchain-common-http-client",
+ "logos-blockchain-core",
+ "logos-blockchain-groth16",
+ "logos-blockchain-http-api-common",
+ "logos-blockchain-key-management-system-service",
+ "logos-blockchain-tests",
+ "logos-blockchain-utils",
+ "logos-blockchain-zone-sdk",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
