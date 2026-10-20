@@ -901,7 +901,9 @@ mod tests {
             )
             .unwrap();
         for epoch in 1..=3 {
-            let first_block = state.apply_block(&known, &block(3, 2, epoch, vec![])).unwrap();
+            let first_block = state
+                .apply_block(&known, &block(3, 2, epoch, vec![]))
+                .unwrap();
             assert_eq!(
                 state.aged_notes_at(Epoch::new(epoch)),
                 first_block.aged_notes(),
@@ -948,8 +950,7 @@ mod tests {
             (small, LEDGER_SET, nullifier(1)),
             (large, LEDGER_SET, nullifier(2)),
         ]);
-        let state =
-            WalletState::from_genesis(&known, &[small, large], &[], Epoch::new(0)).unwrap();
+        let state = WalletState::from_genesis(&known, &[small, large], &[], Epoch::new(0)).unwrap();
         let (_, opening) = state
             .exact_note_split(
                 1,
