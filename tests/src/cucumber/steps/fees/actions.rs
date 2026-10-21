@@ -571,7 +571,7 @@ pub async fn concurrently_fund_transfers(
             ),
         })?;
         record_note_openings([response.recipient_note]);
-        let hash = response.tx_hash;
+        let hash = response.hash;
 
         if !hashes.insert(hash) {
             return Err(StepError::StepFail {

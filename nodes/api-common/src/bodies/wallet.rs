@@ -137,8 +137,7 @@ pub mod transfer_funds {
 
     #[derive(Serialize, Deserialize)]
     pub struct WalletTransferFundsResponseBody {
-        pub tip: HeaderId,
-        pub tx_hash: TxHash,
+        pub hash: TxHash,
         /// The note paid to the recipient. A recipient whose wallet is not this
         /// node's imports it to spend it.
         pub recipient_note: Note,

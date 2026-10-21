@@ -1956,7 +1956,7 @@ impl CucumberWorld {
         // A scanned wallet adopts the note once it knows its opening.
         record_note_openings([response.recipient_note]);
 
-        Ok(response.tx_hash)
+        Ok(response.hash)
     }
 
     /// Helper to set the `deployment_config_override_path` in the world based

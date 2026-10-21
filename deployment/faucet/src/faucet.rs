@@ -124,7 +124,7 @@ async fn drip_with_retries(faucet: &Faucet, recipient_pk: ZkPublicKey) {
             Ok(response) => {
                 println!(
                     "Drip submitted for {recipient_pk:?}, hash: {:?}, note: {:?}",
-                    response.tx_hash, response.recipient_note
+                    response.hash, response.recipient_note
                 );
                 faucet.wait_for_confirmation(balance_before).await;
                 return;

@@ -2019,10 +2019,10 @@ pub mod wallet {
 
         match transfer_funds {
             Ok(lb_wallet_service::TipResponse {
-                tip,
                 response: (transaction, recipient_note),
+                ..
             }) => {
-                let tx_hash = transaction.hash();
+                let hash = transaction.hash();
                 // Submit to mempool
                 if let Err(e) = mempool::add_tx::<
                     Libp2pNetworkBackend,
@@ -2041,8 +2041,7 @@ pub mod wallet {
                 }
 
                 WalletTransferFundsResponseBody {
-                    tip,
-                    tx_hash,
+                    hash,
                     recipient_note,
                 }
                 .into_response()
