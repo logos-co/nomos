@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+};
 
 use lb_common_http_client::Slot;
 use lb_core::{
@@ -30,10 +33,9 @@ fn inscription_signer(
 
 use super::{
     block_fetch::{channel_configs, channel_inscriptions, channel_transfers, is_pure_config},
-    block_states::{BlockChannelTx, BlockStates},
-    channel_wallet::{ChannelWallet, NoteOp},
+    block_states::{BlockChannelTx, BlockStates, ChannelTxKind, NoteOp, SharedTx},
     types::{
-        AtomicWithdrawInfo, ChannelNote, ChannelUpdateTx, ChannelWalletView, Error,
+        AtomicWithdrawInfo, ChannelNote, ChannelUpdateTx, ChannelWalletView, DepositInfo, Error,
         InscriptionInfo, PendingFunding, PendingTx, PinDepositInfo, WithdrawInfo,
     },
 };
@@ -62,7 +64,7 @@ pub struct ChannelUpdateInfo {
 /// never shed.
 #[derive(Debug, Clone)]
 struct PendingOtherTx {
-    signed_tx: SignedOps<Unverified, StandardMode>,
+    signed_tx: SharedTx,
     /// The tx's channel inscriptions in op order.
     infos: Vec<InscriptionInfo>,
     /// The tx's channel configs in op order, on the config lineage.
@@ -169,15 +171,18 @@ pub enum PendingBundle {
         outputs: Outputs,
     },
     /// An atomic inscription+transfer bundle pinning a deposit: the channel
-    /// notes the bundled transfer consumes.
-    PinDeposit(Inputs),
+    /// notes the bundled transfer consumes and the notes it re-creates.
+    PinDeposit {
+        consumed_notes: Inputs,
+        outputs: Outputs,
+    },
 }
 
 /// Local pending inscription with lineage metadata.
 #[derive(Debug, Clone)]
 pub struct PendingInscription {
     pub tx_hash: TxHash,
-    pub signed_tx: SignedOps<Unverified, StandardMode>,
+    pub signed_tx: SharedTx,
     pub parent_msg: MsgId,
     pub this_msg: MsgId,
     pub payload: Inscription,
@@ -229,19 +234,18 @@ pub struct TxState {
     /// Pending entries displaced by a mined sibling, awaiting the shed pass
     /// that reports them orphaned.
     displaced: Vec<PendingTx>,
-    displaced_other: Vec<SignedOps<Unverified, StandardMode>>,
+    displaced_other: Vec<SharedTx>,
     /// Opaque pending txs, ours or mirrored: retried byte-identically until
     /// finalized or shed.
     pending_other: HashMap<TxHash, PendingOtherTx>,
     /// Monotonic submission counter for [`Self::pending_other`] entries.
     next_other_seq: u64,
-    /// The unfinalized L1 window: blocks, safe sets and channel content.
+    /// The unfinalized L1 window: blocks, safe sets, note sets and channel
+    /// content.
     blocks: BlockStates,
     /// Config tip last seen by the config-driven inscription shed; a change
     /// means a config landed (or the branch's config lineage diverged).
     observed_config_tip: MsgId,
-    /// The channel's note set: finalized base + per-block overlay.
-    wallet: ChannelWallet,
 }
 
 impl TxState {
@@ -255,7 +259,6 @@ impl TxState {
             displaced_other: Vec::new(),
             pending_other: HashMap::new(),
             observed_config_tip: MsgId::root(),
-            wallet: ChannelWallet::default(),
             next_other_seq: 0,
         }
     }
@@ -291,7 +294,7 @@ impl TxState {
     /// [`Self::submit_atomic_withdraw`] for inscription+withdraw bundles.
     pub fn submit_inscription(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         parent_msg: MsgId,
         this_msg: MsgId,
         payload: Inscription,
@@ -310,7 +313,7 @@ impl TxState {
     /// `outputs` are the recipient notes it releases (for orphan re-issue).
     pub fn submit_atomic_withdraw(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         parent_msg: MsgId,
         this_msg: MsgId,
         payload: Inscription,
@@ -331,29 +334,34 @@ impl TxState {
     /// deposited notes being pinned).
     pub fn submit_pin_deposit(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         parent_msg: MsgId,
         this_msg: MsgId,
         payload: Inscription,
         consumed_notes: Inputs,
+        outputs: Outputs,
     ) -> Result<(), ParentTaken> {
         self.insert_pending(
             signed_tx,
             parent_msg,
             this_msg,
             payload,
-            PendingBundle::PinDeposit(consumed_notes),
+            PendingBundle::PinDeposit {
+                consumed_notes,
+                outputs,
+            },
         )
     }
 
     fn insert_pending(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         parent_msg: MsgId,
         this_msg: MsgId,
         payload: Inscription,
         bundle: PendingBundle,
     ) -> Result<(), ParentTaken> {
+        let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         if let Some(by) = self.pending_child(parent_msg)
             && by != tx_hash
@@ -493,19 +501,44 @@ impl TxState {
     /// Own pending inscriptions not mined on `tip`'s branch and funded more
     /// than `window` LIB slots ago that carry their pre-funding ops: what a
     /// stale-refund rebuilds.
+    ///
+    /// Only entries the node holds or is about to receive qualify: posted
+    /// ones, plus the first `first_post_budget` unposted ones along the
+    /// pending chain — the ones the following resubmit posts for the first
+    /// time. The rest of an unposted backlog is left alone: re-funding it
+    /// reserves a fee note per entry for txs that cannot land until those
+    /// ahead of them do, which starves the wallet. It is re-funded, if
+    /// stale, when its turn to be posted comes.
     #[must_use]
     pub fn refund_candidates(
         &self,
         tip: HeaderId,
         lib_slot: Slot,
         window: u64,
+        first_post_budget: usize,
     ) -> Vec<RefundCandidate> {
+        // An unprocessed tip has no safe set: everything would read as unmined.
+        if !self.blocks.has_block(&tip) {
+            return Vec::new();
+        }
         let safe = self.blocks.safe_at(tip);
+        let next_first_posts: HashSet<TxHash> = self
+            .collect_pending_suffix(self.channel_tip_at(tip))
+            .into_iter()
+            .filter(|info| {
+                !safe.contains(&info.tx_hash)
+                    && self.pending.get(&info.tx_hash).is_some_and(|p| !p.posted)
+            })
+            .take(first_post_budget)
+            .map(|info| info.tx_hash)
+            .collect();
         let mut candidates: Vec<RefundCandidate> = self
             .pending
             .iter()
             .filter(|(hash, p)| {
-                !safe.contains(hash) && Self::expired(p.funded_at, lib_slot, window)
+                !safe.contains(hash)
+                    && (p.posted || next_first_posts.contains(hash))
+                    && Self::expired(p.funded_at, lib_slot, window)
             })
             .filter_map(|(hash, p)| {
                 p.pre_fund.clone().map(|pre_fund| RefundCandidate {
@@ -529,7 +562,11 @@ impl TxState {
         tip: HeaderId,
         lib_slot: Slot,
         window: u64,
-    ) -> (Vec<PendingTx>, Vec<SignedOps<Unverified, StandardMode>>) {
+    ) -> (Vec<PendingTx>, Vec<SharedTx>) {
+        // An unprocessed tip has no safe set: everything would read as unmined.
+        if !self.blocks.has_block(&tip) {
+            return (Vec::new(), Vec::new());
+        }
         let safe = self.blocks.safe_at(tip);
         let expired: Vec<(TxHash, Option<MsgId>, Option<MsgId>)> = self
             .pending
@@ -583,7 +620,7 @@ impl TxState {
     pub fn replace_pending(
         &mut self,
         old: &TxHash,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         pre_fund: MantleTxBuilder,
         funded_at: Slot,
     ) -> Option<TxHash> {
@@ -591,6 +628,7 @@ impl TxState {
         if self.pending_by_parent.get(&entry.parent_msg) == Some(old) {
             self.pending_by_parent.remove(&entry.parent_msg);
         }
+        let signed_tx: SharedTx = signed_tx.into();
         let new_hash = signed_tx.hash();
         entry.tx_hash = new_hash;
         entry.signed_tx = signed_tx;
@@ -624,14 +662,16 @@ impl TxState {
     /// count as first-time publishes.
     pub fn observe_channel_inscription(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         parent_msg: MsgId,
         this_msg: MsgId,
         payload: Inscription,
         bundle: PendingBundle,
     ) {
+        let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         if self.is_tracked(&tx_hash) {
+            self.share_tracked_bytes(tx_hash, signed_tx);
             return;
         }
         let (pre_fund, funded_at) = self.take_landed(&HashSet::from([this_msg]));
@@ -709,10 +749,14 @@ impl TxState {
                     outputs: outputs.clone(),
                 })
             }
-            PendingBundle::PinDeposit(consumed_notes) => PendingTx::PinDeposit(PinDepositInfo {
+            PendingBundle::PinDeposit {
+                consumed_notes,
+                outputs,
+            } => PendingTx::PinDeposit(PinDepositInfo {
                 tx_hash: pending.tx_hash,
                 inscription: info,
                 consumed_notes: consumed_notes.clone(),
+                outputs: outputs.clone(),
             }),
             PendingBundle::Plain => PendingTx::Inscription(info),
         })
@@ -722,6 +766,16 @@ impl TxState {
     #[must_use]
     pub fn is_tracked(&self, tx_hash: &TxHash) -> bool {
         self.pending.contains_key(tx_hash) || self.pending_other.contains_key(tx_hash)
+    }
+
+    /// Point a tracked entry at the block store's copy of its tx, so a mined
+    /// publish is held once rather than alongside its publish-time copy.
+    fn share_tracked_bytes(&mut self, tx_hash: TxHash, signed_tx: SharedTx) {
+        if let Some(entry) = self.pending.get_mut(&tx_hash) {
+            entry.signed_tx = signed_tx;
+        } else if let Some(entry) = self.pending_other.get_mut(&tx_hash) {
+            entry.signed_tx = signed_tx;
+        }
     }
 
     /// Tx hashes currently tracked in either pending map.
@@ -738,9 +792,10 @@ impl TxState {
     /// tip-advancing op), or `None` when it carries none for this channel.
     pub fn submit_other(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         channel_id: ChannelId,
     ) -> Result<Option<MsgId>, ParentTaken> {
+        let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         let lineage = opaque_lineage(&signed_tx, channel_id);
         if let Some(parent) = lineage.first_parent
@@ -761,13 +816,11 @@ impl TxState {
     /// Track an opaque tx observed on the canonical channel, the counterpart
     /// of [`Self::observe_channel_inscription`]: no-op when already tracked,
     /// displaces a pending continuation on its message parent.
-    pub fn observe_other_tx(
-        &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
-        channel_id: ChannelId,
-    ) {
+    pub fn observe_other_tx(&mut self, signed_tx: impl Into<SharedTx>, channel_id: ChannelId) {
+        let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         if self.is_tracked(&tx_hash) {
+            self.share_tracked_bytes(tx_hash, signed_tx);
             return;
         }
         let lineage = opaque_lineage(&signed_tx, channel_id);
@@ -794,10 +847,11 @@ impl TxState {
 
     fn insert_other(
         &mut self,
-        signed_tx: SignedOps<Unverified, StandardMode>,
+        signed_tx: impl Into<SharedTx>,
         channel_id: ChannelId,
         lineage: OpaqueLineage,
     ) -> Option<MsgId> {
+        let signed_tx: SharedTx = signed_tx.into();
         let tx_hash = signed_tx.hash();
         let OpaqueLineage {
             first_parent,
@@ -833,6 +887,10 @@ impl TxState {
 
     /// Process a new block. Finalization is handled by backfill ground
     /// truth, not by the safe-set walk here.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one call carries everything the store keeps per block"
+    )]
     pub fn process_block(
         &mut self,
         block_id: HeaderId,
@@ -841,10 +899,16 @@ impl TxState {
         our_txs: impl IntoIterator<Item = TxHash>,
         channel_txs: Vec<BlockChannelTx>,
         note_ops: Vec<NoteOp>,
+        deposits: Vec<DepositInfo>,
     ) {
-        self.blocks
-            .insert(block_id, parent_id, our_txs, channel_txs);
-        self.wallet.store_overlay(block_id, note_ops);
+        self.blocks.insert(
+            block_id,
+            parent_id,
+            our_txs,
+            channel_txs,
+            note_ops,
+            deposits,
+        );
 
         // When lib advances: update finalized_msg and prune.
         // NOTE: we do NOT remove pending txs here. Pending txs are only
@@ -854,12 +918,9 @@ impl TxState {
         // as proof of canonical finalization — it can include blocks
         // from orphaned branches in concurrent scenarios.
         if lib != self.blocks.lib() {
-            let pruned = self.blocks.advance_lib(lib, |hash| {
+            self.blocks.advance_lib(lib, |hash| {
                 self.pending.contains_key(hash) || self.pending_other.contains_key(hash)
             });
-            for block in pruned {
-                self.wallet.prune_block(&block);
-            }
         }
     }
 
@@ -886,14 +947,6 @@ impl TxState {
         self.blocks.config_tip_at(block_id)
     }
 
-    pub fn store_block_signed_txs(
-        &mut self,
-        block: HeaderId,
-        txs: Vec<SignedOps<Unverified, StandardMode>>,
-    ) {
-        self.blocks.store_signed_txs(block, txs);
-    }
-
     /// Pending txs eligible for resubmission: not yet safe at tip AND
     /// part of the local suffix reachable from canonical channel tip.
     ///
@@ -902,7 +955,7 @@ impl TxState {
     /// the channel tip, opaque txs by submission order (`seq`) — a
     /// locally chained bundle can only be built after the bundle that
     /// establishes its parent tip, so submission order is dependency order.
-    pub fn pending_txs(&self, tip: HeaderId) -> Vec<(TxHash, SignedOps<Unverified, StandardMode>)> {
+    pub fn pending_txs(&self, tip: HeaderId) -> Vec<(TxHash, SharedTx)> {
         let safe = self.blocks.safe_at(tip);
 
         let channel_tip = self.channel_tip_at(tip);
@@ -913,7 +966,7 @@ impl TxState {
             .filter_map(|info| {
                 self.pending
                     .get(&info.tx_hash)
-                    .map(|p| (info.tx_hash, p.signed_tx.clone()))
+                    .map(|p| (info.tx_hash, Arc::clone(&p.signed_tx)))
             });
         let mut others: Vec<_> = self
             .pending_other
@@ -925,7 +978,7 @@ impl TxState {
             .chain(
                 others
                     .into_iter()
-                    .map(|(hash, entry)| (*hash, entry.signed_tx.clone())),
+                    .map(|(hash, entry)| (*hash, Arc::clone(&entry.signed_tx))),
             )
             .collect()
     }
@@ -944,10 +997,16 @@ impl TxState {
     }
 
     /// Number of pending channel inscription transactions already posted by
-    /// this runtime.
+    /// this runtime and not yet mined on `tip`'s branch. Mined entries stay
+    /// pending until LIB passes them, but they no longer occupy a publish
+    /// slot: counting them would stall new posts for as long as finality lags.
     #[must_use]
-    pub fn posted_pending_publish_count(&self) -> usize {
-        self.pending.values().filter(|p| p.posted).count()
+    pub fn posted_pending_publish_count(&self, tip: HeaderId) -> usize {
+        let safe = self.blocks.safe_at(tip);
+        self.pending
+            .iter()
+            .filter(|(hash, p)| p.posted && !safe.contains(*hash))
+            .count()
     }
 
     /// Remove pending inscriptions whose lineage does NOT reach the current
@@ -1140,10 +1199,7 @@ impl TxState {
     /// Shed pending opaque txs whose first inscription's parent slot was
     /// consumed by a conflicting entry: removed from retry and returned
     /// whole for orphan reporting.
-    pub fn shed_off_branch_pending_other(
-        &mut self,
-        tip: HeaderId,
-    ) -> Vec<SignedOps<Unverified, StandardMode>> {
+    pub fn shed_off_branch_pending_other(&mut self, tip: HeaderId) -> Vec<SharedTx> {
         let mut displaced = std::mem::take(&mut self.displaced_other);
         if self.pending_other.is_empty() {
             return displaced;
@@ -1196,10 +1252,7 @@ impl TxState {
     /// Shed pending config-carrying txs whose config parent can no longer
     /// reach the mined config tip: removed from retry and returned whole for
     /// orphan reporting.
-    pub fn shed_stale_pending_configs(
-        &mut self,
-        tip: HeaderId,
-    ) -> Vec<SignedOps<Unverified, StandardMode>> {
+    pub fn shed_stale_pending_configs(&mut self, tip: HeaderId) -> Vec<SharedTx> {
         if self.pending_other.is_empty() {
             return Vec::new();
         }
@@ -1264,27 +1317,24 @@ impl TxState {
 
     /// All pending transactions (for checkpoint serialization).
     #[must_use]
-    pub fn all_pending_txs(&self) -> Vec<(TxHash, SignedOps<Unverified, StandardMode>)> {
+    pub fn all_pending_txs(&self) -> Vec<(TxHash, SharedTx)> {
         let inscriptions = self
             .pending
             .iter()
-            .map(|(hash, p)| (*hash, p.signed_tx.clone()));
+            .map(|(hash, p)| (*hash, Arc::clone(&p.signed_tx)));
         let mut others: Vec<_> = self.pending_other.iter().collect();
         others.sort_unstable_by_key(|(_, entry)| entry.seq);
         inscriptions
             .chain(
                 others
                     .into_iter()
-                    .map(|(hash, entry)| (*hash, entry.signed_tx.clone())),
+                    .map(|(hash, entry)| (*hash, Arc::clone(&entry.signed_tx))),
             )
             .collect()
     }
 
     /// Remove a pending inscription and return its signed tx.
-    pub fn remove_pending(
-        &mut self,
-        tx_hash: &TxHash,
-    ) -> Option<SignedOps<Unverified, StandardMode>> {
+    pub fn remove_pending(&mut self, tx_hash: &TxHash) -> Option<SharedTx> {
         let (parent, signed_tx) = if let Some(removed) = self.pending.remove(tx_hash) {
             (Some(removed.parent_msg), removed.signed_tx)
         } else {
@@ -1501,31 +1551,29 @@ impl TxState {
     /// `None` for entries with no payload to apply — their effects reach
     /// consumers through the channel view.
     fn to_update_tx(&self, info: &InscriptionInfo) -> Option<ChannelUpdateTx> {
-        if let Some((signed_txs, block_tx)) = self.blocks.channel_tx(info.tx_hash) {
-            return match block_tx {
-                BlockChannelTx::AtomicWithdraw(a) => {
+        if let Some(block_tx) = self.blocks.channel_tx(info.tx_hash) {
+            return match &block_tx.kind {
+                ChannelTxKind::AtomicWithdraw(a) => {
                     Some(ChannelUpdateTx::AtomicWithdraw(a.clone()))
                 }
-                BlockChannelTx::PinDeposit(a) => Some(ChannelUpdateTx::PinDeposit(a.clone())),
-                BlockChannelTx::Inscription(_) => Some(ChannelUpdateTx::Inscription(info.clone())),
-                BlockChannelTx::Config(_) => signed_txs
-                    .iter()
-                    .find(|tx| tx.hash() == info.tx_hash)
-                    .map(|tx| ChannelUpdateTx::Config(tx.clone())),
-                BlockChannelTx::Custom {
-                    tx,
+                ChannelTxKind::PinDeposit(a) => Some(ChannelUpdateTx::PinDeposit(a.clone())),
+                ChannelTxKind::Inscription(_) => Some(ChannelUpdateTx::Inscription(info.clone())),
+                ChannelTxKind::Config(_) => {
+                    Some(ChannelUpdateTx::Config(SignedOps::clone(&block_tx.tx)))
+                }
+                ChannelTxKind::Custom {
                     message_entries,
                     config_entries,
                 } => (message_entries
                     .iter()
                     .any(|entry| !entry.payload.is_empty())
                     || !config_entries.is_empty())
-                .then(|| ChannelUpdateTx::Custom(tx.clone())),
+                .then(|| ChannelUpdateTx::Custom(SignedOps::clone(&block_tx.tx))),
             };
         }
         // Not in any held block — the lineage bridged through a pending link.
         if let Some(other) = self.pending_other.get(&info.tx_hash) {
-            let tx = other.signed_tx.clone();
+            let tx = SignedOps::clone(&other.signed_tx);
             return Some(if other.pure_config {
                 ChannelUpdateTx::Config(tx)
             } else {
@@ -1541,61 +1589,54 @@ impl TxState {
                     outputs: outputs.clone(),
                 }))
             }
-            Some(PendingBundle::PinDeposit(consumed_notes)) => {
-                Some(ChannelUpdateTx::PinDeposit(PinDepositInfo {
-                    tx_hash: info.tx_hash,
-                    inscription: info.clone(),
-                    consumed_notes: consumed_notes.clone(),
-                }))
-            }
+            Some(PendingBundle::PinDeposit {
+                consumed_notes,
+                outputs,
+            }) => Some(ChannelUpdateTx::PinDeposit(PinDepositInfo {
+                tx_hash: info.tx_hash,
+                inscription: info.clone(),
+                consumed_notes: consumed_notes.clone(),
+                outputs: outputs.clone(),
+            })),
             Some(PendingBundle::Plain) | None => Some(ChannelUpdateTx::Inscription(info.clone())),
         }
     }
 
-    /// Apply channel-note ops from finalized blocks to the wallet base set.
-    pub fn apply_finalized_note_ops(&mut self, ops: Vec<NoteOp>) {
-        self.wallet.apply_finalized(ops);
-    }
-
-    /// The channel's note set at `tip` (or the finalized base only when no
-    /// tip is known yet). The overlay walk excludes the LIB block: blocks at
-    /// and below LIB reach the base via the finalized-backfill path.
+    /// The channel's note set at `tip` (or the finalized set only when no
+    /// tip is known yet).
     #[must_use]
     pub fn channel_wallet_view(&self, tip: Option<HeaderId>) -> ChannelWalletView {
-        let blocks = tip
-            .map(|tip| self.blocks.branch_blocks_above_lib(tip))
-            .unwrap_or_default();
-        self.wallet.view(blocks.iter())
+        self.blocks.notes_at(tip)
     }
 
-    /// Look up a tracked channel note by id (see
-    /// [`ChannelWallet::find_note`](super::channel_wallet::ChannelWallet::find_note)).
-    #[must_use]
-    pub fn find_channel_note(&self, id: &NoteId) -> Option<&ChannelNote> {
-        self.wallet.find_note(id)
-    }
-
-    /// Export the finalized channel-note base for checkpointing.
+    /// Export the finalized channel-note set for checkpointing.
     #[must_use]
     pub fn channel_notes_base(&self) -> Vec<ChannelNote> {
-        self.wallet.export_base()
+        self.blocks.finalized_notes()
     }
 
-    /// Restore the finalized channel-note base from a checkpoint.
+    /// Restore the finalized channel-note set from a checkpoint.
     pub fn restore_channel_notes(&mut self, notes: Vec<ChannelNote>) {
-        self.wallet.restore_base(notes);
+        self.blocks.restore_finalized_notes(notes);
     }
 
-    /// Signed channel txs on `tip`'s branch strictly above LIB (finalized never
+    /// See [`BlockStates::deposits_newly_canonical`].
+    #[must_use]
+    pub fn deposits_newly_canonical(
+        &self,
+        old_tip: Option<HeaderId>,
+        tip: HeaderId,
+    ) -> Vec<DepositInfo> {
+        self.blocks.deposits_newly_canonical(old_tip, tip)
+    }
+
+    /// Channel txs on `tip`'s branch strictly above LIB (finalized never
     /// returns to pending) that pending lacks; empty in steady state.
     #[must_use]
-    pub fn untracked_signed_txs_on_branch(
-        &self,
-        tip: HeaderId,
-    ) -> Vec<SignedOps<Unverified, StandardMode>> {
+    pub fn untracked_channel_txs_on_branch(&self, tip: HeaderId) -> Vec<Arc<BlockChannelTx>> {
         self.blocks
-            .signed_txs_on_branch(tip)
-            .filter(|tx| !self.is_tracked(&tx.hash()))
+            .channel_txs_on_branch(tip)
+            .filter(|tx| !self.is_tracked(&tx.tx_hash()))
             .cloned()
             .collect()
     }
@@ -1692,6 +1733,11 @@ mod tests {
     use super::*;
     use crate::test_support::header_id;
 
+    /// A mined channel tx as the block store holds it.
+    fn stored(tx: &SignedOps<Unverified, StandardMode>, kind: ChannelTxKind) -> BlockChannelTx {
+        BlockChannelTx::new(Arc::new(tx.clone()), tx.hash(), kind)
+    }
+
     fn make_dummy_tx(data: u8) -> SignedOps<Unverified, StandardMode> {
         make_dummy_tx_on(MsgId::root(), data)
     }
@@ -1731,7 +1777,7 @@ mod tests {
         state.submit_other(tx, ChannelId::from([0u8; 32])).unwrap();
 
         // Process block containing our tx, lib stays at genesis
-        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new());
+        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new(), vec![]);
 
         // Tx is still pending (not finalized yet, lib hasn't advanced)
         assert_eq!(state.unfinalized_count(), 1);
@@ -1752,12 +1798,12 @@ mod tests {
         state.submit_other(tx, ChannelId::from([0u8; 32])).unwrap();
 
         // b1 with our tx
-        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new());
+        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new(), vec![]);
         assert_eq!(state.unfinalized_count(), 1);
 
         // b2, lib advances to b1 — process_block does not remove from
         // pending (that's done by backfill ground truth)
-        state.process_block(b2, b1, b1, vec![], vec![], Vec::new());
+        state.process_block(b2, b1, b1, vec![], vec![], Vec::new(), vec![]);
         assert_eq!(
             state.unfinalized_count(),
             1,
@@ -1784,7 +1830,15 @@ mod tests {
         state.submit_other(tx2, ChannelId::from([0u8; 32])).unwrap();
 
         // b1 contains only tx1
-        state.process_block(b1, genesis, genesis, vec![hash1], vec![], Vec::new());
+        state.process_block(
+            b1,
+            genesis,
+            genesis,
+            vec![hash1],
+            vec![],
+            Vec::new(),
+            vec![],
+        );
 
         // pending_txs at b1 should only return tx2
         let pending: Vec<_> = state.pending_txs(b1).into_iter().map(|(h, _)| h).collect();
@@ -1806,13 +1860,13 @@ mod tests {
         state.submit_other(tx, ChannelId::from([0u8; 32])).unwrap();
 
         // b1 has our tx
-        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new());
+        state.process_block(b1, genesis, genesis, vec![hash], vec![], Vec::new(), vec![]);
 
         // At b1 tip, tx is in safe set (not in pending_txs)
         assert_eq!(state.pending_txs(b1), []);
 
         // b2 forks from genesis, no tx
-        state.process_block(b2, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(b2, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         // At b2 tip, tx is back in pending_txs (different branch)
         assert!(state.pending_txs(b2).iter().any(|(h, _)| *h == hash));
@@ -1847,6 +1901,7 @@ mod tests {
             vec![],
             vec![],
             vec![wallet_note(1, 10)],
+            vec![],
         );
         state.process_block(
             b1,
@@ -1855,6 +1910,7 @@ mod tests {
             vec![],
             vec![],
             vec![wallet_note(2, 20)],
+            vec![],
         );
 
         let at_a = state.channel_wallet_view(Some(a1));
@@ -1867,10 +1923,9 @@ mod tests {
     }
 
     #[test]
-    fn wallet_lib_advance_excludes_folded_overlay() {
-        // G <- a1 (adds n1) <- a2; LIB advances to a1. The finalized-backfill
-        // path applies a1's ops to the base; the branch walk from a2 must
-        // exclude a1's overlay entry so the note is not double-counted.
+    fn wallet_lib_advance_finalizes_the_lib_block_notes() {
+        // G <- a1 (adds n1) <- a2; LIB advances to a1, so n1 moves from the
+        // unfinalized to the finalized part of the view, counted once.
         let genesis = header_id(0);
         let a1 = header_id(1);
         let a2 = header_id(2);
@@ -1883,17 +1938,20 @@ mod tests {
             vec![],
             vec![],
             vec![wallet_note(1, 10)],
+            vec![],
         );
-        // What `fetch_and_process_blocks` does when a1's range finalizes:
-        state.apply_finalized_note_ops(vec![wallet_note(1, 10)]);
-        state.process_block(a2, a1, a1, vec![], vec![], Vec::new());
+        let view = state.channel_wallet_view(Some(a1));
+        assert_eq!(view.finalized, []);
+        assert_eq!(view.unfinalized.len(), 1);
+
+        state.process_block(a2, a1, a1, vec![], vec![], Vec::new(), vec![]);
 
         let view = state.channel_wallet_view(Some(a2));
         assert_eq!(view.finalized.len(), 1);
         assert_eq!(view.finalized[0].note_id, wallet_note_id(1));
         assert!(
             view.unfinalized.is_empty(),
-            "a1's overlay entry must not double-count the finalized note"
+            "the finalized note must not be counted again as unfinalized"
         );
     }
 
@@ -1950,7 +2008,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         let (bundle, inscribe_msg, _config_msg) = bundle_tx(MsgId::root(), 1);
         let derived = state.submit_other(bundle, channel_id).unwrap();
@@ -1974,7 +2032,7 @@ mod tests {
         let a2 = header_id(3);
         let mut state = TxState::new(genesis, MsgId::root());
 
-        state.process_block(a1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(a1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         state.process_block(
             b1,
             genesis,
@@ -1982,8 +2040,9 @@ mod tests {
             vec![],
             vec![],
             vec![wallet_note(2, 20)],
+            vec![],
         );
-        state.process_block(a2, a1, a1, vec![], vec![], Vec::new());
+        state.process_block(a2, a1, a1, vec![], vec![], Vec::new(), vec![]);
 
         let view = state.channel_wallet_view(Some(b1));
         assert!(view.unfinalized.is_empty(), "orphaned branch entry pruned");
@@ -1992,8 +2051,17 @@ mod tests {
     #[test]
     fn wallet_checkpoint_roundtrip() {
         let genesis = header_id(0);
+        let a1 = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.apply_finalized_note_ops(vec![wallet_note(1, 10), wallet_note(2, 20)]);
+        state.process_block(
+            a1,
+            genesis,
+            a1,
+            vec![],
+            vec![],
+            vec![wallet_note(1, 10), wallet_note(2, 20)],
+            vec![],
+        );
 
         let mut exported = state.channel_notes_base();
         exported.sort_by_key(|n| n.note_id);
@@ -2015,7 +2083,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         let mut parent = MsgId::root();
         let mut config_parent = MsgId::root();
@@ -2049,7 +2117,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         state
             .submit_inscription(make_dummy_tx(1), MsgId::root(), msg_id(10), [1].into())
@@ -2069,7 +2137,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         let first = make_dummy_tx(1);
         let first_hash = first.hash();
@@ -2100,7 +2168,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         state
             .submit_inscription(make_dummy_tx(1), MsgId::root(), msg_id(10), [1].into())
@@ -2147,6 +2215,28 @@ mod tests {
         (hash, msg)
     }
 
+    /// Observing a tracked tx keeps the entry but adopts the observed bytes:
+    /// an own publish seen mined shares the block store's copy.
+    #[test]
+    fn observing_a_tracked_tx_shares_its_stored_bytes() {
+        let mut state = TxState::new(header_id(0), MsgId::root());
+        let (hash, msg) = submit_own(&mut state, MsgId::root(), 1);
+        let stored: SharedTx = Arc::new(make_dummy_tx_on(MsgId::root(), 1));
+        assert_eq!(stored.hash(), hash);
+
+        state.observe_channel_inscription(
+            Arc::clone(&stored),
+            MsgId::root(),
+            msg,
+            [1].into(),
+            PendingBundle::Plain,
+        );
+
+        let entry = state.pending.get(&hash).expect("still tracked as own");
+        assert!(!entry.posted, "the own entry is kept, not replaced");
+        assert!(Arc::ptr_eq(&entry.signed_tx, &stored));
+    }
+
     /// Expiry counts from the funding stamp of an entry not mined on the
     /// branch; past the window it is a refund candidate when it carries its
     /// pre-funding ops and is shed otherwise.
@@ -2155,19 +2245,21 @@ mod tests {
         let genesis = header_id(0);
         let tip = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (funded, funded_msg) = submit_own(&mut state, MsgId::root(), 1);
         state.stamp_funding(&funded, Slot::from(10), Some(MantleTxBuilder::new()));
         let (unfunded, _) = submit_own(&mut state, funded_msg, 2);
         state.stamp_funding(&unfunded, Slot::from(10), None);
 
         assert!(
-            state.refund_candidates(tip, Slot::from(12), 3).is_empty(),
+            state
+                .refund_candidates(tip, Slot::from(12), 3, usize::MAX)
+                .is_empty(),
             "inside the window nothing expires"
         );
         assert!(state.shed_expired(tip, Slot::from(12), 3).0.is_empty());
 
-        let candidates = state.refund_candidates(tip, Slot::from(14), 3);
+        let candidates = state.refund_candidates(tip, Slot::from(14), 3, usize::MAX);
         assert_eq!(
             candidates.iter().map(|c| c.tx_hash).collect::<Vec<_>>(),
             vec![funded],
@@ -2185,19 +2277,97 @@ mod tests {
         assert!(state.pending_inscription(&unfunded).is_none());
     }
 
+    /// Of an expired backlog only what the node holds or is about to receive
+    /// is rebuilt: posted entries, and the next `first_post_budget` unposted
+    /// ones along the chain. The entries queued behind them keep their stale
+    /// funding until their turn to be posted.
+    #[test]
+    fn only_posted_and_next_to_post_entries_are_refunded() {
+        let genesis = header_id(0);
+        let tip = header_id(1);
+        let mut state = TxState::new(genesis, MsgId::root());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
+        let mut parent = MsgId::root();
+        let mut chain = Vec::new();
+        for data in 1..=4 {
+            let (hash, msg) = submit_own(&mut state, parent, data);
+            state.stamp_funding(&hash, Slot::from(10), Some(MantleTxBuilder::new()));
+            chain.push(hash);
+            parent = msg;
+        }
+        assert!(state.mark_pending_inscription_posted(&chain[0]));
+
+        let refunded = |budget| {
+            let mut hashes: Vec<TxHash> = state
+                .refund_candidates(tip, Slot::from(100), 3, budget)
+                .into_iter()
+                .map(|c| c.tx_hash)
+                .collect();
+            hashes.sort_unstable_by_key(|hash| hash.0);
+            hashes
+        };
+        let sorted = |mut hashes: Vec<TxHash>| {
+            hashes.sort_unstable_by_key(|hash| hash.0);
+            hashes
+        };
+
+        assert_eq!(
+            refunded(0),
+            vec![chain[0]],
+            "with no first posts left only the posted entry is rebuilt"
+        );
+        assert_eq!(
+            refunded(1),
+            sorted(vec![chain[0], chain[1]]),
+            "the next unposted entry along the chain joins it"
+        );
+        assert_eq!(
+            refunded(usize::MAX),
+            sorted(chain.clone()),
+            "a budget covering the backlog rebuilds all of it"
+        );
+    }
+
+    /// Posted entries already mined on the tip's branch stay pending until
+    /// LIB passes them, but no longer count as in-flight publishes.
+    #[test]
+    fn mined_posted_entries_do_not_count_as_in_flight() {
+        let genesis = header_id(0);
+        let b1 = header_id(1);
+        let mut state = TxState::new(genesis, MsgId::root());
+        let (first, msg) = submit_own(&mut state, MsgId::root(), 1);
+        let (second, _) = submit_own(&mut state, msg, 2);
+        assert!(state.mark_pending_inscription_posted(&first));
+        assert!(state.mark_pending_inscription_posted(&second));
+
+        state.process_block(
+            b1,
+            genesis,
+            genesis,
+            vec![first],
+            vec![],
+            Vec::new(),
+            vec![],
+        );
+
+        assert_eq!(state.pending_publish_count(), 2);
+        assert_eq!(state.posted_pending_publish_count(genesis), 2);
+        assert_eq!(state.posted_pending_publish_count(b1), 1);
+    }
+
     /// A window of zero disables expiry entirely.
     #[test]
     fn zero_window_never_expires() {
         let genesis = header_id(0);
         let tip = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (hash, _) = submit_own(&mut state, MsgId::root(), 1);
         state.stamp_funding(&hash, Slot::from(1), None);
 
         assert!(
             state
-                .refund_candidates(tip, Slot::from(1_000), 0)
+                .refund_candidates(tip, Slot::from(1_000), 0, usize::MAX)
                 .is_empty()
         );
         assert!(state.shed_expired(tip, Slot::from(1_000), 0).0.is_empty());
@@ -2214,18 +2384,53 @@ mod tests {
         let mut state = TxState::new(genesis, MsgId::root());
         let (hash, _) = submit_own(&mut state, MsgId::root(), 1);
         state.stamp_funding(&hash, Slot::from(1), Some(MantleTxBuilder::new()));
-        state.process_block(a1, genesis, genesis, vec![hash], vec![], Vec::new());
-        state.process_block(b1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(a1, genesis, genesis, vec![hash], vec![], Vec::new(), vec![]);
+        state.process_block(b1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         assert!(
-            state.refund_candidates(a1, Slot::from(100), 3).is_empty(),
+            state
+                .refund_candidates(a1, Slot::from(100), 3, usize::MAX)
+                .is_empty(),
             "mined on the branch"
         );
         assert_eq!(
-            state.refund_candidates(b1, Slot::from(100), 3).len(),
+            state
+                .refund_candidates(b1, Slot::from(100), 3, usize::MAX)
+                .len(),
             1,
             "not mined on this branch"
         );
+    }
+
+    /// An unprocessed tip has no safe set, which says nothing about what is
+    /// mined: neither re-fund nor shed against it.
+    #[test]
+    fn nothing_expires_at_an_unprocessed_tip() {
+        let genesis = header_id(0);
+        let a1 = header_id(1);
+        let unseen = header_id(2);
+        let mut state = TxState::new(genesis, MsgId::root());
+        let (funded, funded_msg) = submit_own(&mut state, MsgId::root(), 1);
+        state.stamp_funding(&funded, Slot::from(1), Some(MantleTxBuilder::new()));
+        state.process_block(
+            a1,
+            genesis,
+            genesis,
+            vec![funded],
+            vec![],
+            Vec::new(),
+            vec![],
+        );
+        let (unfunded, _) = submit_own(&mut state, funded_msg, 2);
+        state.stamp_funding(&unfunded, Slot::from(1), None);
+
+        assert!(
+            state
+                .refund_candidates(unseen, Slot::from(100), 3, usize::MAX)
+                .is_empty(),
+            "the mined entry is not re-funded at an unseen tip"
+        );
+        assert!(state.shed_expired(unseen, Slot::from(100), 3).0.is_empty());
     }
 
     /// Re-funding swaps the entry in under its new hash with the lineage
@@ -2236,7 +2441,7 @@ mod tests {
         let genesis = header_id(0);
         let tip = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (old, old_msg) = submit_own(&mut state, MsgId::root(), 1);
         assert!(state.mark_pending_inscription_posted(&old));
 
@@ -2303,7 +2508,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (head, head_msg) = submit_own(&mut state, MsgId::root(), 1);
         state.stamp_funding(&head, Slot::from(1), None);
         let (child, child_msg) = submit_own(&mut state, head_msg, 2);
@@ -2321,7 +2526,7 @@ mod tests {
             "head first, then the child chained on it"
         );
         assert_eq!(
-            shed_other.iter().map(SignedOps::hash).collect::<Vec<_>>(),
+            shed_other.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![grandchild_hash]
         );
         assert_eq!(state.pending_publish_count(), 0);
@@ -2353,7 +2558,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (a, a_id) = pure_config_tx(MsgId::root(), 1);
         let (b, _) = pure_config_tx(a_id, 5);
         let (a_hash, b_hash) = (a.hash(), b.hash());
@@ -2370,7 +2575,7 @@ mod tests {
 
         assert!(shed.is_empty());
         assert_eq!(
-            shed_other.iter().map(SignedOps::hash).collect::<Vec<_>>(),
+            shed_other.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![a_hash, b_hash],
             "the config chained on the expired one is orphaned with it"
         );
@@ -2420,7 +2625,7 @@ mod tests {
         let genesis = header_id(0);
         let tip = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let mut parent = MsgId::root();
         let mut chain = Vec::new();
         for data in 1..=6u8 {
@@ -2453,7 +2658,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (ours, ours_id) = pure_config_tx(MsgId::root(), 1);
         let (child, _) = pure_config_tx(ours_id, 2);
         let (rival, _) = pure_config_tx(MsgId::root(), 3);
@@ -2465,7 +2670,7 @@ mod tests {
         let shed = state.shed_off_branch_pending_other(tip);
 
         assert_eq!(
-            shed.iter().map(SignedOps::hash).collect::<Vec<_>>(),
+            shed.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![ours_hash, child_hash],
             "the losing config and the one chained on it, parent first"
         );
@@ -2479,7 +2684,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let again_op = config_op(MsgId::root(), 4);
         let again = SignedOps::from_ops_with_sample_proofs(Ops::from([Op::ChannelConfig(
             again_op.clone(),
@@ -2530,6 +2735,7 @@ mod tests {
             vec![original_hash],
             vec![],
             Vec::new(),
+            vec![],
         );
 
         assert!(state.pending_inscription(&rebuilt).is_none(), "retired");
@@ -2562,7 +2768,7 @@ mod tests {
         let tip = header_id(1);
         let channel_id = ChannelId::from([0u8; 32]);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(tip, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         let (local, _, _) = bundle_tx(MsgId::root(), 1);
         let local_hash = local.hash();
         state.submit_other(local, channel_id).unwrap();
@@ -2575,7 +2781,7 @@ mod tests {
 
         assert!(shed.is_empty());
         assert_eq!(
-            shed_other.iter().map(SignedOps::hash).collect::<Vec<_>>(),
+            shed_other.iter().map(|tx| tx.hash()).collect::<Vec<_>>(),
             vec![local_hash]
         );
         assert!(state.is_tracked(&mirrored_hash));
@@ -2627,7 +2833,7 @@ mod tests {
     }
 
     /// Wrap a pure config tx as it is classified when mined: a clean
-    /// [`BlockChannelTx::Config`] on the config lineage (the mixed/unknown
+    /// [`ChannelTxKind::Config`] on the config lineage (the mixed/unknown
     /// `Custom { config_entries }` shape is exercised separately in
     /// `mixed_config_tx_is_custom_but_advances_the_config_tip`).
     fn config_block_tx(
@@ -2635,13 +2841,16 @@ mod tests {
         this_msg: MsgId,
         parent: MsgId,
     ) -> BlockChannelTx {
-        BlockChannelTx::Config(InscriptionInfo {
-            tx_hash: tx.hash(),
-            parent_msg: parent,
-            this_msg,
-            payload: [].into(),
-            signer: None,
-        })
+        stored(
+            tx,
+            ChannelTxKind::Config(InscriptionInfo {
+                tx_hash: tx.hash(),
+                parent_msg: parent,
+                this_msg,
+                payload: [].into(),
+                signer: None,
+            }),
+        )
     }
 
     /// Once a rival config lands on-branch and moves the config tip, our
@@ -2661,7 +2870,7 @@ mod tests {
 
         // No config has landed yet — the local config tip is root, so ours is
         // still viable.
-        state.process_block(b1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(b1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
         assert_eq!(state.shed_stale_pending_configs(b1), []);
         assert!(state.pending_other_contains(&stale_hash));
 
@@ -2675,6 +2884,7 @@ mod tests {
             vec![],
             vec![config_block_tx(&rival, rival_msg, MsgId::root())],
             Vec::new(),
+            vec![],
         );
 
         let shed = state.shed_stale_pending_configs(b2);
@@ -2701,8 +2911,9 @@ mod tests {
                 config_block_tx(&c2_tx, c2, c1),
             ],
             Vec::new(),
+            vec![],
         );
-        state.process_block(b2, b1, b1, vec![], vec![], Vec::new());
+        state.process_block(b2, b1, b1, vec![], vec![], Vec::new(), vec![]);
         assert_eq!(state.finalized_config(), c2);
         assert!(
             state
@@ -2728,6 +2939,7 @@ mod tests {
             vec![],
             vec![config_block_tx(&c1_tx, c1, MsgId::root())],
             Vec::new(),
+            vec![],
         );
         state.process_block(
             b2,
@@ -2736,9 +2948,10 @@ mod tests {
             vec![],
             vec![config_block_tx(&c2_tx, c2, c1)],
             Vec::new(),
+            vec![],
         );
         let old_lineage = state.channel_lineage(b2);
-        state.process_block(b3, b2, b2, vec![], vec![], Vec::new());
+        state.process_block(b3, b2, b2, vec![], vec![], Vec::new(), vec![]);
         assert!(
             state
                 .detect_channel_update(&old_lineage, b3, &HashSet::new())
@@ -2759,15 +2972,25 @@ mod tests {
             payload: [].into(),
             signer: None,
         };
-        let custom = BlockChannelTx::Custom {
-            tx: tx.clone(),
-            message_entries: Vec::new(),
-            config_entries: vec![
-                config_entry(MsgId::root(), msg_id(1)),
-                config_entry(msg_id(1), msg_id(2)),
-            ],
-        };
-        state.process_block(b1, genesis, genesis, vec![], vec![custom], Vec::new());
+        let custom = stored(
+            &tx,
+            ChannelTxKind::Custom {
+                message_entries: Vec::new(),
+                config_entries: vec![
+                    config_entry(MsgId::root(), msg_id(1)),
+                    config_entry(msg_id(1), msg_id(2)),
+                ],
+            },
+        );
+        state.process_block(
+            b1,
+            genesis,
+            genesis,
+            vec![],
+            vec![custom],
+            Vec::new(),
+            vec![],
+        );
         let update = state
             .detect_channel_update(&[], b1, &HashSet::new())
             .expect("configs enter the view");
@@ -2858,6 +3081,7 @@ mod tests {
                 config_block_tx(&c2, c2_msg, c1_msg),
             ],
             Vec::new(),
+            vec![],
         );
 
         // The walk resolves the chain tip (C2), not C1 or root.
@@ -2901,6 +3125,7 @@ mod tests {
             vec![config_hash],
             vec![block_tx],
             Vec::new(),
+            vec![],
         );
 
         assert_eq!(state.shed_stale_pending_configs(tip), []);
@@ -2927,6 +3152,7 @@ mod tests {
             vec![],
             vec![config_block_tx(&b_config, b_msg, MsgId::root())],
             Vec::new(),
+            vec![],
         );
 
         // Our config C chains on B and is pending; its block hasn't arrived, so
@@ -2963,8 +3189,9 @@ mod tests {
             genesis,
             genesis,
             vec![p1],
-            vec![BlockChannelTx::Inscription(m1)],
+            vec![stored(&make_dummy_tx(1), ChannelTxKind::Inscription(m1))],
             Vec::new(),
+            vec![],
         );
 
         // p2, p3 chain on the mined tip but are not yet mined (pending).
@@ -2984,6 +3211,7 @@ mod tests {
             vec![],
             vec![config_block_tx(&cfg, cfg_msg, MsgId::root())],
             Vec::new(),
+            vec![],
         );
 
         // Only the not-yet-mined tail is shed, parent-first; the mined p1 is on
@@ -3025,8 +3253,12 @@ mod tests {
             genesis,
             genesis,
             vec![],
-            vec![BlockChannelTx::Inscription(m_info)],
+            vec![stored(
+                &make_dummy_tx(1),
+                ChannelTxKind::Inscription(m_info),
+            )],
             Vec::new(),
+            vec![],
         );
 
         // Local pending inscription P chained on m (published, not mined).
@@ -3035,7 +3267,7 @@ mod tests {
         let old_lineage = state.channel_lineage(b1);
 
         // A config-only block classifies to no channel txs at all.
-        state.process_block(b2, b1, genesis, vec![], vec![], Vec::new());
+        state.process_block(b2, b1, genesis, vec![], vec![], Vec::new(), vec![]);
 
         assert!(
             state
@@ -3067,7 +3299,7 @@ mod tests {
         submit_fake_inscription(&mut state, 3, b2_msg, b3_msg);
         assert_eq!(state.pending.len(), 3);
 
-        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         // Capture the old lineage before inserting block2, mirroring the real
         // caller; computing it after would let c1 bridge into the "before" view.
@@ -3098,8 +3330,12 @@ mod tests {
             block1,
             genesis,
             vec![c1_tx_hash],
-            vec![BlockChannelTx::Inscription(c1_inscription)],
+            vec![stored(
+                &make_dummy_tx(99),
+                ChannelTxKind::Inscription(c1_inscription),
+            )],
             Vec::new(),
+            vec![],
         );
 
         let update = state
@@ -3144,7 +3380,7 @@ mod tests {
         let genesis = header_id(0);
         let block1 = header_id(1);
         let mut state = TxState::new(genesis, MsgId::root());
-        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         let b1_msg = msg_id(10);
         let b1_hash = submit_fake_inscription(&mut state, 1, MsgId::root(), b1_msg);
@@ -3174,7 +3410,7 @@ mod tests {
         submit_fake_inscription(&mut state, 1, MsgId::root(), b1_msg);
         submit_fake_inscription(&mut state, 2, b1_msg, b2_msg);
 
-        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         assert_eq!(state.publish_parent(block1), b2_msg);
     }
@@ -3191,7 +3427,7 @@ mod tests {
         let b1_msg = msg_id(10);
         submit_fake_inscription(&mut state, 1, MsgId::root(), b1_msg);
 
-        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new());
+        state.process_block(block1, genesis, genesis, vec![], vec![], Vec::new(), vec![]);
 
         // c1 lands, consuming root
         let c1_msg = msg_id(20);
@@ -3207,8 +3443,12 @@ mod tests {
             block1,
             genesis,
             vec![],
-            vec![BlockChannelTx::Inscription(c1_inscription)],
+            vec![stored(
+                &make_dummy_tx(99),
+                ChannelTxKind::Inscription(c1_inscription),
+            )],
             Vec::new(),
+            vec![],
         );
 
         // b1 is stale — publish_parent should return canonical tip (c1)
@@ -3236,11 +3476,19 @@ mod tests {
         state.submit_other(tx2, ChannelId::from([0u8; 32])).unwrap();
 
         // b1 has tx1
-        state.process_block(b1, genesis, genesis, vec![hash1], vec![], Vec::new());
+        state.process_block(
+            b1,
+            genesis,
+            genesis,
+            vec![hash1],
+            vec![],
+            Vec::new(),
+            vec![],
+        );
         // b2 has tx2
-        state.process_block(b2, b1, genesis, vec![hash2], vec![], Vec::new());
+        state.process_block(b2, b1, genesis, vec![hash2], vec![], Vec::new(), vec![]);
         // b3, lib jumps from genesis to b2 (skipping b1)
-        state.process_block(b3, b2, b2, vec![], vec![], Vec::new());
+        state.process_block(b3, b2, b2, vec![], vec![], Vec::new(), vec![]);
         assert_eq!(
             state.unfinalized_count(),
             2,

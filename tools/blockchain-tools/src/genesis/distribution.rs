@@ -153,7 +153,7 @@ mod tests {
         let providers = vec![DeclarationConfig {
             provider_id: mock_provider_id(10),
             zk_id: zk_id_1,
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
             service_type: ServiceType::BlendNetwork,
         }];
 
@@ -190,7 +190,7 @@ mod tests {
         let providers = vec![DeclarationConfig {
             provider_id: mock_provider_id(10),
             zk_id: mock_zk_pk(2),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
             service_type: ServiceType::BlendNetwork,
         }];
 
@@ -221,13 +221,13 @@ mod tests {
             DeclarationConfig {
                 provider_id: mock_provider_id(10),
                 zk_id,
-                locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+                locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
                 service_type: ServiceType::BlendNetwork,
             },
             DeclarationConfig {
                 provider_id: mock_provider_id(11),
                 zk_id,
-                locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+                locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
                 service_type: ServiceType::BlendNetwork,
             },
         ];
