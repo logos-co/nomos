@@ -1150,8 +1150,9 @@ pub fn signed_header(block: &Block<SignedOps<Preverified, StandardMode>>) -> Hea
 // A note under a random secret key, so that the notes of one test differ.
 pub fn note() -> (Fr, Note) {
     let secret_key = Fr::from(thread_rng().next_u64());
+    // 10_000 LGO, enough to pay a transfer at the genesis gas prices.
     let note = Note::new(
-        10_000,
+        10_000_000_000_000,
         Fr::from(1u64),
         ZkKey::new(secret_key).to_public_key(),
     );
