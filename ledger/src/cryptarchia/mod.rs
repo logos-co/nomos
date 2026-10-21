@@ -351,7 +351,7 @@ impl LedgerState {
                 self.storage_gas_price,
                 self.storage_gas_consumed_in_epoch,
                 self.storage_gas_ema,
-            )?;
+            );
             Ok(Self {
                 slot,
                 next_epoch_state,
@@ -388,10 +388,10 @@ impl LedgerState {
                 self.storage_gas_price,
                 self.storage_gas_consumed_in_epoch,
                 self.storage_gas_ema,
-            )?;
+            );
             // Then for the empty epochs
             for _ in u32::from(next_epoch_state.epoch())..u32::from(new_epoch) {
-                (new_price, new_ema) = update_storage_market(new_price, 0.into(), new_ema)?;
+                (new_price, new_ema) = update_storage_market(new_price, 0.into(), new_ema);
             }
 
             tracing::warn!(
@@ -455,37 +455,27 @@ impl LedgerState {
         }
     }
 
-    pub fn update_execution_market(
-        self,
-        block_execution_gas_consumed: Gas,
-    ) -> Result<Self, GasOverflow> {
+    #[must_use]
+    pub fn update_execution_market(self, block_execution_gas_consumed: Gas) -> Self {
         // First update the `average_execution_gas`
-        let avg_numerator = EXECUTION_MARKET_EMA_PREV_WEIGHT
-            .checked_mul(u128::from(self.average_execution_gas.into_inner()))
-            .and_then(|weighted| {
-                weighted.checked_add(u128::from(block_execution_gas_consumed.into_inner()))
-            })
-            .ok_or(GasOverflow)?;
+        let avg_numerator = u128::from(block_execution_gas_consumed.into_inner())
+            + EXECUTION_MARKET_EMA_PREV_WEIGHT
+                * u128::from(self.average_execution_gas.into_inner());
         let new_average_execution_gas: Gas =
-            Value::try_from(avg_numerator / EXECUTION_MARKET_EMA_DENOMINATOR)
-                .map_err(|_| GasOverflow)?
-                .into();
+            ((avg_numerator / EXECUTION_MARKET_EMA_DENOMINATOR) as Value).into();
 
         // Then update the `execution_base_fee` using the new average
-        let fee_numerator = EXECUTION_MARKET_BASE_FEE_NUMERATOR
-            .checked_add(u128::from(new_average_execution_gas.into_inner()))
-            .and_then(|factor| factor.checked_mul(u128::from(self.execution_base_fee.into_inner())))
-            .ok_or(GasOverflow)?;
+        let fee_numerator = u128::from(self.execution_base_fee.into_inner())
+            * (EXECUTION_MARKET_BASE_FEE_NUMERATOR
+                + u128::from(new_average_execution_gas.into_inner()));
         let new_base_fee =
-            Value::try_from(fee_numerator.div_ceil(EXECUTION_MARKET_BASE_FEE_DENOMINATOR))
-                .map_err(|_| GasOverflow)?
-                .into();
+            (fee_numerator.div_ceil(EXECUTION_MARKET_BASE_FEE_DENOMINATOR) as Value).into();
 
-        Ok(Self {
+        Self {
             average_execution_gas: new_average_execution_gas,
             execution_base_fee: new_base_fee,
             ..self
-        })
+        }
     }
 
     /// Accumulates the storage gas consumed by an applied block into the
@@ -965,52 +955,35 @@ fn update_storage_market(
     storage_gas_price: GasPrice,
     storage_gas_consumed_in_epoch: Gas,
     storage_gas_ema: Gas,
-) -> Result<(GasPrice, Gas), GasOverflow> {
+) -> (GasPrice, Gas) {
     let previous_price = u128::from(storage_gas_price.into_inner());
     let total_storage_gas = u128::from(storage_gas_consumed_in_epoch.into_inner());
     let previous_ema = u128::from(storage_gas_ema.into_inner());
 
-    let ema_numerator = total_storage_gas
-        .checked_add(previous_ema)
-        .ok_or(GasOverflow)?;
-    let new_ema: Gas = Value::try_from(ema_numerator / STORAGE_MARKET_EMA_DENOMINATOR)
-        .map_err(|_| GasOverflow)?
-        .into();
+    let new_ema: Gas =
+        (((total_storage_gas + previous_ema) / STORAGE_MARKET_EMA_DENOMINATOR) as Value).into();
     let new_ema_unsigned = u128::from(new_ema.into_inner());
     // Hold the price while the effective target is zero (genesis / sustained
     // zero usage). Without this guard `comparator <= 7*ema` is `0 <= 0` (true),
     // wrongly taking the clamp-down branch and ratcheting the price down 12.5%
     // every zero-usage epoch instead of holding it at P_STR(0).
     if new_ema_unsigned == 0 {
-        return Ok((storage_gas_price, new_ema));
+        return (storage_gas_price, new_ema);
     }
-    let comparator = STORAGE_MARKET_CLAMP_DENOMINATOR
-        .checked_mul(total_storage_gas)
-        .ok_or(GasOverflow)?;
-    let clamp_down_bound = STORAGE_MARKET_CLAMP_DOWN_NUMERATOR
-        .checked_mul(new_ema_unsigned)
-        .ok_or(GasOverflow)?;
-    let clamp_up_bound = STORAGE_MARKET_CLAMP_UP_NUMERATOR
-        .checked_mul(new_ema_unsigned)
-        .ok_or(GasOverflow)?;
-    let new_price = if comparator <= clamp_down_bound {
-        previous_price
-            .checked_mul(STORAGE_MARKET_CLAMP_DOWN_NUMERATOR)
-            .map(|numerator| numerator.div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR))
-    } else if comparator >= clamp_up_bound {
-        previous_price
-            .checked_mul(STORAGE_MARKET_CLAMP_UP_NUMERATOR)
-            .map(|numerator| numerator.div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR))
+    let comparator = STORAGE_MARKET_CLAMP_DENOMINATOR * total_storage_gas;
+    let new_price = if comparator <= STORAGE_MARKET_CLAMP_DOWN_NUMERATOR * new_ema_unsigned {
+        ((previous_price * STORAGE_MARKET_CLAMP_DOWN_NUMERATOR)
+            .div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR) as Value)
+            .into()
+    } else if comparator >= STORAGE_MARKET_CLAMP_UP_NUMERATOR * new_ema_unsigned {
+        ((previous_price * STORAGE_MARKET_CLAMP_UP_NUMERATOR)
+            .div_ceil(STORAGE_MARKET_CLAMP_DENOMINATOR) as Value)
+            .into()
     } else {
-        previous_price
-            .checked_mul(total_storage_gas)
-            .map(|numerator| numerator.div_ceil(new_ema_unsigned))
+        ((previous_price * total_storage_gas).div_ceil(new_ema_unsigned) as Value).into()
     };
-    let new_price = Value::try_from(new_price.ok_or(GasOverflow)?)
-        .map_err(|_| GasOverflow)?
-        .into();
 
-    Ok((new_price, new_ema))
+    (new_price, new_ema)
 }
 
 #[expect(
@@ -1469,7 +1442,7 @@ pub mod tests {
         // branch and ratchets the price down 12.5% (1000 -> 875) every
         // zero-usage epoch.
         let price: GasPrice = 1000.into();
-        let (new_price, new_ema) = update_storage_market(price, 0.into(), 0.into()).unwrap();
+        let (new_price, new_ema) = update_storage_market(price, 0.into(), 0.into());
         assert_eq!(
             new_price, price,
             "price must hold while the effective target (EMA) is zero"
@@ -1479,7 +1452,7 @@ pub mod tests {
         // Sanity: once there is a real (non-zero) EMA, the price still adjusts —
         // the guard only fires at a zero target. Zero usage against a non-zero
         // EMA clamps down as before.
-        let (clamped, _) = update_storage_market(price, 0.into(), 800.into()).unwrap();
+        let (clamped, _) = update_storage_market(price, 0.into(), 800.into());
         assert_eq!(clamped, GasPrice::from(875), "non-zero target still clamps");
     }
 
@@ -2466,9 +2439,7 @@ pub mod tests {
         let genesis_price = state.execution_base_fee().into_inner();
 
         for _ in 0..10_000 {
-            state = state
-                .update_execution_market(crate::EXECUTION_GAS_LIMIT)
-                .unwrap();
+            state = state.update_execution_market(crate::EXECUTION_GAS_LIMIT);
         }
 
         assert!(
@@ -2486,15 +2457,13 @@ pub mod tests {
         let mut state = genesis_state(&[note()]);
 
         for _ in 0..100 {
-            state = state.update_execution_market(0.into()).unwrap();
+            state = state.update_execution_market(0.into());
         }
 
         let quiet_price = state.execution_base_fee().into_inner();
 
         for _ in 0..10_000 {
-            state = state
-                .update_execution_market(crate::EXECUTION_GAS_LIMIT)
-                .unwrap();
+            state = state.update_execution_market(crate::EXECUTION_GAS_LIMIT);
         }
 
         assert!(
@@ -2514,7 +2483,7 @@ pub mod tests {
         let heavy_usage: Gas = 1_000_000.into();
 
         for _ in 0..1_000 {
-            (price, ema) = update_storage_market(price, heavy_usage, ema).unwrap();
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
         }
 
         assert!(
@@ -2533,16 +2502,16 @@ pub mod tests {
         let heavy_usage: Gas = 1_000_000.into();
 
         for _ in 0..4 {
-            (price, ema) = update_storage_market(price, heavy_usage, ema).unwrap();
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
         }
         for _ in 0..4 {
-            (price, ema) = update_storage_market(price, 0.into(), ema).unwrap();
+            (price, ema) = update_storage_market(price, 0.into(), ema);
         }
 
         let quiet_price = price.into_inner();
 
         for _ in 0..1_000 {
-            (price, ema) = update_storage_market(price, heavy_usage, ema).unwrap();
+            (price, ema) = update_storage_market(price, heavy_usage, ema);
         }
 
         assert!(
@@ -2557,68 +2526,68 @@ pub mod tests {
         // empty epoch
         assert_eq!(
             (438.into(), 340.into()),
-            update_storage_market(500.into(), 0.into(), 681.into()).unwrap()
+            update_storage_market(500.into(), 0.into(), 681.into())
         );
 
         // Some random values
         // 1) raw = 113 * 1.125 = 127.125 -> 128
         assert_eq!(
             (128.into(), 450.into()),
-            update_storage_market(113.into(), 600.into(), 300.into()).unwrap()
+            update_storage_market(113.into(), 600.into(), 300.into())
         );
 
         // 2) raw = 113 * 0.875 = 98.875 -> 99
         assert_eq!(
             (99.into(), 500.into()),
-            update_storage_market(113.into(), 200.into(), 800.into()).unwrap()
+            update_storage_market(113.into(), 200.into(), 800.into())
         );
 
         // 3) raw = 221 * 1.125 = 248.625 -> 249
         assert_eq!(
             (249.into(), 550.into()),
-            update_storage_market(221.into(), 900.into(), 200.into()).unwrap()
+            update_storage_market(221.into(), 900.into(), 200.into())
         );
 
         // 4) raw = 221 * 0.875 = 193.375 -> 194
         assert_eq!(
             (194.into(), 500.into()),
-            update_storage_market(221.into(), 100.into(), 900.into()).unwrap()
+            update_storage_market(221.into(), 100.into(), 900.into())
         );
 
         // 5) raw = 345 * 1.125 = 388.125 -> 389
         assert_eq!(
             (389.into(), 165.into()),
-            update_storage_market(345.into(), 250.into(), 80.into()).unwrap()
+            update_storage_market(345.into(), 250.into(), 80.into())
         );
 
         // 6) raw = 345 * 0.875 = 301.875 -> 302
         assert_eq!(
             (302.into(), 400.into()),
-            update_storage_market(345.into(), 50.into(), 750.into()).unwrap()
+            update_storage_market(345.into(), 50.into(), 750.into())
         );
 
         // 7) raw = 517 * 1.125 = 581.625 -> 582
         assert_eq!(
             (582.into(), 160.into()),
-            update_storage_market(517.into(), 220.into(), 100.into()).unwrap()
+            update_storage_market(517.into(), 220.into(), 100.into())
         );
 
         // 8) raw = 517 * 0.875 = 452.375 -> 453
         assert_eq!(
             (453.into(), 485.into()),
-            update_storage_market(517.into(), 120.into(), 850.into()).unwrap()
+            update_storage_market(517.into(), 120.into(), 850.into())
         );
 
         // 9) raw = 999 * 1.125 = 1123.875 -> 1124
         assert_eq!(
             (1124.into(), 650.into()),
-            update_storage_market(999.into(), 1000.into(), 300.into()).unwrap()
+            update_storage_market(999.into(), 1000.into(), 300.into())
         );
 
         // 10) raw = 999 * 0.875 = 874.125 -> 875
         assert_eq!(
             (875.into(), 650.into()),
-            update_storage_market(999.into(), 300.into(), 1000.into()).unwrap()
+            update_storage_market(999.into(), 300.into(), 1000.into())
         );
     }
 
@@ -2631,7 +2600,7 @@ pub mod tests {
         // price = ceil(10_000 * (11_173_687 + 1_606_616) / 12_769_928) = 10_009
         ledger.execution_base_fee = 10_000.into();
         ledger.average_execution_gas = 1_596_241.into();
-        ledger = ledger.update_execution_market(1_700_000.into()).unwrap();
+        ledger = ledger.update_execution_market(1_700_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
             (10_009.into(), 1_606_616.into())
@@ -2641,7 +2610,7 @@ pub mod tests {
         // price = ceil(10_000 * (11_173_687 + 1_576_616) / 12_769_928) = 9_985
         ledger.execution_base_fee = 10_000.into();
         ledger.average_execution_gas = 1_596_241.into();
-        ledger = ledger.update_execution_market(1_400_000.into()).unwrap();
+        ledger = ledger.update_execution_market(1_400_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
             (9_985.into(), 1_576_616.into())
@@ -2651,7 +2620,7 @@ pub mod tests {
         // price = ceil(20_000 * (11_173_687 + 1_150_000) / 12_769_928) = 19_302
         ledger.execution_base_fee = 20_000.into();
         ledger.average_execution_gas = 1_000_000.into();
-        ledger = ledger.update_execution_market(2_500_000.into()).unwrap();
+        ledger = ledger.update_execution_market(2_500_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
             (19_302.into(), 1_150_000.into())
@@ -2661,7 +2630,7 @@ pub mod tests {
         // price = ceil(15_000 * (11_173_687 + 1_850_000) / 12_769_928) = 15_299
         ledger.execution_base_fee = 15_000.into();
         ledger.average_execution_gas = 2_000_000.into();
-        ledger = ledger.update_execution_market(500_000.into()).unwrap();
+        ledger = ledger.update_execution_market(500_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
             (15_299.into(), 1_850_000.into())
@@ -2671,7 +2640,7 @@ pub mod tests {
         // price = ceil(30_000 * (11_173_687 + 1_720_000) / 12_769_928) = 30_291
         ledger.execution_base_fee = 30_000.into();
         ledger.average_execution_gas = 1_800_000.into();
-        ledger = ledger.update_execution_market(1_000_000.into()).unwrap();
+        ledger = ledger.update_execution_market(1_000_000.into());
         assert_eq!(
             (ledger.execution_base_fee, ledger.average_execution_gas),
             (30_291.into(), 1_720_000.into())
@@ -2685,27 +2654,6 @@ pub mod tests {
         assert_eq!(target, 1_596_241);
         assert_eq!(EXECUTION_MARKET_BASE_FEE_NUMERATOR, 7 * target);
         assert_eq!(EXECUTION_MARKET_BASE_FEE_DENOMINATOR, 8 * target);
-    }
-
-    #[test]
-    fn execution_base_fee_update_past_u64_max_does_not_wrap() {
-        let mut ledger = LedgerState::from_notes([], &config(), Fr::ZERO);
-        // A full block on a full average raises the fee by 12.5%, past u64::MAX.
-        ledger.execution_base_fee = Value::MAX.into();
-        ledger.average_execution_gas = crate::EXECUTION_GAS_LIMIT;
-        assert_eq!(
-            ledger.update_execution_market(crate::EXECUTION_GAS_LIMIT),
-            Err(GasOverflow)
-        );
-    }
-
-    #[test]
-    fn storage_price_update_past_u64_max_does_not_wrap() {
-        // Usage at the clamp up bound raises the price by 12.5%, past u64::MAX.
-        assert_eq!(
-            update_storage_market(Value::MAX.into(), 900.into(), 200.into()),
-            Err(GasOverflow)
-        );
     }
 
     #[test]

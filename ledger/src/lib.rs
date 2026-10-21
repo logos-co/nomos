@@ -419,16 +419,13 @@ impl LedgerState {
     /// block and the smoothed average consumption. This function updates the
     /// `average_execution_gas` and the `execution_base_fee` stored in the
     /// cryptarchia ledger. See the specification <https://lip.logos.co/blockchain/raw/execution-market.html>
-    fn update_execution_market(
-        self,
-        block_execution_gas_consumed: Gas,
-    ) -> Result<Self, GasOverflow> {
-        Ok(Self {
+    fn update_execution_market(self, block_execution_gas_consumed: Gas) -> Self {
+        Self {
             cryptarchia_ledger: self
                 .cryptarchia_ledger
-                .update_execution_market(block_execution_gas_consumed)?,
+                .update_execution_market(block_execution_gas_consumed),
             ..self
-        })
+        }
     }
 
     /// Accumulates the storage gas consumed by the block into the current
@@ -532,7 +529,7 @@ impl LedgerState {
             .chain(updates.into_iter().map(BlockEvent::NoteSetUpdated))
             .collect();
         // Update Execution market state
-        self = self.update_execution_market(gas_and_fees.execution_gas)?;
+        self = self.update_execution_market(gas_and_fees.execution_gas);
         // Accumulate storage gas consumed so the storage market can update the
         // price at the next epoch rotation.
         self = self.add_storage_gas_consumed(gas_and_fees.storage_gas)?;
