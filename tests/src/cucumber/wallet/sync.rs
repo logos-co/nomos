@@ -13,6 +13,7 @@ use tracing::{info, warn};
 use crate::{
     common::wallet::{
         TrackedWalletKeysBySource, WalletBalance, WalletId, WalletOutputState, WalletUtxos,
+        scanner::accounting::ScannerAccounting,
     },
     cucumber::{
         error::StepError,
@@ -45,6 +46,33 @@ pub async fn current_available_utxos_for_user_wallets(
     add_scenario_fee_wallet_keys(world, &mut wallet_keys);
 
     current_available_utxos_for_wallet_keys_with_requirements(world, &wallet_keys).await
+}
+
+/// Return the UTXOs of all user wallets at the genesis block, their paths
+/// leading to the genesis note set roots.
+pub fn genesis_utxos_for_user_wallets(
+    world: &CucumberWorld,
+    step: &str,
+) -> Result<WalletUtxos, StepError> {
+    let wallets = world.all_user_wallets();
+    let mut wallet_keys = build_tracked_wallet_keys(world, step, &wallets)?;
+    add_scenario_fee_wallet_keys(world, &mut wallet_keys);
+
+    // One accounting per source, as the scanner does: the scenario fee key is
+    // tracked once per source under distinct wallet ids.
+    wallet_keys
+        .batches()
+        .try_fold(WalletUtxos::new(), |mut utxos, batch| {
+            let accounting = ScannerAccounting::new(
+                batch.wallet_keys().to_vec(),
+                &world.chain.genesis_block_utxos,
+            )
+            .map_err(|error| StepError::LogicalError {
+                message: format!("Step `{step}` error: genesis wallet accounting failed: {error}"),
+            })?;
+            utxos.extend(accounting.wallet_utxos());
+            Ok(utxos)
+        })
 }
 
 /// Return currently available UTXOs for one named wallet.

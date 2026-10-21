@@ -235,51 +235,55 @@ fn step_configure_pow_auto_claim(
     })?;
 
     // Auto-claim reads its targets' balances through the node's wallet, so the
-    // account has to be one the node holds: preload the secret into the KMS and
-    // list its public key under `wallet.known_keys`, keyed the same way the
-    // preload backend derives ids.
+    // account has to be one the node holds.
+    let mut overrides = vec![ConfigOverride {
+        path: "pow.auto_claim".to_owned(),
+        value,
+    }];
+    overrides.extend(node_wallet_key_overrides(&step.value, &account)?);
+    world.auto_claim_overrides.insert(node_name, overrides);
+    Ok(())
+}
+
+/// Makes `account` a key of the node's wallet: preloads the secret into the
+/// KMS and lists its public key under `wallet.known_keys`, keyed the same way
+/// the preload backend derives ids.
+pub(super) fn node_wallet_key_overrides(
+    step: &str,
+    account: &WalletAccount,
+) -> Result<Vec<ConfigOverride>, StepError> {
     let key: Key = account.secret_key.clone().into();
     let key_id = key_id_for_preload_backend(&key);
     let key_value = serde_yaml::to_value(&key).map_err(|source| StepError::InvalidArgument {
-        message: format!(
-            "Step `{}` error: failed to serialize auto-claim key: {source}",
-            step.value
-        ),
+        message: format!("Step `{step}` error: failed to serialize wallet key: {source}"),
+    })?;
+    let public_key_value = serde_yaml::to_value(account.public_key()).map_err(|source| {
+        StepError::InvalidArgument {
+            message: format!(
+                "Step `{step}` error: failed to serialize wallet public key: {source}"
+            ),
+        }
     })?;
 
-    world.auto_claim_overrides.insert(
-        node_name,
-        vec![
-            ConfigOverride {
-                path: "pow.auto_claim".to_owned(),
-                value,
-            },
-            ConfigOverride {
-                path: format!("kms.backend.keys.{key_id}"),
-                value: key_value,
-            },
-            ConfigOverride {
-                path: format!("wallet.known_keys.{key_id}"),
-                value: serde_yaml::to_value(account.public_key()).map_err(|source| {
-                    StepError::InvalidArgument {
-                        message: format!(
-                            "Step `{}` error: failed to serialize auto-claim public key: {source}",
-                            step.value
-                        ),
-                    }
-                })?,
-            },
-        ],
-    );
-    Ok(())
+    Ok(vec![
+        ConfigOverride {
+            path: format!("kms.backend.keys.{key_id}"),
+            value: key_value,
+        },
+        ConfigOverride {
+            path: format!("wallet.known_keys.{key_id}"),
+            value: public_key_value,
+        },
+    ])
 }
 
 /// Starts mining nodes, each carrying one or more wallet resources of which
 /// exactly one is flagged `is_mining_wallet`. That wallet's public key is
 /// derived and recorded as the node's claim address, so the claim step can
-/// name it and mined rewards land in a wallet the test tracks. Multiple mining
-/// nodes are supported; each gets its own single mining wallet / claim
-/// address.
+/// name it and mined rewards land in a wallet the test tracks. The node's
+/// wallet holds that key, as a claim may only pay a key whose change note the
+/// node can adopt. Multiple mining nodes are supported; each gets its own
+/// single mining wallet / claim address.
 #[given("I start mining nodes with wallet resources:")]
 #[when("I start mining nodes with wallet resources:")]
 async fn step_start_mining_nodes_with_wallet_resources(
@@ -298,6 +302,7 @@ async fn step_start_mining_nodes_with_wallet_resources(
 
     let mut nodes_to_start: NodesToStartUnordered = HashMap::new();
     let mut node_mining_wallet_count: HashMap<String, usize> = HashMap::new();
+    let mut mining_wallet_key_overrides: HashMap<String, Vec<ConfigOverride>> = HashMap::new();
     for row in table.rows.iter().skip(1) {
         let (node_name, wallet_start_info, is_mining_wallet, connected_to) =
             parse_mining_wallet_resources_table_row(&step.value, row)?;
@@ -318,6 +323,10 @@ async fn step_start_mining_nodes_with_wallet_resources(
             world
                 .mining_claim_addresses
                 .insert(node_name.clone(), account.public_key());
+            mining_wallet_key_overrides.insert(
+                node_name.clone(),
+                node_wallet_key_overrides(&step.value, &account)?,
+            );
         }
 
         let entry = nodes_to_start
@@ -356,7 +365,12 @@ async fn step_start_mining_nodes_with_wallet_resources(
     for (node_name, wallet_start_info, mut initial_peers) in nodes_to_start_ordered {
         initial_peers.sort();
         initial_peers.dedup();
-        let extra_user_overrides = staged_auto_claim_overrides(world, &node_name);
+        let mut extra_user_overrides = staged_auto_claim_overrides(world, &node_name);
+        extra_user_overrides.extend(
+            mining_wallet_key_overrides
+                .remove(&node_name)
+                .unwrap_or_default(),
+        );
         start_node(
             world,
             &step.value,

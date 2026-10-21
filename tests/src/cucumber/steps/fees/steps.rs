@@ -260,20 +260,20 @@ async fn step_prepared_transaction_tip_absorbed_fee_increase(
 
 #[then(
     expr = "transaction {string} prepared with a {int}% priority fee reserve remains funded \
-            with a smaller reserve at current prices on node {string}"
+            at current prices and at the peak recorded storage price on node {string}"
 )]
 #[expect(
     clippy::needless_pass_by_ref_mut,
     reason = "cucumber step entrypoints must take `&mut World`"
 )]
-async fn step_prepared_transaction_percentage_reserve_absorbed_fee_increase(
+async fn step_prepared_transaction_percentage_reserve_covers_repriced_fee(
     world: &mut CucumberWorld,
     step: &Step,
     transaction_alias: String,
     configured_percent: u64,
     node_name: String,
 ) -> StepResult {
-    assertions::prepared_transaction_percentage_reserve_absorbed_fee_increase(
+    assertions::prepared_transaction_percentage_reserve_covers_repriced_fee(
         world,
         step,
         &transaction_alias,
