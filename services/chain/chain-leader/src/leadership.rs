@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     sync::Arc,
+    time::Instant,
 };
 
 use futures::{StreamExt as _, stream};
@@ -54,6 +55,7 @@ pub async fn find_winning_note<RuntimeServiceId>(
     slot: Slot,
     kms: &(impl KmsAdapter<RuntimeServiceId, KeyId = KeyId> + Sync),
 ) -> Option<WinningNote> {
+    let (mut non_winning_notes, start) = (0usize, Instant::now());
     let public_inputs = public_inputs_for_slot(epoch_state, slot, latest);
     for note in aged {
         match kms
@@ -77,7 +79,7 @@ pub async fn find_winning_note<RuntimeServiceId>(
                     public_inputs,
                 });
             }
-            Ok(false) => {}
+            Ok(false) => non_winning_notes += 1,
             Err(e) => {
                 metrics::consensus_proposals_create_failed("leadership_check");
                 tracing::error!(
@@ -88,6 +90,16 @@ pub async fn find_winning_note<RuntimeServiceId>(
             }
         }
     }
+
+    tracing::trace!(
+        target: LOG_TARGET,
+        "Leadership scan completed in {:.2?} - slot: {}, eligible: {}, winning: 0, \
+        non winning: {non_winning_notes}",
+        start.elapsed(),
+        slot.into_inner(),
+        aged.len(),
+    );
+
     None
 }
 

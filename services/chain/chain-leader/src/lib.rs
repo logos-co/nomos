@@ -511,8 +511,27 @@ where
                                     Self::apply_and_publish_block_proposal(block, &chain_network_api, &blend_adapter).await;
                                 }
                                 Err(e) => {
-                                    metrics::consensus_proposals_create_failed("propose_block");
-                                    error!(target: LOG_TARGET, "{e}");
+                                    let proof_stage = match e {
+                                        Error::PrivateInputs(_) => Some("private_inputs"),
+                                        Error::Proof(_) => Some("proof_generation"),
+                                        Error::ProofTask(_) => Some("proof_task"),
+                                        _ => None,
+                                    };
+                                    if let Some(stage) = proof_stage {
+                                        metrics::consensus_proposals_create_failed(stage);
+                                        error!(
+                                            target: LOG_TARGET,
+                                            diagnostic = BLEND_REACHABILITY,
+                                            event = "leadership_proof_failure",
+                                            epoch = u32::from(ledger_config.epoch(slot)),
+                                            slot = u64::from(slot),
+                                            error = %e,
+                                            "Failed to build leadership proof"
+                                        );
+                                    } else {
+                                        metrics::consensus_proposals_create_failed("propose_block");
+                                        error!(target: LOG_TARGET, "{e}");
+                                    }
                                 }
                             }
                         }
