@@ -149,6 +149,34 @@ impl UserConfig {
         }
     }
 
+    /// The config as YAML with every secret replaced by `<secret>`: the node
+    /// key, the KMS keys and the OTLP authorization headers.
+    pub fn redacted(&self) -> serde_yaml::Result<Value> {
+        const SECRET_FIELDS: [&str; 2] = ["node_key", "authorization_header"];
+
+        fn redact(value: &mut Value) {
+            match value {
+                Value::Mapping(mapping) => {
+                    for (key, value) in mapping.iter_mut() {
+                        if key.as_str().is_some_and(|key| SECRET_FIELDS.contains(&key)) {
+                            *value = "<secret>".into();
+                        } else {
+                            redact(value);
+                        }
+                    }
+                }
+                Value::Sequence(values) => values.iter_mut().for_each(redact),
+                Value::Tagged(tagged) => redact(&mut tagged.value),
+                _ => {}
+            }
+        }
+
+        let mut config = serde_yaml::to_value(self)?;
+        config["kms"]["backend"]["keys"] = "<secret>".into();
+        redact(&mut config);
+        Ok(config)
+    }
+
     pub fn blend_provider_id(&self) -> Result<ProviderId, String> {
         let key_id = &self.blend.non_ephemeral_signing_key_id;
         let Some(key) = self.kms.backend.keys.get(key_id) else {

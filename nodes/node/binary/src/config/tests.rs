@@ -37,7 +37,9 @@ use crate::{
         tracing::serde::{
             console::{Layer as ConsoleLayer, TokioConfig},
             filter::{EnvConfig, Layer},
-            logger::LogFormat,
+            logger::{LogFormat, OtlpConfig as LoggerOtlpConfig},
+            metrics::{Layer as MetricsLayer, OtlpConfig as MetricsOtlpConfig},
+            tracing::{Layer as TracingLayer, OtlpConfig as TracingOtlpConfig},
         },
         wallet::{
             ServiceConfig as WalletServiceConfig,
@@ -440,6 +442,40 @@ fn init_config_writes_only_overrides_and_load_fills_them_from_the_keystore() {
 
     std::fs::write(&config_path, "").unwrap();
     assert!(UserConfig::load(&config_path).is_ok());
+}
+
+#[test]
+fn redacted_config_hides_the_keys_and_the_otlp_authorization_headers() {
+    let mut config = minimal_user_config();
+    config.tracing.logger.otlp = Some(LoggerOtlpConfig {
+        authorization_header: Some("Bearer logs".into()),
+        ..serde_yaml::from_str(
+            "{endpoint: 'http://localhost:4317', service_name: node, protocol: Grpc}",
+        )
+        .unwrap()
+    });
+    config.tracing.metrics = MetricsLayer::new(
+        Some(MetricsOtlpConfig {
+            authorization_header: Some("Bearer metrics".into()),
+            ..serde_yaml::from_str(
+                "{endpoint: 'http://localhost:4317', service_name: node, protocol: Grpc}",
+            )
+            .unwrap()
+        }),
+        None,
+    );
+    config.tracing.tracing = TracingLayer::Otlp(TracingOtlpConfig {
+        authorization_header: Some("Bearer traces".into()),
+        ..serde_yaml::from_str(
+            "{endpoint: 'http://localhost:4317', service_name: node, protocol: Grpc}",
+        )
+        .unwrap()
+    });
+
+    let redacted = serde_yaml::to_string(&config.redacted().unwrap()).unwrap();
+    assert!(!redacted.contains("Bearer"));
+    assert!(!redacted.contains(&hex::encode(config.network.backend.swarm.node_key.as_ref())));
+    assert_eq!(redacted.matches("<secret>").count(), 5);
 }
 
 fn repo_file(path_from_crate_root: &str) -> std::path::PathBuf {

@@ -60,10 +60,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if show_config {
-        let mut config = serde_yaml::to_value(&run_config.user)?;
-        config["network"]["backend"]["swarm"]["node_key"] = "<secret>".into();
-        config["kms"]["backend"]["keys"] = "<secret>".into();
-        print!("{}", serde_yaml::to_string(&config)?);
+        print!("{}", serde_yaml::to_string(&run_config.user.redacted()?)?);
         return Ok(());
     }
 
