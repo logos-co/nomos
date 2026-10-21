@@ -24,20 +24,20 @@ impl WalletBalance {
     }
 }
 
-/// Specifies which subset of wallet notes to consider when checking or
+/// Specifies which subset of wallet UTXOs to consider when checking or
 /// reporting wallet state.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum WalletOutputState {
-    /// All notes that are on-chain, regardless of whether they are encumbered
+    /// All UTXOs that are on-chain, regardless of whether they are encumbered
     /// or not.
     OnChain,
-    /// Notes that are currently reserved by pending transactions.
+    /// UTXOs that are currently reserved by pending transactions.
     Reserved,
-    /// Notes that are not encumbered and are available for new transactions.
+    /// UTXOs that are not encumbered and are available for new transactions.
     Available,
 }
 
-/// Wallet state observed from tracked on-chain notes plus local reservations.
+/// Wallet state observed from tracked on-chain UTXOs plus local reservations.
 #[derive(Debug, Clone)]
 pub struct WalletStateView {
     wallet_id: WalletId,
@@ -109,7 +109,7 @@ fn available_utxos(on_chain_utxos: &[OwnedNote], reserved_utxos: &[OwnedNote]) -
 /// State for one tracked wallet.
 ///
 /// This is the wallet state that is not derived directly from one chain block:
-/// the latest synced notes plus local reservations for submitted transactions
+/// the latest synced UTXOs plus local reservations for submitted transactions
 /// that may not be reflected by the chain view yet.
 #[derive(Debug)]
 pub struct TrackedWallet {
@@ -228,7 +228,7 @@ pub struct TrackedWalletPendingSummary {
 
 /// Serializable state for one tracked wallet.
 ///
-/// Contains the latest observed on-chain notes plus local pending state that is
+/// Contains the latest observed on-chain UTXOs plus local pending state that is
 /// not directly derivable from a single block observation.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrackedWalletState {

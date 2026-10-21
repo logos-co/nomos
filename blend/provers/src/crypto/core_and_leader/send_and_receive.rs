@@ -199,13 +199,13 @@ mod test {
         assert!(processor.proofs_generator().0.is_none());
 
         let private_inputs = ProofOfLeadershipQuotaInputs {
-            slot: 2,
-            note_value: 2,
-            note_nonce: ZkHash::ONE,
             commitment_aged_path_and_selectors: [(ZkHash::ONE, true); _],
+            note_value: 42,
+            note_nonce: ZkHash::ONE,
+            slot: 1,
+            secret_key: ZkHash::ONE,
             nullifier_root_aged: ZkHash::ONE,
             set_aged_path_and_selectors: [(ZkHash::ONE, true); _],
-            secret_key: ZkHash::ONE,
         };
 
         processor.set_epoch_private(Box::pin(repeat(private_inputs.clone())), Epoch::new(1));

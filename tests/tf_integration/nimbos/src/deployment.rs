@@ -92,7 +92,7 @@ cryptarchia:
         proof: leadership-proof
         entropy_contribution: entropy
         leader_key: leader-key
-        voucher_commitment: voucher
+        voucher_cm: voucher
     signature: genesis-signature
     uncle_headers: []
     transactions:

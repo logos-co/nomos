@@ -431,8 +431,9 @@ fn build_genesis_block(
     let mut notes_iter = notes.into_iter();
     let mut decls_iter = declarations.into_iter();
 
-    // Non-emptiness of the notes is checked by the caller, so this unwrap is safe.
+    // Non-emptiness is checked by the caller, so these unwraps are safe.
     let first_note = notes_iter.next().unwrap();
+    let first_decl = decls_iter.next().unwrap();
 
     // Accumulate additional notes into WithNotes state.
     let mut builder = GenesisBlockBuilder::new().add_note(first_note);
@@ -443,11 +444,9 @@ fn build_genesis_block(
     }
 
     // Transition: WithNotes → WithNotesAndInscription → WithAll.
-    let builder = builder.set_inscription(inscription);
-    let Some(first_decl) = decls_iter.next() else {
-        return builder.build().context("failed to build genesis block");
-    };
-    let mut builder = builder.add_declaration(first_decl);
+    let mut builder = builder
+        .set_inscription(inscription)
+        .add_declaration(first_decl);
     for decl in decls_iter {
         builder = builder.add_declaration(decl)?;
     }
