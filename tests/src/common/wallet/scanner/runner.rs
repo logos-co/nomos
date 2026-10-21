@@ -198,6 +198,9 @@ fn scanner_group_needs_catch_up(group: &ForkGroupScannerState) -> bool {
         || group
             .target_height
             .is_none_or(|target_height| group.applied_height < target_height)
+        // Notes are proven against the root of the applied tip, which a fork
+        // at the same height leaves off the source's chain.
+        || group.applied_tip != group.target_tip
 }
 
 fn initialize_scanner_from_seed(
@@ -964,4 +967,25 @@ fn parse_header_id(value: &str) -> Option<HeaderId> {
         return None;
     };
     Some(HeaderId::from(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_scanner_on_a_forked_tip_of_the_target_height_still_needs_catch_up() {
+        let mut group = ForkGroupScannerState::new(String::new(), "wallet".to_owned(), 1);
+        group.status = ScannerStatus::Tailing;
+        group.applied_height = 2;
+        group.applied_tip = Some(HeaderId::from([1; 32]));
+        group.target_height = Some(2);
+        group.target_tip = Some(HeaderId::from([2; 32]));
+
+        assert!(scanner_group_needs_catch_up(&group));
+
+        group.applied_tip = group.target_tip;
+
+        assert!(!scanner_group_needs_catch_up(&group));
+    }
 }
