@@ -290,7 +290,7 @@ impl ProvableOperation for InscriptionOp {
 }
 
 impl OperationGas<MainnetGasProfile> for InscriptionOp {
-    const GAS_COST: Gas = Gas::new(59);
+    const GAS_COST: Gas = Gas::new(56);
 }
 
 impl OpGasCalculator<MainnetGasProfile> for InscriptionOp {
@@ -1161,7 +1161,7 @@ mod tests {
         for threshold in [0, 1, 3] {
             assert_eq!(
                 InscriptionOp::sample().execution_gas(&FixedThresholds(threshold)),
-                Ok(Gas::new(59))
+                Ok(Gas::new(56))
             );
         }
     }
@@ -1174,7 +1174,7 @@ mod tests {
             commitment_merkle_root: Fr::ZERO,
             buffered: 0,
         };
-        for (steps, expected) in [(0usize, 59u64), (1, 678), (3, 1_916)] {
+        for (steps, expected) in [(0usize, 56u64), (1, 675), (3, 1_913)] {
             let operation = InscriptionOp {
                 steps: ChannelSteps::try_from(vec![Step::User(step.clone()); steps]).unwrap(),
                 ..InscriptionOp::sample()
@@ -1198,13 +1198,13 @@ mod tests {
             })
         };
         for (steps, expected) in [
-            (vec![], 59u64),
-            // 3_129
-            (vec![program(0)], 59 + 619 + 2_451),
-            // 4_367, the spec vector inscription
-            (vec![user, program(1)], 59 + 619 + 619 + 619 + 2_451),
-            // 8_675
-            (vec![program(1), program(3)], 59 + 3_689 + 4_927),
+            (vec![], 56u64),
+            // 3_126
+            (vec![program(0)], 56 + 619 + 2_451),
+            // 4_364
+            (vec![user, program(1)], 56 + 619 + 619 + 619 + 2_451),
+            // 8_672
+            (vec![program(1), program(3)], 56 + 3_689 + 4_927),
         ] {
             let operation = InscriptionOp {
                 steps: steps.try_into().unwrap(),

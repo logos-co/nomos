@@ -607,7 +607,7 @@ mod tests {
             .execution_gas_consumption::<MainnetGasProfile>(&context)
             .unwrap();
 
-        let expected_config_gas = u64::from(config_threshold) * 59;
+        let expected_config_gas = u64::from(config_threshold) * 56;
         let expected_deposit_gas = 619;
         let expected_withdraw_gas = 619;
         let expected_total_gas = expected_config_gas + expected_deposit_gas + expected_withdraw_gas;
@@ -649,7 +649,7 @@ mod tests {
             .execution_gas::<MainnetGasProfile>(&channels)
             .unwrap();
 
-        assert_eq!(config_gas.into_inner(), 3 * 59);
+        assert_eq!(config_gas.into_inner(), 3 * 56);
         assert_eq!(deposit_gas.into_inner(), 619);
         assert_eq!(withdraw_gas.into_inner(), 619);
     }

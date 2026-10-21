@@ -88,7 +88,7 @@ impl ProvableOperation for ChannelConfigOp {
 }
 
 impl OperationGas<MainnetGasProfile> for ChannelConfigOp {
-    const GAS_COST: Gas = Gas::new(59);
+    const GAS_COST: Gas = Gas::new(56);
 }
 
 impl OpGasCalculator<MainnetGasProfile> for ChannelConfigOp {
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn channel_config_op_execution_gas_scales_with_the_threshold() {
-        for (threshold, expected) in [(1, 59), (2, 118), (3, 177)] {
+        for (threshold, expected) in [(1, 56), (2, 112), (3, 168)] {
             assert_eq!(
                 ChannelConfigOp::sample().execution_gas(&FixedThresholds(threshold)),
                 Ok(Gas::new(expected))

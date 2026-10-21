@@ -2777,7 +2777,7 @@ mod tests {
                 .unwrap()
                 .frontier_root()
         );
-        assert_eq!(execution_gas, Gas::new(1_896 + 59 + 619 + 619 + 2_451));
+        assert_eq!(execution_gas, Gas::new(1_896 + 56 + 619 + 619 + 2_451));
     }
 
     #[test]
@@ -3064,7 +3064,7 @@ mod tests {
         deferred_proofs.verify().unwrap();
 
         // The config is priced against the channel the inscription created.
-        assert_eq!(execution_gas.into_inner(), 59 + 59);
+        assert_eq!(execution_gas.into_inner(), 56 + 56);
 
         let storage_gas = Gas::new(tx.storage_size() as u64);
         let charged = GasCost::calculate(execution_gas, prices.execution_base_gas_price)
