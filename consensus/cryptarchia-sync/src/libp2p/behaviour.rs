@@ -147,8 +147,8 @@ pub struct Behaviour {
     /// Futures for managing the progress of externally initiated tip
     /// requests.
     sending_tip_responses: FuturesUnordered<SendingTipResponsesFuture>,
-    /// Futures for closing incoming streams that were rejected due to excess
-    /// requests.
+    /// Futures for closing rejected incoming streams. Only pushed to by
+    /// `reject_incoming_stream`.
     incoming_streams_to_close: FuturesUnordered<BoxFuture<'static, ()>>,
     /// Waker to notify the behaviour when `request_tip` or
     /// `start_blocks_download` is called.
@@ -256,34 +256,8 @@ impl Behaviour {
         &self,
         peer_id: PeerId,
         request: DownloadBlocksRequest,
-        mut stream: Libp2pStream,
+        stream: Libp2pStream,
     ) -> Poll<ToSwarmEvent> {
-        if self.sending_block_responses.len() >= self.config.max_inbound_requests.get() {
-            error!(target: LOG_TARGET, "Rejected excess incoming download request");
-
-            self.incoming_streams_to_close.push(
-                async move {
-                    drop(stream.close().await);
-                }
-                .boxed(),
-            );
-
-            return Poll::Pending;
-        }
-
-        if request.known_blocks.additional_blocks.len() > MAX_ADDITIONAL_BLOCKS {
-            error!(target: LOG_TARGET, "Received excessive number of additional blocks");
-
-            self.incoming_streams_to_close.push(
-                async move {
-                    drop(stream.close().await);
-                }
-                .boxed(),
-            );
-
-            return Poll::Pending;
-        }
-
         let (reply_sender, reply_receiver) = mpsc::channel(1);
 
         self.sending_block_responses.push(
@@ -299,18 +273,11 @@ impl Behaviour {
         }))
     }
 
-    fn handle_incoming_stream(&self, peer_id: PeerId, mut stream: Libp2pStream) {
-        // Only requests still being read are limited here. Download requests are
-        // limited once their type is known (see `handle_download_request`), while
-        // tip requests are cheap to serve and always accepted.
+    fn handle_incoming_stream(&self, peer_id: PeerId, stream: Libp2pStream) {
+        // Only requests still being read are limited here. Once the request type
+        // is known, `admit_request` applies the per-type limits.
         if self.receiving_requests.len() >= self.config.max_inbound_requests.get() {
-            self.incoming_streams_to_close.push(
-                async move {
-                    drop(stream.close().await);
-                }
-                .boxed(),
-            );
-            error!(target: LOG_TARGET, "Rejected excess pending incoming request");
+            self.reject_incoming_stream(stream, "too many pending incoming requests");
         } else {
             self.receiving_requests.push(
                 Provider::process_request(peer_id, stream, self.config.peer_response_timeout)
@@ -352,6 +319,11 @@ impl Behaviour {
     > {
         let (peer_id, stream, request) = receive_request_stream;
 
+        if let Err(reason) = self.admit_request(&request) {
+            self.reject_incoming_stream(stream, reason);
+            return Poll::Pending;
+        }
+
         let event = match request {
             RequestMessage::DownloadBlocksRequest(request) => {
                 self.handle_download_request(peer_id, request, stream)
@@ -362,6 +334,36 @@ impl Behaviour {
         self.try_notify_waker();
 
         event
+    }
+
+    /// Decides whether a fully read inbound request should be served.
+    fn admit_request(&self, request: &RequestMessage) -> Result<(), &'static str> {
+        match request {
+            RequestMessage::DownloadBlocksRequest(request) => {
+                if self.sending_block_responses.len() >= self.config.max_inbound_requests.get() {
+                    return Err("too many concurrent download requests");
+                }
+                if request.known_blocks.additional_blocks.len() > MAX_ADDITIONAL_BLOCKS {
+                    return Err("excessive number of additional blocks");
+                }
+                Ok(())
+            }
+            // Tip requests are cheap to serve, so they are never rejected.
+            RequestMessage::GetTip => Ok(()),
+        }
+    }
+
+    fn reject_incoming_stream(&self, mut stream: Libp2pStream, reason: &str) {
+        error!(target: LOG_TARGET, "Rejected incoming request: {reason}");
+
+        self.incoming_streams_to_close.push(
+            async move {
+                drop(stream.close().await);
+            }
+            .boxed(),
+        );
+
+        self.try_notify_waker();
     }
 
     fn try_notify_waker(&self) {
