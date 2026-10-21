@@ -331,7 +331,7 @@ mod tests {
 
         assert_eq!(
             ops.by_ref().total_gas_cost::<MainnetGasProfile>(&context),
-            Ok(GasCost::new(643))
+            Ok(GasCost::new(649))
         );
     }
 
@@ -383,7 +383,7 @@ mod tests {
 
         assert_eq!(
             ops.by_ref().storage_gas_cost(&context),
-            Ok(GasCost::new(531))
+            Ok(GasCost::new(537))
         );
     }
 
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(
             ops.by_ref()
                 .storage_gas_consumption(&OpsGasContext::default()),
-            Ok(Gas::new(177))
+            Ok(Gas::new(179))
         );
     }
 
