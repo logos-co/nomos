@@ -1,12 +1,11 @@
 [package]
-description            = "Shared inputs and runtime contracts for blockchain tests"
-edition.workspace      = true
-license.workspace      = true
-name                   = "blockchain-test-support"
-publish                = false
-repository.workspace   = true
-rust-version.workspace = true
-version.workspace      = true
+description          = "Shared inputs and runtime contracts for blockchain tests"
+edition.workspace    = true
+license.workspace    = true
+name                 = "blockchain-test-support"
+publish              = false
+repository.workspace = true
+version.workspace    = true
 
 [lints]
 workspace = true

@@ -1,13 +1,12 @@
 [package]
-description            = "Logos blockchain test-framework integration crate"
-edition.workspace      = true
-license.workspace      = true
-name                   = "blockchain-test-logos"
-publish                = false
-readme.workspace       = true
-repository.workspace   = true
-rust-version.workspace = true
-version.workspace      = true
+description          = "Logos blockchain test-framework integration crate"
+edition.workspace    = true
+license.workspace    = true
+name                 = "blockchain-test-logos"
+publish              = false
+readme.workspace     = true
+repository.workspace = true
+version.workspace    = true
 
 [lints]
 workspace = true

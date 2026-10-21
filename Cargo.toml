@@ -1,13 +1,12 @@
 [workspace.package]
-categories   = ["cryptography", "cryptography::cryptocurrencies", "security"]
-description  = "Logos blockchain workspace crates. For more information please visit https://logos.co/."
-edition      = "2024"
-keywords     = ["blockchain", "privacy"]
-license      = "MIT or Apache-2.0"
-readme       = "README.md"
-repository   = "https://github.com/logos-blockchain/logos-blockchain"
-rust-version = "1.99"
-version      = "0.0.0"
+categories  = ["cryptography", "cryptography::cryptocurrencies", "security"]
+description = "Logos blockchain workspace crates. For more information please visit https://logos.co/."
+edition     = "2024"
+keywords    = ["blockchain", "privacy"]
+license     = "MIT or Apache-2.0"
+readme      = "README.md"
+repository  = "https://github.com/logos-blockchain/logos-blockchain"
+version     = "0.0.0"
 
 [profile.release]
 codegen-units = 1     # (Much) slower build time, much better performances
@@ -106,7 +105,7 @@ members = [
   "zk/proofs/zktransfer",
   "zone-sdk",
 ]
-resolver = "3"
+resolver = "2"
 
 [workspace.dependencies]
 # Internal
