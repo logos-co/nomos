@@ -2709,7 +2709,7 @@ mod tests {
             .into(),
             inputs: InputNullifiers::default(),
             outputs: [NoteCommitment(Fr::from(output))].into(),
-            program_outputs: ProgramOutputs(0),
+            program_outputs: ProgramOutputs::default(),
             commitment_merkle_root,
             spend_notes_hash: Fr::ZERO,
         })]

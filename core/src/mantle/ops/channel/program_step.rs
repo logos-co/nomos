@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use bitvec::{array::BitArray, order::Lsb0};
 use lb_binary_codec::canonical::{BinaryCodec, BinaryDecode, BinaryEncode, DecodeError};
 use lb_groth16::{Fr, fr_from_bytes, serde::serde_fr};
 use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -57,39 +58,59 @@ impl Payment {
 }
 
 // Bit i (least significant first) set when output i is a note of the program.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
-#[serde(transparent)]
-pub struct ProgramOutputs(pub u8);
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(from = "u8", into = "u8")]
+pub struct ProgramOutputs(BitArray<u8, Lsb0>);
+
+impl From<u8> for ProgramOutputs {
+    fn from(byte: u8) -> Self {
+        Self(BitArray::new(byte))
+    }
+}
+
+impl From<ProgramOutputs> for u8 {
+    fn from(outputs: ProgramOutputs) -> Self {
+        outputs.0.into_inner()
+    }
+}
+
+impl BinaryEncode for ProgramOutputs {
+    fn encoded_length(&self) -> usize {
+        1
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        u8::from(*self).encode_into(out);
+    }
+}
+
+impl BinaryDecode for ProgramOutputs {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, byte) = u8::decode(input, &())?;
+        Ok((rest, byte.into()))
+    }
+}
 
 impl ProgramOutputs {
-    const BITS: usize = u8::BITS as usize;
-
     #[must_use]
-    pub fn from_flags(flags: &[bool]) -> Option<Self> {
-        (flags.len() <= Self::BITS).then(|| {
-            Self(
-                flags
-                    .iter()
-                    .enumerate()
-                    .fold(0, |byte, (index, flag)| byte | (u8::from(*flag) << index)),
-            )
-        })
+    pub fn is_program_output(self, index: usize) -> bool {
+        self.0.get(index).is_some_and(|bit| *bit)
     }
 
     #[must_use]
-    pub const fn is_program_output(self, index: usize) -> bool {
-        index < Self::BITS && (self.0 >> index) & 1 == 1
-    }
-
-    #[must_use]
-    pub const fn count(self) -> usize {
-        self.0.count_ones() as usize
+    pub fn count(self) -> usize {
+        self.0.count_ones()
     }
 
     // No bit at or above `outputs`.
     #[must_use]
-    pub const fn fits(self, outputs: usize) -> bool {
-        outputs >= Self::BITS || self.0 >> outputs == 0
+    pub fn fits(self, outputs: usize) -> bool {
+        self.0.iter_ones().all(|index| index < outputs)
     }
 
     #[must_use]
@@ -133,7 +154,7 @@ impl ProgramStep {
             payments: [Payment::sample()].into(),
             inputs: [crate::mantle::notes::NoteNullifier(Fr::from(0x3au64))].into(),
             outputs: [NoteCommitment(Fr::from(0x3bu64))].into(),
-            program_outputs: ProgramOutputs(0b1),
+            program_outputs: ProgramOutputs::from(0b1),
             commitment_merkle_root: Fr::from(0x3cu64),
             spend_notes_hash: Fr::from(0x3du64),
         }
@@ -398,7 +419,7 @@ mod tests {
             (&[][..], step.clone())
         );
         let beyond = ProgramStep {
-            program_outputs: ProgramOutputs(0b10),
+            program_outputs: ProgramOutputs::from(0b10),
             ..step.clone()
         };
         assert!(matches!(
@@ -411,7 +432,7 @@ mod tests {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
-            program_outputs: ProgramOutputs(0),
+            program_outputs: ProgramOutputs::default(),
             ..step
         };
         assert!(matches!(

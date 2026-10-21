@@ -126,7 +126,7 @@ impl From<ProgramStep> for Step {
 
 impl Step {
     #[must_use]
-    pub const fn proof_shape(&self) -> StepProofShape {
+    pub fn proof_shape(&self) -> StepProofShape {
         match self {
             Self::User(_) => StepProofShape::User,
             Self::Program(step) => StepProofShape::Program {
@@ -1676,7 +1676,7 @@ mod tests {
             payments: payments.try_into().unwrap(),
             inputs: InputNullifiers::try_from_iter(inputs.iter().copied()).unwrap(),
             outputs: OutputCommitments::try_from_iter(outputs.iter().copied()).unwrap(),
-            program_outputs: ProgramOutputs(program_outputs),
+            program_outputs: ProgramOutputs::from(program_outputs),
             commitment_merkle_root,
             spend_notes_hash: Fr::from(77u64),
         }
@@ -1977,7 +1977,7 @@ mod tests {
         assert_eq!(
             preverify(
                 ProgramStep {
-                    program_outputs: ProgramOutputs(0b100),
+                    program_outputs: ProgramOutputs::from(0b100),
                     ..step.clone()
                 },
                 proof(1, vec![opening])
@@ -2101,7 +2101,7 @@ mod tests {
             payments: [payment].into(),
             inputs: InputNullifiers::default(),
             outputs: [program_note.commitment()].into(),
-            program_outputs: ProgramOutputs(0b1),
+            program_outputs: ProgramOutputs::from(0b1),
             commitment_merkle_root: root,
             spend_notes_hash: spend_notes_hash(
                 &core::array::from_fn(|_| SpendInputFields::inactive()),

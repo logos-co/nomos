@@ -1007,7 +1007,7 @@ mod tests {
             payments: Payments::default(),
             inputs: InputNullifiers::default(),
             outputs: [note.commitment()].into(),
-            program_outputs: ProgramOutputs(0b1),
+            program_outputs: ProgramOutputs::from(0b1),
             commitment_merkle_root: Fr::ZERO,
             spend_notes_hash: Fr::ZERO,
         };

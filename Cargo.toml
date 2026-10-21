@@ -215,6 +215,7 @@ axum                               = { default-features = false, version = "0.7.
 backon                             = { default-features = false, version = "1.3.0" }
 bincode                            = { default-features = false, version = "1.3" }
 bip39                              = { default-features = false, version = "2.2" }
+bitvec                             = { default-features = false, version = "1.0" }
 blake2                             = { default-features = false, version = "0.10" }
 boon                               = { default-features = false, version = "0.6" }
 bytes                              = { default-features = false, version = "1.3" }

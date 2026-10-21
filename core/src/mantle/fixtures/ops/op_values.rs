@@ -89,7 +89,7 @@ pub static INSCRIPTION: LazyLock<InscriptionOp> = LazyLock::new(|| InscriptionOp
             .into(),
             inputs: [NoteNullifier(Fr::from(0x3au64))].into(),
             outputs: [NoteCommitment(Fr::from(0x3bu64))].into(),
-            program_outputs: ProgramOutputs(0b1),
+            program_outputs: ProgramOutputs::from(0b1),
             commitment_merkle_root: Fr::from(0x3cu64),
             spend_notes_hash: Fr::from(0x3du64),
         }),
