@@ -8,6 +8,7 @@ use lb_key_management_system_keys::keys::{Ed25519Key, ZkPublicKey};
 use crate::{
     mantle::{
         channel::{SlotTimeframe, SlotTimeout},
+        fixtures::programs::placeholder_key,
         notes::{NoteCommitment, NoteNullifier},
         ops::{
             channel::{
@@ -23,7 +24,6 @@ use crate::{
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
             transfer::TransferOp,
         },
-        programs::ProgramVerificationKey,
     },
     sdp::{
         ActivityMetadata, DeclarationId, Locator, ProviderId, ServiceType, blend::ActivityProof,
@@ -46,13 +46,7 @@ pub static TRANSFER: LazyLock<TransferOp> = LazyLock::new(|| TransferOp {
 });
 
 pub static PROGRAM_REGISTER: LazyLock<ProgramRegisterOp> = LazyLock::new(|| ProgramRegisterOp {
-    verification_key: ProgramVerificationKey {
-        alpha: [0x3e; 32],
-        beta: [0x3f; 64],
-        gamma: [0x40; 64],
-        delta: [0x41; 64],
-        ic: [[0x42; 32], [0x43; 32], [0x44; 32], [0x45; 32]],
-    },
+    verification_key: placeholder_key(),
 });
 
 pub static CHANNEL_CONFIG: LazyLock<ChannelConfigOp> = LazyLock::new(|| ChannelConfigOp {

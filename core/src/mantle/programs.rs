@@ -1,11 +1,10 @@
 use std::sync::LazyLock;
 
 use ark_ff::{AdditiveGroup as _, PrimeField as _};
-use lb_binary_codec::canonical::{BinaryCodec, BinaryDecodeExt as _, BinaryEncode as _};
+use lb_binary_codec::canonical::{BinaryDecode, BinaryEncode, DecodeError};
 use lb_groth16::{
-    COMPRESSED_G1_SIZE, COMPRESSED_G2_SIZE, CompressedGroth16Proof, Fr, Groth16AlphaBeta,
-    Groth16Proof, Groth16VerificationKey, KeyPoint, KeyPointError, fr_from_bytes,
-    g1_from_compressed, g1_to_compressed, g2_from_compressed, g2_to_compressed,
+    CompressedGroth16Proof, CompressedGroth16VerificationKey, Fr, Groth16AlphaBeta, Groth16Proof,
+    Groth16VerificationKey, fr_from_bytes,
 };
 use lb_key_management_system_keys::keys::{ZkKey, ZkPublicKey};
 use lb_poseidon2::Digest as _;
@@ -31,20 +30,68 @@ static PROGRAM_SPEND_NOTES_V1: LazyLock<Fr> = LazyLock::new(|| {
 });
 
 // Alpha G1, Beta Gamma Delta G2, 4 IC G1, compressed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, BinaryCodec)]
-pub struct ProgramVerificationKey {
-    pub alpha: [u8; COMPRESSED_G1_SIZE],
-    pub beta: [u8; COMPRESSED_G2_SIZE],
-    pub gamma: [u8; COMPRESSED_G2_SIZE],
-    pub delta: [u8; COMPRESSED_G2_SIZE],
-    pub ic: [[u8; COMPRESSED_G1_SIZE]; PROGRAM_KEY_IC_LEN],
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ProgramVerificationKey(CompressedGroth16VerificationKey);
+
+impl ProgramVerificationKey {
+    pub fn new(key: CompressedGroth16VerificationKey) -> Result<Self, ProgramKeyError> {
+        if key.ic.len() != PROGRAM_KEY_IC_LEN {
+            return Err(ProgramKeyError::IcCount(key.ic.len()));
+        }
+        Ok(Self(key))
+    }
+
+    #[must_use]
+    pub const fn as_compressed(&self) -> &CompressedGroth16VerificationKey {
+        &self.0
+    }
+
+    pub fn to_groth16(&self) -> Result<Groth16VerificationKey, ProgramKeyError> {
+        Groth16VerificationKey::try_from(&self.0).map_err(|_| ProgramKeyError::InvalidPoint)
+    }
+
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; PROGRAM_KEY_SIZE] {
+        self.0
+            .to_bytes()
+            .try_into()
+            .expect("a program key encodes to its size")
+    }
+
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; PROGRAM_KEY_SIZE]) -> Self {
+        Self(
+            CompressedGroth16VerificationKey::from_bytes(bytes)
+                .expect("a program key size holds 4 ic points"),
+        )
+    }
+}
+
+impl BinaryEncode for ProgramVerificationKey {
+    fn encoded_length(&self) -> usize {
+        PROGRAM_KEY_SIZE
+    }
+
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.to_bytes());
+    }
+}
+
+impl BinaryDecode for ProgramVerificationKey {
+    type Context = ();
+
+    fn decode<'input>(
+        input: &'input [u8],
+        (): &Self::Context,
+    ) -> Result<(&'input [u8], Self), DecodeError> {
+        let (rest, bytes) = <[u8; PROGRAM_KEY_SIZE]>::decode(input, &())?;
+        Ok((rest, Self::from_bytes(&bytes)))
+    }
 }
 
 impl Serialize for ProgramVerificationKey {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let bytes = <[u8; PROGRAM_KEY_SIZE]>::try_from(&*self.encode())
-            .expect("a program key encodes to its size");
-        lb_utils::serde::serialize_bytes_array::<PROGRAM_KEY_SIZE, _>(bytes, serializer)
+        lb_utils::serde::serialize_bytes_array::<PROGRAM_KEY_SIZE, _>(self.to_bytes(), serializer)
     }
 }
 
@@ -52,29 +99,7 @@ impl<'de> Deserialize<'de> for ProgramVerificationKey {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let bytes =
             lb_utils::serde::deserialize_bytes_array_or_seq::<PROGRAM_KEY_SIZE, _>(deserializer)?;
-        Self::decode_all(&bytes).map_err(D::Error::custom)
-    }
-}
-
-impl ProgramVerificationKey {
-    pub fn to_groth16(&self) -> Result<Groth16VerificationKey, KeyPointError> {
-        let alpha_1 = g1_from_compressed(&self.alpha, KeyPoint::Alpha)?;
-        let beta_2 = g2_from_compressed(&self.beta, KeyPoint::Beta)?;
-        let gamma_2 = g2_from_compressed(&self.gamma, KeyPoint::Gamma)?;
-        let delta_2 = g2_from_compressed(&self.delta, KeyPoint::Delta)?;
-        let ic = self
-            .ic
-            .iter()
-            .enumerate()
-            .map(|(index, point)| g1_from_compressed(point, KeyPoint::Ic(index)))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Groth16VerificationKey {
-            alpha_1,
-            beta_2,
-            gamma_2,
-            delta_2,
-            ic,
-        })
+        Ok(Self::from_bytes(&bytes))
     }
 }
 
@@ -82,15 +107,10 @@ impl TryFrom<&Groth16VerificationKey> for ProgramVerificationKey {
     type Error = ProgramKeyError;
 
     fn try_from(key: &Groth16VerificationKey) -> Result<Self, Self::Error> {
-        let ic = <&[_; PROGRAM_KEY_IC_LEN]>::try_from(key.ic.as_slice())
-            .map_err(|_| ProgramKeyError::IcCount(key.ic.len()))?;
-        Ok(Self {
-            alpha: g1_to_compressed(&key.alpha_1),
-            beta: g2_to_compressed(&key.beta_2),
-            gamma: g2_to_compressed(&key.gamma_2),
-            delta: g2_to_compressed(&key.delta_2),
-            ic: ic.each_ref().map(g1_to_compressed),
-        })
+        Self::new(
+            CompressedGroth16VerificationKey::try_from(key)
+                .map_err(|_| ProgramKeyError::InvalidPoint)?,
+        )
     }
 }
 
@@ -98,6 +118,8 @@ impl TryFrom<&Groth16VerificationKey> for ProgramVerificationKey {
 pub enum ProgramKeyError {
     #[error("a program key holds 4 ic points: got {0}")]
     IcCount(usize),
+    #[error("a program key point is not in its prime order subgroup or is the point at infinity")]
+    InvalidPoint,
 }
 
 #[must_use]
@@ -117,7 +139,7 @@ pub struct RegisteredProgram {
 }
 
 impl RegisteredProgram {
-    pub fn new(key: ProgramVerificationKey) -> Result<Self, KeyPointError> {
+    pub fn new(key: ProgramVerificationKey) -> Result<Self, ProgramKeyError> {
         let groth16_key = key.to_groth16()?;
         let alpha_beta = groth16_key.alpha_beta();
         Ok(Self {
@@ -311,17 +333,7 @@ mod tests {
     use lb_groth16::test_utils::{three_input_prove, three_input_setup};
 
     use super::*;
-    use crate::mantle::notes::derive_note_nullifier;
-
-    fn placeholder_key() -> ProgramVerificationKey {
-        ProgramVerificationKey {
-            alpha: [0x3e; 32],
-            beta: [0x3f; 64],
-            gamma: [0x40; 64],
-            delta: [0x41; 64],
-            ic: [[0x42; 32], [0x43; 32], [0x44; 32], [0x45; 32]],
-        }
-    }
+    use crate::mantle::{fixtures::programs::placeholder_key, notes::derive_note_nullifier};
 
     fn test_key() -> (
         ProgramVerificationKey,
@@ -354,24 +366,21 @@ mod tests {
     #[test]
     fn registered_program_checks_every_point_and_stores_alpha_beta() {
         let (key, _) = test_key();
-        let program = RegisteredProgram::new(key).unwrap();
+        let program = RegisteredProgram::new(key.clone()).unwrap();
         assert_eq!(
             program.alpha_beta(),
             &key.to_groth16().unwrap().alpha_beta()
         );
         assert_eq!(
             RegisteredProgram::new(placeholder_key()),
-            Err(KeyPointError::Invalid(KeyPoint::Alpha))
+            Err(ProgramKeyError::InvalidPoint)
         );
-        let mut infinity = [0u8; 32];
-        infinity[31] = 0x40;
-        let at_infinity = ProgramVerificationKey {
-            ic: [key.ic[0], key.ic[1], key.ic[2], infinity],
-            ..key
-        };
+        let mut at_infinity = three_input_setup(1).0;
+        // An affine point defaults to the point at infinity.
+        at_infinity.ic[3] = <_>::default();
         assert_eq!(
-            RegisteredProgram::new(at_infinity),
-            Err(KeyPointError::Infinity(KeyPoint::Ic(3)))
+            RegisteredProgram::new(ProgramVerificationKey::try_from(&at_infinity).unwrap()),
+            Err(ProgramKeyError::InvalidPoint)
         );
     }
 
@@ -392,7 +401,7 @@ mod tests {
     #[test]
     fn registering_twice_has_no_effect_and_the_registry_round_trips() {
         let (key, _) = test_key();
-        let (programs, id) = Programs::new().register(RegisteredProgram::new(key).unwrap());
+        let (programs, id) = Programs::new().register(RegisteredProgram::new(key.clone()).unwrap());
         assert_eq!(id, derive_program_id(&key));
         let (again, same) = programs
             .clone()

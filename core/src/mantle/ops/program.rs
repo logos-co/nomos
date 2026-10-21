@@ -1,5 +1,4 @@
 use lb_binary_codec::canonical::{BinaryCodec, BinaryEncode as _};
-use lb_groth16::KeyPointError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -12,7 +11,7 @@ use crate::{
             verification_mode::StandardMode,
         },
         ops::{NoOpProof, OpId, SignedOperation},
-        programs::{ProgramVerificationKey, Programs, RegisteredProgram},
+        programs::{ProgramKeyError, ProgramVerificationKey, Programs, RegisteredProgram},
         transactions::states::{Preverified, Unverified, Verified},
     },
 };
@@ -25,15 +24,9 @@ pub struct ProgramRegisterOp {
 impl ProgramRegisterOp {
     #[cfg(any(test, feature = "test-utils"))]
     #[must_use]
-    pub const fn sample() -> Self {
+    pub fn sample() -> Self {
         Self {
-            verification_key: ProgramVerificationKey {
-                alpha: [0x3e; 32],
-                beta: [0x3f; 64],
-                gamma: [0x40; 64],
-                delta: [0x41; 64],
-                ic: [[0x42; 32], [0x43; 32], [0x44; 32], [0x45; 32]],
-            },
+            verification_key: crate::mantle::fixtures::programs::placeholder_key(),
         }
     }
 }
@@ -58,7 +51,7 @@ impl OpGasCalculator<MainnetGasProfile> for ProgramRegisterOp {}
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ProgramRegisterError {
     #[error("Invalid program verification key: {0}")]
-    InvalidKey(#[from] KeyPointError),
+    InvalidKey(#[from] ProgramKeyError),
 }
 
 pub struct ProgramRegisterExecutionContext {
@@ -105,7 +98,7 @@ impl ExecutableOperation for SignedOperation<ProgramRegisterOp, Verified, Standa
     ) -> Result<(Self::Context<'a>, Vec<TxEvent>), Self::Error> {
         // Storing an already registered key has no effect, and e(α, β) is computed
         // once here, paid by the registration.
-        let program = RegisteredProgram::new(self.operation().verification_key)?;
+        let program = RegisteredProgram::new(self.operation().verification_key.clone())?;
         let (programs, _) = context.programs.register(program);
         Ok((ProgramRegisterExecutionContext { programs }, Vec::new()))
     }
@@ -114,8 +107,8 @@ impl ExecutableOperation for SignedOperation<ProgramRegisterOp, Verified, Standa
 #[cfg(test)]
 mod tests {
     use lb_groth16::{
-        KeyPoint,
-        test_utils::{off_subgroup_g2_compressed, three_input_setup},
+        Groth16VerificationKey,
+        test_utils::{off_subgroup_g2, three_input_setup},
     };
 
     use super::*;
@@ -128,7 +121,7 @@ mod tests {
     fn preverify(verification_key: &ProgramVerificationKey) -> Result<(), ProgramRegisterError> {
         SignedOperation::<_, Unverified, StandardMode>::new(
             ProgramRegisterOp {
-                verification_key: *verification_key,
+                verification_key: verification_key.clone(),
             },
             NoOpProof,
         )
@@ -137,34 +130,32 @@ mod tests {
 
     #[test]
     fn preverify_checks_every_point_of_the_key() {
+        let invalid = Err(ProgramRegisterError::InvalidKey(
+            ProgramKeyError::InvalidPoint,
+        ));
         assert_eq!(
             preverify(&ProgramRegisterOp::sample().verification_key),
-            Err(ProgramRegisterError::InvalidKey(KeyPointError::Invalid(
-                KeyPoint::Alpha
-            )))
+            invalid
         );
-        let key = valid_key();
+        let key = three_input_setup(1).0;
+        let program_key =
+            |key: &Groth16VerificationKey| ProgramVerificationKey::try_from(key).unwrap();
         assert_eq!(
-            preverify(&ProgramVerificationKey {
-                gamma: off_subgroup_g2_compressed(),
-                ..key
-            }),
-            Err(ProgramRegisterError::InvalidKey(KeyPointError::Invalid(
-                KeyPoint::Gamma
-            )))
+            preverify(&program_key(&Groth16VerificationKey {
+                gamma_2: off_subgroup_g2(),
+                ..key.clone()
+            })),
+            invalid
         );
-        let mut infinity = [0u8; 64];
-        infinity[63] = 0x40;
         assert_eq!(
-            preverify(&ProgramVerificationKey {
-                delta: infinity,
-                ..key
-            }),
-            Err(ProgramRegisterError::InvalidKey(KeyPointError::Infinity(
-                KeyPoint::Delta
-            )))
+            preverify(&program_key(&Groth16VerificationKey {
+                // The point at infinity.
+                delta_2: <_>::default(),
+                ..key.clone()
+            })),
+            invalid
         );
-        assert_eq!(preverify(&key), Ok(()));
+        assert_eq!(preverify(&program_key(&key)), Ok(()));
     }
 
     #[test]
@@ -172,7 +163,7 @@ mod tests {
         let key = valid_key();
         let signed: SignedOperation<_, Verified, StandardMode> = SignedOperation::new(
             ProgramRegisterOp {
-                verification_key: key,
+                verification_key: key.clone(),
             },
             NoOpProof,
         )

@@ -23,10 +23,7 @@ use ark_ff::{BigInteger as _, PrimeField as _};
 pub use circuit_integer::{CircuitInteger, CircuitIntegerOutOfRange};
 pub use modulus_shift::{ModulusShift, ModulusShiftOutOfRange};
 use num_bigint::BigUint;
-pub use verification_key::{
-    COMPRESSED_G1_SIZE, COMPRESSED_G2_SIZE, KeyPoint, KeyPointError, g1_from_compressed,
-    g1_to_compressed, g2_from_compressed, g2_to_compressed,
-};
+pub use verification_key::CompressedVerificationKey;
 pub use verifier::{VerificationError, groth16_batch_verify, groth16_verify};
 
 pub const GROTH16_SAFE_BYTES_SIZE: usize = 31;
@@ -40,6 +37,7 @@ pub type Groth16Proof = proof::Proof<Bn254>;
 pub type CompressedGroth16Proof = CompressedProof<Bn254>;
 pub type Groth16ProofJsonDeser = proof::ProofJsonDeser;
 pub type Groth16VerificationKey = verification_key::VerificationKey<Bn254>;
+pub type CompressedGroth16VerificationKey = CompressedVerificationKey<Bn254>;
 pub type Groth16PreparedVerificationKey = verification_key::PreparedVerificationKey<Bn254>;
 pub type Groth16VerificationKeyJsonDeser = verification_key::VerificationKeyJsonDeser;
 pub type Groth16AlphaBeta = ark_bn254::Fq12;

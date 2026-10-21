@@ -1,10 +1,14 @@
 pub mod deserialize;
-use ark_ec::{AffineRepr as _, pairing::Pairing};
-use ark_serialize::{CanonicalDeserialize as _, CanonicalSerialize as _};
+use core::fmt::{self, Debug, Formatter};
+
+use ark_ec::{AffineRepr, pairing::Pairing};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize as _, SerializationError};
 pub use deserialize::VerificationKeyJsonDeser;
+use generic_array::{GenericArray, typenum::Unsigned as _};
 
 use crate::{
     from_json_error::FromJsonError,
+    proof::CompressSize,
     protocol::Protocol,
     utils::{StringifiedG1, StringifiedG2},
 };
@@ -132,66 +136,140 @@ impl<E: Pairing> VerificationKey<E> {
     }
 }
 
-pub const COMPRESSED_G1_SIZE: usize = 32;
-pub const COMPRESSED_G2_SIZE: usize = 64;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyPoint {
-    Alpha,
-    Beta,
-    Gamma,
-    Delta,
-    Ic(usize),
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct CompressedVerificationKey<E: CompressSize> {
+    pub alpha_1: GenericArray<u8, E::G1CompressedSize>,
+    pub beta_2: GenericArray<u8, E::G2CompressedSize>,
+    pub gamma_2: GenericArray<u8, E::G2CompressedSize>,
+    pub delta_2: GenericArray<u8, E::G2CompressedSize>,
+    pub ic: Vec<GenericArray<u8, E::G1CompressedSize>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum KeyPointError {
-    #[error("{0:?} is not a compressed point of its prime order subgroup")]
-    Invalid(KeyPoint),
-    #[error("{0:?} is the point at infinity")]
-    Infinity(KeyPoint),
-}
-
-pub fn g1_from_compressed(
-    bytes: &[u8; COMPRESSED_G1_SIZE],
-    point: KeyPoint,
-) -> Result<ark_bn254::G1Affine, KeyPointError> {
-    let decoded = ark_bn254::G1Affine::deserialize_compressed(bytes.as_slice())
-        .map_err(|_| KeyPointError::Invalid(point))?;
-    if decoded.is_zero() {
-        return Err(KeyPointError::Infinity(point));
+impl<E> Debug for CompressedVerificationKey<E>
+where
+    E: CompressSize,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CompressedVerificationKey")
+            .field("alpha_1", &hex::encode(&self.alpha_1))
+            .field("beta_2", &hex::encode(&self.beta_2))
+            .field("gamma_2", &hex::encode(&self.gamma_2))
+            .field("delta_2", &hex::encode(&self.delta_2))
+            .field("ic", &self.ic.iter().map(hex::encode).collect::<Vec<_>>())
+            .finish()
     }
-    Ok(decoded)
 }
 
-pub fn g2_from_compressed(
-    bytes: &[u8; COMPRESSED_G2_SIZE],
-    point: KeyPoint,
-) -> Result<ark_bn254::G2Affine, KeyPointError> {
-    let decoded = ark_bn254::G2Affine::deserialize_compressed(bytes.as_slice())
-        .map_err(|_| KeyPointError::Invalid(point))?;
-    if decoded.is_zero() {
-        return Err(KeyPointError::Infinity(point));
+impl CompressedVerificationKey<ark_bn254::Bn254> {
+    // Alpha, Beta, Gamma, Delta, then the IC points.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [
+            &self.alpha_1[..],
+            &self.beta_2,
+            &self.gamma_2,
+            &self.delta_2,
+        ]
+        .into_iter()
+        .chain(self.ic.iter().map(|point| &point[..]))
+        .flatten()
+        .copied()
+        .collect()
     }
-    Ok(decoded)
+
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let g1 = <ark_bn254::Bn254 as CompressSize>::G1CompressedSize::to_usize();
+        let g2 = <ark_bn254::Bn254 as CompressSize>::G2CompressedSize::to_usize();
+        let ic = bytes.get(g1 + 3 * g2..)?;
+        if !ic.len().is_multiple_of(g1) {
+            return None;
+        }
+        Some(Self {
+            alpha_1: *GenericArray::from_slice(&bytes[..g1]),
+            beta_2: *GenericArray::from_slice(&bytes[g1..g1 + g2]),
+            gamma_2: *GenericArray::from_slice(&bytes[g1 + g2..g1 + 2 * g2]),
+            delta_2: *GenericArray::from_slice(&bytes[g1 + 2 * g2..g1 + 3 * g2]),
+            ic: ic
+                .chunks_exact(g1)
+                .map(|point| *GenericArray::from_slice(point))
+                .collect(),
+        })
+    }
 }
 
-#[must_use]
-pub fn g1_to_compressed(point: &ark_bn254::G1Affine) -> [u8; COMPRESSED_G1_SIZE] {
-    let mut bytes = [0u8; COMPRESSED_G1_SIZE];
-    point
-        .serialize_compressed(bytes.as_mut_slice())
-        .expect("a point fits its compressed size");
-    bytes
+impl<E: CompressSize> TryFrom<&VerificationKey<E>> for CompressedVerificationKey<E> {
+    type Error = SerializationError;
+    fn try_from(value: &VerificationKey<E>) -> Result<Self, SerializationError> {
+        let VerificationKey {
+            alpha_1,
+            beta_2,
+            gamma_2,
+            delta_2,
+            ic,
+        } = value;
+        let mut alpha = GenericArray::default();
+        let mut beta = GenericArray::default();
+        let mut gamma = GenericArray::default();
+        let mut delta = GenericArray::default();
+        alpha_1.serialize_compressed(alpha.as_mut_slice())?;
+        beta_2.serialize_compressed(beta.as_mut_slice())?;
+        gamma_2.serialize_compressed(gamma.as_mut_slice())?;
+        delta_2.serialize_compressed(delta.as_mut_slice())?;
+        let ic = ic
+            .iter()
+            .map(|point| {
+                let mut bytes = GenericArray::default();
+                point.serialize_compressed(bytes.as_mut_slice())?;
+                Ok(bytes)
+            })
+            .collect::<Result<_, SerializationError>>()?;
+        Ok(Self {
+            alpha_1: alpha,
+            beta_2: beta,
+            gamma_2: gamma,
+            delta_2: delta,
+            ic,
+        })
+    }
 }
 
-#[must_use]
-pub fn g2_to_compressed(point: &ark_bn254::G2Affine) -> [u8; COMPRESSED_G2_SIZE] {
-    let mut bytes = [0u8; COMPRESSED_G2_SIZE];
-    point
-        .serialize_compressed(bytes.as_mut_slice())
-        .expect("a point fits its compressed size");
-    bytes
+// Deserialization checks every point is on its curve and in its prime order
+// subgroup, the point at infinity is rejected here.
+impl<E: CompressSize> TryFrom<&CompressedVerificationKey<E>> for VerificationKey<E> {
+    type Error = SerializationError;
+    fn try_from(value: &CompressedVerificationKey<E>) -> Result<Self, SerializationError> {
+        fn finite<P: AffineRepr>(point: P) -> Result<P, SerializationError> {
+            if point.is_zero() {
+                return Err(SerializationError::InvalidData);
+            }
+            Ok(point)
+        }
+        let CompressedVerificationKey {
+            alpha_1,
+            beta_2,
+            gamma_2,
+            delta_2,
+            ic,
+        } = value;
+        let alpha = <E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&alpha_1[..])?;
+        let beta = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&beta_2[..])?;
+        let gamma = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&gamma_2[..])?;
+        let delta = <E::G2Affine as CanonicalDeserialize>::deserialize_compressed(&delta_2[..])?;
+        let ic = ic
+            .iter()
+            .map(|point| {
+                finite(<E::G1Affine as CanonicalDeserialize>::deserialize_compressed(&point[..])?)
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            alpha_1: finite(alpha)?,
+            beta_2: finite(beta)?,
+            gamma_2: finite(gamma)?,
+            delta_2: finite(delta)?,
+            ic,
+        })
+    }
 }
 
 impl VerificationKey<ark_bn254::Bn254> {
@@ -233,63 +311,36 @@ mod tests {
     use ark_bn254::{Fr, G1Affine, G2Affine};
     use ark_ec::AffineRepr as _;
 
-    use super::{
-        KeyPoint, KeyPointError, g1_from_compressed, g1_to_compressed, g2_from_compressed,
-        g2_to_compressed,
-    };
     use crate::{
-        groth16_verify,
-        test_utils::{off_subgroup_g2_compressed, three_input_prove, three_input_setup},
+        CompressedGroth16VerificationKey, Groth16VerificationKey, groth16_verify,
+        test_utils::{off_subgroup_g2, three_input_prove, three_input_setup},
     };
 
+    fn round_trip(key: &Groth16VerificationKey) -> Option<Groth16VerificationKey> {
+        let compressed = CompressedGroth16VerificationKey::try_from(key).unwrap();
+        Groth16VerificationKey::try_from(&compressed).ok()
+    }
+
     #[test]
-    fn compressed_points_round_trip_and_reject_infinity() {
+    fn compressed_key_round_trips_and_rejects_invalid_points() {
         let (key, _) = three_input_setup(1);
+        assert_eq!(round_trip(&key), Some(key.clone()));
+        let mut ic = key.ic.clone();
+        ic[2] = G1Affine::zero();
+        assert_eq!(round_trip(&Groth16VerificationKey { ic, ..key }), None);
         assert_eq!(
-            g1_from_compressed(&g1_to_compressed(&key.alpha_1), KeyPoint::Alpha),
-            Ok(key.alpha_1)
+            round_trip(&Groth16VerificationKey {
+                delta_2: G2Affine::zero(),
+                ..key.clone()
+            }),
+            None
         );
         assert_eq!(
-            g2_from_compressed(&g2_to_compressed(&key.beta_2), KeyPoint::Beta),
-            Ok(key.beta_2)
-        );
-
-        // arkworks flags the point at infinity with bit 6 of the last byte
-        let mut infinity_g1 = [0u8; 32];
-        infinity_g1[31] = 0x40;
-        let mut infinity_g2 = [0u8; 64];
-        infinity_g2[63] = 0x40;
-        assert_eq!(g1_to_compressed(&G1Affine::zero()), infinity_g1);
-        assert_eq!(g2_to_compressed(&G2Affine::zero()), infinity_g2);
-        assert_eq!(
-            g1_from_compressed(&infinity_g1, KeyPoint::Ic(2)),
-            Err(KeyPointError::Infinity(KeyPoint::Ic(2)))
-        );
-        assert_eq!(
-            g2_from_compressed(&infinity_g2, KeyPoint::Delta),
-            Err(KeyPointError::Infinity(KeyPoint::Delta))
-        );
-    }
-
-    #[test]
-    fn compressed_points_reject_bytes_above_the_base_field() {
-        // The placeholder bytes of the spec's PROGRAM_REGISTER vector: x is not below
-        // q.
-        assert_eq!(
-            g1_from_compressed(&[0x3e; 32], KeyPoint::Alpha),
-            Err(KeyPointError::Invalid(KeyPoint::Alpha))
-        );
-        assert_eq!(
-            g2_from_compressed(&[0x3f; 64], KeyPoint::Beta),
-            Err(KeyPointError::Invalid(KeyPoint::Beta))
-        );
-    }
-
-    #[test]
-    fn g2_points_outside_the_prime_order_subgroup_are_rejected() {
-        assert_eq!(
-            g2_from_compressed(&off_subgroup_g2_compressed(), KeyPoint::Gamma),
-            Err(KeyPointError::Invalid(KeyPoint::Gamma))
+            round_trip(&Groth16VerificationKey {
+                gamma_2: off_subgroup_g2(),
+                ..key
+            }),
+            None
         );
     }
 

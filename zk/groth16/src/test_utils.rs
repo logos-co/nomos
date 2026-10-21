@@ -7,7 +7,7 @@ use ark_relations::{
 };
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng as _};
 
-use crate::{COMPRESSED_G2_SIZE, Groth16Proof, Groth16VerificationKey, g2_to_compressed};
+use crate::{Groth16Proof, Groth16VerificationKey};
 
 // Three public inputs and one constraint: (x0 + x1 + x2)^2 = square.
 pub struct ThreeInputCircuit {
@@ -65,14 +65,12 @@ pub fn three_input_prove(
     }
 }
 
-// A point on the twist outside the prime order subgroup, compressed.
-#[must_use]
-pub fn off_subgroup_g2_compressed() -> [u8; COMPRESSED_G2_SIZE] {
-    let point = (1u64..)
+// A point on the twist outside the prime order subgroup.
+pub fn off_subgroup_g2() -> G2Affine {
+    (1u64..)
         .find_map(|n| {
             G2Affine::get_point_from_x_unchecked(Fq2::new(Fq::from(n), Fq::ZERO), false)
                 .filter(|point| !point.is_in_correct_subgroup_assuming_on_curve())
         })
-        .expect("the twist has points outside the subgroup");
-    g2_to_compressed(&point)
+        .expect("the twist has points outside the subgroup")
 }

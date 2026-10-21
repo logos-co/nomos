@@ -1374,7 +1374,7 @@ mod tests {
         let key = ProgramVerificationKey::try_from(&lb_groth16::test_utils::three_input_setup(1).0)
             .unwrap();
         let register = Op::ProgramRegister(ProgramRegisterOp {
-            verification_key: key,
+            verification_key: key.clone(),
         });
         let tx = SignedOps::from_parts(
             Ops::new_unchecked(vec![register.clone(), register]),
@@ -2751,7 +2751,7 @@ mod tests {
                 program_step_tx(
                     vec![
                         Op::ProgramRegister(ProgramRegisterOp {
-                            verification_key: key,
+                            verification_key: key.clone(),
                         }),
                         Op::ChannelInscribe(inscribe),
                     ],

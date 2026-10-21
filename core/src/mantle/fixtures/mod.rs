@@ -3,6 +3,6 @@ mod genesis;
 mod hash;
 mod notes;
 pub mod ops;
-mod programs;
+pub mod programs;
 pub mod proofs;
 mod transactions;
