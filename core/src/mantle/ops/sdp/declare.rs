@@ -346,8 +346,8 @@ mod tests {
     /// per-service uniqueness check.
     #[test]
     fn rejects_duplicate_provider_id_within_service() {
-        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
-        let declare_b = declare_op(1, 2, "/ip4/2.2.2.2/udp/0");
+        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
+        let declare_b = declare_op(1, 2, "/ip4/2.2.2.2/udp/3000");
 
         let declarations = Declarations::new_sync()
             .insert(declare_a.id(), Declaration::new(Epoch::new(0), &declare_a));
@@ -363,8 +363,8 @@ mod tests {
     /// per-service uniqueness check.
     #[test]
     fn rejects_duplicate_zk_id_within_service() {
-        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
-        let declare_b = declare_op(2, 1, "/ip4/2.2.2.2/udp/0");
+        let declare_a = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
+        let declare_b = declare_op(2, 1, "/ip4/2.2.2.2/udp/3000");
 
         let declarations = Declarations::new_sync()
             .insert(declare_a.id(), Declaration::new(Epoch::new(0), &declare_a));
@@ -438,7 +438,7 @@ mod tests {
             let other_view = TxHashView::from(TxHash::from([12u8; 32]));
 
             let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkAndEd25519Proof::new(
                     ZkTransferProof::sample(),
                     signing_key.sign_payload(signed_view.as_bytes().as_ref()),
@@ -461,7 +461,7 @@ mod tests {
 
         #[test]
         fn verify_rejects_a_declaration_that_is_already_registered() {
-            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
+            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
             let declaration_id = operation.id();
             let declarations = Declarations::new_sync()
                 .insert(declaration_id, Declaration::new(Epoch::new(0), &operation));
@@ -482,7 +482,7 @@ mod tests {
         #[test]
         fn verify_accepts_a_well_formed_declaration() {
             verify_against(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkTransferProof::sample(),
                 &Declarations::new_sync(),
                 0,
@@ -493,7 +493,7 @@ mod tests {
 
         #[test]
         fn verify_defers_the_zk_transfer_public_inputs() {
-            let deferred = verify_declaration(declare_op(1, 1, "/ip4/1.1.1.1/udp/0")).unwrap();
+            let deferred = verify_declaration(declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")).unwrap();
             let public = deferred.inputs();
             assert_eq!(
                 public.inputs.map(Groth16Input::into_inner),
@@ -522,7 +522,7 @@ mod tests {
                 .buffer_outputs(&[NoteCommitment(Fr::from(4u64))]);
             let sets = sets.update(LEDGER_SET, buffered);
             let deferred = verify_against(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkTransferProof::sample(),
                 &Declarations::new_sync(),
                 0,
@@ -542,7 +542,7 @@ mod tests {
         fn verify_rejects_an_unknown_root() {
             let operation = SDPDeclareOp {
                 commitment_merkle_root: Fr::from(5u64),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             assert_eq!(
                 verify_declaration(operation).unwrap_err(),
@@ -562,7 +562,7 @@ mod tests {
             let sets = sets.update(LEDGER_SET, spent);
             assert_eq!(
                 verify_against(
-                    declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                    declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                     ZkTransferProof::sample(),
                     &Declarations::new_sync(),
                     0,
@@ -584,7 +584,7 @@ mod tests {
                     nullifier(6),
                 ]
                 .into(),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
             assert_eq!(
                 verify_declaration(operation).unwrap_err(),
@@ -596,7 +596,7 @@ mod tests {
         fn verify_rejects_an_amount_below_the_minimum_stake() {
             assert_eq!(
                 verify_against(
-                    declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                    declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                     ZkTransferProof::sample(),
                     &Declarations::new_sync(),
                     10_001,
@@ -613,7 +613,7 @@ mod tests {
         #[test]
         fn verify_accepts_an_amount_exactly_meeting_the_minimum_stake() {
             verify_against(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkTransferProof::sample(),
                 &Declarations::new_sync(),
                 10_000,
@@ -649,7 +649,7 @@ mod tests {
                 inputs: [nullifier].into(),
                 commitment_merkle_root: root,
                 amount,
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             let deferred = verify_against(
@@ -762,7 +762,7 @@ mod tests {
         fn genesis_verify_rejects_an_unknown_root() {
             let operation = SDPDeclareOp {
                 commitment_merkle_root: Fr::from(5u64),
-                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/0")
+                ..declare_op(1, 1, "/ip4/1.1.1.1/udp/3000")
             };
 
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
@@ -791,7 +791,7 @@ mod tests {
             let other_view = TxHashView::from(TxHash::from([12u8; 32]));
 
             let signed_operation = SignedOperation::<_, Unverified, GenesisMode>::new(
-                declare_op(1, 1, "/ip4/1.1.1.1/udp/0"),
+                declare_op(1, 1, "/ip4/1.1.1.1/udp/3000"),
                 ZkAndEd25519Proof::new(
                     ZkTransferProof::sample(),
                     signing_key.sign_payload(signed_view.as_bytes().as_ref()),
@@ -814,7 +814,7 @@ mod tests {
 
         #[test]
         fn genesis_verify_rejects_a_placeholder_proof() {
-            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/0");
+            let operation = declare_op(1, 1, "/ip4/1.1.1.1/udp/3000");
 
             let tx_hash_view = TxHashView::from(TxHash::from([11u8; 32]));
             let signed_operation = genesis_preverified(operation, &tx_hash_view);

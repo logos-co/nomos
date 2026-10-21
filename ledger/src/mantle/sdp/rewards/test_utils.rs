@@ -33,7 +33,7 @@ pub fn create_epoch_state(
                 provider_id: *provider_id,
                 service_note: NoteCommitment(Fr::from(i as u64)),
                 withdraw_outputs: OutputCommitments::default(),
-                locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+                locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
                 zk_id: ZkPublicKey::new(BigUint::from(i as u64).into()),
                 created: 0.into(),
                 active: 2.into(),

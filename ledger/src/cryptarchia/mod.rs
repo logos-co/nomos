@@ -1366,7 +1366,7 @@ pub mod tests {
         let signing_key = Ed25519Key::from_bytes(&signing_key_bytes);
         let declare_op = SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
             provider_id: signing_key.public_key().into(),
             zk_id: zk_key.to_public_key(),
             inputs: [derive_note_nullifier(

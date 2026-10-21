@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use lb_common_http_client::Slot;
 use lb_key_management_system_service::keys::ZkPublicKey;
 use lb_node::config::RunConfig;
 use lb_testing_framework::{
@@ -14,7 +15,6 @@ use lb_testing_framework::{
     unregister_system_monitor_output_file,
 };
 use lb_utils::math::NonNegativeRatio;
-use lb_zone_sdk::Slot;
 use reqwest::Url;
 use tempfile::TempDir;
 use testing_framework_core::scenario::{DynError, PeerSelection, StartNodeOptions, StartedNode};

@@ -109,7 +109,7 @@ pub use consensus::{
     ensure_all_nodes_agree_on_lib, nodes_converged, poll_all_nodes_and_update_consensus_cache,
 };
 pub use lifecycle::{
-    restart_node, start_node, start_nodes_order_respecting_dependencies, stop_node,
+    restart_node, start_node, start_nodes_order_respecting_dependencies, stop_all_nodes, stop_node,
     verify_reponsive_and_network_ready_with_timeout, wait_all_nodes_responive,
 };
 pub use resources::{

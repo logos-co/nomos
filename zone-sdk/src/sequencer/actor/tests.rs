@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use lb_core::{
     header::HeaderId,
     mantle::{
@@ -22,6 +24,8 @@ use tokio::sync::{mpsc, watch};
 
 use super::{
     super::{
+        block_fetch::ViewBefore,
+        block_states::{BlockChannelTx, ChannelTxKind},
         state::PendingBundle,
         types::{FinalizedOp, InscriptionInfo, SequencerConfig},
         zone_sequencer::track_pending_tx,
@@ -29,8 +33,8 @@ use super::{
     *,
 };
 use crate::test_support::{
-    MockNode, StreamEnd, StreamScript, api_block, funding_config, header_id, live_event, scripts,
-    single_key_channel_state, unverified_tx_with_ops,
+    MockNode, StreamEnd, StreamScript, api_block, funding_config, header_id, inscribe_op,
+    live_event, scripts, single_key_channel_state, unverified_tx_with_ops,
 };
 
 #[tokio::test]
@@ -1165,10 +1169,12 @@ fn track_pending_tx_falls_back_to_other_when_no_inscribe_for_channel() {
     );
 }
 
-/// Cold start with a channel inscription at slot 0 (genesis): the
-/// sequencer must include that slot in its initial backfill and emit it
-/// in a `Finalized` state change. Regression guard for the off-by-one fix
-/// where `backfill_from = lib_slot + 1` silently skipped genesis.
+/// Cold start with a channel inscription at slot 0 (genesis), and the
+/// node's LIB far enough that the replay takes two batches. The genesis slot
+/// is included in the backfill and emitted in a `Finalized` state change
+/// (regression guard for the off-by-one where `backfill_from = lib_slot + 1`
+/// skipped it), and the checkpoint published after the first batch already
+/// has LIB at the last replayed block, so a restart from it loses nothing.
 #[tokio::test]
 async fn cold_start_backfills_genesis_slot() {
     let channel_id = ChannelId::from([7; 32]);
@@ -1188,57 +1194,79 @@ async fn cold_start_backfills_genesis_slot() {
     let genesis_tx_hash = genesis_tx.hash();
 
     let genesis_block = api_block(1, 0, 0, vec![genesis_tx]);
-    // Empty block at slot 1 so the block stream advances and the
-    // sequencer signals `Ready`, giving the test a clean exit signal.
-    let live_block = api_block(2, 1, 1, Vec::new());
+    // LIB at slot 150: the replay runs as two 100-slot batches.
+    let lib_block = api_block(2, 1, 150, Vec::new());
+    // Empty live block so the block stream advances and the sequencer
+    // signals `Ready`, giving the test a clean exit signal.
+    let live_block = api_block(3, 2, 151, Vec::new());
 
     let node = MockNode {
-        lib: genesis_block.header.id,
-        tip: genesis_block.header.id,
+        lib: lib_block.header.id,
+        lib_slot: lib_block.header.slot,
+        tip: lib_block.header.id,
         scripts: scripts(vec![StreamScript {
             events: vec![ProcessedBlockEvent {
                 block: live_block.clone(),
                 tip: live_block.header.id,
                 tip_slot: live_block.header.slot,
-                lib: genesis_block.header.id,
-                lib_slot: Slot::genesis(),
+                lib: lib_block.header.id,
+                lib_slot: lib_block.header.slot,
             }],
             then: StreamEnd::Hang,
         }]),
-        immutable: vec![genesis_block],
+        immutable: vec![genesis_block.clone(), lib_block.clone()],
         ..MockNode::default()
     };
     let mut sequencer =
         ZoneSequencer::init(channel_id, sequencer_key, node, funding_config(), None);
 
     let mut finalized_items: Vec<FinalizedTx> = Vec::new();
+    let mut checkpoints = Vec::new();
     loop {
         match sequencer.next_event().await {
             Event::Ready => break,
-            Event::BlocksProcessed { finalized, .. } => {
+            Event::BlocksProcessed {
+                finalized,
+                checkpoint,
+                ..
+            } => {
                 assert!(
                     sequencer.channel_history().is_none(),
                     "finalized backfill does not know the live branch yet"
                 );
                 finalized_items.extend(finalized);
+                checkpoints.push(checkpoint);
             }
             Event::TurnNotification { .. } => {}
         }
     }
 
+    assert_genesis_inscription_finalized(&finalized_items, genesis_tx_hash, expected_msg_id);
+    assert!(checkpoints.len() >= 2, "one checkpoint per backfill batch");
     assert_eq!(
-        finalized_items.len(),
-        1,
-        "expected exactly one finalized tx from genesis backfill"
+        checkpoints[0].lib, genesis_block.header.id,
+        "LIB follows the replay"
     );
-    let t = &finalized_items[0];
-    assert_eq!(t.tx_hash, genesis_tx_hash);
+    assert_eq!(checkpoints[0].lib_slot, Slot::from(100));
+    assert_eq!(checkpoints[1].lib, lib_block.header.id);
+}
+
+/// The one finalized tx with `tx_hash` carries a single root inscription
+/// with `msg_id`.
+fn assert_genesis_inscription_finalized(items: &[FinalizedTx], tx_hash: TxHash, msg_id: MsgId) {
+    let inscriptions: Vec<_> = items.iter().filter(|t| t.tx_hash == tx_hash).collect();
+    assert_eq!(
+        inscriptions.len(),
+        1,
+        "expected exactly one finalized inscription tx from genesis backfill"
+    );
+    let t = inscriptions[0];
     assert_eq!(t.ops.len(), 1);
     match &t.ops[0] {
         FinalizedOp::Inscription(info) => {
-            assert_eq!(info.tx_hash, genesis_tx_hash);
+            assert_eq!(info.tx_hash, tx_hash);
             assert_eq!(info.parent_msg, MsgId::root());
-            assert_eq!(info.this_msg, expected_msg_id);
+            assert_eq!(info.this_msg, msg_id);
         }
         other => panic!("expected Inscription, got {other:?}"),
     }
@@ -1560,57 +1588,97 @@ async fn stream_gap_surfaces_backfilled_inscriptions_as_adopted() {
 }
 
 /// The variant follows `orphaned`: nothing orphaned is an extension,
-/// otherwise a conflict whose prefix excludes the orphaned entries.
+/// otherwise a conflict whose prefix is the view at the tip after the shed
+/// passes, so it excludes what they orphaned.
 #[tokio::test]
 async fn update_variant_follows_orphaned() {
     let channel_id = ChannelId::from([0; 32]);
     let key = Ed25519Key::from_bytes(&[0; 32]);
-    let mut sequencer = ready_sequencer_with_channel(None, key.clone()).await;
-    let entry = |n: u8| {
-        let op = InscriptionOp {
-            channel_id,
-            inscription: Inscription::new_unchecked(vec![n]),
-            parent: MsgId::root(),
-            signer: key.public_key().into_unverified(),
-            steps: ChannelSteps::default(),
-        };
-        let tx = unverified_tx_with_ops(vec![Op::ChannelInscribe(op.clone())]);
-        ChannelUpdateTx::Inscription(InscriptionInfo {
-            tx_hash: tx.hash(),
-            parent_msg: MsgId::root(),
-            this_msg: MsgId::root(),
-            payload: op.inscription,
-            signer: Some(op.signer),
-        })
+    let mut sequencer = ready_sequencer_with_channel(None, key).await;
+    let info_of = |op: &InscriptionOp| InscriptionInfo {
+        tx_hash: unverified_tx_with_ops(vec![Op::ChannelInscribe(op.clone())]).hash(),
+        parent_msg: op.parent,
+        this_msg: op.id(),
+        payload: op.inscription.clone(),
+        signer: Some(op.signer),
     };
-    let result = |adopted: Vec<ChannelUpdateTx>, orphaned: Vec<ChannelUpdateTx>| BlockEventResult {
+    let result = |adopted: Vec<ChannelUpdateTx>,
+                  orphaned: Vec<ChannelUpdateTx>,
+                  view_before: ViewBefore| BlockEventResult {
         finalized_items: Vec::new(),
         channel_update: Some(ChannelUpdateInfo {
             orphaned,
             adopted,
             new_channel_tip: MsgId::root(),
         }),
-        common_prefix: vec![entry(1), entry(2)],
+        view_before,
         deposits: Vec::new(),
     };
+    let hashes =
+        |txs: &[ChannelUpdateTx]| txs.iter().map(ChannelUpdateTx::tx_hash).collect::<Vec<_>>();
 
-    let (update, ..) = sequencer.apply_block_result(result(vec![entry(3)], Vec::new()));
+    // Block 1 on LIB mines entry 1; the view at the tip is that entry.
+    let mined = inscribe_op(channel_id, MsgId::root(), b"1");
+    let mined_tx = unverified_tx_with_ops(vec![Op::ChannelInscribe(mined.clone())]);
+    let lib = sequencer.state.as_ref().unwrap().lib();
+    sequencer.state.as_mut().unwrap().process_block(
+        header_id(1),
+        lib,
+        lib,
+        std::iter::empty(),
+        vec![BlockChannelTx::new(
+            Arc::new(mined_tx.clone()),
+            mined_tx.hash(),
+            ChannelTxKind::Inscription(info_of(&mined)),
+        )],
+        vec![],
+    );
+    sequencer.current_tip = Some(header_id(1));
+    let adopted = ChannelUpdateTx::Inscription(info_of(&inscribe_op(channel_id, mined.id(), b"3")));
+
+    let (update, ..) = sequencer.apply_block_result(result(
+        vec![adopted.clone()],
+        Vec::new(),
+        ViewBefore::new(&[], HashSet::new()),
+    ));
     assert!(matches!(update, ChannelUpdate::Extension { adopted } if adopted.len() == 1));
 
-    let (update, ..) = sequencer.apply_block_result(result(vec![entry(3)], vec![entry(2)]));
+    // A pending entry chaining off the mined tip is shed by the passes.
+    let stale = inscribe_op(channel_id, MsgId::root(), b"2");
+    let stale_tx = unverified_tx_with_ops(vec![Op::ChannelInscribe(stale.clone())]);
+    sequencer
+        .state
+        .as_mut()
+        .unwrap()
+        .submit_inscription(
+            stale_tx,
+            MsgId::root(),
+            stale.id(),
+            stale.inscription.clone(),
+        )
+        .unwrap();
+    let orphaned_entry = ChannelUpdateTx::Inscription(info_of(&stale));
+
+    let (update, ..) = sequencer.apply_block_result(result(
+        vec![adopted.clone()],
+        vec![orphaned_entry.clone()],
+        ViewBefore::new(&[info_of(&mined), info_of(&stale)], HashSet::new()),
+    ));
     let ChannelUpdate::Conflict {
         common_prefix,
-        adopted,
+        adopted: got,
         orphaned,
     } = update
     else {
         panic!("an orphaned entry makes a conflict")
     };
-    let hashes =
-        |txs: &[ChannelUpdateTx]| txs.iter().map(ChannelUpdateTx::tx_hash).collect::<Vec<_>>();
-    assert_eq!(hashes(&common_prefix), hashes(&[entry(1)]));
-    assert_eq!(hashes(&adopted), hashes(&[entry(3)]));
-    assert_eq!(hashes(&orphaned), hashes(&[entry(2)]));
+    assert_eq!(
+        hashes(&common_prefix),
+        hashes(&[ChannelUpdateTx::Inscription(info_of(&mined))]),
+        "the view at the tip, without the shed entry"
+    );
+    assert_eq!(hashes(&got), hashes(&[adopted]));
+    assert_eq!(hashes(&orphaned), hashes(&[orphaned_entry]));
 }
 
 fn assert_history_matches_update(sequencer: &ZoneSequencer<MockNode>, update: &ChannelUpdate) {

@@ -33,13 +33,12 @@ use crate::{
             cluster::{
                 assert_manual_node_has_peers, connect_manual_node_to_node,
                 install_local_manual_cluster, rebuild_pending_local_manual_cluster,
-                stop_active_manual_cluster,
             },
             nodes::{
                 BlendReachabilityTransition, NodesToStartUnordered, apply_blend_reachability_set,
                 config_override::{set_deployment_config_override, set_user_config_override},
                 create_snapshot_all_nodes_with_wallet_state,
-                create_snapshot_node_with_wallet_state, create_snapshots_all_nodes,
+                create_snapshot_node_with_wallet_state,
                 diagnostics::{BlendDiagnosticEventLogger, set_blend_diagnostic_parameter_set},
                 ensure_all_nodes_agree_on_lib,
                 ensure_fee_sponsorship_and_fork_groups_are_not_mixed,
@@ -48,7 +47,7 @@ use crate::{
                 parse_wallet_resources_table_row, poll_all_nodes_and_update_consensus_cache,
                 restart_node, restore_all_blend_reachability, set_blend_reachability,
                 snapshots::validate_snapshot_path_component,
-                start_node, start_nodes_order_respecting_dependencies, stop_node,
+                start_node, start_nodes_order_respecting_dependencies, stop_all_nodes, stop_node,
                 verify_genesis_wallet_resources_table_indexes,
                 verify_mining_node_wallet_resources_table_indexes,
                 verify_node_wallet_resources_table_indexes,
@@ -60,10 +59,7 @@ use crate::{
             blend_core_locator_from_node_yaml, blend_core_zk_pk_from_node_yaml,
             resolve_literal_or_env,
         },
-        wallet::snapshot::{
-            prepare_all_wallets_snapshot, prepare_wallet_snapshot_restore_if_present,
-            save_prepared_all_wallets_snapshot,
-        },
+        wallet::snapshot::prepare_wallet_snapshot_restore_if_present,
         world::{
             ConfigOverride, CucumberWorld, GenesisTokens, ManualClusterKind, ManualClusterSpec,
             NodeSnapshot, PublicCryptarchiaEndpointPeer,

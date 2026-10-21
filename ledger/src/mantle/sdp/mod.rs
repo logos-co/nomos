@@ -792,7 +792,7 @@ mod tests {
     ) -> SDPDeclareOp {
         SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
             provider_id: ProviderId(signing_key.public_key()),
             zk_id: zk_key.to_public_key(),
             inputs: [derive_note_nullifier(&input.commitment(), input_sk)].into(),
@@ -1383,7 +1383,7 @@ mod tests {
         // Re-declare reusing A's `provider_id` and `zk_id` (fresh service note
         // and locators, so the `declaration_id` differs). Must be accepted.
         let declare_b = SDPDeclareOp {
-            locators: "/ip4/2.2.2.2/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/2.2.2.2/udp/3000".parse::<Locator>().unwrap().into(),
             ..declare_op(&zk_key, &signing_key, &utxo_b)
         };
         let proof_b = ZkAndEd25519Proof {

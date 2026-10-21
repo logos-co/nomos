@@ -449,7 +449,7 @@ mod tests {
     fn verify_active_at(epoch: Epoch) -> Result<(), SdpError> {
         let signing_key = Ed25519Key::from_bytes(&[1; 32]);
         let declare_op = SDPDeclareOp {
-            locators: vec!["/ip4/1.1.1.1/udp/0".parse().unwrap()]
+            locators: vec!["/ip4/1.1.1.1/udp/3000".parse().unwrap()]
                 .try_into()
                 .unwrap(),
             provider_id: signing_key.public_key().into(),

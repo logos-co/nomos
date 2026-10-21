@@ -1161,7 +1161,7 @@ mod tests {
     fn declaration_config_comes_from_the_request() {
         let request = DeclarationRequest {
             service_type: ServiceType::BlendNetwork,
-            locators: Locator::from_str("/ip4/1.1.1.1/udp/0").unwrap().into(),
+            locators: Locator::from_str("/ip4/1.1.1.1/udp/3000").unwrap().into(),
             provider_id: ProviderId(Ed25519PublicKey::from_bytes(&[10; 32]).unwrap()),
             zk_id: ZkPublicKey::new(Fr::from(2u64)),
             amount: 1_000,

@@ -5477,6 +5477,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "logos-blockchain-sql-tests"
+version = "0.0.0"
+dependencies = [
+ "blockchain-test-logos",
+ "cucumber",
+ "futures",
+ "hex",
+ "logos-blockchain-common-http-client",
+ "logos-blockchain-core",
+ "logos-blockchain-groth16",
+ "logos-blockchain-tests",
+ "logos-blockchain-zone-sdk",
+ "logos-blockchain-zone-tests",
+ "logos-sql",
+ "rand 0.8.8",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "logos-blockchain-storage-service"
 version = "0.0.0"
 dependencies = [
@@ -5525,6 +5549,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "humantime",
  "libp2p",
  "logos-blockchain-binary-codec",
  "logos-blockchain-chain-service",
@@ -5546,12 +5571,9 @@ dependencies = [
  "logos-blockchain-utils",
  "logos-blockchain-wallet",
  "logos-blockchain-zktransfer",
- "logos-blockchain-zone-sdk",
- "logos-sql",
  "rand 0.8.8",
  "rand_chacha 0.3.1",
  "reqwest 0.12.28",
- "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -5836,6 +5858,28 @@ dependencies = [
  "rpds",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "logos-blockchain-zone-tests"
+version = "0.0.0"
+dependencies = [
+ "blockchain-test-logos",
+ "cucumber",
+ "futures",
+ "logos-blockchain-common-http-client",
+ "logos-blockchain-core",
+ "logos-blockchain-groth16",
+ "logos-blockchain-http-api-common",
+ "logos-blockchain-key-management-system-service",
+ "logos-blockchain-tests",
+ "logos-blockchain-utils",
+ "logos-blockchain-zone-sdk",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
