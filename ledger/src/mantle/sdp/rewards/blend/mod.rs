@@ -264,7 +264,11 @@ impl<ProofsVerifier> Rewards<ProofsVerifier> {
                 let divisor = proofs_submitted + premium_providers;
                 let base_reward = epoch_income.checked_div(divisor).unwrap_or(0);
                 let estimated_reward = if my_proof_submitted {
-                    if premium { base_reward * 2 } else { base_reward }
+                    if premium {
+                        base_reward * 2
+                    } else {
+                        base_reward
+                    }
                 } else {
                     0
                 };

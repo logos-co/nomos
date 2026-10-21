@@ -12,6 +12,8 @@ use lb_core::{
     sdp::{Declaration, DeclarationId},
 };
 use lb_cryptarchia_engine::Slot;
+use lb_key_management_system_keys::keys::ZkPublicKey;
+use lb_ledger::mantle::sdp::rewards::blend::BlendRewardsInfo;
 use lb_network_service::message::ChainSyncEvent;
 use overwatch::{
     overwatch::OverwatchHandle,
@@ -19,9 +21,6 @@ use overwatch::{
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, oneshot};
-
-use lb_key_management_system_keys::keys::ZkPublicKey;
-use lb_ledger::mantle::sdp::rewards::blend::BlendRewardsInfo;
 
 use crate::{
     AppliedBlock, ChainServiceInfo, ConsensusMsg, CryptarchiaInfo, EpochStateQueryResult,

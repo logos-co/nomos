@@ -307,7 +307,10 @@ pub unsafe extern "C" fn blend_requirements(
 
     let requirements = BlendRequirements {
         min_stake: sdp_config.min_stake.threshold,
-        inactivity_period: service_parameters.inactivity_period.into_inner().into_inner(),
+        inactivity_period: service_parameters
+            .inactivity_period
+            .into_inner()
+            .into_inner(),
         activation_delay_epochs: sdp::SNAPSHOT_FINALIZATION_DELAY.into_inner(),
         minimum_network_size: era_parameters
             .blend_reward_params()
@@ -363,7 +366,9 @@ pub type FfiBlendWithdrawResult = FfiStatusResult<*mut c_char>;
 #[must_use]
 #[panic_to_error]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn blend_withdraw(node: *const LogosBlockchainNode) -> FfiBlendWithdrawResult {
+pub unsafe extern "C" fn blend_withdraw(
+    node: *const LogosBlockchainNode,
+) -> FfiBlendWithdrawResult {
     return_error_if_null_pointer!(node);
 
     let node = unsafe { &*node };
@@ -556,21 +561,20 @@ pub unsafe extern "C" fn blend_status(node: *const LogosBlockchainNode) -> FfiBl
     let overwatch_handle = node.get_overwatch_handle().clone();
 
     let declaration: StatusResult<Option<DeclarationInfo>> = runtime_handle.block_on(async {
-        let Some(declaration_id) =
-            lb_api_service::http::sdp::get_current_declaration_id_handler::<
-                SdpMempoolAdapter<RuntimeServiceId>,
-                SdpWalletAdapter<RuntimeServiceId>,
-                CryptarchiaService<RuntimeServiceId>,
-                SdpRecoveryBackend<RuntimeServiceId>,
-                RuntimeServiceId,
-            >(overwatch_handle.clone())
-            .await
-            .map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::RelayError,
-                    format!("Failed to get current declaration id: {error}"),
-                )
-            })?
+        let Some(declaration_id) = lb_api_service::http::sdp::get_current_declaration_id_handler::<
+            SdpMempoolAdapter<RuntimeServiceId>,
+            SdpWalletAdapter<RuntimeServiceId>,
+            CryptarchiaService<RuntimeServiceId>,
+            SdpRecoveryBackend<RuntimeServiceId>,
+            RuntimeServiceId,
+        >(overwatch_handle.clone())
+        .await
+        .map_err(|error| {
+            OperationStatus::error(
+                OperationStatusCode::RelayError,
+                format!("Failed to get current declaration id: {error}"),
+            )
+        })?
         else {
             return Ok(None);
         };

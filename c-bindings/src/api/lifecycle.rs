@@ -133,7 +133,9 @@ unsafe fn initialize_lb_node(
         Ok(())
     })?;
 
-    Ok(LogosBlockchainNode::new(app, runtime, &chain_id, deployment))
+    Ok(LogosBlockchainNode::new(
+        app, runtime, &chain_id, deployment,
+    ))
 }
 
 /// Builds the run configuration a node started with these paths would use.

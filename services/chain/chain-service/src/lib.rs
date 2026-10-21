@@ -36,9 +36,9 @@ use lb_core::{
 };
 use lb_cryptarchia_engine::{Branch, PrunedBlocks, ReorgedBlocks, UncleSlots};
 pub use lb_cryptarchia_engine::{Epoch, Slot, State};
+use lb_key_management_system_keys::keys::ZkPublicKey;
 pub use lb_ledger::EpochState;
 use lb_ledger::{LedgerState, mantle::sdp::rewards::blend::BlendRewardsInfo};
-use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_log_targets::chain;
 use lb_network_service::message::ChainSyncEvent;
 use lb_services_utils::{

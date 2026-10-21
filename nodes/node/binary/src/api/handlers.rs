@@ -1534,14 +1534,12 @@ where
         >(handle.clone())
         .await?
         {
-            Some(declaration_id) => {
-                mantle::get_sdp_declarations::<RuntimeServiceId>(&handle)
-                    .await?
-                    .get(&declaration_id)
-                    .map(|declaration| {
-                        blend::DeclarationInfo::from_declaration(declaration_id, declaration)
-                    })
-            }
+            Some(declaration_id) => mantle::get_sdp_declarations::<RuntimeServiceId>(&handle)
+                .await?
+                .get(&declaration_id)
+                .map(|declaration| {
+                    blend::DeclarationInfo::from_declaration(declaration_id, declaration)
+                }),
             None => None,
         };
 
