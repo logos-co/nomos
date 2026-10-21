@@ -749,7 +749,12 @@ pub(crate) mod test_utils {
 mod tests {
     use lb_core::{
         crypto::ZkHasher,
-        mantle::ops::{pow::PowNullifier, sdp::SDPDeclareOp},
+        mantle::{
+            Op,
+            gas::MainnetGasProfile,
+            ops::{channel::inscribe::InscriptionOp, pow::PowNullifier, sdp::SDPDeclareOp},
+            transactions::{GasPrices, tx_list::ops::OpsGasContext},
+        },
     };
     use lb_groth16::{AdditiveGroup as _, Field as _};
 
@@ -1020,6 +1025,463 @@ mod tests {
                 (LEDGER_SET, pow),
                 (SDP_SET, declaration.service_note())
             ]
+        );
+    }
+
+    /// Two transfers within a single transaction where the second consumes
+    /// the first's change. After applying the block, the intermediate note
+    /// must not appear in the wallet's notes, only the final notes of the
+    /// second transfer remain.
+    #[test]
+    fn test_apply_block_dependent_ops_within_tx() {
+        let alice = pk(1);
+        let bob = pk(2);
+        let genesis = HeaderId::from([0; 32]);
+        // Op A: 100 to alice. Op B: spends it, 30 to bob and 70 back to alice.
+        let intermediate = Note::new(100, Fr::from(1u64), alice);
+        let to_bob = Note::new(30, Fr::from(2u64), bob);
+        let change = Note::new(70, Fr::from(3u64), alice);
+        let known = known(&[
+            (intermediate, LEDGER_SET, nullifier(1)),
+            (to_bob, LEDGER_SET, nullifier(2)),
+            (change, LEDGER_SET, nullifier(3)),
+        ]);
+        let mut wallet =
+            Wallet::from_genesis([(alice, 1), (bob, 2)], known, genesis, &[], &[]).unwrap();
+
+        // The ledger reports the block's appends and nullifiers in execution
+        // order.
+        let block = block(
+            1,
+            0,
+            0,
+            vec![NoteSetUpdate {
+                note_set: LEDGER_SET,
+                nullifiers: vec![nullifier(1)],
+                commitments: vec![
+                    intermediate.commitment(),
+                    to_bob.commitment(),
+                    change.commitment(),
+                ],
+            }],
+        );
+        wallet.apply_block(&block).unwrap();
+
+        let alice_balance = wallet.balance(block.id, alice).unwrap().unwrap();
+        assert_eq!(alice_balance.balance, 70);
+        assert!(!alice_balance.notes.contains_key(&intermediate.commitment()));
+
+        let bob_balance = wallet.balance(block.id, bob).unwrap().unwrap();
+        assert_eq!(bob_balance.balance, 30);
+    }
+
+    fn context(gas_prices: GasPrices) -> OpsContext {
+        OpsContext {
+            gas_context: OpsGasContext::new(HashMap::new(), gas_prices),
+        }
+    }
+
+    // `tx_builder` funded by one note of value 0, to price its funding Transfer.
+    fn with_zero_input(tx_builder: &MantleTxBuilder) -> MantleTxBuilder {
+        tx_builder
+            .clone()
+            .extend_funding_inputs(
+                Fr::ZERO,
+                [FundingNote {
+                    note: Note::new(0, Fr::ZERO, pk(0)),
+                    nullifier: nullifier(0),
+                }],
+            )
+            .unwrap()
+    }
+
+    // The funding Transfer, which `build` appends last.
+    fn funding_transfer(tx_builder: MantleTxBuilder) -> TransferOp {
+        match tx_builder.build().unwrap().iter().last() {
+            Some(Op::Transfer(transfer_op)) => transfer_op.clone(),
+            _ => panic!("last op must be a transfer"),
+        }
+    }
+
+    fn wallet_state_of(notes: &[(Note, NoteSetIndex, NoteNullifier)]) -> WalletState {
+        let known = known(notes);
+        let in_set = |note_set| {
+            notes
+                .iter()
+                .filter(|(_, set, _)| *set == note_set)
+                .map(|(note, _, _)| *note)
+                .collect::<Vec<_>>()
+        };
+        WalletState::from_genesis(&known, &in_set(LEDGER_SET), &in_set(SDP_SET), Epoch::new(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn test_fund_tx_with_change() {
+        let alice = pk(1);
+        let ledger_note = Note::new(5000, Fr::from(1u64), alice);
+        // A service note of alice, which `fund_tx` must not spend
+        let service_note = Note::new(5000, Fr::from(2u64), alice);
+        let wallet_state = wallet_state_of(&[
+            (ledger_note, LEDGER_SET, nullifier(1)),
+            (service_note, SDP_SET, nullifier(2)),
+        ]);
+        let context = context(GasPrices::new(1, 1));
+        let change_nonce = Fr::from(3u64);
+
+        // Fund the transaction
+        let funded_tx_builder = wallet_state
+            .fund_tx::<MainnetGasProfile>(
+                &MantleTxBuilder::new(),
+                alice,
+                change_nonce,
+                [alice],
+                &context,
+                &HashSet::new(),
+                0,
+            )
+            .unwrap();
+
+        let fee = funded_tx_builder
+            .minimum_gas_cost::<MainnetGasProfile>(&context)
+            .unwrap()
+            .into_inner();
+        assert_eq!(855, fee);
+        assert_eq!(i128::from(fee), funded_tx_builder.net_balance());
+        assert_eq!(
+            0,
+            funded_tx_builder
+                .funding_delta_with_priority_fee::<MainnetGasProfile>(&context, 0)
+                .unwrap()
+        );
+
+        let transfer_op = funding_transfer(funded_tx_builder);
+        // ensure alice's ledger note was used to pay the fee
+        assert_eq!(transfer_op.inputs, [nullifier(1)].into());
+        // ensure change was returned to alice
+        assert_eq!(
+            transfer_op.outputs,
+            [Note::new(5000 - fee, change_nonce, alice).commitment()].into()
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_with_priority_fee_percentage() {
+        let alice = pk(1);
+        let note = Note::new(5000, Fr::from(1u64), alice);
+        let wallet_state = wallet_state_of(&[(note, LEDGER_SET, nullifier(1))]);
+        let context = context(GasPrices::new(1, 1));
+        let change_nonce = Fr::from(3u64);
+        let tx_builder = MantleTxBuilder::new();
+        let priority_fee_percent = 12;
+        let mandatory_fee_without_change = with_zero_input(&tx_builder)
+            .minimum_gas_cost::<MainnetGasProfile>(&context)
+            .unwrap()
+            .into_inner();
+
+        let funded_tx_builder = wallet_state
+            .fund_tx::<MainnetGasProfile>(
+                &tx_builder,
+                alice,
+                change_nonce,
+                [alice],
+                &context,
+                &HashSet::new(),
+                priority_fee_percent,
+            )
+            .unwrap();
+
+        // The final mandatory fee includes the change output, and the tip is
+        // the rounded-up percentage of that final fee.
+        let mandatory_fee = funded_tx_builder
+            .minimum_gas_cost::<MainnetGasProfile>(&context)
+            .unwrap()
+            .into_inner();
+        assert_eq!(mandatory_fee_without_change, 823);
+        assert_eq!(mandatory_fee, 855);
+        let priority_fee_amount = (mandatory_fee * priority_fee_percent).div_ceil(100);
+        assert_eq!(
+            i128::from(mandatory_fee + priority_fee_amount),
+            funded_tx_builder.net_balance()
+        );
+        assert_eq!(
+            0,
+            funded_tx_builder
+                .funding_delta_with_priority_fee::<MainnetGasProfile>(
+                    &context,
+                    priority_fee_percent
+                )
+                .unwrap()
+        );
+
+        // The change output shrank by the mandatory fee and percentage tip.
+        assert_eq!(
+            funding_transfer(funded_tx_builder).outputs,
+            [Note::new(
+                5000 - mandatory_fee - priority_fee_amount,
+                change_nonce,
+                alice
+            )
+            .commitment()]
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_no_fee_adds_no_input() {
+        let alice = pk(1);
+        // The wallet has a spendable note available...
+        let note = Note::new(5000, Fr::from(1u64), alice);
+        let wallet_state = wallet_state_of(&[(note, LEDGER_SET, nullifier(1))]);
+
+        // ...but with zero gas prices a transfer-less transaction owes no fee,
+        // so it needs no funding at all.
+        let context = context(GasPrices::new(0, 0));
+        let tx_builder = MantleTxBuilder::new()
+            .push_op(Op::ChannelInscribe(InscriptionOp::sample()))
+            .unwrap();
+
+        assert_eq!(
+            0,
+            tx_builder
+                .funding_delta::<MainnetGasProfile>(&context)
+                .unwrap()
+        );
+
+        let funded_tx_builder = wallet_state
+            .fund_tx::<MainnetGasProfile>(
+                &tx_builder,
+                alice,
+                Fr::from(3u64),
+                [alice],
+                &context,
+                &HashSet::new(),
+                0,
+            )
+            .unwrap();
+
+        // No input was pulled in (an added input would push the net balance to
+        // 5000) and therefore no change note was added.
+        assert_eq!(0, funded_tx_builder.net_balance());
+
+        // No funding Transfer is appended, so the built tx carries no transfer op.
+        let funded_tx = funded_tx_builder.build().unwrap();
+        assert!(
+            !funded_tx.iter().any(|op| matches!(op, Op::Transfer(_))),
+            "a fee-less transaction must not contain a transfer op"
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_insufficient_funds() {
+        let alice = pk(1);
+        let wallet_state = wallet_state_of(
+            &(1..=4)
+                .map(|i| (Note::new(100, Fr::from(i), alice), LEDGER_SET, nullifier(i)))
+                .collect::<Vec<_>>(),
+        );
+        let context = context(GasPrices::new(1, 1));
+
+        // Add a costly inscription
+        let tx_builder = MantleTxBuilder::new()
+            .push_op(Op::ChannelInscribe(InscriptionOp {
+                inscription: [0xAB; 1000].into(),
+                ..InscriptionOp::sample()
+            }))
+            .unwrap();
+
+        // Fund the transaction
+        let fund_attempt = wallet_state.fund_tx::<MainnetGasProfile>(
+            &tx_builder,
+            alice,
+            Fr::from(5u64),
+            [alice],
+            &context,
+            &HashSet::new(),
+            0,
+        );
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 400 }
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_zero_funds() {
+        let alice = pk(1);
+        let wallet_state = wallet_state_of(&[]);
+
+        // Use non-zero gas prices so the transaction actually owes a fee and
+        // therefore needs funding.
+        let context = context(GasPrices::new(1, 1));
+
+        // Fund the transaction
+        let fund_attempt = wallet_state.fund_tx::<MainnetGasProfile>(
+            &MantleTxBuilder::new(),
+            alice,
+            Fr::from(1u64),
+            [alice],
+            &context,
+            &HashSet::new(),
+            0,
+        );
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 0 }
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_all_service_notes() {
+        let alice = pk(1);
+        let service_note = Note::new(5000, Fr::from(1u64), alice);
+        let channel_note = Note::new(5000, Fr::from(2u64), alice);
+        let known = known(&[
+            (service_note, SDP_SET, nullifier(1)),
+            (channel_note, 2, nullifier(2)),
+        ]);
+        // alice only owns a service note and a channel note, which are not in
+        // the ledger set, so `fund_tx` must not spend them
+        let wallet_state = WalletState::from_genesis(&known, &[], &[service_note], Epoch::new(0))
+            .unwrap()
+            .apply_block(
+                &known,
+                &block(1, 0, 0, vec![appended(2, vec![channel_note.commitment()])]),
+            )
+            .unwrap();
+
+        // Use non-zero gas prices so the transaction actually owes a fee and
+        // therefore needs funding.
+        let context = context(GasPrices::new(1, 1));
+
+        // Fund the transaction
+        let fund_attempt = wallet_state.fund_tx::<MainnetGasProfile>(
+            &MantleTxBuilder::new(),
+            alice,
+            Fr::from(3u64),
+            [alice],
+            &context,
+            &HashSet::new(),
+            0,
+        );
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 0 }
+        );
+    }
+
+    #[test]
+    fn test_fund_tx_respects_pk_list() {
+        let alice = pk(1);
+        let bob = pk(2);
+        let wallet_state = wallet_state_of(&[(
+            Note::new(1_000_000, Fr::from(1u64), bob),
+            LEDGER_SET,
+            nullifier(1),
+        )]);
+
+        // Use non-zero gas prices so the transaction actually owes a fee and
+        // therefore needs funding.
+        let context = context(GasPrices::new(1, 1));
+        let tx_builder = MantleTxBuilder::new();
+
+        // Attempt to fund the transaction with Alice's notes.
+        let fund_attempt = wallet_state.fund_tx::<MainnetGasProfile>(
+            &tx_builder,
+            alice,
+            Fr::from(2u64),
+            [alice],
+            &context,
+            &HashSet::new(),
+            0,
+        );
+
+        assert_eq!(
+            fund_attempt.unwrap_err(),
+            WalletError::InsufficientFunds { available: 0 }
+        );
+
+        // Fund the transaction with Bob's notes.
+        wallet_state
+            .fund_tx::<MainnetGasProfile>(
+                &tx_builder,
+                bob,
+                Fr::from(2u64),
+                [bob],
+                &context,
+                &HashSet::new(),
+                0,
+            )
+            .unwrap(); // succesfully funded;
+    }
+
+    #[test]
+    fn test_fund_tx_unfundable_region() {
+        let alice = pk(1);
+        let change_nonce = Fr::from(2u64);
+        let context = context(GasPrices::new(1, 1));
+        let tx_builder = MantleTxBuilder::new();
+        let fund = |value| {
+            wallet_state_of(&[(
+                Note::new(value, Fr::from(1u64), alice),
+                LEDGER_SET,
+                nullifier(1),
+            )])
+            .fund_tx::<MainnetGasProfile>(
+                &tx_builder,
+                alice,
+                change_nonce,
+                [alice],
+                &context,
+                &HashSet::new(),
+                0,
+            )
+        };
+
+        // Determine gas cost without change note
+        let cost_without_change = with_zero_input(&tx_builder)
+            .minimum_gas_cost::<MainnetGasProfile>(&context)
+            .unwrap()
+            .into_inner();
+        assert_eq!(823, cost_without_change);
+
+        // We can fund the tx if the note value is exactly the gas cost without change
+        // note
+        let funded_tx_wo_change = fund(cost_without_change).unwrap(); // successfully funded the tx
+
+        // verify that no change output was used.
+        assert_eq!(
+            funding_transfer(funded_tx_wo_change).outputs,
+            OutputCommitments::default()
+        );
+
+        // Determine gas cost with change note
+        let cost_with_change = with_zero_input(&tx_builder)
+            .with_dummy_change_note()
+            .unwrap()
+            .minimum_gas_cost::<MainnetGasProfile>(&context)
+            .unwrap()
+            .into_inner();
+        assert_eq!(855, cost_with_change);
+
+        for value in cost_without_change + 1..=cost_with_change {
+            // this region of note values will fail to fund the tx.
+            assert_eq!(
+                fund(value).unwrap_err(),
+                WalletError::InsufficientFunds { available: value }
+            );
+        }
+
+        // We can fund the tx if the note value exceeds gas cost with change note
+        let funded_tx_with_change = fund(cost_with_change + 1).unwrap(); // successfully funded the tx
+
+        // verify that indeed a change output was used.
+        assert_eq!(
+            funding_transfer(funded_tx_with_change).outputs,
+            [Note::new(1, change_nonce, alice).commitment()].into()
         );
     }
 }
