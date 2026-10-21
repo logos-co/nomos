@@ -398,7 +398,7 @@ mod tests {
             (Op::Transfer(TransferOp::sample()), 619),
             (Op::ProgramRegister(ProgramRegisterOp::sample()), 1_896),
             (Op::ChannelConfig(ChannelConfigOp::sample()), 2 * 56),
-            (Op::ChannelInscribe(InscriptionOp::sample()), 56),
+            (Op::ChannelInscribe(InscriptionOp::sample()), 59),
             (Op::ChannelDeposit(DepositOp::sample()), 619),
             (Op::ChannelWithdraw(ChannelWithdrawOp::sample()), 619),
             (Op::SDPDeclare(SDPDeclareOp::sample()), 678),
