@@ -6,16 +6,12 @@ use std::{
 };
 
 use futures::StreamExt as _;
-use lb_binary_codec::canonical::BinaryEncode as _;
 use lb_core::{
-    block::{
-        Block, BlockTransactions, UncleHeaders, body_root,
-        genesis::{GenesisBlock, GenesisBlockBuilder},
-    },
+    block::{Block, BlockTransactions, UncleHeaders, body_root},
     crypto::ZkHasher,
     header::{Header, pol_msg},
     mantle::{
-        CryptarchiaParameter, GenesisTime, Note, Op, OpProof, SignedOps, TxHash, Value,
+        Note, Op, OpProof, SignedOps, TxHash, Value,
         channel::Channels,
         gas::{MainnetGasProfile, TxGasCalculator as _},
         ledger::verification_mode::StandardMode,
@@ -23,15 +19,11 @@ use lb_core::{
         notes::{OutputCommitments, derive_note_nullifier},
         ops::{
             ZkTransferProof,
-            channel::{
-                MsgId, NULL_CHANNEL_ID,
-                inscribe::{ChannelSteps, Inscription, InscriptionOp},
-            },
             transfer::{TransferOp, prove_transfer},
         },
         traits::Hashable as _,
         transactions::{
-            GasPrices, GenesisAllocation, OpProofs, Ops,
+            GasPrices, OpProofs, Ops,
             states::{Preverified, Unverified},
             tx_list::ops::OpsGasContext,
         },
@@ -44,7 +36,7 @@ use lb_core::{
 use lb_cryptarchia_engine::{EpochConfig, Slot, UncleSlots};
 use lb_cryptarchia_sync::HeaderId;
 use lb_groth16::{AdditiveGroup as _, CompressedGroth16Proof, Fr};
-use lb_key_management_system_keys::keys::{UnverifiedEd25519PublicKey, ZkKey, ZkPublicKey};
+use lb_key_management_system_keys::keys::{ZkKey, ZkPublicKey};
 use lb_ledger::{
     LedgerState,
     config::{BlendPoWConfig, ConsensusExcludedKeys, ModulusShift, PoWConfig, RewardPoWConfig},
@@ -1103,32 +1095,6 @@ pub fn genesis_cryptarchia(note: Note) -> Cryptarchia {
         config,
         lb_cryptarchia_engine::State::Bootstrapping,
     )
-}
-
-/// A genesis block distributing the value of each of `notes` to its key.
-pub fn genesis_block_with(notes: &[Note]) -> GenesisBlock {
-    GenesisBlockBuilder::new()
-        .try_add_notes(notes.iter().map(|note| GenesisAllocation {
-            value: note.value,
-            public_key: note.public_key,
-        }))
-        .unwrap()
-        .set_inscription(InscriptionOp {
-            channel_id: NULL_CHANNEL_ID,
-            inscription: Inscription::new_unchecked(
-                CryptarchiaParameter {
-                    chain_id: "test-chain".to_owned().try_into().unwrap(),
-                    genesis_time: GenesisTime::new(0),
-                    epoch_nonce: Fr::ZERO,
-                }
-                .encode_to_vec(),
-            ),
-            parent: MsgId::root(),
-            signer: UnverifiedEd25519PublicKey::from_bytes(&[0; 32]).unwrap(),
-            steps: ChannelSteps::default(),
-        })
-        .build()
-        .unwrap()
 }
 
 /// The paths of `notes` in a commitment MMR holding them, in order.

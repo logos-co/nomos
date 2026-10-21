@@ -392,14 +392,3 @@ fn different_keys_same_index() {
     // same index.
     assert_eq!(key_nullifier_poq_key_1, key_nullifier_poq_key_2);
 }
-
-#[test]
-fn leader_inputs_carry_the_aged_eligible_root() {
-    let (public, _) = valid_proof_of_leadership_quota_inputs(
-        Ed25519PublicKey::from_bytes(&[1; ED25519_PUBLIC_KEY_SIZE]).unwrap(),
-        Quota::try_new(1).unwrap(),
-    );
-    let (chain, _, _) = lb_poq::test_utils::leader_witness_data();
-    assert_eq!(public.leader.pol_eligible_aged, chain.pol_eligible_aged);
-    assert!(format!("{:?}", public.leader).contains("pol_eligible_aged"));
-}

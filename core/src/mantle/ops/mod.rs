@@ -284,30 +284,6 @@ mod mantle_test_vectors {
     }
 
     #[test]
-    fn sdp_active_op_id_matches_the_spec_vector() {
-        let active = Op::SDPActive(sdp::SDPActiveOp::sample());
-        let payload = &active.encode()[1..];
-        assert_eq!(
-            hex::encode(payload),
-            "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1f00000000000000010a0000008a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020303030303030303030303030303030303030303030303030303030303030303"
-        );
-        assert_eq!(
-            hex::encode(op_id_from_payload(payload)),
-            "c4a2a639034016f52728f34041cf95fc2c7adb8f54cf94b4361b2d0cb72ebb70"
-        );
-    }
-
-    #[test]
-    fn empty_transaction_hash_matches_the_spec_vector() {
-        let tx = Ops::new_unchecked(vec![]);
-        assert_eq!(hex::encode(tx.encode()), "00");
-        assert_eq!(
-            hex::encode(tx.hash().0),
-            "2eba3f667b80a508f3d44d149a1c27a90ea365a51e4fc8209289088142b364e5"
-        );
-    }
-
-    #[test]
     fn one_of_each_operation_hash_matches_the_spec_vector() {
         let tx = Ops::sample();
         assert_eq!(

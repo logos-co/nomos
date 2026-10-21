@@ -5025,7 +5025,6 @@ version = "0.0.0"
 dependencies = [
  "axum 0.7.9",
  "logos-blockchain-core",
- "logos-blockchain-groth16",
  "logos-blockchain-key-management-system-keys",
  "logos-blockchain-log-targets",
  "logos-blockchain-tracing",

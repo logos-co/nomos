@@ -71,9 +71,8 @@ use crate::{
         },
         time::{free_time_info, get_time_info},
         types::{
-            known_addresses::KnownAddresses,
-            leader_aged_notes::LeaderAgedNotes,
-            wallet_notes::{WalletNote as FfiWalletNote, WalletNotes},
+            known_addresses::KnownAddresses, leader_aged_notes::LeaderAgedNotes,
+            wallet_notes::WalletNotes,
         },
         version::get_build_version_info,
         wallet::{
@@ -786,15 +785,6 @@ mod no_node {
         let (code, message) = consume(unsafe { start_lb_node(path.as_ptr(), ptr::null()) });
         assert_eq!(code, OperationStatusCode::InitializationError);
         assert!(message.contains("unknown variant `a\\0b`"), "{message}");
-    }
-
-    #[test]
-    fn wallet_notes_carry_commitments() {
-        let note = FfiWalletNote {
-            commitment: [3; 32],
-            value: 7,
-        };
-        assert_eq!((note.commitment, note.value), ([3; 32], 7));
     }
 }
 

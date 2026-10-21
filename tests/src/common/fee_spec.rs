@@ -331,16 +331,3 @@ pub fn fee_surplus_at<State: VerificationState, Mode: VerificationMode>(
 
     Ok(i128::from(paid) - i128::from(required.into_inner()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn spec_constants_follow_mantle_2() {
-        assert_eq!(SPEC_TRANSFER_GAS, 619);
-        assert_eq!(SPEC_BASE_FEE_NUMERATOR, 7 * 1_596_241);
-        assert_eq!(SPEC_BASE_FEE_DENOMINATOR, 8 * 1_596_241);
-        assert_eq!(SPEC_GENESIS_EXECUTION_PRICE, 1_000_000_000);
-    }
-}

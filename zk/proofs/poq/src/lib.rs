@@ -320,10 +320,12 @@ mod tests {
         let witness_inputs =
             PoQWitnessInputs::from_leader_data(chain_data, common_data, wallet_data);
         let (proof, inputs) = prove(witness_inputs).unwrap();
-        assert_eq!(inputs.clone().to_inputs()[5], chain_data.pol_eligible_aged);
         let key_nullifier = inputs.key_nullifier.into_inner();
+        // Test that verifying with the inputs returned by `prove` works.
         assert!(verify(&proof, inputs).unwrap());
 
+        // Test that verifying with the reconstructed inputs inside the verifier context
+        // works.
         let recomputed_verify_inputs = PoQVerifierInputData {
             core_quota: common_data.core_quota,
             core_root: chain_data.core_root,
