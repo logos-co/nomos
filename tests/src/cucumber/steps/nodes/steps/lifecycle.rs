@@ -246,7 +246,7 @@ fn step_configure_pow_auto_claim(
 /// Makes `account` a key of the node's wallet: preloads the secret into the
 /// KMS and lists its public key under `wallet.known_keys`, keyed the same way
 /// the preload backend derives ids.
-fn node_wallet_key_overrides(
+pub(super) fn node_wallet_key_overrides(
     step: &str,
     account: &WalletAccount,
 ) -> Result<Vec<ConfigOverride>, StepError> {

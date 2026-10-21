@@ -20,7 +20,7 @@ use lb_blend::{
 };
 use lb_chain_service::{Epoch, Slot};
 use lb_core::{crypto::ZkHash, header::HeaderId, sdp::ActivityMetadata};
-use lb_groth16::{AdditiveGroup as _, Fr};
+use lb_groth16::{AdditiveGroup as _, Field as _, Fr};
 use lb_key_management_system_service::keys::Ed25519Key;
 use lb_poq::{CORE_MERKLE_TREE_HEIGHT, Quota};
 use rand::SeedableRng as _;
@@ -114,6 +114,45 @@ fn pol_state_match_detects_fingerprint_mismatch() {
         &private,
         Epoch::new(7),
         &public
+    ));
+}
+
+#[test]
+fn pol_info_matches_the_blend_leader_inputs_on_the_eligible_root() {
+    let state = PolEpochState {
+        nonce: ZkHash::ONE,
+        eligible_aged: ZkHash::from(7u64),
+        lottery_0: ZkHash::ZERO,
+        lottery_1: ZkHash::ZERO,
+        source: PolEpochStateSource {
+            tip_id: HeaderId::from([0; 32]),
+            tip_slot: Slot::from(0),
+            lib_id: HeaderId::from([0; 32]),
+            lib_slot: Slot::from(0),
+        },
+    };
+    let leader = LeaderInputs {
+        pol_epoch_nonce: ZkHash::ONE,
+        pol_eligible_aged: ZkHash::from(7u64),
+        message_quota: Quota::try_new(1).unwrap(),
+        lottery_0: ZkHash::ZERO,
+        lottery_1: ZkHash::ZERO,
+    };
+    let mut info = PolEpochInfo {
+        epoch: Epoch::new(7),
+        state,
+        winning_pol_info_stream: Box::pin(empty()),
+    };
+    assert!(super::diagnostics::pol_state_matches(
+        &info,
+        Epoch::new(7),
+        &leader
+    ));
+    info.state.eligible_aged = ZkHash::from(8u64);
+    assert!(!super::diagnostics::pol_state_matches(
+        &info,
+        Epoch::new(7),
+        &leader
     ));
 }
 

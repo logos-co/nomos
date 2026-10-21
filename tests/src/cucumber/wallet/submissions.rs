@@ -2646,4 +2646,25 @@ mod cache_removal_tests {
 
         assert_eq!(pool.len(), 0, "all eleven sender outputs funded a transfer");
     }
+
+    #[test]
+    fn node_wallet_outputs_are_the_node_key_outputs_once_each() {
+        let user_pk = ZkPublicKey::new(1u8.into());
+        let node_pk = ZkPublicKey::new(2u8.into());
+        let node_keys = HashMap::from([(node_pk, "NODE_1".to_owned())]);
+        let payments = (0..6u64)
+            .map(|nonce| Note::new(100, Fr::from(nonce), node_pk))
+            .collect::<Vec<_>>();
+        let mut outputs = payments.clone();
+        outputs.push(Note::new(400, Fr::from(6u64), user_pk));
+        outputs.push(payments[0]);
+
+        assert_eq!(
+            node_wallet_outputs(&node_keys, &outputs),
+            payments
+                .into_iter()
+                .map(|note| ("NODE_1".to_owned(), note))
+                .collect::<Vec<_>>()
+        );
+    }
 }
