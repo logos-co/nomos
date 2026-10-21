@@ -91,6 +91,22 @@ impl DeploymentSettings {
         self.eras.genesis_era_parameters()
     }
 
+    /// The parameters of the era in force at `epoch`: the latest era whose
+    /// first epoch does not come after `epoch`. With a single-era schedule
+    /// this is always the genesis era.
+    ///
+    /// `epoch` is meant to come from the time service (the authoritative
+    /// current epoch), so callers match the live epoch against the schedule
+    /// rather than recomputing it from the wall clock.
+    #[must_use]
+    pub fn era_parameters_at_epoch(&self, epoch: Epoch) -> &EraParameters {
+        self.eras
+            .iter()
+            .take_while(|(first_epoch, _)| *first_epoch <= epoch)
+            .last()
+            .map_or_else(|| self.genesis_era_parameters(), |(_, params)| params)
+    }
+
     pub const fn genesis_era_parameters_mut(&mut self) -> &mut EraParameters {
         self.eras.genesis_era_parameters_mut()
     }

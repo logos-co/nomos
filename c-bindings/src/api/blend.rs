@@ -20,7 +20,7 @@ use multiaddr::PeerId;
 
 use crate::{
     LogosBlockchainNode,
-    api::{cryptarchia::ensure_online, lifecycle::resolve_run_config, time::get_time_info_sync},
+    api::{cryptarchia::ensure_online, time::get_time_info_sync},
     errors::{OperationStatus, OperationStatusCode},
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
@@ -223,8 +223,9 @@ fn to_json_cstring<T: serde::Serialize>(value: &T) -> Result<*mut c_char, Operat
 /// The rules a node must meet to join the Blend network as a core node.
 ///
 /// Mirrors the referral program's `blend_requirements()`. The values are read
-/// off the deployment's genesis-era parameters, so this works before a node is
-/// started.
+/// off the deployment parameters of the era in force at the epoch the time
+/// service currently reports, so they stay correct once more than one era is
+/// scheduled.
 ///
 /// Note on omitted fields: the referral spec also lists `lock_period` and
 /// `retention_period`, but neither exists as an SDP/Blend parameter today.
@@ -251,18 +252,13 @@ pub type FfiBlendRequirementsResult = FfiStatusResult<*mut c_char>;
 /// Gets the rules for joining the Blend network as a core node, as a JSON
 /// string.
 ///
-/// This reads the deployment configuration directly and does not need a running
-/// node, so an onboarding flow can show the join rules before start-up. It
-/// mirrors [`get_deployment_info`](super::deployment::get_deployment_info) in
-/// how it resolves the configuration.
+/// Reads the current epoch from the time service and matches it against the
+/// deployment's era schedule, so the requirements are those of the era in
+/// force now rather than always the genesis era.
 ///
 /// # Arguments
 ///
-/// - `config_path`: A non-null pointer to a string holding the path to the user
-///   configuration file.
-/// - `custom_deployment_path`: An optional pointer to a string holding the path
-///   to a custom deployment file. If null, the `DEPLOYMENT` environment
-///   variable is used, falling back to the embedded default deployment.
+/// - `node`: A non-null pointer to a running [`LogosBlockchainNode`] instance.
 ///
 /// # Returns
 ///
@@ -272,9 +268,7 @@ pub type FfiBlendRequirementsResult = FfiStatusResult<*mut c_char>;
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers. The caller
-/// must ensure that `config_path` is a valid NUL-terminated C string, and that
-/// `custom_deployment_path` is either null or one as well.
+/// This function is unsafe because it dereferences raw pointers.
 ///
 /// # Memory Management
 ///
@@ -284,15 +278,19 @@ pub type FfiBlendRequirementsResult = FfiStatusResult<*mut c_char>;
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn blend_requirements(
-    config_path: *const c_char,
-    custom_deployment_path: *const c_char,
+    node: *const LogosBlockchainNode,
 ) -> FfiBlendRequirementsResult {
-    return_error_if_null_pointer!(config_path);
+    return_error_if_null_pointer!(node);
 
-    let run_config =
-        unwrap_or_return_error!(unsafe { resolve_run_config(config_path, custom_deployment_path) });
+    let node = unsafe { &*node };
 
-    let era_parameters = run_config.deployment.genesis_era_parameters();
+    // The current epoch comes from the time service (the authoritative source),
+    // then selects the era in force from the deployment's era schedule, so the
+    // requirements reflect the era a node joining now would fall under.
+    let current_epoch = unwrap_or_return_error!(get_time_info_sync(node)).current_epoch;
+    let era_parameters = node
+        .deployment()
+        .era_parameters_at_epoch(lb_chain_service::Epoch::new(current_epoch));
     let sdp_config = &era_parameters.cryptarchia.sdp_config;
 
     let service_parameters = unwrap_or_return_error!(
@@ -309,9 +307,8 @@ pub unsafe extern "C" fn blend_requirements(
         min_stake: sdp_config.min_stake.threshold,
         inactivity_period: service_parameters.inactivity_period.into_inner().into_inner(),
         activation_delay_epochs: sdp::SNAPSHOT_FINALIZATION_DELAY.into_inner(),
-        minimum_network_size: run_config
-            .deployment
-            .genesis_blend_reward_params()
+        minimum_network_size: era_parameters
+            .blend_reward_params()
             .minimum_network_size
             .get(),
     };
