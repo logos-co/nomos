@@ -2063,7 +2063,13 @@ mod tests {
             .unwrap()
             .verify_batch_proofs()
             .unwrap();
-        assert!(ledger.commit_update(update).is_empty());
+        // A transfer emits no transaction event, the block events remain.
+        assert!(
+            !ledger
+                .commit_update(update)
+                .iter()
+                .any(|event| matches!(event, lb_core::events::Event::Tx(_)))
+        );
 
         let ledger_set = ledger
             .state(&new_id)
