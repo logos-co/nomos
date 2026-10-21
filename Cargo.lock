@@ -5879,6 +5879,7 @@ dependencies = [
  "flate2",
  "hex",
  "logos-blockchain-binary-codec",
+ "logos-blockchain-core",
  "logos-blockchain-groth16",
  "logos-blockchain-key-management-system-service",
  "logos-blockchain-log-targets",
