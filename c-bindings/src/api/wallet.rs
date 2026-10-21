@@ -157,7 +157,6 @@ pub unsafe extern "C" fn get_known_addresses(
 ) -> FfiKnownAddressesResult {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let addresses = unwrap_or_return_error!(get_known_addresses_sync(node));
 
@@ -237,8 +236,6 @@ pub unsafe extern "C" fn get_known_addresses(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> OperationStatus {
     return_error_if_null_pointer!(addresses.addresses);
-    // SAFETY: pointer and `len` are the leaked `Box<[*mut u8]>` from
-    // `get_known_addresses`, passed back unchanged and once, per `# Safety`.
     let address_pointers = unsafe {
         Box::from_raw(ptr::slice_from_raw_parts_mut(
             addresses.addresses,
@@ -251,8 +248,6 @@ pub unsafe extern "C" fn free_known_addresses(addresses: KnownAddresses) -> Oper
         if address_pointer.is_null() {
             continue;
         }
-        // SAFETY: each non null entry is a `Box<[u8; 32]>` leaked by
-        // `get_known_addresses`, freed only here.
         unsafe { drop(Box::from_raw(address_pointer.cast::<[u8; 32]>())) };
     }
     OperationStatus::OK
@@ -326,17 +321,14 @@ pub unsafe extern "C" fn get_balance(
 ) -> FfiBalanceResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(wallet_address);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tip = if optional_tip.is_null() {
         unwrap_or_return_error!(get_cryptarchia_info_sync(node))
             .cryptarchia_info
             .tip
     } else {
-        // SAFETY: non null (checked above), a valid `HeaderId` per `# Safety`.
         lb_core::header::HeaderId::from(unsafe { *optional_tip })
     };
-    // SAFETY: non null (checked above), a 32 byte key per `# Safety`.
     let wallet_address_bytes = unsafe { std::slice::from_raw_parts(wallet_address, 32) };
     let wallet_address = unwrap_or_return_error!(
         fr_from_bytes(wallet_address_bytes)
@@ -437,17 +429,14 @@ pub unsafe extern "C" fn get_wallet_notes(
 ) -> FfiWalletNotesResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(wallet_address);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tip = if optional_tip.is_null() {
         unwrap_or_return_error!(get_cryptarchia_info_sync(node))
             .cryptarchia_info
             .tip
     } else {
-        // SAFETY: non null (checked above), a valid `HeaderId` per `# Safety`.
         lb_core::header::HeaderId::from(unsafe { *optional_tip })
     };
-    // SAFETY: non null (checked above), a 32 byte key per `# Safety`.
     let wallet_address_bytes = unsafe { std::slice::from_raw_parts(wallet_address, 32) };
     let wallet_address = unwrap_or_return_error!(
         fr_from_bytes(wallet_address_bytes)
@@ -548,12 +537,10 @@ pub unsafe extern "C" fn get_leader_aged_notes(
     optional_tip: *const HeaderId,
 ) -> FfiLeaderAgedNotesResult {
     return_error_if_null_pointer!(node);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tip = if optional_tip.is_null() {
         None
     } else {
-        // SAFETY: non null (checked above), a valid `HeaderId` per `# Safety`.
         Some(CoreHeaderId::from(unsafe { *optional_tip }))
     };
 
@@ -596,8 +583,6 @@ pub unsafe extern "C" fn get_leader_aged_notes(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_leader_aged_notes(notes: LeaderAgedNotes) -> OperationStatus {
     return_error_if_null_pointer!(notes.notes);
-    // SAFETY: pointer and `len` are the leaked boxed slice from
-    // `get_leader_aged_notes`, passed back unchanged and once, per `# Safety`.
     let notes = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(notes.notes, notes.len)) };
     drop(notes);
     OperationStatus::OK
@@ -617,8 +602,6 @@ pub unsafe extern "C" fn free_leader_aged_notes(notes: LeaderAgedNotes) -> Opera
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_wallet_notes(notes: WalletNotes) -> OperationStatus {
     return_error_if_null_pointer!(notes.notes);
-    // SAFETY: pointer and `len` are the leaked boxed slice from
-    // `get_wallet_notes`, passed back unchanged and once, per `# Safety`.
     let notes = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(notes.notes, notes.len)) };
     drop(notes);
     OperationStatus::OK
@@ -661,10 +644,7 @@ impl TransferFundsArguments {
         }
 
         for i in 0..self.funding_public_keys_len {
-            // SAFETY: non null (checked above) array of `funding_public_keys_len`
-            // entries per `# Safety`, and `i` is in bounds.
             let funding_public_key_pointer = unsafe { self.funding_public_keys.add(i) };
-            // SAFETY: an in bounds, readable entry of that array.
             let funding_public_key = unsafe { *funding_public_key_pointer };
             if funding_public_key.is_null() {
                 return Err(OperationStatus::error(
@@ -789,27 +769,20 @@ pub unsafe extern "C" fn transfer_funds(
 ) -> FfiTransferFundsResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(arguments);
-    // SAFETY: `arguments` is non null (checked above) and valid per `# Safety`.
     let arguments = unsafe { &*arguments };
-    // SAFETY: its pointers are valid per `# Safety`.
     unwrap_or_return_error!(unsafe { arguments.validate() });
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tip = if arguments.optional_tip.is_null() {
         unwrap_or_return_error!(get_cryptarchia_info_sync(node))
             .cryptarchia_info
             .tip
     } else {
-        // SAFETY: non null (checked above), a valid `HeaderId` per `# Safety`.
         lb_core::header::HeaderId::from(unsafe { *arguments.optional_tip })
     };
     let change_public_key =
-        // SAFETY: non null (`validate` above), a 32 byte key per `# Safety`.
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.change_public_key) });
     let funding_public_keys = {
-        // SAFETY: non null (`validate` above), `funding_public_keys_len` entries
-        // per `# Safety`.
         let funding_public_keys_pointers = unsafe {
             std::slice::from_raw_parts(
                 arguments.funding_public_keys,
@@ -819,8 +792,6 @@ pub unsafe extern "C" fn transfer_funds(
         unwrap_or_return_error!(
             funding_public_keys_pointers
                 .iter()
-                // SAFETY: each entry is non null (`validate` above), a 32 byte key
-                // per `# Safety`.
                 .map(|funding_public_key_pointer| unsafe {
                     parse_public_key(*funding_public_key_pointer)
                 })
@@ -828,7 +799,6 @@ pub unsafe extern "C" fn transfer_funds(
         )
     };
     let recipient_public_key =
-        // SAFETY: non null (`validate` above), a 32 byte key per `# Safety`.
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.recipient_public_key) });
     let amount = Value::from(arguments.amount);
 
@@ -856,7 +826,6 @@ pub unsafe extern "C" fn transfer_funds(
 ///
 /// `pointer` must be non-null and point to at least 32 readable bytes.
 pub(crate) unsafe fn parse_public_key(pointer: *const u8) -> StatusResult<ZkPublicKey> {
-    // SAFETY: non null with 32 readable bytes per `# Safety`.
     let bytes = unsafe { std::slice::from_raw_parts(pointer, 32) };
     fr_from_bytes(bytes).map(ZkPublicKey::new).map_err(|error| {
         OperationStatus::error(
@@ -1100,24 +1069,19 @@ pub unsafe extern "C" fn channel_deposit(
 ) -> FfiChannelDepositResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(arguments);
-    // SAFETY: `arguments` is non null (checked above) and valid per `# Safety`.
     let arguments = unsafe { &*arguments };
-    // SAFETY: its pointers are valid per `# Safety`.
     unwrap_or_return_error!(unsafe { arguments.validate() });
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tip = if arguments.optional_tip.is_null() {
         unwrap_or_return_error!(get_cryptarchia_info_sync(node))
             .cryptarchia_info
             .tip
     } else {
-        // SAFETY: non null (checked above), a valid `HeaderId` per `# Safety`.
         lb_core::header::HeaderId::from(unsafe { *arguments.optional_tip })
     };
 
     let channel_id = {
-        // SAFETY: non null (`validate` above), 32 readable bytes per `# Safety`.
         let bytes = unsafe { std::slice::from_raw_parts(arguments.channel_id, 32) };
         let Ok(array): Result<[u8; 32], _> = bytes.try_into() else {
             return FfiChannelDepositResult::err(OperationStatus::error(
@@ -1128,18 +1092,14 @@ pub unsafe extern "C" fn channel_deposit(
         ChannelId::from(array)
     };
     let funding_public_key =
-        // SAFETY: non null (`validate` above), a 32 byte key per `# Safety`.
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.funding_public_key) });
     let holder_public_key =
-        // SAFETY: non null (`validate` above), a 32 byte key per `# Safety`.
         unwrap_or_return_error!(unsafe { parse_public_key(arguments.holder_public_key) });
     let amount = Value::from(arguments.amount);
 
     let metadata_bytes = if arguments.metadata_len == 0 {
         Vec::new()
     } else {
-        // SAFETY: non null for a non zero length (`validate` above), with
-        // `metadata_len` readable bytes per `# Safety`.
         unsafe { std::slice::from_raw_parts(arguments.metadata, arguments.metadata_len) }.to_vec()
     };
     let metadata = unwrap_or_return_error!(Metadata::try_from(metadata_bytes).map_err(|error| {
@@ -1281,10 +1241,8 @@ pub unsafe extern "C" fn wallet_fund_tx(
 ) -> FfiWalletFundResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(request_json);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
 
-    // SAFETY: non null (checked above) C string per `# Safety`.
     let request_json = match unsafe { CStr::from_ptr(request_json) }.to_str() {
         Ok(request_json) => request_json,
         Err(error) => {
@@ -1356,11 +1314,9 @@ pub unsafe extern "C" fn submit_signed_transaction(
 ) -> FfiSubmitTransactionResult {
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(signed_tx_json);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
 
     let preverified_tx = {
-        // SAFETY: non null (checked above) C string per `# Safety`.
         let signed_tx_json = match unsafe { CStr::from_ptr(signed_tx_json) }.to_str() {
             Ok(signed_tx_json) => signed_tx_json,
             Err(error) => {

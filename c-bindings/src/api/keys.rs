@@ -49,17 +49,11 @@ impl From<KeyType> for NodeKeyType {
 }
 
 /// Converts a nullable C string pointer into an optional key title.
-///
-/// # Safety
-///
-/// `key_title` must be null or point to a valid NUL-terminated C string that
-/// stays readable for the duration of the call.
 unsafe fn key_title_from_ptr(key_title: *const c_char) -> Option<String> {
     if key_title.is_null() {
         None
     } else {
         Some(
-            // SAFETY: non null (checked above) C string, readable per `# Safety`.
             unsafe { CStr::from_ptr(key_title) }
                 .to_string_lossy()
                 .to_string(),
@@ -110,12 +104,9 @@ pub unsafe extern "C" fn generate_key(
     let key_type = unwrap_or_return_error!(KeyType::try_from(key_type));
 
     let args = GenerateKeyArgs::new(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
         key_type.into(),
-        // SAFETY: null or a C string per `# Safety`.
         unsafe { key_title_from_ptr(key_title) },
         true,
     );
@@ -142,9 +133,6 @@ pub unsafe extern "C" fn generate_key(
 /// Adds an existing key to the keystore and user config files, equivalent to
 /// the `add-key` CLI command. Runs non-interactively.
 ///
-/// Exported for C as `import_key`: the bare `add_key` symbol is the Linux
-/// keyring call of libkeyutils, which the dynamic linker could bind instead.
-///
 /// # Arguments
 ///
 /// - `user_config_path`: Path to the user config YAML file.
@@ -164,7 +152,7 @@ pub unsafe extern "C" fn generate_key(
 /// must ensure that all non-null pointers are valid NUL-terminated C strings.
 #[must_use]
 #[panic_to_error]
-#[unsafe(export_name = "import_key")]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn add_key(
     user_config_path: *const c_char,
     keystore_path: *const c_char,
@@ -177,7 +165,6 @@ pub unsafe extern "C" fn add_key(
     return_error_if_null_pointer!(key_hex);
     let key_type = unwrap_or_return_error!(KeyType::try_from(key_type));
 
-    // SAFETY: non null (checked above) C string per `# Safety`.
     let key_hex = unsafe { CStr::from_ptr(key_hex) }.to_string_lossy();
 
     let key = match parse_key_hex(key_type, &key_hex) {
@@ -191,11 +178,8 @@ pub unsafe extern "C" fn add_key(
     };
 
     let args = AddKeyArgs::new(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
-        // SAFETY: null or a C string per `# Safety`.
         unsafe { key_title_from_ptr(key_title) },
         &key,
         true,
@@ -257,15 +241,12 @@ pub unsafe extern "C" fn remove_key(
     return_error_if_null_pointer!(keystore_path);
     return_error_if_null_pointer!(key_title);
 
-    // SAFETY: non null (checked above) C string per `# Safety`.
     let key_title = unsafe { CStr::from_ptr(key_title) }
         .to_string_lossy()
         .to_string();
 
     let args = RemoveKeyArgs::new(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
         key_title,
         true,

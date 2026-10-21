@@ -65,7 +65,6 @@ pub(crate) fn pow_start_mining_sync(node: &LogosBlockchainNode) -> StatusResult<
 pub unsafe extern "C" fn pow_start_mining(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     unwrap_or_return_error!(pow_start_mining_sync(node));
 
@@ -121,7 +120,6 @@ pub(crate) fn pow_stop_mining_sync(node: &LogosBlockchainNode) -> StatusResult<(
 pub unsafe extern "C" fn pow_stop_mining(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     unwrap_or_return_error!(pow_stop_mining_sync(node));
 
@@ -179,7 +177,6 @@ pub(crate) fn pow_start_auto_claim_sync(node: &LogosBlockchainNode) -> StatusRes
 pub unsafe extern "C" fn pow_start_auto_claim(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     unwrap_or_return_error!(pow_start_auto_claim_sync(node));
 
@@ -235,7 +232,6 @@ pub(crate) fn pow_stop_auto_claim_sync(node: &LogosBlockchainNode) -> StatusResu
 pub unsafe extern "C" fn pow_stop_auto_claim(node: *const LogosBlockchainNode) -> OperationStatus {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     unwrap_or_return_error!(pow_stop_auto_claim_sync(node));
 
@@ -319,13 +315,11 @@ pub unsafe extern "C" fn pow_claim(
     let claim_address = if claim_address.is_null() {
         None
     } else {
-        // SAFETY: non null (checked above), 32 readable bytes per `# Safety`.
         Some(unwrap_or_return_error!(unsafe {
             parse_public_key(claim_address)
         }))
     };
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let tx_hash = unwrap_or_return_error!(pow_claim_sync(node, claim_address));
 
@@ -420,7 +414,6 @@ pub unsafe extern "C" fn pow_claimable_rewards(
 ) -> FfiPoWClaimableRewardsResult {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let info = unwrap_or_return_error!(pow_claimable_rewards_sync(node));
 
@@ -457,8 +450,6 @@ pub unsafe extern "C" fn free_pow_claimable_rewards(
     rewards: PoWClaimableRewards,
 ) -> OperationStatus {
     return_error_if_null_pointer!(rewards.slots_until_expiry);
-    // SAFETY: pointer and `len` are the leaked `Box<[u64]>` from
-    // `pow_claimable_rewards`, passed back unchanged and once, per `# Safety`.
     let slots = unsafe {
         Box::from_raw(ptr::slice_from_raw_parts_mut(
             rewards.slots_until_expiry,
@@ -585,7 +576,6 @@ pub type FfiPoWStatusResult = FfiStatusResult<PoWStatus>;
 pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWStatusResult {
     return_error_if_null_pointer!(node);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let status = unwrap_or_return_error!(pow_status_sync(node));
 
@@ -625,13 +615,7 @@ pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWS
 ///
 /// # Arguments
 ///
-/// - `status`: A pointer to a [`PoWStatus`] structure previously returned by
-///   [`pow_status`]. A null pointer frees nothing and returns a `NullPointer`
-///   error.
-///
-/// Only `auto_claim.targets` and `auto_claim.targets_len` are read: the flag
-/// and enum fields are never read as Rust values, so whatever C stored in them
-/// is harmless.
+/// - `status`: A [`PoWStatus`] structure previously returned by [`pow_status`].
 ///
 /// # Safety
 ///
@@ -640,21 +624,18 @@ pub unsafe extern "C" fn pow_status(node: *const LogosBlockchainNode) -> FfiPoWS
 /// The caller must only pass values returned by [`pow_status`] and must call
 /// this exactly once per result.
 ///
-/// The `auto_claim.targets` and `auto_claim.targets_len` fields must be
-/// exactly as they were returned: they decide what is freed.
+/// The value must be passed back exactly as it was returned: its pointer and
+/// length decide what is freed.
 #[panic_to_error]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_pow_status(status: *mut PoWStatus) -> OperationStatus {
-    return_error_if_null_pointer!(status);
-    // SAFETY: `status` is non null (checked above) and points to a `PoWStatus`
-    // from `pow_status`, per `# Safety`.
-    let targets = unsafe { (*status).auto_claim.targets };
-    // SAFETY: as above.
-    let targets_len = unsafe { (*status).auto_claim.targets_len };
-    return_error_if_null_pointer!(targets);
-    // SAFETY: pointer and length are the leaked `Box<[PoWClaimTargetStatus]>`
-    // from `pow_status`, unchanged and freed once, per `# Safety`.
-    let targets = unsafe { Box::from_raw(ptr::slice_from_raw_parts_mut(targets, targets_len)) };
+pub unsafe extern "C" fn free_pow_status(status: PoWStatus) -> OperationStatus {
+    return_error_if_null_pointer!(status.auto_claim.targets);
+    let targets = unsafe {
+        Box::from_raw(ptr::slice_from_raw_parts_mut(
+            status.auto_claim.targets,
+            status.auto_claim.targets_len,
+        ))
+    };
 
     drop(targets);
     OperationStatus::OK

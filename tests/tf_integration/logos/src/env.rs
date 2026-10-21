@@ -99,7 +99,6 @@ pub fn logos_blockchain_system_monitor_interval_secs() -> u64 {
 }
 
 /// Set an environment variable to a default value if it is not already set.
-#[expect(unsafe_code, reason = "Setting environment variables is unsafe.")]
 pub fn set_default_env(key: &str, value: &str) {
     if std::env::var_os(key).is_none() {
         // SAFETY: Used as an early-run default. Prefer setting env vars in the
@@ -113,7 +112,6 @@ pub fn set_default_env(key: &str, value: &str) {
 /// Replace an environment variable to a default value, returning the current
 /// optional value if already set or Noneotherwise.
 #[must_use]
-#[expect(unsafe_code, reason = "Setting environment variables is unsafe.")]
 pub fn replace_default_env(key: &str, value: &str) -> Option<String> {
     let current = std::env::var(key).ok();
     // SAFETY: Used as an early-run default. Prefer setting env vars in the
@@ -123,7 +121,6 @@ pub fn replace_default_env(key: &str, value: &str) -> Option<String> {
 }
 
 /// Remove an environment variable if set.
-#[expect(unsafe_code, reason = "Removing environment variables is unsafe.")]
 pub fn remove_default_env(key: &str) {
     if std::env::var_os(key).is_some() {
         // SAFETY: Used as an early-run default. Prefer setting env vars in the

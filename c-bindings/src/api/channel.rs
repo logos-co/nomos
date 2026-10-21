@@ -107,7 +107,6 @@ pub unsafe extern "C" fn get_channel_state(
     return_error_if_null_pointer!(channel_id);
 
     let channel_id = {
-        // SAFETY: non null (checked above), 32 readable bytes per `# Safety`.
         let bytes = unsafe { std::slice::from_raw_parts(channel_id, 32) };
         let Ok(array): Result<[u8; 32], _> = bytes.try_into() else {
             return FfiGetChannelStateResult::err(OperationStatus::error(
@@ -118,7 +117,6 @@ pub unsafe extern "C" fn get_channel_state(
         ChannelId::from(array)
     };
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let json_cstring = unwrap_or_return_error!(get_channel_state_sync(node, channel_id));
     FfiGetChannelStateResult::ok(json_cstring.into_raw())

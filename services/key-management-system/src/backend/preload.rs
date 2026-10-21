@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use lb_key_management_system_keys::keys::{
     Key, KeyOperators, errors::KeyError, secured_key::SecuredKey,
 };
-use lb_utils::tokio::task::spawn_blocking;
 use serde::Deserialize;
 
 use crate::backend::KMSBackend;
@@ -71,25 +70,19 @@ impl KMSBackend for PreloadKMSBackend {
             .as_public_key())
     }
 
-    async fn sign(
+    fn sign(
         &self,
         key_id: &Self::KeyId,
         payload: <Self::Key as SecuredKey>::Payload,
     ) -> Result<<Self::Key as SecuredKey>::Signature, Self::Error> {
-        let key = self
+        Ok(self
             .keys
             .get(key_id)
             .ok_or_else(|| PreloadBackendError::NotRegisteredKeyId(key_id.to_owned()))?
-            .clone();
-        // Zk signing is a full ZkTransfer proof, so run it off the async runtime.
-        Ok(
-            spawn_blocking("logos/kms/sign-blocking", move || key.sign(&payload))
-                .await
-                .map_err(KeyError::FailedOperatorCall)??,
-        )
+            .sign(&payload)?)
     }
 
-    async fn sign_multiple(
+    fn sign_multiple(
         &self,
         key_ids: &[Self::KeyId],
         payload: <Self::Key as SecuredKey>::Payload,
@@ -99,17 +92,11 @@ impl KMSBackend for PreloadKMSBackend {
             .map(|key_id| {
                 self.keys
                     .get(key_id)
-                    .cloned()
                     .ok_or_else(|| PreloadBackendError::NotRegisteredKeyId(key_id.to_owned()))
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        // Zk signing is a full ZkTransfer proof, so run it off the async runtime.
-        Ok(spawn_blocking("logos/kms/sign-multiple-blocking", move || {
-            Self::Key::sign_multiple(&keys.iter().collect::<Vec<_>>(), &payload)
-        })
-        .await
-        .map_err(KeyError::FailedOperatorCall)??)
+        Ok(Self::Key::sign_multiple(&keys, &payload)?)
     }
 
     async fn execute(
@@ -198,7 +185,7 @@ mod tests {
 
         let payload = PayloadEncoding::Ed25519(Bytes::from("data"));
         let signature = key.sign(&payload).unwrap();
-        let backend_signature = backend.sign(&key_id, payload).await.unwrap();
+        let backend_signature = backend.sign(&key_id, payload).unwrap();
         assert_eq!(backend_signature, signature);
 
         // Check if the execute function works as expected
@@ -230,7 +217,7 @@ mod tests {
         let data = RawBytes::from("data");
         let encoded_data = PayloadEncoding::Ed25519(data);
         assert!(matches!(
-            backend.sign(&key_id, encoded_data).await.unwrap_err(),
+            backend.sign(&key_id, encoded_data).unwrap_err(),
             PreloadBackendError::NotRegisteredKeyId(id) if id == key_id.clone()
         ));
 

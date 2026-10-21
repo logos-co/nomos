@@ -156,13 +156,7 @@ pub fn subscribe_to_new_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers. A non-null
-/// `callback_per_block` must:
-/// - be thread safe: it is called from the node's own threads, at the same time
-///   as the caller's threads run;
-/// - stay callable (for example, the module providing it stays loaded) until it
-///   has received the terminal NULL or `shutdown_node` has returned;
-/// - not unwind (for example, throw a C++ exception) out of the call.
+/// This function is unsafe because it dereferences raw pointers.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_new_blocks(
@@ -175,10 +169,7 @@ pub unsafe extern "C" fn subscribe_to_new_blocks(
     let Some(callback_per_block) = callback_per_block else {
         return OperationStatus::OK;
     };
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
-    // SAFETY: the callback is thread safe, callable until the terminal NULL or
-    // shutdown, and does not unwind, per `# Safety`.
     let callback_per_block = unsafe { into_boxed_callback(callback_per_block) };
     subscribe_to_new_blocks_sync(node, callback_per_block)
 }
@@ -261,13 +252,7 @@ pub fn subscribe_to_processed_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers. A non-null
-/// `callback_per_event` must:
-/// - be thread safe: it is called from the node's own threads, at the same time
-///   as the caller's threads run;
-/// - stay callable (for example, the module providing it stays loaded) until it
-///   has received the terminal NULL or `shutdown_node` has returned;
-/// - not unwind (for example, throw a C++ exception) out of the call.
+/// This function is unsafe because it dereferences raw pointers.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_processed_blocks(
@@ -280,10 +265,7 @@ pub unsafe extern "C" fn subscribe_to_processed_blocks(
     let Some(callback_per_event) = callback_per_event else {
         return OperationStatus::OK;
     };
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
-    // SAFETY: the callback is thread safe, callable until the terminal NULL or
-    // shutdown, and does not unwind, per `# Safety`.
     subscribe_to_processed_blocks_sync(node, unsafe { into_boxed_callback(callback_per_event) })
 }
 
@@ -357,13 +339,7 @@ pub fn subscribe_to_lib_blocks_sync(
 ///
 /// # Safety
 ///
-/// This function is unsafe because it dereferences raw pointers. A non-null
-/// `callback_per_event` must:
-/// - be thread safe: it is called from the node's own threads, at the same time
-///   as the caller's threads run;
-/// - stay callable (for example, the module providing it stays loaded) until it
-///   has received the terminal NULL or `shutdown_node` has returned;
-/// - not unwind (for example, throw a C++ exception) out of the call.
+/// This function is unsafe because it dereferences raw pointers.
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn subscribe_to_lib_blocks(
@@ -376,9 +352,6 @@ pub unsafe extern "C" fn subscribe_to_lib_blocks(
     let Some(callback_per_event) = callback_per_event else {
         return OperationStatus::OK;
     };
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
-    // SAFETY: the callback is thread safe, callable until the terminal NULL or
-    // shutdown, and does not unwind, per `# Safety`.
     subscribe_to_lib_blocks_sync(node, unsafe { into_boxed_callback(callback_per_event) })
 }

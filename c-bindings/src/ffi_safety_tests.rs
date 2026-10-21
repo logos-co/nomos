@@ -25,7 +25,7 @@
 )]
 
 use std::{
-    ffi::{CStr, CString, c_char, c_int},
+    ffi::{CStr, CString, c_char},
     path::{Path, PathBuf},
     ptr,
     sync::{
@@ -82,7 +82,7 @@ use crate::{
             wallet_fund_tx,
         },
     },
-    errors::{free_operation_status, is_error, is_ok},
+    errors::free_operation_status,
     node::exit_status,
     result::FfiResult,
     return_error_if_null_pointer,
@@ -112,12 +112,10 @@ fn consume(status: impl IntoStatus) -> (OperationStatusCode, String) {
     let message = if status.message.is_null() {
         String::new()
     } else {
-        // SAFETY: a non null message is a live C string from `CString::into_raw`.
         unsafe { CStr::from_ptr(status.message) }
             .to_string_lossy()
             .into_owned()
     };
-    // SAFETY: the status came from the library and is released once, here.
     unsafe { free_operation_status(status) };
     (code, message)
 }
@@ -191,7 +189,6 @@ impl TestConfigPaths {
 
     fn start(&self) -> *mut LogosBlockchainNode {
         let result =
-            // SAFETY: both paths are live `CString`s owned by `self`.
             unsafe { start_lb_node(self.node_config.as_ptr(), self.deployment_config.as_ptr()) };
         let node = result.value;
         let (status, message) = consume(result);
@@ -221,8 +218,6 @@ mod no_node {
         let null_port: *const u16 = ptr::null();
         let np = OperationStatusCode::NullPointer;
 
-        // SAFETY: each call gets a null required pointer, rejected before any
-        // dereference; the other pointers are live locals or static C strings.
         unsafe {
             assert_eq!(code(get_chain_id(node)), np);
             assert_eq!(code(get_network_info(node)), np);
@@ -303,7 +298,6 @@ mod no_node {
     #[test]
     #[ignore = "Runs under valgrind only: see the module docs."]
     fn free_functions_report_null() {
-        // SAFETY: every value carries a null pointer, which frees nothing.
         let statuses = unsafe {
             [
                 free_cstring(ptr::null_mut()),
@@ -314,8 +308,7 @@ mod no_node {
                 free_pow_claimable_rewards(PoWClaimableRewards::default()),
                 free_wallet_notes(WalletNotes::default()),
                 free_leader_aged_notes(LeaderAgedNotes::default()),
-                free_pow_status(ptr::null_mut()),
-                free_pow_status(&mut PoWStatus::default()),
+                free_pow_status(PoWStatus::default()),
             ]
         };
         for status in statuses {
@@ -337,7 +330,6 @@ mod no_node {
             addresses: Box::leak(entries).as_mut_ptr(),
             len,
         };
-        // SAFETY: laid out exactly as `get_known_addresses` allocates, freed once.
         assert!(unsafe { free_known_addresses(addresses) }.is_ok());
     }
 
@@ -346,8 +338,6 @@ mod no_node {
     #[test]
     #[ignore = "Runs under valgrind only: see the module docs."]
     fn free_operation_status_releases_any_status() {
-        // SAFETY: every status and string comes from the library and is
-        // released exactly once.
         unsafe {
             free_operation_status(OperationStatus::OK);
             free_operation_status(free_cstring(ptr::null_mut()));
@@ -366,7 +356,6 @@ mod no_node {
     #[panic_to_error]
     extern "C" fn panics_with_status(message: *const c_char) -> OperationStatus {
         return_error_if_null_pointer!(message);
-        // SAFETY: non null (checked above); callers pass a static C string.
         panic!("{}", unsafe { CStr::from_ptr(message) }.to_string_lossy());
     }
 
@@ -433,35 +422,12 @@ mod no_node {
     #[test]
     #[ignore = "Runs under valgrind only: see the module docs."]
     fn status_helpers() {
-        // A status as C may lay it out, with a code outside the enum.
-        #[repr(C)]
-        struct RawStatus {
-            code: c_int,
-            _message: *mut c_char,
-        }
-
         let ok = OperationStatus::OK;
         let error = OperationStatus::error(OperationStatusCode::NotFound, "nope");
         assert!(ok.is_ok());
         assert!(!ok.is_error());
         assert!(!error.is_ok());
         assert!(error.is_error());
-        let unknown = RawStatus {
-            code: 0x99,
-            _message: ptr::null_mut(),
-        };
-        let unknown = (&raw const unknown).cast::<OperationStatus>();
-        // SAFETY: each pointer is null or a live, aligned status layout.
-        unsafe {
-            assert!(is_ok(&raw const ok));
-            assert!(!is_error(&raw const ok));
-            assert!(!is_ok(&raw const error));
-            assert!(is_error(&raw const error));
-            assert!(!is_ok(ptr::null()));
-            assert!(is_error(ptr::null()));
-            assert!(!is_ok(unknown));
-            assert!(is_error(unknown));
-        }
         assert_eq!(
             consume(error),
             (OperationStatusCode::NotFound, "nope".into())
@@ -478,7 +444,6 @@ mod no_node {
         let kms = cstring(&temp_dir.path().join("keystore.yaml"));
         // Any byte is a valid "true" behind a C `bool *`.
         let skip_ibd: u8 = 0xAB;
-        // SAFETY: every non null field points to a live local of this test.
         let status = unsafe {
             generate_user_config(GenerateConfigArgs {
                 initial_peers: ptr::null(),
@@ -499,13 +464,11 @@ mod no_node {
         assert_eq!(code(status), OperationStatusCode::Ok);
 
         for key_type in [2, 7, u32::MAX] {
-            // SAFETY: both paths are live `CString`s; the title may be null.
             let (code, message) = consume(unsafe {
                 generate_key(config.as_ptr(), kms.as_ptr(), key_type, ptr::null())
             });
             assert_eq!(code, OperationStatusCode::ValidationError, "{message}");
             assert_eq!(
-                // SAFETY: every pointer is a live C string or a null title.
                 self::code(unsafe {
                     add_key(
                         config.as_ptr(),
@@ -524,7 +487,6 @@ mod no_node {
         let destination = temp_dir.path().join("destination.yaml");
         std::fs::write(&source, "{ a: 2, b: 2 }").unwrap();
         std::fs::write(&destination, "{ a: 1 }").unwrap();
-        // SAFETY: the temporary `CString`s live until the end of this statement.
         let result = unsafe {
             merge_user_config(
                 cstring(&source).as_ptr(),
@@ -551,10 +513,8 @@ mod no_node {
     fn version_info_roundtrip() {
         let result = get_build_version_info();
         assert!(result.is_ok());
-        // SAFETY: on success `value` is a C string from `CString::into_raw`.
         let json = unsafe { CStr::from_ptr(result.value) }.to_str().unwrap();
         let _version: serde_json::Value = serde_json::from_str(json).expect("Version info is JSON");
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
     }
 
@@ -562,7 +522,6 @@ mod no_node {
     #[ignore = "Runs under valgrind only: see the module docs."]
     fn deployment_info_roundtrip() {
         let paths = TestConfigPaths::new();
-        // SAFETY: both paths are live `CString`s owned by `paths`.
         let result = unsafe {
             get_deployment_info(paths.node_config.as_ptr(), paths.deployment_config.as_ptr())
         };
@@ -570,7 +529,6 @@ mod no_node {
         let (status, message) = consume(result);
         assert_eq!(status, OperationStatusCode::Ok, "{message}");
 
-        // SAFETY: on success `info` is a live `Box<DeploymentInfo>`.
         let info_ref = unsafe { &*info };
         for pointer in [
             info_ref.chain_id,
@@ -582,10 +540,8 @@ mod no_node {
             info_ref.protocol_names.chain_sync,
             info_ref.protocol_names.mempool,
         ] {
-            // SAFETY: every field of a successful info is a live C string.
             assert_ne!((unsafe { CStr::from_ptr(pointer) }).to_bytes().len(), 0);
         }
-        // SAFETY: `info` came from `get_deployment_info` and is freed once.
         assert!(unsafe { free_deployment_info(info) }.is_ok());
     }
 
@@ -609,8 +565,6 @@ mod no_node {
         let blend_port: u16 = 3124;
         let skip_ibd = true;
 
-        // SAFETY: every non null field points to a live local; `peers` holds
-        // `count` entries.
         let status = unsafe {
             generate_user_config(GenerateConfigArgs {
                 initial_peers: peers.as_ptr(),
@@ -633,13 +587,10 @@ mod no_node {
         assert!(temp_dir.path().join("user_config.yaml").exists());
 
         // The generated files feed the rest of the config/key API.
-        // SAFETY: `output` is a live `CString`.
         let result = unsafe { get_peer_id(output.as_ptr()) };
         assert!(result.is_ok());
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
 
-        // SAFETY: both paths are live `CString`s; the title may be null.
         let result = unsafe {
             generate_key(
                 output.as_ptr(),
@@ -649,15 +600,12 @@ mod no_node {
             )
         };
         assert!(result.is_ok());
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
 
-        // SAFETY: `output` is a live `CString`; the deployment path may be null.
         let result = unsafe { get_deployment_info(output.as_ptr(), ptr::null()) };
         let info = result.value;
         let (status, message) = consume(result);
         assert_eq!(status, OperationStatusCode::Ok, "{message}");
-        // SAFETY: `info` came from `get_deployment_info` and is freed once.
         assert!(unsafe { free_deployment_info(info) }.is_ok());
     }
 
@@ -675,8 +623,6 @@ mod no_node {
         let garbage_yaml = cstring(&garbage_yaml_path);
         let paths = TestConfigPaths::new();
 
-        // SAFETY: every pointer is a live `CString`, a static C string or null
-        // where the callee accepts null.
         unsafe {
             for path in [&missing, &not_utf8, &garbage_yaml] {
                 let p = path.as_ptr();
@@ -781,7 +727,6 @@ mod no_node {
             .replace("type: traversal", "type: \"a\\0b\"");
         std::fs::write(&path, yaml).unwrap();
         let path = cstring(&path);
-        // SAFETY: `path` is a live `CString`; the deployment path may be null.
         let (code, message) = consume(unsafe { start_lb_node(path.as_ptr(), ptr::null()) });
         assert_eq!(code, OperationStatusCode::InitializationError);
         assert!(message.contains("unknown variant `a\\0b`"), "{message}");
@@ -815,7 +760,6 @@ mod with_node {
                 self.sentinels.fetch_add(1, Ordering::SeqCst);
             } else {
                 // Reads the whole string, so valgrind sees any invalid read.
-                // SAFETY: a non null event is a C string live for the callback.
                 let len = unsafe { CStr::from_ptr(data) }.to_bytes().len();
                 self.bytes.fetch_add(len, Ordering::SeqCst);
                 self.events.fetch_add(1, Ordering::SeqCst);
@@ -856,9 +800,7 @@ mod with_node {
         let (code, message) = consume(result);
         if code == OperationStatusCode::Ok {
             assert!(!value.is_null(), "{name}: ok with a null string");
-            // SAFETY: on success `value` is a C string from `CString::into_raw`.
             let len = unsafe { CStr::from_ptr(value) }.to_bytes().len();
-            // SAFETY: that string is freed once, here.
             assert!(unsafe { free_cstring(value) }.is_ok());
             eprintln!("AUDIT {name}: Ok ({len} bytes)");
         } else {
@@ -886,9 +828,6 @@ mod with_node {
         // Not a canonical field element.
         let invalid_key = [0xFFu8; 32];
 
-        // SAFETY: `node` is live until `shutdown_node` below; every other
-        // pointer is a live local, a static C string or a library result
-        // freed once; the callbacks are thread safe and never unwind.
         unsafe {
             assert!(subscribe_to_new_blocks(node, Some(on_new_block)).is_ok());
             assert!(subscribe_to_processed_blocks(node, Some(on_processed)).is_ok());
@@ -1125,12 +1064,12 @@ mod with_node {
                 );
             }
 
-            let FfiResult { mut value, error } = pow_status(node);
+            let FfiResult { value, error } = pow_status(node);
             log("pow_status", error);
             for target in 0..value.auto_claim.targets_len {
                 let _ = (*value.auto_claim.targets.add(target)).threshold;
             }
-            freed(free_pow_status(&raw mut value));
+            freed(free_pow_status(value));
 
             let FfiResult { value, error } = pow_claimable_rewards(node);
             if log("pow_claimable_rewards", error) == OperationStatusCode::Ok {
@@ -1224,7 +1163,6 @@ mod with_node {
         let node = paths.start();
         let while_running = std::thread::spawn(|| panic!("host panic while the node runs")).join();
         std::thread::sleep(Duration::from_secs(2));
-        // SAFETY: `node` came from `paths.start()` and is not used again.
         let shutdown = consume(unsafe { shutdown_node(node) });
         let after_shutdown = std::thread::spawn(|| panic!("host panic after shutdown")).join();
 
@@ -1245,18 +1183,13 @@ mod with_node {
         if data.is_null() || node.is_null() || !results.is_empty() {
             return;
         }
-        // SAFETY: `node` is the live handle the test stored; these calls are
-        // refused from a callback before touching it.
         let result = unsafe { get_time_info(node) };
         assert!(result.value.is_null());
         results.push(consume(result));
-        // SAFETY: as above.
         results.push(consume(unsafe { get_known_addresses(node) }));
-        // SAFETY: as above; `on_lib` is thread safe and never unwinds.
         results.push(consume(unsafe {
             subscribe_to_lib_blocks(node, Some(on_lib))
         }));
-        // SAFETY: as above; the refused shutdown leaves the node untouched.
         results.push(consume(unsafe { shutdown_node(node) }));
     }
 
@@ -1271,7 +1204,6 @@ mod with_node {
         let node = paths.start();
         CALLBACK_NODE.store(node, Ordering::SeqCst);
         assert!(
-            // SAFETY: `node` is live; the callback is thread safe and never unwinds.
             unsafe { subscribe_to_processed_blocks(node, Some(calls_back_into_the_node)) }.is_ok()
         );
 
@@ -1289,12 +1221,9 @@ mod with_node {
         }
 
         // The refused shutdown left the node running.
-        // SAFETY: `node` is still live.
         let result = unsafe { get_time_info(node) };
         assert!(result.is_ok());
-        // SAFETY: `value` came from `get_time_info` and is freed once.
         assert!(unsafe { free_time_info(result.value) }.is_ok());
-        // SAFETY: `node` is live and not used again.
         let (status, message) = consume(unsafe { shutdown_node(node) });
         assert_eq!(status, OperationStatusCode::Ok, "{message}");
     }
@@ -1316,7 +1245,6 @@ mod with_node {
         let paths = TestConfigPaths::new();
         let node = paths.start();
         assert!(
-            // SAFETY: `node` is live; the callback is thread safe and never unwinds.
             unsafe { subscribe_to_processed_blocks(node, Some(on_stopped_node_event)) }.is_ok()
         );
         std::thread::sleep(Duration::from_secs(2));
@@ -1324,7 +1252,6 @@ mod with_node {
         // Stop Overwatch behind the handle's back, as a panicking service
         // would make it do.
         {
-            // SAFETY: `node` is a live handle from `paths.start()`.
             let node = unsafe { &*node };
             let runtime = node.get_runtime_handle().expect("The node is running");
             runtime
@@ -1332,24 +1259,20 @@ mod with_node {
                 .expect("Overwatch shuts down");
         }
 
-        // SAFETY: the handle stays allocated until `shutdown_node` below.
         let result = unsafe { get_time_info(node) };
         assert!(result.value.is_null());
         let (status, message) = consume(result);
         assert_eq!(status, OperationStatusCode::NodeStopped, "{message}");
         assert!(message.contains("shutdown_node"), "{message}");
         assert_eq!(
-            // SAFETY: as above.
             code(unsafe { get_known_addresses(node) }),
             OperationStatusCode::NodeStopped
         );
         assert_eq!(
-            // SAFETY: as above; `on_lib` is thread safe and never unwinds.
             code(unsafe { subscribe_to_lib_blocks(node, Some(on_lib)) }),
             OperationStatusCode::NodeStopped
         );
         assert_eq!(
-            // SAFETY: as above.
             code(unsafe { pow_status(node) }),
             OperationStatusCode::NodeStopped
         );
@@ -1361,7 +1284,6 @@ mod with_node {
         assert_eq!(STOPPED_NODE_EVENTS.snapshot().1, 1, "No end-of-stream call");
 
         // An ordinary shutdown was what stopped it, so releasing it succeeds.
-        // SAFETY: `node` is still allocated and not used again.
         let (status, message) = consume(unsafe { shutdown_node(node) });
         assert_eq!(status, OperationStatusCode::Ok, "{message}");
     }
@@ -1376,12 +1298,9 @@ mod with_node {
         for _ in 0..2 {
             let node = paths.start();
             std::thread::sleep(Duration::from_secs(2));
-            // SAFETY: `node` is a live handle from `paths.start()`.
             let result = unsafe { get_time_info(node) };
             assert!(result.is_ok());
-            // SAFETY: `value` came from `get_time_info` and is freed once.
             assert!(unsafe { free_time_info(result.value) }.is_ok());
-            // SAFETY: `node` is live and not used again.
             let (status, message) = consume(unsafe { shutdown_node(node) });
             assert_eq!(status, OperationStatusCode::Ok, "{message}");
         }

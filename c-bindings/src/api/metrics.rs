@@ -106,7 +106,6 @@ pub unsafe extern "C" fn get_open_metrics(
     node: *const LogosBlockchainNode,
 ) -> FfiGetOpenMetricsResult {
     return_error_if_null_pointer!(node);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let open_metrics = unwrap_or_return_error!(get_open_metrics_sync(node));
 

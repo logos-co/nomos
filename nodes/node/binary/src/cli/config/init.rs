@@ -10,10 +10,7 @@ use crate::{
     NetworkArgs, UserConfig,
     cli::{
         InitArgs,
-        config::{
-            keystore::{KeyTitle, Keystore, KeystoreError},
-            replace_secret_file, write_new_secret_file,
-        },
+        config::keystore::{KeyTitle, Keystore, KeystoreError},
     },
     config::{
         ApiConfig, BlendArgs, CryptarchiaArgs, CryptarchiaConfig, KmsConfig, MempoolConfig,
@@ -55,20 +52,14 @@ pub fn run(args: InitArgs) -> Result<()> {
         return Err(InitError::KeystoreFileExists.into());
     }
 
-    let write_secret_file = if args.overwrite {
-        replace_secret_file
-    } else {
-        write_new_secret_file
-    };
-
     let keystore = Keystore::default();
     let user_config = build_user_config(&keystore, args)?;
 
     let user_config_yaml = serde_yaml::to_string(&user_config)?;
-    write_secret_file(&user_config_path, &user_config_yaml)?;
+    std::fs::write(&user_config_path, &user_config_yaml)?;
 
     let keystore_yaml = serde_yaml::to_string(&keystore)?;
-    write_secret_file(&keystore_path, &keystore_yaml)?;
+    std::fs::write(&keystore_path, &keystore_yaml)?;
 
     Ok(())
 }

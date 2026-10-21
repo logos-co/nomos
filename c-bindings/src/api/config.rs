@@ -25,7 +25,6 @@ use crate::{
 ///
 /// The pointer must be non-null and point to a valid NUL-terminated C string.
 pub(crate) unsafe fn cstr_to_path(pointer: *const c_char) -> PathBuf {
-    // SAFETY: non null NUL terminated string per `# Safety`.
     unsafe { CStr::from_ptr(pointer) }
         .to_string_lossy()
         .to_string()
@@ -64,11 +63,9 @@ impl GenerateConfigArgs {
 
         // ---- initial_peers ----
         if !value.initial_peers.is_null() && !value.initial_peers_count.is_null() {
-            // SAFETY: non null (checked above), a valid `u32` per `# Safety`.
             let count = unsafe { *value.initial_peers_count } as usize;
 
             if count > 0 {
-                // SAFETY: non null (checked above), `count` entries per `# Safety`.
                 let peers = unsafe { slice::from_raw_parts(value.initial_peers, count) };
 
                 init_args.initial_peers = peers
@@ -78,7 +75,6 @@ impl GenerateConfigArgs {
                             return None;
                         }
 
-                        // SAFETY: non null (checked above) C string per `# Safety`.
                         unsafe { CStr::from_ptr(pointer) }
                             .to_str()
                             .ok()
@@ -90,26 +86,22 @@ impl GenerateConfigArgs {
 
         // ---- output ----
         if !value.output.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let output = unsafe { CStr::from_ptr(value.output) };
             init_args.output = output.to_string_lossy().to_string().into();
         }
 
         // ---- net_port ----
         if !value.net_port.is_null() {
-            // SAFETY: non null (checked above), a valid `u16` per `# Safety`.
             init_args.net_port = unsafe { *value.net_port };
         }
 
         // ---- blend_port ----
         if !value.blend_port.is_null() {
-            // SAFETY: non null (checked above), a valid `u16` per `# Safety`.
             init_args.blend_port = unsafe { *value.blend_port };
         }
 
         // ---- http_addr ----
         if !value.http_addr.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let http_address = unsafe { CStr::from_ptr(value.http_addr) };
             if let Ok(addr) = http_address.to_string_lossy().parse() {
                 init_args.http_addr = addr;
@@ -118,28 +110,24 @@ impl GenerateConfigArgs {
 
         // ---- external_address ----
         if !value.external_address.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let external_address = unsafe { CStr::from_ptr(value.external_address) };
             init_args.external_address = external_address.to_string_lossy().parse().ok();
         }
 
         // ---- state_path ----
         if !value.state_path.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let state_path = unsafe { CStr::from_ptr(value.state_path) };
             init_args.state_path = Some(state_path.to_string_lossy().to_string().into());
         }
 
         // ---- storage_path ----
         if !value.storage_path.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let storage_path = unsafe { CStr::from_ptr(value.storage_path) };
             init_args.storage_path = Some(storage_path.to_string_lossy().to_string().into());
         }
 
         // ---- logs_path ----
         if !value.logs_path.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let logs_path = unsafe { CStr::from_ptr(value.logs_path) };
             init_args.logs_path = Some(logs_path.to_string_lossy().to_string().into());
         }
@@ -148,20 +136,17 @@ impl GenerateConfigArgs {
         if !value.skip_ibd.is_null() {
             // Read as a byte: C can store any value in a `bool`, and anything
             // but 0 or 1 is not a valid Rust `bool`.
-            // SAFETY: non null (checked above), one readable byte per `# Safety`.
             init_args.skip_ibd = unsafe { *value.skip_ibd.cast::<u8>() } != 0;
         }
 
         // ---- log_filter ----
         if !value.log_filter.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let log_filter = unsafe { CStr::from_ptr(value.log_filter) };
             init_args.log_filter = Some(log_filter.to_string_lossy().to_string());
         }
 
         // ---- kms_file ----
         if !value.kms_file.is_null() {
-            // SAFETY: non null (checked above) C string per `# Safety`.
             let kms_file = unsafe { CStr::from_ptr(value.kms_file) };
             init_args.kms_file = Some(kms_file.to_string_lossy().to_string().into());
         }
@@ -203,7 +188,6 @@ pub fn generate_config_sync(args: EmbeddedInitArgs) -> OperationStatus {
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn generate_user_config(args: GenerateConfigArgs) -> OperationStatus {
-    // SAFETY: every non null field is valid for its type per `# Safety`.
     let init_args = unsafe { args.into_init_args() };
     generate_config_sync(init_args)
 }
@@ -236,9 +220,7 @@ pub unsafe extern "C" fn update_user_config(
     return_error_if_null_pointer!(keystore_path);
 
     let args = UpdateArgs::new(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(user_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
         true,
     );
@@ -279,7 +261,6 @@ pub unsafe extern "C" fn migrate_user_config(
     return_error_if_null_pointer!(output_path);
     return_error_if_null_pointer!(keystore_path);
 
-    // SAFETY: both are non null (checked above) C strings per `# Safety`.
     let args = MigrateArgs::new(unsafe { cstr_to_path(output_path) }, unsafe {
         cstr_to_path(keystore_path)
     });
@@ -325,11 +306,8 @@ pub unsafe extern "C" fn migrate_user_config_0_1_2(
     return_error_if_null_pointer!(keystore_path);
 
     let args = lb_node::cli::config::migrate_0_1_2::MigrateArgs::new(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(new_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(old_config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         unsafe { cstr_to_path(keystore_path) },
     );
 
@@ -433,7 +411,6 @@ pub unsafe extern "C" fn merge_user_config(
     let extra_yaml = if extra_yaml.is_null() {
         None
     } else {
-        // SAFETY: non null (checked above) C string per `# Safety`.
         let extra_yaml = unsafe { CStr::from_ptr(extra_yaml) }.to_string_lossy();
         match serde_yaml::from_str(&extra_yaml) {
             Ok(extra) => Some(extra),
@@ -449,9 +426,7 @@ pub unsafe extern "C" fn merge_user_config(
     let flags = MergeFlags::from(flags);
 
     let conflicts = match lb_node::cli::config::merge::run(
-        // SAFETY: non null (checked above) C string per `# Safety`.
         &unsafe { cstr_to_path(source_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         &unsafe { cstr_to_path(destination_path) },
         extra_yaml,
         &flags,
@@ -524,7 +499,6 @@ pub unsafe extern "C" fn participate(
     let external_address = if external_address.is_null() {
         None
     } else {
-        // SAFETY: non null (checked above) C string per `# Safety`.
         let address = unsafe { CStr::from_ptr(external_address) }.to_string_lossy();
         match address.parse::<Ipv4Addr>() {
             Ok(address) => Some(address),
@@ -540,7 +514,6 @@ pub unsafe extern "C" fn participate(
     let external_port = if external_port.is_null() {
         None
     } else {
-        // SAFETY: non null (checked above) pointer to a `u16` per `# Safety`.
         let Some(port) = NonZeroU16::new(unsafe { *external_port }) else {
             return OperationStatus::error(
                 OperationStatusCode::ValidationError,
@@ -551,11 +524,8 @@ pub unsafe extern "C" fn participate(
     };
 
     let args = ParticipateArgs {
-        // SAFETY: non null (checked above) C string per `# Safety`.
         config: unsafe { cstr_to_path(config_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         keystore: unsafe { cstr_to_path(keystore_path) },
-        // SAFETY: non null (checked above) C string per `# Safety`.
         output: unsafe { cstr_to_path(output_dir) },
         external_address,
         external_port,
@@ -615,13 +585,11 @@ mod test {
         let keystore_c = cstring(&keystore_path);
 
         // update-config
-        // SAFETY: both pointers come from live `CString`s of this test.
         let status = unsafe { update_user_config(config_c.as_ptr(), keystore_c.as_ptr()) };
         assert!(status.is_ok(), "Failed to update config: {status:?}");
 
         // generate-key
         let generated_title = CString::new("GeneratedKey").expect("Valid CString");
-        // SAFETY: every pointer comes from a live `CString` of this test.
         let result = unsafe {
             generate_key(
                 config_c.as_ptr(),
@@ -631,19 +599,16 @@ mod test {
             )
         };
         assert!(result.is_ok(), "Failed to generate key: {:?}", result.error);
-        // SAFETY: on success `value` is a C string from `CString::into_raw`.
         let key_id = unsafe { CStr::from_ptr(result.value) }
             .to_str()
             .expect("Key id should be valid UTF-8")
             .to_owned();
         assert_ne!(key_id, "");
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
 
         // add-key
         let key_hex = CString::new("11".repeat(32)).expect("Valid CString");
         let added_title = CString::new("AddedKey").expect("Valid CString");
-        // SAFETY: every pointer comes from a live `CString` of this test.
         let status = unsafe {
             add_key(
                 config_c.as_ptr(),
@@ -657,21 +622,17 @@ mod test {
 
         // remove-key
         let status =
-            // SAFETY: every pointer comes from a live `CString` of this test.
             unsafe { remove_key(config_c.as_ptr(), keystore_c.as_ptr(), added_title.as_ptr()) };
         assert!(status.is_ok(), "Failed to remove key: {status:?}");
 
         // get-peer-id
-        // SAFETY: the pointer comes from a live `CString` of this test.
         let result = unsafe { get_peer_id(config_c.as_ptr()) };
         assert!(result.is_ok(), "Failed to get peer id: {:?}", result.error);
-        // SAFETY: on success `value` is a C string from `CString::into_raw`.
         let peer_id = unsafe { CStr::from_ptr(result.value) }
             .to_str()
             .expect("Peer id should be valid UTF-8")
             .to_owned();
         assert_ne!(peer_id, "");
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
 
         // participate
@@ -679,7 +640,6 @@ mod test {
         let output_c = cstring(&output_dir);
         let external_address = CString::new("203.0.113.7").expect("Valid CString");
         let external_port = 3000u16;
-        // SAFETY: every pointer comes from a live `CString` of this test.
         let status = unsafe {
             participate(
                 config_c.as_ptr(),
@@ -698,7 +658,6 @@ mod test {
         // migrate-config
         let migrated_path = temp_dir.path().join("migrated_config.yaml");
         let migrated_c = cstring(&migrated_path);
-        // SAFETY: both pointers come from live `CString`s of this test.
         let status = unsafe { migrate_user_config(migrated_c.as_ptr(), keystore_c.as_ptr()) };
         assert!(status.is_ok(), "Failed to migrate config: {status:?}");
         assert!(migrated_path.exists());
@@ -716,7 +675,6 @@ mod test {
         let destination_c = cstring(&destination_path);
         let extra_c = CString::new("c: 3").expect("Valid CString");
 
-        // SAFETY: every pointer comes from a live `CString` of this test.
         let result = unsafe {
             merge_user_config(
                 source_c.as_ptr(),
@@ -726,8 +684,6 @@ mod test {
             )
         };
         assert!(result.is_ok(), "Failed to merge config: {:?}", result.error);
-        // SAFETY: a conflict is expected, so `value` is a C string from
-        // `CString::into_raw`.
         let report = unsafe { CStr::from_ptr(result.value) }
             .to_str()
             .expect("Report should be valid UTF-8")
@@ -736,7 +692,6 @@ mod test {
             report,
             "Key 'b' not found in new config. Value in old config: 2"
         );
-        // SAFETY: `value` came from `CString::into_raw` and is freed once.
         assert!(unsafe { free_cstring(result.value) }.is_ok());
 
         let destination: serde_yaml::Value = serde_yaml::from_str(
@@ -759,7 +714,6 @@ mod test {
         let source_c = cstring(&source_path);
         let destination_c = cstring(&destination_path);
 
-        // SAFETY: both paths come from live `CString`s; the extra YAML may be null.
         let result = unsafe {
             merge_user_config(
                 source_c.as_ptr(),
@@ -784,7 +738,6 @@ mod test {
         let destination_c = cstring(&destination_path);
         let extra_c = CString::new("a: [").expect("Valid CString");
 
-        // SAFETY: every pointer comes from a live `CString` of this test.
         let result = unsafe {
             merge_user_config(
                 source_c.as_ptr(),
@@ -794,7 +747,6 @@ mod test {
             )
         };
         assert_eq!(result.error.code, OperationStatusCode::ValidationError);
-        // SAFETY: the error status is owned here and released once.
         unsafe { free_operation_status(result.error) };
         let destination =
             std::fs::read_to_string(&destination_path).expect("Failed to read destination");

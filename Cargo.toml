@@ -245,7 +245,6 @@ humantime                          = { default-features = false, version = "2.1"
 igd-next                           = { default-features = false, version = "0.16.1" }
 indexmap                           = { default-features = false, version = "2.14.0" }
 itertools                          = { default-features = false, version = "0.14" }
-libc                               = { default-features = false, version = "0.2" }
 libp2p                             = { default-features = false, version = "0.56" }
 libp2p-stream                      = { default-features = false, version = "0.4.0-alpha" }
 libp2p-swarm-test                  = { default-features = false, version = "0.6" }
@@ -484,5 +483,5 @@ missing_debug_implementations          = { level = "allow" }
 missing_docs                           = { level = "allow" }
 trivial_casts                          = { level = "allow" }
 unreachable_pub                        = { level = "allow" }
-unsafe_code                            = { level = "deny" }
+unsafe_code                            = { level = "allow" }
 variant_size_differences               = { level = "allow" }

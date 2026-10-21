@@ -108,7 +108,6 @@ pub type FfiTimeInfoResult = FfiStatusResult<*mut TimeInfo>;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn get_time_info(node: *const LogosBlockchainNode) -> FfiTimeInfoResult {
     return_error_if_null_pointer!(node);
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let time_info = unwrap_or_return_error!(get_time_info_sync(node));
 
@@ -128,7 +127,5 @@ pub unsafe extern "C" fn get_time_info(node: *const LogosBlockchainNode) -> FfiT
 #[panic_to_error]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_time_info(pointer: *mut TimeInfo) -> OperationStatus {
-    // SAFETY: a non null `pointer` is a live `Box<TimeInfo>` from
-    // `get_time_info`, per `# Safety`.
     unsafe { free::<TimeInfo>(pointer) }
 }

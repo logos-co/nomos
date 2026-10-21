@@ -111,9 +111,7 @@ pub unsafe extern "C" fn get_block(
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(header_id);
 
-    // SAFETY: non null (checked above), 32 readable bytes per `# Safety`.
     let header_id = unsafe { *header_id };
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let json_cstring = unwrap_or_return_error!(get_block_sync(node, header_id));
     FfiGetBlockResult::ok(json_cstring.into_raw())
@@ -216,9 +214,7 @@ pub unsafe extern "C" fn get_transaction(
     return_error_if_null_pointer!(node);
     return_error_if_null_pointer!(tx_hash);
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
-    // SAFETY: non null (checked above), 32 readable bytes per `# Safety`.
     let tx_hash = unsafe { into_tx_hash(tx_hash) };
     let json_cstring = unwrap_or_return_error!(get_transaction_sync(node, tx_hash));
     FfiGetTransactionResult::ok(json_cstring.into_raw())
@@ -326,7 +322,6 @@ pub unsafe extern "C" fn get_blocks(
         ));
     };
 
-    // SAFETY: `node` is non null (checked above) and valid per `# Safety`.
     let node = unsafe { &*node };
     let json_cstring = unwrap_or_return_error!(get_blocks_sync(node, from_slot, to_slot));
     FfiGetBlocksResult::ok(json_cstring.into_raw())
