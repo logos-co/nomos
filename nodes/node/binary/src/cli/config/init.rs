@@ -33,16 +33,11 @@ pub fn run(mut args: InitArgs) -> Result<()> {
     args.keystore = keystore_path
         .strip_prefix(output_dir)
         .map_or_else(|_| keystore_path.clone(), Path::to_path_buf);
-    let keystore = if keystore_path.is_file() {
+    let existing_keystore = keystore_path.is_file();
+    let keystore = if existing_keystore {
         Keystore::load(&keystore_path)?
     } else {
-        let keystore = Keystore::default();
-        write_creating_parent_dirs(
-            &keystore_path,
-            &serde_yaml::to_string(&keystore)?,
-            "keystore",
-        )?;
-        keystore
+        Keystore::default()
     };
 
     let defaults: UserConfig =
@@ -56,6 +51,14 @@ pub fn run(mut args: InitArgs) -> Result<()> {
         serde_yaml::to_value(&config)?,
     )
     .unwrap_or_else(|| Value::Mapping(Mapping::new()));
+    // Nothing is written before every override has been validated.
+    if !existing_keystore {
+        write_creating_parent_dirs(
+            &keystore_path,
+            &serde_yaml::to_string(&keystore)?,
+            "keystore",
+        )?;
+    }
     write_creating_parent_dirs(&output, &serde_yaml::to_string(&overrides)?, "user config")?;
 
     Ok(())
