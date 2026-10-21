@@ -42,7 +42,8 @@ tracing                          = { workspace = true }
 tracing-futures                  = { workspace = true }
 
 [dev-dependencies]
-lb-wallet = { workspace = true }
+lb-groth16 = { features = ["test-utils"], workspace = true }
+lb-wallet  = { workspace = true }
 
 [features]
 default = []
