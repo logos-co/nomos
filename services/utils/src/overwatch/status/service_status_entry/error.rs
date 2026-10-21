@@ -25,6 +25,12 @@ impl<RuntimeServiceId: Display> Display for ServiceStatusEntriesError<RuntimeSer
 impl<RuntimeServiceId: Display + Debug> std::error::Error
     for ServiceStatusEntriesError<RuntimeServiceId>
 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.service_status_entries
+            .iter()
+            .find_map(ServiceStatusEntry::wait_error)
+            .map(|wait_error| wait_error as &(dyn std::error::Error + 'static))
+    }
 }
 
 impl<RuntimeServiceId, Iter> From<Iter> for ServiceStatusEntriesError<RuntimeServiceId>

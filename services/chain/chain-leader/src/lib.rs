@@ -35,7 +35,7 @@ use lb_cryptarchia_engine::Slot;
 use lb_key_management_system_service::{api::KmsServiceApi, keys::Ed25519Key};
 use lb_ledger::LedgerState;
 use lb_log_targets::{chain, diagnostic::BLEND_REACHABILITY};
-use lb_services_utils::wait_until_services_are_ready_with_lifecycle;
+use lb_services_utils::wait_until_services_are_ready;
 use lb_storage_service::StorageService;
 use lb_time_service::{SlotTick, TimeService, TimeServiceMessage};
 use lb_tx_service::{
@@ -398,8 +398,8 @@ where
 
         let blend_adapter = BlendAdapter::<BlendService>::new(relays.blend_relay().clone());
 
-        // Wait for bounded infrastructure services to become ready.
-        wait_until_services_are_ready_with_lifecycle!(
+        // Bounded infrastructure dependencies.
+        wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_mins(1)),
             TxMempoolService<_, _, _, _>,
@@ -408,16 +408,14 @@ where
         )
         .await?;
 
-        // Wallet, Cryptarchia, ChainNetwork, and Blend can all be delayed by
-        // recovery, IBD, or the chain's transition to Online. Wait for their
-        // lifecycle states instead of imposing a startup deadline.
-        wait_until_services_are_ready_with_lifecycle!(
+        // Recovery-dependent readiness has no deadline.
+        wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             None,
             Wallet,
-            CryptarchiaService, // becomes ready after recoverying blocks
-            ChainNetwork,       // becomes ready after IBD
-            BlendService        // becomes ready after chain becomes online
+            CryptarchiaService,
+            ChainNetwork,
+            BlendService
         )
         .await?;
 

@@ -1,28 +1,21 @@
-/// Wait for one or more services to become ready while detecting terminal
-/// lifecycle states.
+/// Wait for one or more services to become ready, failing fast if a dependency
+/// stops or fails before readiness.
 ///
-/// Requires `RuntimeServiceId` to be defined in the current scope. Every
+/// Requires `RuntimeServiceId` to be defined in the current scope. Each
 /// dependency must have passed an acknowledged startup boundary before this
-/// macro is called. Status watchers expose only the latest state, so `Stopped`
-/// and `Failed` are treated as terminal once the wait begins.
+/// macro is called. The node and C-binding entry points await
+/// `start_service_sequence`; on-demand Blend services await `start_service`.
 ///
-/// Overwatch processes each command to completion before handling queued
-/// status-watcher requests. Its `start_service_sequence` completion waits for
-/// each listed service's start acknowledgement, after the service has entered
-/// `Starting`. The node's standalone and C-binding entry points await this
-/// sequence; on-demand Blend services await `start_service` directly.
-///
-/// `$timeout` is an `Option<Duration>`. `Some(duration)` bounds the wait for
-/// each dependency and reports its observed status on timeout. `None` waits
-/// without a deadline. `Ready` succeeds, `Starting` waits, and `Stopped` or
-/// `Failed` fail immediately. Multiple dependencies are composed fail-fast.
-/// Periodic progress logs do not terminate the wait, and dropping the returned
-/// future cancels all waits.
+/// `$timeout` is an `Option<Duration>`. `Some(duration)` bounds each dependency
+/// wait; `None` waits without a deadline. Progress logs do not reset the
+/// timeout. Overwatch's status watcher retains only the latest state, so an
+/// intermediate transition that is overwritten before observation is not
+/// guaranteed to be detected.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// wait_until_services_are_ready_with_lifecycle!(
+/// wait_until_services_are_ready!(
 ///     &overwatch_handle,
 ///     None,
 ///     ServiceA,
@@ -30,7 +23,7 @@
 /// ).await?;
 /// ```
 #[macro_export]
-macro_rules! wait_until_services_are_ready_with_lifecycle {
+macro_rules! wait_until_services_are_ready {
     ( $overwatch_handle:expr, $timeout:expr, $( $service_type:ty ),+ ) => {{
         async {
             let overwatch_handle: &::overwatch::overwatch::OverwatchHandle<RuntimeServiceId> = $overwatch_handle;
@@ -66,11 +59,12 @@ macro_rules! wait_until_services_are_ready_with_lifecycle {
     }};
 }
 
-pub use wait_until_services_are_ready_with_lifecycle;
+pub use wait_until_services_are_ready;
 
 #[cfg(test)]
 mod tests {
     use std::{
+        error::Error,
         fmt::{Debug, Display},
         sync::Arc,
         time::Duration,
@@ -83,11 +77,16 @@ mod tests {
         services::{
             AsServiceId, ServiceCore, ServiceData,
             state::{NoOperator, NoState},
-            status::ServiceStatus,
+            status::{ServiceStatus, StatusWatcher, WaitForError},
         },
     };
     use overwatch_derive::derive_services;
-    use tokio::{runtime::Handle, sync::Notify};
+    use tokio::{
+        runtime::Handle,
+        sync::{Notify, watch},
+    };
+
+    use crate::overwatch::status::{ServiceStatusEntriesError, wait_for_service_to_be_ready};
 
     async fn notify_ready_and_wait<Service: ServiceData, RuntimeServiceId>(
         service_resources_handle: &OpaqueServiceResourcesHandle<Service, RuntimeServiceId>,
@@ -237,7 +236,7 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            wait_until_services_are_ready_with_lifecycle!(
+            wait_until_services_are_ready!(
                 &self.service_resources_handle.overwatch_handle,
                 None,
                 Dependency
@@ -277,7 +276,7 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            wait_until_services_are_ready_with_lifecycle!(
+            wait_until_services_are_ready!(
                 &self.service_resources_handle.overwatch_handle,
                 None,
                 GenericService
@@ -324,7 +323,7 @@ mod tests {
         }
 
         async fn run(self) -> Result<(), DynError> {
-            wait_until_services_are_ready_with_lifecycle!(
+            wait_until_services_are_ready!(
                 &self.service_resources_handle.overwatch_handle,
                 None,
                 GenericService,
@@ -415,6 +414,15 @@ mod tests {
         }
     }
 
+    fn assert_wait_error_cause(error: &DynError, expected: WaitForError) {
+        let aggregate = error
+            .as_ref()
+            .downcast_ref::<ServiceStatusEntriesError<RuntimeServiceId>>()
+            .expect("readiness failures should retain the Logos aggregate error");
+        let cause = Error::source(aggregate).expect("aggregate should retain the Overwatch cause");
+        assert_eq!(cause.downcast_ref::<WaitForError>(), Some(&expected));
+    }
+
     #[test]
     fn lifecycle_waits_for_all_dependencies() {
         let overwatch = initialize();
@@ -465,7 +473,7 @@ mod tests {
             .await
             .expect("dependency should start");
 
-        let error = wait_until_services_are_ready_with_lifecycle!(
+        let error = wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_secs(1)),
             HeavyService
@@ -475,7 +483,15 @@ mod tests {
         let message = error.to_string();
         let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
         assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Dependency readiness deadline expired"));
         assert!(message.contains("Starting"));
+        assert_wait_error_cause(
+            &error,
+            WaitForError::Timeout {
+                initial_status: ServiceStatus::Starting,
+                latest_status: ServiceStatus::Starting,
+            },
+        );
 
         overwatch_handle
             .shutdown()
@@ -485,6 +501,80 @@ mod tests {
             .wait_finished()
             .await
             .expect("No service should panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn readiness_wait_succeeds_before_bounded_timeout() {
+        let settings = HeavyServiceSettings::ready_after(Duration::from_secs(1));
+        let overwatch = initialize_with(settings, Some(Handle::current()));
+        let handle = overwatch.handle();
+
+        handle
+            .start_service::<HeavyService>()
+            .await
+            .expect("dependency should start");
+        wait_until_services_are_ready!(&handle, Some(Duration::from_secs(5)), HeavyService)
+            .await
+            .expect("dependency should become ready before the timeout");
+
+        handle.shutdown().await.expect("Overwatch should shut down");
+        overwatch
+            .wait_finished()
+            .await
+            .expect("No service should panic");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_readiness_wait_drops_status_watchers() {
+        let (sender, receiver) = watch::channel(ServiceStatus::Starting);
+        let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
+        let mut readiness = Box::pin(wait_for_service_to_be_ready(
+            StatusWatcher::new(receiver),
+            service_id,
+            None,
+        ));
+
+        assert!(futures::poll!(readiness.as_mut()).is_pending());
+        assert_eq!(
+            sender.receiver_count(),
+            2,
+            "progress and readiness watchers should be attached"
+        );
+
+        drop(readiness);
+        assert_eq!(
+            sender.receiver_count(),
+            0,
+            "dropping the wait must not leave watchers behind"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lifecycle_wait_reports_closed_status_channel_with_structured_error() {
+        let (sender, receiver) = watch::channel(ServiceStatus::Starting);
+        let dependency = "closed-dependency".to_owned();
+        let readiness =
+            wait_for_service_to_be_ready(StatusWatcher::new(receiver), dependency.clone(), None);
+        tokio::pin!(readiness);
+
+        assert!(futures::poll!(readiness.as_mut()).is_pending());
+        drop(sender);
+
+        let entry = readiness
+            .await
+            .expect_err("closed status channel must fail readiness");
+        let error: ServiceStatusEntriesError<String> = [entry].into();
+        let message = error.to_string();
+        assert!(message.contains(&dependency));
+        assert!(message.contains("Starting"));
+        assert!(message.contains("status notifications closed"));
+        assert_eq!(
+            Error::source(&error).and_then(|source| source.downcast_ref::<WaitForError>()),
+            Some(&WaitForError::ChannelClosed {
+                initial_status: ServiceStatus::Starting,
+                latest_status: ServiceStatus::Starting,
+            })
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -515,11 +605,7 @@ mod tests {
             .await
             .expect("dependent status watcher should be available");
 
-        let mut readiness = Box::pin(wait_until_services_are_ready_with_lifecycle!(
-            &handle,
-            None,
-            HeavyService
-        ));
+        let mut readiness = Box::pin(wait_until_services_are_ready!(&handle, None, HeavyService));
         tokio::select! {
             biased;
             result = &mut readiness => panic!("dependency completed before the delay: {result:?}"),
@@ -560,34 +646,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn lifecycle_wait_reports_initial_stopped_dependency() {
-        let overwatch = initialize_with(
-            HeavyServiceSettings::ready_after(Duration::ZERO),
-            Some(Handle::current()),
-        );
-        let handle = overwatch.handle();
-
-        let error = tokio::time::timeout(
-            Duration::from_secs(1),
-            wait_until_services_are_ready_with_lifecycle!(&handle, None, HeavyService),
-        )
-        .await
-        .expect("initial Stopped status should be handled immediately")
-        .expect_err("initial Stopped status is terminal");
-        let message = error.to_string();
-        let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
-        assert!(message.contains(&service_id.to_string()));
-        assert!(message.contains("Stopped"));
-
-        handle.shutdown().await.expect("Overwatch should shut down");
-        overwatch
-            .wait_finished()
-            .await
-            .expect("No service should panic");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn lifecycle_wait_reports_stopped_before_watcher_attachment() {
+    async fn lifecycle_wait_reports_returned_error_after_start_boundary() {
         let mut settings = HeavyServiceSettings::ready_after(Duration::ZERO);
         settings.outcome = HeavyServiceOutcome::ReturnError;
         let overwatch =
@@ -610,13 +669,20 @@ mod tests {
             "mock dependency should stop before the lifecycle wait attaches"
         );
 
-        let error = wait_until_services_are_ready_with_lifecycle!(&handle, None, HeavyService)
+        let error = wait_until_services_are_ready!(&handle, None, HeavyService)
             .await
             .expect_err("Stopped dependency must fail readiness");
         let message = error.to_string();
         let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
         assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Dependency stopped before readiness"));
         assert!(message.contains("Stopped"));
+        assert_wait_error_cause(
+            &error,
+            WaitForError::ServiceStopped {
+                initial_status: ServiceStatus::Stopped,
+            },
+        );
 
         handle
             .start_service::<LightService>()
@@ -664,13 +730,20 @@ mod tests {
             "mock dependency should fail before the lifecycle wait attaches"
         );
 
-        let error = wait_until_services_are_ready_with_lifecycle!(&handle, None, HeavyService)
+        let error = wait_until_services_are_ready!(&handle, None, HeavyService)
             .await
             .expect_err("Failed dependency must fail readiness");
         let message = error.to_string();
         let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
         assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Dependency failed before readiness"));
         assert!(message.contains("Failed"));
+        assert_wait_error_cause(
+            &error,
+            WaitForError::ServiceFailed {
+                initial_status: ServiceStatus::Failed,
+            },
+        );
 
         handle.shutdown().await.expect("Overwatch should shut down");
         overwatch
@@ -690,11 +763,7 @@ mod tests {
             .start_service::<HeavyService>()
             .await
             .expect("dependency should start");
-        let mut readiness = Box::pin(wait_until_services_are_ready_with_lifecycle!(
-            &handle,
-            None,
-            HeavyService
-        ));
+        let mut readiness = Box::pin(wait_until_services_are_ready!(&handle, None, HeavyService));
         tokio::select! {
             biased;
             result = &mut readiness => panic!("dependency completed before the panic: {result:?}"),
@@ -708,7 +777,14 @@ mod tests {
         let message = error.to_string();
         let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
         assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Dependency failed before readiness"));
         assert!(message.contains("Failed"));
+        assert_wait_error_cause(
+            &error,
+            WaitForError::ServiceFailed {
+                initial_status: ServiceStatus::Starting,
+            },
+        );
 
         handle.shutdown().await.expect("Overwatch should shut down");
         overwatch
@@ -736,12 +812,7 @@ mod tests {
 
         let error = tokio::time::timeout(
             Duration::from_secs(2),
-            wait_until_services_are_ready_with_lifecycle!(
-                &handle,
-                None,
-                PendingService,
-                HeavyService
-            ),
+            wait_until_services_are_ready!(&handle, None, PendingService, HeavyService),
         )
         .await
         .expect("failed dependency should not wait for the pending dependency")
@@ -749,7 +820,14 @@ mod tests {
         let message = error.to_string();
         let service_id = <RuntimeServiceId as AsServiceId<HeavyService>>::SERVICE_ID;
         assert!(message.contains(&service_id.to_string()));
+        assert!(message.contains("Dependency stopped before readiness"));
         assert!(message.contains("Stopped"));
+        assert_wait_error_cause(
+            &error,
+            WaitForError::ServiceStopped {
+                initial_status: ServiceStatus::Starting,
+            },
+        );
         assert_eq!(pending_status.current(), ServiceStatus::Starting);
 
         handle.shutdown().await.expect("Overwatch should shut down");

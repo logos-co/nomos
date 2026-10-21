@@ -21,7 +21,7 @@ use lb_key_management_system_service::{
 use lb_log_targets::blend;
 use lb_network_service::NetworkService;
 use lb_sdp_service::{SdpMessage, SdpServiceApi, SdpSubmission};
-use lb_services_utils::wait_until_services_are_ready_with_lifecycle;
+use lb_services_utils::wait_until_services_are_ready;
 use lb_time_service::TimeService;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -184,14 +184,14 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
         let minimal_network_size = settings.common.minimum_network_size;
 
-        wait_until_services_are_ready_with_lifecycle!(
+        wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_mins(1)),
             PreloadKmsService<_>
         )
         .await?;
 
-        wait_until_services_are_ready_with_lifecycle!(
+        wait_until_services_are_ready!(
             &overwatch_handle,
             None,
             SdpService,
