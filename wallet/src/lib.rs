@@ -322,8 +322,14 @@ impl WalletState {
             }
         }
 
+        let available = utxos.iter().map(|u| u.note.value).sum::<u64>();
+        let tx_with_all_utxos = tx_builder
+            .clone()
+            .extend_ledger_inputs(utxos.iter().copied())?;
+        let shortfall = funding_shortfall::<G>(&tx_with_all_utxos, context, priority_fee_percent)?;
         Err(WalletError::InsufficientFunds {
-            available: utxos.iter().map(|u| u.note.value).sum::<u64>(),
+            available,
+            required: available.saturating_add(shortfall),
         })
     }
 
@@ -862,6 +868,27 @@ where
 pub struct WalletBalance {
     pub balance: Value,
     pub notes: HashMap<NoteId, Value>,
+}
+
+/// How much more value `tx` needs before [`WalletState::fund_tx`] can fund it.
+///
+/// A transaction that is short pays its whole deficit. One that is already
+/// funded, but with too little left over for a change note, still needs enough
+/// to pay for the change note and give it a value of at least 1.
+fn funding_shortfall<G: GasProfile>(
+    tx: &MantleTxBuilder,
+    context: &OpsContext,
+    priority_fee_percent: u64,
+) -> Result<u64, WalletError> {
+    let funding_delta = tx.funding_delta_with_priority_fee::<G>(context, priority_fee_percent)?;
+    let shortfall = if funding_delta < 0 {
+        -funding_delta
+    } else {
+        1 - tx
+            .with_dummy_change_note()?
+            .funding_delta_with_priority_fee::<G>(context, priority_fee_percent)?
+    };
+    Ok(u64::try_from(shortfall).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]
@@ -1618,9 +1645,18 @@ mod tests {
         let fund_attempt =
             wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice], &context, &HashSet::new(), 0);
 
+        // The shortfall once every one of the wallet's notes is an input.
+        let shortfall = -tx_builder
+            .extend_ledger_inputs((0..4).map(|i| Utxo::new(tx_hash(0), i, Note::new(100, alice))))
+            .unwrap()
+            .funding_delta::<Gas>(&context)
+            .unwrap();
         assert_eq!(
             fund_attempt.unwrap_err(),
-            WalletError::InsufficientFunds { available: 400 }
+            WalletError::InsufficientFunds {
+                available: 400,
+                required: 400 + u64::try_from(shortfall).unwrap(),
+            }
         );
     }
 
@@ -1644,9 +1680,14 @@ mod tests {
         let fund_attempt =
             wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice], &context, &HashSet::new(), 0);
 
+        // With no spendable notes, the whole cost of the transaction is missing.
+        let cost = u64::try_from(-tx_builder.funding_delta::<Gas>(&context).unwrap()).unwrap();
         assert_eq!(
             fund_attempt.unwrap_err(),
-            WalletError::InsufficientFunds { available: 0 }
+            WalletError::InsufficientFunds {
+                available: 0,
+                required: cost,
+            }
         );
     }
 
@@ -1673,10 +1714,10 @@ mod tests {
         let fund_attempt =
             wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice], &context, &HashSet::new(), 0);
 
-        assert_eq!(
+        assert!(matches!(
             fund_attempt.unwrap_err(),
-            WalletError::InsufficientFunds { available: 0 }
-        );
+            WalletError::InsufficientFunds { available: 0, .. }
+        ));
     }
 
     #[test]
@@ -1703,10 +1744,10 @@ mod tests {
         let fund_attempt =
             wallet_state.fund_tx::<Gas>(&tx_builder, alice, [alice], &context, &HashSet::new(), 0);
 
-        assert_eq!(
+        assert!(matches!(
             fund_attempt.unwrap_err(),
-            WalletError::InsufficientFunds { available: 0 }
-        );
+            WalletError::InsufficientFunds { available: 0, .. }
+        ));
 
         // Fund the transaction with Bob's notes.
         wallet_state
@@ -1794,9 +1835,14 @@ mod tests {
                 0,
             );
 
+            // The change note must be worth at least 1, on top of the 794 the
+            // transaction costs with it.
             assert_eq!(
                 fund_attempt.unwrap_err(),
-                WalletError::InsufficientFunds { available: value }
+                WalletError::InsufficientFunds {
+                    available: value,
+                    required: 795,
+                }
             );
         }
 
@@ -2009,7 +2055,10 @@ mod tests {
                 0,
             )
             .unwrap_err();
-        assert_eq!(err, WalletError::InsufficientFunds { available: 0 });
+        assert!(matches!(
+            err,
+            WalletError::InsufficientFunds { available: 0, .. }
+        ));
     }
 
     /// A `ChannelTransfer` must drop the consumed channel note from the
@@ -2263,7 +2312,10 @@ mod tests {
             )
             .unwrap_err();
         // The error detail says that the withdrawn note is now spendable.
-        assert_eq!(err, WalletError::InsufficientFunds { available: 100 });
+        assert!(matches!(
+            err,
+            WalletError::InsufficientFunds { available: 100, .. }
+        ));
     }
 
     #[test]
