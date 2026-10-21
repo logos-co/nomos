@@ -1,6 +1,7 @@
 pub mod api;
 pub mod cli;
 pub mod config;
+pub mod cpu_features;
 pub mod generic_services;
 pub mod global_allocators;
 pub mod panic;
@@ -168,6 +169,8 @@ pub fn run_node_from_config(
     config: RunConfig,
     handle: Option<runtime::Handle>,
 ) -> Result<Overwatch<RuntimeServiceId>, DynError> {
+    cpu_features::ensure_required_cpu_features()?;
+
     // Read before the deployment settings are consumed piecewise below. The
     // chain ID is fixed by the deployment, so the API backend is handed it up
     // front rather than querying a service for a value that cannot change.
