@@ -2,15 +2,104 @@ use std::fmt::{Debug, Display};
 
 use lb_binary_codec::bincode::{DeserializeOp, SerializeOp};
 use lb_blend_service::message::{DataPayload, NetworkInfo, ProxyServiceMessage, ServiceMessage};
-use lb_chain_service::api::CryptarchiaServiceApi;
-use lb_core::mantle::Value;
+use lb_chain_service::{Epoch, api::CryptarchiaServiceApi};
+use lb_core::{
+    mantle::{NoteId, Value},
+    sdp::{Declaration, DeclarationId, Locators, ProviderId, SNAPSHOT_FINALIZATION_DELAY},
+};
 use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_ledger::mantle::sdp::rewards::blend::BlendRewardsInfo;
 use lb_network_service::backends::libp2p::PeerId;
 use overwatch::services::{AsServiceId, ServiceData};
+use serde::Serialize;
 use tokio::sync::oneshot;
 
 use super::consensus::Cryptarchia;
+
+/// Count of negotiated session peers for the current epoch, with how many are
+/// healthy.
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionPeers {
+    pub total: usize,
+    pub healthy: usize,
+}
+
+impl SessionPeers {
+    /// Peer counts from the Blend network info: zeroed when the node is not a
+    /// core node (no `core_info`).
+    #[must_use]
+    pub fn from_network_info<NodeId>(network_info: Option<&NetworkInfo<NodeId>>) -> Self {
+        network_info
+            .and_then(|info| info.core_info.as_ref())
+            .map_or(
+                Self {
+                    total: 0,
+                    healthy: 0,
+                },
+                |core_info| Self {
+                    total: core_info.current_epoch_peers.len(),
+                    healthy: core_info
+                        .current_epoch_peers
+                        .iter()
+                        .filter(|(_, healthy)| *healthy)
+                        .count(),
+                },
+            )
+    }
+}
+
+/// A node's own Blend core declaration, as reported in [`BlendStatus`].
+#[derive(Debug, Clone, Serialize)]
+pub struct DeclarationInfo {
+    pub id: DeclarationId,
+    pub provider_id: ProviderId,
+    pub zk_id: ZkPublicKey,
+    pub locked_note_id: NoteId,
+    pub locators: Locators,
+    pub created_epoch: u32,
+    /// The epoch the declaration's stake takes effect, derived as
+    /// `created_epoch + SNAPSHOT_FINALIZATION_DELAY`.
+    pub active_from_epoch: u32,
+    pub withdraw_at: Option<u32>,
+}
+
+impl DeclarationInfo {
+    #[must_use]
+    pub fn from_declaration(id: DeclarationId, declaration: &Declaration) -> Self {
+        let created_epoch = declaration.created.into_inner();
+        Self {
+            id,
+            provider_id: declaration.provider_id,
+            zk_id: declaration.zk_id,
+            locked_note_id: declaration.service_note_id,
+            locators: declaration.locators.clone(),
+            created_epoch,
+            active_from_epoch: created_epoch
+                .saturating_add(SNAPSHOT_FINALIZATION_DELAY.into_inner()),
+            withdraw_at: declaration.withdraw_at.map(Epoch::into_inner),
+        }
+    }
+}
+
+/// A snapshot of a node's Blend participation. Mirrors the referral program's
+/// `blend_status()`, without the synthesized `state` and the `activity` block,
+/// which need tracking the node does not keep yet.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlendStatus {
+    pub core_mode: bool,
+    pub declaration: Option<DeclarationInfo>,
+    pub current_epoch: u32,
+    pub session_peers: SessionPeers,
+}
+
+/// This epoch's Blend reward estimate for a node, carrying its reward key
+/// alongside the ledger-provided reward fields in one flat object.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlendRewardsResponse {
+    pub reward_key: ZkPublicKey,
+    #[serde(flatten)]
+    pub rewards: BlendRewardsInfo,
+}
 
 pub async fn blend_info<BlendService, RuntimeServiceId>(
     handle: &overwatch::overwatch::handle::OverwatchHandle<RuntimeServiceId>,
@@ -127,7 +216,7 @@ pub fn select_service_note<Id: Copy>(
 pub async fn blend_join_network<BlendService, RuntimeServiceId>(
     handle: &overwatch::overwatch::OverwatchHandle<RuntimeServiceId>,
     locator: lb_core::sdp::Locator,
-    service_note_id: lb_core::mantle::NoteId,
+    service_note_id: NoteId,
 ) -> Result<lb_sdp_service::SdpSubmission, overwatch::DynError>
 where
     BlendService: ServiceData<Message = ProxyServiceMessage<ServiceMessage<PeerId>>>,

@@ -1,5 +1,8 @@
 use std::ffi::{CString, c_char};
 
+use lb_api_service::http::blend::{
+    BlendRewardsResponse, BlendStatus, DeclarationInfo, SessionPeers,
+};
 use lb_blend_service::message::NetworkInfo;
 use lb_c_macros::panic_to_error;
 use lb_core::{
@@ -7,7 +10,6 @@ use lb_core::{
     sdp::{self, Locator},
 };
 use lb_groth16::fr_from_bytes;
-use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_node::{
     RuntimeServiceId,
     generic_services::{
@@ -464,7 +466,7 @@ pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiB
     let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
     let overwatch_handle = node.get_overwatch_handle().clone();
 
-    let rewards_json: StatusResult<serde_json::Value> = runtime_handle.block_on(async {
+    let response: StatusResult<BlendRewardsResponse> = runtime_handle.block_on(async {
         let reward_key = lb_api_service::http::blend::blend_zk_id::<
             BlendService<RuntimeServiceId>,
             RuntimeServiceId,
@@ -477,7 +479,7 @@ pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiB
             )
         })?;
 
-        let info = lb_api_service::http::blend::blend_rewards::<RuntimeServiceId>(
+        let rewards = lb_api_service::http::blend::blend_rewards::<RuntimeServiceId>(
             &overwatch_handle,
             reward_key,
         )
@@ -495,67 +497,14 @@ pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiB
             )
         })?;
 
-        // The reward key is carried alongside the ledger-provided fields, so
-        // the JSON matches the referral spec's flat `blend_rewards()` shape.
-        let mut value = serde_json::to_value(&info).map_err(|error| {
-            OperationStatus::error(
-                OperationStatusCode::RuntimeError,
-                format!("Failed to serialize blend rewards: {error}"),
-            )
-        })?;
-        if let serde_json::Value::Object(map) = &mut value {
-            let reward_key_value = serde_json::to_value(reward_key).map_err(|error| {
-                OperationStatus::error(
-                    OperationStatusCode::RuntimeError,
-                    format!("Failed to serialize blend reward key: {error}"),
-                )
-            })?;
-            map.insert("reward_key".to_owned(), reward_key_value);
-        }
-        Ok(value)
+        Ok(BlendRewardsResponse {
+            reward_key,
+            rewards,
+        })
     });
 
-    let rewards_json = unwrap_or_return_error!(rewards_json);
-    FfiBlendRewardsResult::ok(unwrap_or_return_error!(to_json_cstring(&rewards_json)))
-}
-
-/// Count of negotiated session peers for the current epoch, with how many are
-/// healthy.
-#[derive(serde::Serialize)]
-struct SessionPeers {
-    total: usize,
-    healthy: usize,
-}
-
-/// This node's own Blend core declaration, as reported in [`BlendStatus`].
-#[derive(serde::Serialize)]
-struct DeclarationInfo {
-    id: sdp::DeclarationId,
-    provider_id: sdp::ProviderId,
-    zk_id: ZkPublicKey,
-    locked_note_id: NoteId,
-    locators: sdp::Locators,
-    created_epoch: u32,
-    /// The epoch the declaration's stake takes effect, derived as
-    /// `created_epoch + SNAPSHOT_FINALIZATION_DELAY`.
-    active_from_epoch: u32,
-    withdraw_at: Option<u32>,
-}
-
-/// A snapshot of this node's Blend participation.
-///
-/// Mirrors the referral program's `blend_status()`, minus the fields that
-/// require logic not yet present in the node: the synthesized `state` and the
-/// whole `activity` block (`this_epoch`, `reason`, `tokens_collected`,
-/// `last_active_epoch`, `last_fee`).
-#[derive(serde::Serialize)]
-struct BlendStatus {
-    /// Whether this node participates as a core node (versus edge).
-    core_mode: bool,
-    /// This node's own declaration, or `None` when it has not declared.
-    declaration: Option<DeclarationInfo>,
-    current_epoch: u32,
-    session_peers: SessionPeers,
+    let response = unwrap_or_return_error!(response);
+    FfiBlendRewardsResult::ok(unwrap_or_return_error!(to_json_cstring(&response)))
 }
 
 pub type FfiBlendStatusResult = FfiStatusResult<*mut c_char>;
@@ -595,21 +544,11 @@ pub unsafe extern "C" fn blend_status(node: *const LogosBlockchainNode) -> FfiBl
 
     // Core mode and session peers come from the Blend network info.
     let network_info = unwrap_or_return_error!(blend_info_sync(node));
-    let (core_mode, session_peers) = network_info
+    let core_mode = network_info
         .as_ref()
         .and_then(|info| info.core_info.as_ref())
-        .map_or(
-            (false, SessionPeers { total: 0, healthy: 0 }),
-            |core_info| {
-                let total = core_info.current_epoch_peers.len();
-                let healthy = core_info
-                    .current_epoch_peers
-                    .iter()
-                    .filter(|(_, healthy)| *healthy)
-                    .count();
-                (true, SessionPeers { total, healthy })
-            },
-        );
+        .is_some();
+    let session_peers = SessionPeers::from_network_info(network_info.as_ref());
 
     let current_epoch = unwrap_or_return_error!(get_time_info_sync(node)).current_epoch;
 
@@ -647,20 +586,9 @@ pub unsafe extern "C" fn blend_status(node: *const LogosBlockchainNode) -> FfiBl
             )
         })?;
 
-        Ok(declarations.get(&declaration_id).map(|declaration| {
-            let created_epoch = declaration.created.into_inner();
-            DeclarationInfo {
-                id: declaration_id,
-                provider_id: declaration.provider_id,
-                zk_id: declaration.zk_id,
-                locked_note_id: declaration.service_note_id,
-                locators: declaration.locators.clone(),
-                created_epoch,
-                active_from_epoch: created_epoch
-                    .saturating_add(sdp::SNAPSHOT_FINALIZATION_DELAY.into_inner()),
-                withdraw_at: declaration.withdraw_at.map(lb_chain_service::Epoch::into_inner),
-            }
-        }))
+        Ok(declarations
+            .get(&declaration_id)
+            .map(|declaration| DeclarationInfo::from_declaration(declaration_id, declaration)))
     });
     let declaration = unwrap_or_return_error!(declaration);
 
