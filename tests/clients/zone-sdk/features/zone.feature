@@ -222,7 +222,7 @@ Feature: Zone SDK
       | SEQ_B |
       | SEQ_C |
     When node "NODE_1" is at height 1 in 120 seconds
-    And wallet "WALLET_1A" sends 60 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
+    And wallet "WALLET_1A" sends 120 notes of 5000 LGO to node "NODE_1" funding wallet as "FUNDING_TOPUP"
     And transaction "FUNDING_TOPUP" is included on node "NODE_1" in 180 seconds
     And I start zone sequencer "SEQ_A" with indexer
     When I stop zone sequencer "SEQ_A"
