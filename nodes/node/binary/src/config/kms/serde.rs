@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Keystore the node identity and the `backend.keys` not listed here are
-    /// read from. Relative to the user config file.
+    /// The keystore, relative to the user config file. When it exists, the
+    /// node identity, the key ids, `wallet` and `kms` are populated from it and
+    /// the user config only overrides them; without it the user config has to
+    /// be complete.
     pub keystore: PathBuf,
     pub backend: PreloadKmsBackendSettings,
 }

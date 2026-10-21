@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 use lb_groth16::fr_to_bytes;
 use lb_key_management_system_service::{
     backend::preload::KeyId,
@@ -77,7 +77,9 @@ pub struct Keystore {
 
 impl Keystore {
     pub fn load(path: &Path) -> Result<Self> {
-        Ok(serde_yaml::from_str(&std::fs::read_to_string(path)?)?)
+        let yaml = std::fs::read_to_string(path)
+            .map_err(|error| eyre!("Failed to read keystore {}: {error}", path.display()))?;
+        Ok(serde_yaml::from_str(&yaml)?)
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {

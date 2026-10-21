@@ -97,9 +97,10 @@ pub struct RequiredValues {
 }
 
 impl UserConfig {
-    /// Loads the user config at `path`. The file only needs to hold the values
-    /// that differ from the defaults: the node identity and keys come from the
-    /// keystore it names (`keystore.yaml` next to it by default), when present.
+    /// Loads the user config at `path`. When the keystore (`keystore.yaml`
+    /// next to it, or `kms.keystore`) exists, the node identity, the key ids,
+    /// `wallet` and `kms` are populated from it and the config only overrides
+    /// them; without one the config has to be complete.
     pub fn load(path: &Path) -> Result<Self> {
         let overrides = match deserialize_value_at_path(path, OnUnknownKeys::Fail)? {
             Value::Null => Value::Mapping(serde_yaml::Mapping::new()),
