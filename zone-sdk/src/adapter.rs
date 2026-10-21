@@ -374,6 +374,96 @@ mod tests {
         }
     }
 
+    fn deposit_event(channel_id: ChannelId, output_seed: u64) -> TxEventPayload {
+        TxEventPayload::Deposit {
+            channel_id,
+            metadata: Metadata::default(),
+            outputs: [NoteCommitment(Fr::from(output_seed))].into(),
+        }
+    }
+
+    /// Each indexer-facing message must carry the identity of the op it was
+    /// built from, not a neighbouring op's, and not a neighbouring tx's.
+    /// Zone consumers correlate an L2 mint to a finalized L1 deposit by
+    /// `(tx_hash, op_id)`, so a crossed identity is silent corruption of the
+    /// exactly-once key rather than a visible failure.
+    #[test]
+    fn block_to_messages_stamps_each_op_with_its_own_identity() {
+        let channel_id = ChannelId::from([0; 32]);
+        let other_channel = ChannelId::from([9; 32]);
+
+        // tx_a mixes our channel's deposit with a foreign one, so a walker that
+        // reused the wrong op's id (or the wrong channel's) would surface here.
+        let our_deposit = deposit_op(channel_id, 1, b"to Alice".into());
+        let foreign_deposit = deposit_op(other_channel, 2, b"to Bob".into());
+        let tx_a = unverified_tx_with_ops(vec![
+            Op::ChannelDeposit(our_deposit.clone()),
+            Op::ChannelDeposit(foreign_deposit.clone()),
+        ]);
+        let tx_a_hash = tx_a.hash();
+
+        // A second tx proves `tx_hash` is stamped per-tx, not per-block.
+        let later_deposit = deposit_op(channel_id, 3, b"to Carol".into());
+        let tx_b = unverified_tx_with_ops(vec![Op::ChannelDeposit(later_deposit.clone())]);
+        let tx_b_hash = tx_b.hash();
+
+        // Every deposit gets an event, so channel filtering is proven to be
+        // the reason the foreign one is dropped, not a missing event.
+        let deposit_events = DepositEvents::from([
+            (
+                DepositOpKey {
+                    tx_hash: tx_a_hash,
+                    op_id: our_deposit.op_id(),
+                },
+                deposit_event(channel_id, 1234),
+            ),
+            (
+                DepositOpKey {
+                    tx_hash: tx_a_hash,
+                    op_id: foreign_deposit.op_id(),
+                },
+                deposit_event(other_channel, 999),
+            ),
+            (
+                DepositOpKey {
+                    tx_hash: tx_b_hash,
+                    op_id: later_deposit.op_id(),
+                },
+                deposit_event(channel_id, 5678),
+            ),
+        ]);
+
+        let messages = block_to_messages(vec![tx_a, tx_b], channel_id, &deposit_events);
+
+        assert_eq!(
+            messages.len(),
+            2,
+            "one deposit on our channel in tx_a, one in tx_b"
+        );
+        match &messages[0] {
+            ZoneMessage::Deposit(deposit) => {
+                assert_eq!(deposit.tx_hash, tx_a_hash);
+                assert_eq!(deposit.op_id, our_deposit.op_id());
+                assert_eq!(deposit.inputs, our_deposit.inputs);
+                assert_eq!(deposit.outputs, [NoteCommitment(Fr::from(1234u64))].into());
+                assert_ne!(
+                    deposit.op_id,
+                    foreign_deposit.op_id(),
+                    "deposit must not inherit its tx-mate's identity"
+                );
+            }
+            other @ ZoneMessage::Block(_) => panic!("expected Deposit, got {other:?}"),
+        }
+        match &messages[1] {
+            ZoneMessage::Deposit(deposit) => {
+                assert_eq!(deposit.tx_hash, tx_b_hash);
+                assert_eq!(deposit.op_id, later_deposit.op_id());
+                assert_eq!(deposit.outputs, [NoteCommitment(Fr::from(5678u64))].into());
+            }
+            other @ ZoneMessage::Block(_) => panic!("expected Deposit, got {other:?}"),
+        }
+    }
+
     /// Pins the public backend contract: an external [`Node`] implementation
     /// (here [`MockNode`], which is not [`NodeHttpClient`]) satisfies the
     /// bounds of the generic entry point. If a bound is ever added to the
