@@ -145,6 +145,16 @@ class Run:
             return 0, 0
         return min(slots), max(slots)
 
+    def metric_totals(self, name, label=None):
+        """Sum of a counter over the scraped nodes (0 when not scraped)."""
+        total = 0
+        pattern = re.compile(rf"^{name}(?:_total)?\{{([^}}]*)\}}\s+([0-9.e+]+)", re.M)
+        for path in sorted(self.scenario.glob("metrics-*.txt")):
+            for labels, value in pattern.findall(path.read_text()):
+                if label is None or label in labels:
+                    total += float(value)
+        return int(total)
+
     def metrics_check(self):
         found = {}
         for path in sorted(self.scenario.glob("metrics-*.txt")):
@@ -334,6 +344,9 @@ def build_report(run: Run, sim_slots: int, repeats: int, seed: int, out_dir: Pat
     alpha_nomos = (1 + EPSILON) / (2 * (1 - 1 / 30) ** (delta_nomos + 1)) if delays.size else float("nan")
 
     # ---- checks ------------------------------------------------------------
+    bypassed = run.metric_totals("blend_payloads_bypassed_total", 'payload_type="block_proposal"')
+    created = run.metric_totals("consensus_proposals_created_total")
+    bypass_share = bypassed / created if created else float("nan")
     n_blocks_total = len(run.tree)
     blocks_per_slot = n_blocks_total / run_slots
     measured_reorg1 = np.array([c[1][0] if c[1].size else 0.0 for c in measured_curves.values()])
@@ -348,6 +361,7 @@ def build_report(run: Run, sim_slots: int, repeats: int, seed: int, out_dir: Pat
     checks = [
         ("blocks per slot", f"{n * simulate.per_node_probability(run.f, 1 / n):.4f} (= n·φ(1/n), f={run.f:.3g})", fmt(blocks_per_slot, 4),
          f"sim 5-95%: {b_bps[0]:.4f} - {b_bps[2]:.4f}", verdict(blocks_per_slot, b_bps[0] * 0.9, b_bps[2] * 1.1)),
+        ("proposals bypassing Blend", "0 (not modelled)", f"{bypassed} of {created}", "none expected", "OK" if bypassed == 0 else "CHECK"),
         ("median block delay (s)", fmt(pm[50]), fmt(p[50]), "model vs measured, same lab params", verdict(p[50], pm[50] * 0.5, pm[50] * 1.5)),
         ("99p block delay (s)", fmt(pm[99]), fmt(p[99]), "model vs measured", verdict(p[99], pm[99] * 0.5, pm[99] * 1.5)),
         ("non-canonical block fraction", f"{b_fork[1]:.4f}", " / ".join(fmt(v, 4) for v in measured_fork),
@@ -410,6 +424,9 @@ Round-grid concentration of the measured delays: <b>{fmt(quantization)}</b> (1 =
 round boundary, 0 = spread evenly). The implementation releases Blend messages only at release rounds, whose spacing is
 drawn from 1..max rounds, so each release costs between one and max whole rounds; the paper's model drew the blending
 delay uniformly from 0..max seconds, which is about half a round less per release.</p>
+<p>Blend delivery fallback: <b>{bypassed}</b> of {created} proposals ({fmt(100 * bypass_share, 1)}%) missed Blend's delivery
+deadline and were broadcast in the clear by the failure detector (<code>blend_payloads_bypassed_total</code>). The paper's model
+has no such path; when this share is large, the measured delay is the fallback's, not the mixnet's.</p>
 <p>Where the time goes, per leg (each sample is one block at one node):</p>
 {img("legs", "Legs of the block delay. Leader: proof generation and slot-start-to-Blend; Blend: per-hop hold time (blend_hold_released) and leader-to-gossip (proposal_published -> blend_proposal_broadcast); gossip: Blend exit to block_received.")}
 
@@ -457,6 +474,7 @@ delay ({fmt(p[99.9])} s → Δ = {delta_nomos}) needs α ≥ {fmt(alpha_nomos, 3
         "delay_p50": p[50], "delay_p99": p[99], "delay_p999": p[99.9],
         "model_p50": pm[50], "model_p99": pm[99], "model_p999": pm[99.9],
         "mean_excess_s": mean_excess, "round_quantization": quantization,
+        "blend_bypassed": bypassed, "proposals_created": created,
         "blocks_per_slot": blocks_per_slot, "f": run.f,
         "reorg_freq_depth1_measured": measured_reorg1.tolist(),
         "reorg_freq_depth1_sim_band": b_r1,
