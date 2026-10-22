@@ -1,7 +1,7 @@
 use std::ffi::{CStr, CString};
 
 use lb_core::mantle::transactions::genesis_tx::ChainId;
-use lb_node::RuntimeServiceId;
+use lb_node::{RuntimeServiceId, config::deployment::DeploymentSettings};
 use overwatch::overwatch::{Overwatch, OverwatchHandle, ServicePanic};
 use tokio::runtime::{Handle, Runtime};
 
@@ -40,10 +40,20 @@ pub struct LogosBlockchainNode {
     // be represented as a C string, which `get_chain_id` reports as an error
     // rather than failing node start.
     chain_id: Option<CString>,
+    // The deployment this node was started with, captured so era-dependent
+    // parameters (e.g. Blend join requirements) can be read for the epoch the
+    // time service currently reports, without re-reading config files that
+    // might disagree with what the node is actually running.
+    deployment: DeploymentSettings,
 }
 
 impl LogosBlockchainNode {
-    pub fn new(overwatch: LogosBlockchainOverwatch, runtime: Runtime, chain_id: &ChainId) -> Self {
+    pub fn new(
+        overwatch: LogosBlockchainOverwatch,
+        runtime: Runtime,
+        chain_id: &ChainId,
+        deployment: DeploymentSettings,
+    ) -> Self {
         // A `ChainId` is only bounded and UTF-8, so nothing stops it from
         // carrying an interior NUL that no C string can hold. That is a broken
         // deployment rather than a reason to refuse to run, so the node starts
@@ -62,6 +72,7 @@ impl LogosBlockchainNode {
             overwatch,
             runtime,
             chain_id,
+            deployment,
         }
     }
 
@@ -70,6 +81,12 @@ impl LogosBlockchainNode {
     #[must_use]
     pub(crate) fn chain_id(&self) -> Option<&CStr> {
         self.chain_id.as_deref()
+    }
+
+    /// The deployment this node was started with.
+    #[must_use]
+    pub(crate) const fn deployment(&self) -> &DeploymentSettings {
+        &self.deployment
     }
 
     #[must_use]

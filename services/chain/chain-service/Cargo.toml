@@ -23,6 +23,7 @@ lb-core                    = { workspace = true }
 lb-cryptarchia-engine      = { workspace = true }
 lb-cryptarchia-sync        = { workspace = true }
 lb-groth16                 = { workspace = true }
+lb-key-management-system-keys = { workspace = true }
 lb-ledger                  = { workspace = true }
 lb-log-targets             = { workspace = true }
 lb-network-service         = { workspace = true }
@@ -43,7 +44,6 @@ utoipa                     = { features = ["macros"], optional = true, workspace
 
 [dev-dependencies]
 lb-core                       = { workspace = true }
-lb-key-management-system-keys = { workspace = true }
 lb-network-service            = { workspace = true }
 lb-storage-service            = { workspace = true }
 lb-utxotree                   = { workspace = true }

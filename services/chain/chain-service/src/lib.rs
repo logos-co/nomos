@@ -36,8 +36,9 @@ use lb_core::{
 };
 use lb_cryptarchia_engine::{Branch, PrunedBlocks, ReorgedBlocks, UncleSlots};
 pub use lb_cryptarchia_engine::{Epoch, Slot, State};
+use lb_key_management_system_keys::keys::ZkPublicKey;
 pub use lb_ledger::EpochState;
-use lb_ledger::LedgerState;
+use lb_ledger::{LedgerState, mantle::sdp::rewards::blend::BlendRewardsInfo};
 use lb_log_targets::chain;
 use lb_network_service::message::ChainSyncEvent;
 use lb_services_utils::{
@@ -193,6 +194,12 @@ pub enum Query {
     /// Returns the frozen SDP snapshot for the current epoch
     GetSdpSnapshot {
         reply_channel: oneshot::Sender<HashMap<DeclarationId, Declaration>>,
+    },
+    /// Returns the Blend reward state at the tip for the node identified by
+    /// `reward_key`, or `None` when no Blend service is registered.
+    GetBlendRewards {
+        reward_key: ZkPublicKey,
+        reply_channel: oneshot::Sender<Option<BlendRewardsInfo>>,
     },
     GetEpochState {
         slot: Slot,

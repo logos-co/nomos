@@ -385,6 +385,35 @@ where
                     error!(target: LOG_TARGET, "Could not send SDP snapshot through channel");
                 });
             }
+            Query::GetBlendRewards {
+                reward_key,
+                reply_channel,
+            } => {
+                let tip = self.cryptarchia.tip();
+                let minimum_network_size = self
+                    .cryptarchia
+                    .ledger
+                    .config()
+                    .sdp_config
+                    .service_rewards_params
+                    .blend
+                    .minimum_network_size
+                    .get();
+                let rewards = self
+                    .cryptarchia
+                    .ledger
+                    .state(&tip)
+                    .and_then(|ledger_state| {
+                        ledger_state
+                            .mantle_ledger()
+                            .sdp
+                            .blend_rewards()
+                            .map(|rewards| rewards.rewards_info(&reward_key, minimum_network_size))
+                    });
+                reply_channel.send(rewards).unwrap_or_else(|_| {
+                    error!(target: LOG_TARGET, "Could not send blend rewards through channel");
+                });
+            }
             Query::GetEpochState {
                 slot,
                 reply_channel,

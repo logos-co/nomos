@@ -15,6 +15,7 @@ use lb_core::{
     mantle::{Utxo, Value},
     sdp::{ActivityMetadata, ProviderId, ServiceParameters},
 };
+use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_log_targets::ledger;
 use lb_utils::math::PositiveF64;
 use tracing::debug;
@@ -187,6 +188,33 @@ where
     }
 }
 
+/// A read-only snapshot of the Blend reward state for a single node, keyed by
+/// its reward (zk) public key. Mirrors the referral program's
+/// `blend_rewards()`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlendRewardsInfo {
+    /// The epoch whose rewards are currently being tallied (the target epoch
+    /// `E-1`), or `None` when no target epoch is established yet (for example
+    /// when the network is below the minimum size).
+    pub paying_epoch: Option<u64>,
+    /// Block-reward income accumulated for the paying epoch so far.
+    pub pool_so_far: Value,
+    /// Number of activity proofs submitted for the paying epoch.
+    pub proofs_submitted: u64,
+    /// Whether this node's own activity proof has been submitted.
+    pub my_proof_submitted: bool,
+    /// Whether this node's proof is in the premium (minimum Hamming distance)
+    /// set, which earns double the base reward.
+    pub premium: bool,
+    /// This node's estimated reward for the paying epoch given the proofs
+    /// submitted so far. Zero when this node has not submitted a proof.
+    pub estimated_reward: Value,
+    /// Number of core declarations in the paying epoch.
+    pub network_size: u64,
+    /// Minimum number of core declarations the network needs for rewards.
+    pub minimum_network_size: u64,
+}
+
 impl<ProofsVerifier> Rewards<ProofsVerifier> {
     /// Create a new uninitialized [`Rewards`] that doesn't accept activity
     /// messages until the first epoch update.
@@ -197,6 +225,65 @@ impl<ProofsVerifier> Rewards<ProofsVerifier> {
         Self::WithoutTargetEpoch {
             current_epoch_state,
             current_epoch_tracker,
+        }
+    }
+
+    /// A snapshot of the reward state for the node whose reward key is
+    /// `reward_key`, computed the same way [`TargetEpochTracker::finalize`]
+    /// distributes rewards.
+    #[must_use]
+    pub fn rewards_info(
+        &self,
+        reward_key: &ZkPublicKey,
+        minimum_network_size: u64,
+    ) -> BlendRewardsInfo {
+        match self {
+            Self::WithoutTargetEpoch { .. } => BlendRewardsInfo {
+                paying_epoch: None,
+                pool_so_far: 0,
+                proofs_submitted: 0,
+                my_proof_submitted: false,
+                premium: false,
+                estimated_reward: 0,
+                network_size: 0,
+                minimum_network_size,
+            },
+            Self::WithTargetEpoch {
+                target_epoch_state,
+                target_epoch_tracker,
+                ..
+            } => {
+                let proofs_submitted = target_epoch_tracker.num_submitted_proofs();
+                let premium_providers = target_epoch_tracker.num_premium_providers();
+                let my_provider = target_epoch_tracker.provider_for_zk(reward_key);
+                let my_proof_submitted = my_provider.is_some();
+                let premium = my_provider
+                    .is_some_and(|provider_id| target_epoch_tracker.is_premium(&provider_id));
+
+                let epoch_income = target_epoch_state.epoch_income();
+                let divisor = proofs_submitted + premium_providers;
+                let base_reward = epoch_income.checked_div(divisor).unwrap_or(0);
+                let estimated_reward = if my_proof_submitted {
+                    if premium {
+                        base_reward * 2
+                    } else {
+                        base_reward
+                    }
+                } else {
+                    0
+                };
+
+                BlendRewardsInfo {
+                    paying_epoch: Some(u64::from(target_epoch_state.epoch().into_inner())),
+                    pool_so_far: epoch_income,
+                    proofs_submitted,
+                    my_proof_submitted,
+                    premium,
+                    estimated_reward,
+                    network_size: target_epoch_state.providers().count() as u64,
+                    minimum_network_size,
+                }
+            }
         }
     }
 }

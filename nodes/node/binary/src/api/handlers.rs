@@ -1379,6 +1379,197 @@ where
 
 #[utoipa::path(
     get,
+    path = paths::SDP_CURRENT_DECLARATION_ID,
+    responses(
+        (status = 200, description = "The node's current SDP declaration id, if any", body = Option<Object>),
+        (status = 500, description = "Internal server error", body = ErrorBody),
+    )
+)]
+pub async fn get_current_declaration_id<
+    MempoolAdapter,
+    WalletAdapter,
+    ChainService,
+    StateStorage,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    WalletAdapter: SdpWalletAdapter + Send + Sync + 'static,
+    ChainService: CryptarchiaServiceData + Send + Sync + 'static,
+    StateStorage: SdpStateStorage<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + 'static
+        + AsServiceId<ChainService>
+        + AsServiceId<
+            lb_sdp_service::SdpService<
+                MempoolAdapter,
+                WalletAdapter,
+                ChainService,
+                StateStorage,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    make_request_and_return_response!(
+        lb_api_service::http::sdp::get_current_declaration_id_handler::<
+            MempoolAdapter,
+            WalletAdapter,
+            ChainService,
+            StateStorage,
+            RuntimeServiceId,
+        >(handle)
+    )
+}
+
+#[utoipa::path(
+    get,
+    path = paths::BLEND_REWARDS,
+    responses(
+        (status = 200, description = "This epoch's Blend reward estimate for the node", body = Object),
+        (status = 500, description = "Internal server error (including when the node is not Online)", body = ErrorBody),
+    )
+)]
+pub async fn blend_rewards<BlendService, RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    BlendService: ServiceData<
+            Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
+        > + 'static,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + 'static
+        + AsServiceId<BlendService>
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>,
+{
+    make_request_and_return_response!(async move {
+        // The referral spec requires an immediate error when the node is not
+        // Online, never blocking.
+        let info = consensus::cryptarchia_info::<RuntimeServiceId>(&handle).await?;
+        if !matches!(info.cryptarchia_info.state, lb_chain_service::State::Online)
+            || matches!(info.phase, lb_chain_service::PhaseTag::AwaitingGenesisTime)
+        {
+            return Err(DynError::from("Node is not Online.".to_owned()));
+        }
+
+        let reward_key = blend::blend_zk_id::<BlendService, RuntimeServiceId>(&handle).await?;
+        let rewards = blend::blend_rewards::<RuntimeServiceId>(&handle, reward_key)
+            .await?
+            .ok_or_else(|| DynError::from("Blend rewards are not available on this node."))?;
+
+        Ok::<blend::BlendRewardsResponse, DynError>(blend::BlendRewardsResponse {
+            reward_key,
+            rewards,
+        })
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = paths::BLEND_STATUS,
+    responses(
+        (status = 200, description = "The node's Blend participation status", body = Object),
+        (status = 500, description = "Internal server error", body = ErrorBody),
+    )
+)]
+pub async fn blend_status<
+    BlendService,
+    MempoolAdapter,
+    WalletAdapter,
+    ChainService,
+    StateStorage,
+    RuntimeServiceId,
+>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    BlendService: ServiceData<
+            Message = ProxyServiceMessage<lb_blend_service::message::ServiceMessage<PeerId>>,
+        > + 'static,
+    MempoolAdapter: SdpMempoolAdapter + Send + Sync + 'static,
+    WalletAdapter: SdpWalletAdapter + Send + Sync + 'static,
+    ChainService: CryptarchiaServiceData + Send + Sync + 'static,
+    StateStorage: SdpStateStorage<RuntimeServiceId>,
+    RuntimeServiceId: Debug
+        + Sync
+        + Send
+        + Display
+        + Clone
+        + 'static
+        + AsServiceId<BlendService>
+        + AsServiceId<ChainService>
+        + AsServiceId<Cryptarchia<RuntimeServiceId>>
+        + AsServiceId<TimeService>
+        + AsServiceId<
+            lb_sdp_service::SdpService<
+                MempoolAdapter,
+                WalletAdapter,
+                ChainService,
+                StateStorage,
+                RuntimeServiceId,
+            >,
+        >,
+{
+    make_request_and_return_response!(async move {
+        let network_info = blend::blend_info::<BlendService, RuntimeServiceId>(&handle).await?;
+        let core_mode = network_info
+            .as_ref()
+            .and_then(|info| info.core_info.as_ref())
+            .is_some();
+        let session_peers = blend::SessionPeers::from_network_info(network_info.as_ref());
+
+        let declaration = match lb_api_service::http::sdp::get_current_declaration_id_handler::<
+            MempoolAdapter,
+            WalletAdapter,
+            ChainService,
+            StateStorage,
+            RuntimeServiceId,
+        >(handle.clone())
+        .await?
+        {
+            Some(declaration_id) => mantle::get_sdp_declarations::<RuntimeServiceId>(&handle)
+                .await?
+                .get(&declaration_id)
+                .map(|declaration| {
+                    blend::DeclarationInfo::from_declaration(declaration_id, declaration)
+                }),
+            None => None,
+        };
+
+        // The current epoch comes from the time service (the authoritative
+        // source), the same way the FFI resolves it.
+        let time_relay = handle.relay::<TimeService>().await?;
+        let (sender, receiver) = oneshot::channel();
+        time_relay
+            .send(TimeServiceMessage::Info { sender })
+            .await
+            .map_err(|error| DynError::from(error.to_string()))?;
+        let current_epoch = u32::from(
+            receiver
+                .await
+                .map_err(|error| DynError::from(error.to_string()))?
+                .map_err(DynError::from)?
+                .current_epoch,
+        );
+
+        Ok::<blend::BlendStatus, DynError>(blend::BlendStatus {
+            core_mode,
+            declaration,
+            current_epoch,
+            session_peers,
+        })
+    })
+}
+
+#[utoipa::path(
+    get,
     path = paths::MANTLE_SDP_DECLARATIONS,
     responses(
         (status = 200, description = "Get current SDP declarations keyed by declaration id", body = std::collections::HashMap<lb_core::sdp::DeclarationId, Object>),
