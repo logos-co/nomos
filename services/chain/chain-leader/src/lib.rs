@@ -9,7 +9,11 @@ mod tx_selection;
 mod wallet;
 
 use core::fmt::Debug;
-use std::{fmt::Display, pin::Pin, time::Duration};
+use std::{
+    fmt::Display,
+    pin::Pin,
+    time::{Duration, Instant},
+};
 
 use futures::{Stream, StreamExt as _, stream};
 use lb_chain_network_service::api::{ChainNetworkServiceApi, ChainNetworkServiceData};
@@ -37,7 +41,7 @@ use lb_ledger::LedgerState;
 use lb_log_targets::{chain, diagnostic::BLEND_REACHABILITY};
 use lb_services_utils::wait_until_services_are_ready;
 use lb_storage_service::StorageService;
-use lb_time_service::{SlotTick, TimeService, TimeServiceMessage};
+use lb_time_service::{SlotClock, SlotTick, TimeService, TimeServiceMessage};
 use lb_tx_service::{
     TxMempoolService,
     backend::{MemPool, RecoverableMempool},
@@ -428,6 +432,7 @@ where
                 .expect("Request time subscription to time service should succeed");
             receiver.await?
         };
+        let slot_clock = SlotClock::fetch(relays.time_relay()).await?;
 
         // Wait until the chain becomes Online mode.
         // We should not propose blocks while the chain is in Bootstrapping mode.
@@ -472,6 +477,7 @@ where
                         };
 
                         let latest_tree = tip_state.latest_utxos();
+                        let proof_started = Instant::now();
                         let proof = match build_proof_for(
                             &eligible_aged,
                             latest_tree,
@@ -498,6 +504,7 @@ where
                         };
 
                         if let Some((proof, signing_key)) = proof {
+                            let proof_duration = proof_started.elapsed();
                             // TODO: spawn as a separate task?
                             match Self::propose_block(
                                 wallet_tip,
@@ -512,7 +519,14 @@ where
                             .await
                             {
                                 Ok(block) => {
-                                    Self::apply_and_publish_block_proposal(block, &chain_network_api, &blend_adapter).await;
+                                    Self::apply_and_publish_block_proposal(
+                                        block,
+                                        &chain_network_api,
+                                        &blend_adapter,
+                                        &slot_clock,
+                                        proof_duration,
+                                    )
+                                    .await;
                                 }
                                 Err(e) => {
                                     metrics::consensus_proposals_create_failed("propose_block");
@@ -704,6 +718,8 @@ where
         block: Block<Mempool::Item>,
         chain_network_api: &ChainNetworkServiceApi<ChainNetwork>,
         blend_adapter: &BlendAdapter<BlendService>,
+        slot_clock: &SlotClock,
+        proof_duration: Duration,
     ) {
         if let Err(e) = chain_network_api
             .apply_block_and_reconcile_mempool(block.clone())
@@ -712,6 +728,21 @@ where
             error!(target: LOG_TARGET, "Failed to apply our own proposed block {:?}: {e:?}", block.header().id());
             return;
         }
+
+        // The moment the proposal is handed to Blend, relative to its slot
+        // start: leadership check + proof + block building.
+        let slot = block.header().slot();
+        let since_slot_start_ms = slot_clock.millis_since_slot_start(slot);
+        metrics::consensus_observe_proposal_published(since_slot_start_ms, proof_duration);
+        info!(
+            target: LOG_TARGET,
+            block_id = ?block.header().id(),
+            slot = u64::from(slot),
+            parent = ?block.header().parent(),
+            since_slot_start_ms,
+            proof_ms = proof_duration.as_millis(),
+            "proposal_published"
+        );
 
         #[cfg(not(feature = "testing-disable-proposal-publish"))]
         blend_adapter.publish_proposal(block.to_proposal()).await;

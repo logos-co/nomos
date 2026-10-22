@@ -54,5 +54,6 @@ pub mod admin {
     pub const TRACING_FILTER: &str = "/admin/tracing/filter";
 }
 
+pub const METRICS: &str = "/metrics";
 pub const DIAL_PEER: &str = "/network/dial_peer";
 pub const MEMPOOL_VIEW: &str = "/mempool/view";

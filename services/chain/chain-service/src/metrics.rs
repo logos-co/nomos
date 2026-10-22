@@ -26,3 +26,14 @@ pub fn emit_block_imported_metric() {
 pub fn emit_block_transactions_metric(tx_count: usize) {
     lb_tracing::increase_counter_u64!(consensus_block_transactions_total, tx_count);
 }
+
+/// Whether an applied block became the tip, and how deep a reorg it caused.
+pub fn emit_block_processed_metrics(canonical: bool, reorg_depth: usize) {
+    if !canonical {
+        lb_tracing::increase_counter_u64!(consensus_fork_blocks_total, 1);
+    }
+    if reorg_depth > 0 {
+        lb_tracing::increase_counter_u64!(consensus_reorgs_total, 1);
+        lb_tracing::metric_histogram_u64!(consensus_reorg_depth, reorg_depth as u64);
+    }
+}

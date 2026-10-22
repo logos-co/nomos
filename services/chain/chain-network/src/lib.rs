@@ -37,7 +37,7 @@ use lb_log_targets::chain;
 use lb_network_service::NetworkService;
 use lb_services_utils::wait_until_services_are_ready;
 use lb_storage_service::StorageService;
-use lb_time_service::{TimeService, TimeServiceMessage};
+use lb_time_service::{SlotClock, TimeService, TimeServiceMessage};
 use lb_tx_service::{
     TxMempoolService, backend::RecoverableMempool,
     network::NetworkAdapter as MempoolNetworkAdapter, storage::MempoolStorageAdapter,
@@ -323,6 +323,8 @@ where
         )
         .await?;
 
+        let slot_clock = SlotClock::fetch(relays.time_relay()).await?;
+
         let network_adapter = NetAdapter::new(network_config, relays.network_relay().clone()).await;
 
         let initial_block_download = InitialBlockDownload::new(
@@ -430,6 +432,7 @@ where
                             proposal,
                             orphan_downloader.as_mut().get_mut(),
                             &relays,
+                            &slot_clock,
                         )
                         .await;
                     }
@@ -599,6 +602,7 @@ where
             NetAdapter,
             RuntimeServiceId,
         >,
+        slot_clock: &SlotClock,
     ) where
         RuntimeServiceId: Send + Sync + 'static,
     {
@@ -618,6 +622,19 @@ where
                 return;
             }
         }
+
+        // How late after its slot started did this proposal reach us: the
+        // end-to-end block delay (leader proof + Blend + gossip).
+        let delay_ms = slot_clock.millis_since_slot_start(block_slot);
+        metrics::consensus_observe_block_delay(delay_ms);
+        info!(
+            target: LOG_TARGET,
+            block_id = ?block_id,
+            slot = u64::from(block_slot),
+            parent = ?proposal.header().parent(),
+            delay_ms,
+            "block_received"
+        );
 
         // Check the proposal before any mempool scanning.
         if let Err(e) = verify_proposal_and_cache_rejected(&proposal, orphan_downloader) {

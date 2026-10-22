@@ -754,6 +754,10 @@ fn log_canonical_blend_snapshots<Tx>(cryptarchia: &Cryptarchia, block: &Block<Tx
 /// A [`Block`] is only added if it's valid.
 /// Otherwise, the [`Cryptarchia`] is unchanged and an error is returned.
 #[expect(clippy::allow_attributes_without_reason)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Applying a block is one linear sequence of steps."
+)]
 #[instrument(
     target = LOG_TARGET,
     level = "debug",
@@ -823,6 +827,14 @@ where
     candidate.prune_ledger_states(applied.pruned_blocks.all());
     *cryptarchia = candidate;
     metrics::emit_block_transactions_metric(tx_count);
+
+    log_block_processed(
+        cryptarchia,
+        &header,
+        applied.reorged_blocks.len(),
+        applied.newly_canonical_blocks.len(),
+        origin,
+    );
 
     let processed_block_event = {
         let tip = cryptarchia.tip_branch();
@@ -1329,6 +1341,40 @@ fn log_process_block_error(error: &Error) {
     } else {
         error!(target: LOG_TARGET, "{}", error_msg);
     }
+}
+
+/// One line per applied block with everything needed to rebuild the block
+/// tree and the reorg history offline: parent, height, the tip afterwards,
+/// and how many canonical blocks this block displaced.
+fn log_block_processed(
+    cryptarchia: &Cryptarchia,
+    header: &lb_core::header::Header,
+    reorg_depth: usize,
+    newly_canonical: usize,
+    origin: BlockOrigin,
+) {
+    let tip = cryptarchia.tip_branch();
+    let canonical = tip.id() == header.id();
+    let height = cryptarchia
+        .consensus
+        .branches()
+        .get(&header.id())
+        .map_or(0, lb_cryptarchia_engine::Branch::length);
+    metrics::emit_block_processed_metrics(canonical, reorg_depth);
+    info!(
+        target: LOG_TARGET,
+        block_id = ?header.id(),
+        slot = u64::from(header.slot()),
+        parent = ?header.parent(),
+        height,
+        tip = ?tip.id(),
+        tip_slot = u64::from(tip.slot()),
+        canonical,
+        reorg_depth,
+        newly_canonical,
+        origin = ?origin,
+        "block_processed"
+    );
 }
 
 fn log_lib_advanced(

@@ -5,9 +5,10 @@ use core::{
 };
 
 use futures::{Stream, StreamExt as _, stream, stream::BoxStream};
-use lb_binary_codec::bincode::DeserializeOp;
+use lb_binary_codec::{bincode::DeserializeOp, canonical::BinaryDecodeExt as _};
 use lb_chain_network_service::Message as ChainNetworkMsg;
 use lb_core::{
+    block::Proposal,
     header::HeaderId,
     mantle::{traits::Hashable, transactions::hash::PrefixedKey},
 };
@@ -83,6 +84,26 @@ async fn broadcast_block_proposal(network_relay: &NetworkRelay, topic: String, p
         .await
     {
         tracing::error!(target: LOG_TARGET, "error broadcasting block proposal: {error}");
+    }
+}
+
+/// Marks the moment a block proposal is fully unwrapped and leaves Blend for
+/// the gossip network, so the Blend leg of the block delay can be measured
+/// against the leader's `proposal_published` event.
+fn log_proposal_leaving_blend(encoded_proposal: &[u8]) {
+    crate::metrics::proposal_broadcast();
+    match Proposal::decode_all(encoded_proposal) {
+        Ok(proposal) => tracing::info!(
+            target: LOG_TARGET,
+            block_id = ?proposal.header().id(),
+            slot = u64::from(proposal.header().slot()),
+            "blend_proposal_broadcast"
+        ),
+        Err(error) => tracing::debug!(
+            target: LOG_TARGET,
+            ?error,
+            "blend_proposal_broadcast: proposal does not decode"
+        ),
     }
 }
 
@@ -277,6 +298,7 @@ where
     async fn dispatch(&self, payload: DataPayload) {
         match payload {
             DataPayload::BlockProposal(proposal) => {
+                log_proposal_leaving_blend(&proposal);
                 broadcast_block_proposal(
                     &self.network_relay,
                     self.settings.topic.clone(),

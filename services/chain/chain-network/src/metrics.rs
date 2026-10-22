@@ -18,6 +18,12 @@ pub fn consensus_proposals_ignored_total(reason: &'static str, origin: &'static 
     );
 }
 
+/// Seconds between the start of a proposal's slot and its arrival at this
+/// node, as seen by this node's clock.
+pub fn consensus_observe_block_delay(delay_ms: i64) {
+    lb_tracing::metric_histogram_f64!(consensus_block_delay_seconds, delay_ms as f64 / 1000.0);
+}
+
 pub fn consensus_apply_block_failed_total(reason: &'static str) {
     lb_tracing::increase_counter_u64!(consensus_apply_block_failed_total, 1, reason = reason);
 }

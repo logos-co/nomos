@@ -82,6 +82,10 @@ mantle_sdp           = []
 testing_framework    = []
 tip_poll_self_heal   = []
 
+[[bin]]
+name = "block-times-lab"
+path = "src/bin/block_times_lab.rs"
+
 [[test]]
 name = "test_cli_restart"
 path = "src/tests/cli/restart.rs"

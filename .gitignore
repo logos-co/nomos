@@ -58,3 +58,6 @@ testnet/cfgsync/deployment-settings.yaml
 # Commit release template files
 !.github/release/devnet-peers.txt
 !.github/release/testnet-peers.txt
+# Block-times lab runs and Python caches
+tools/block-times-lab/runs/
+__pycache__/

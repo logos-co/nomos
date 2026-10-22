@@ -7,7 +7,7 @@ use ::libp2p::PeerId;
 use axum::{
     Extension, Json,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{StatusCode, header},
     response::{IntoResponse as _, Response},
 };
 use futures::TryStreamExt as _;
@@ -65,6 +65,7 @@ use lb_sdp_service::{
 };
 use lb_storage_service::{StorageService, api::StorageApi};
 use lb_time_service::TimeServiceMessage;
+use lb_tracing_service::{TracingMessage, TracingOpenMetricsError};
 use lb_tx_service::{
     MempoolMsg, TxMempoolService, backend::Mempool,
     network::adapters::libp2p::Libp2pAdapter as MempoolNetworkAdapter,
@@ -515,6 +516,56 @@ where
         Debug + Send + Sync + Display + 'static + AsServiceId<Cryptarchia<RuntimeServiceId>>,
 {
     make_request_and_return_response!(consensus::cryptarchia_info::<RuntimeServiceId>(&handle))
+}
+
+#[utoipa::path(
+    get,
+    path = paths::METRICS,
+    responses(
+        (status = 200, description = "Current node metrics as an OpenMetrics text document", body = String),
+        (status = 404, description = "OpenMetrics is not enabled in the node's tracing config", body = String),
+        (status = 500, description = "Internal server error", body = ErrorBody),
+    )
+)]
+pub async fn metrics<RuntimeServiceId>(
+    State(handle): State<OverwatchHandle<RuntimeServiceId>>,
+) -> Response
+where
+    RuntimeServiceId: Debug + Send + Sync + Display + 'static + AsServiceId<crate::TracingService>,
+{
+    let relay = match handle.relay::<crate::TracingService>().await {
+        Ok(relay) => relay,
+        Err(error) => {
+            return ApiError::internal(error).into_response();
+        }
+    };
+    let (reply_channel, receiver) = oneshot::channel();
+    if relay
+        .send(TracingMessage::ReadOpenMetrics { reply_channel })
+        .await
+        .is_err()
+    {
+        return ApiError::internal(std::io::Error::other(
+            "failed to request OpenMetrics from the tracing service",
+        ))
+        .into_response();
+    }
+    match receiver.await {
+        Ok(Ok(document)) => (
+            StatusCode::OK,
+            [(
+                header::CONTENT_TYPE,
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )],
+            document,
+        )
+            .into_response(),
+        Ok(Err(error @ TracingOpenMetricsError::NotEnabled)) => {
+            (StatusCode::NOT_FOUND, error.to_string()).into_response()
+        }
+        Ok(Err(error)) => ApiError::internal(error).into_response(),
+        Err(error) => ApiError::internal(error).into_response(),
+    }
 }
 
 #[utoipa::path(

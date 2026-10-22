@@ -2347,6 +2347,7 @@ where
                 data_message.len()
             );
             let processed_message = ProcessedMessage::from(data_message);
+            crate::metrics::hold_started(&processed_message);
             scheduler.schedule_processed_message(processed_message.clone());
             (Some(processed_message), blending_tokens.into_iter())
         }
@@ -2364,6 +2365,7 @@ where
             let processed_message = ProcessedMessage::from(validated_message);
 
             crate::metrics::mix_packets_processed_total();
+            crate::metrics::hold_started(&processed_message);
 
             scheduler.schedule_processed_message(processed_message.clone());
             (Some(processed_message), blending_tokens.into_iter())
@@ -2602,6 +2604,7 @@ where
     processed_messages_to_release
         .into_iter()
         .inspect(|processed_message_to_release| {
+            crate::metrics::hold_released(processed_message_to_release);
             if let Some(state_updater) = state_updater.as_mut()
                 && state_updater.remove_sent_processed_message(processed_message_to_release).is_err() && matches!(processed_message_to_release, ProcessedMessage::Encapsulated(_)) {
                 // With a data replication factor greater than `0`, it's expected to have

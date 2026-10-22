@@ -31,6 +31,7 @@ macro_rules! api_routes {
             get lb_http_api_common::paths::CHAIN_ID => crate::api::handlers::chain_id, chain_id;
             get lb_http_api_common::paths::CRYPTARCHIA_INFO => crate::api::handlers::cryptarchia_info, cryptarchia_info::<RuntimeServiceId>;
             get lb_http_api_common::paths::TIME_INFO => crate::api::handlers::time_info, time_info::<RuntimeServiceId>;
+            get lb_http_api_common::paths::METRICS => crate::api::handlers::metrics, metrics::<RuntimeServiceId>;
             get lb_http_api_common::paths::CRYPTARCHIA_HEADERS => crate::api::handlers::cryptarchia_headers, cryptarchia_headers::<RuntimeServiceId>;
             get lb_http_api_common::paths::CRYPTARCHIA_LIB_STREAM => crate::api::handlers::cryptarchia_lib_stream, cryptarchia_lib_stream::<RuntimeServiceId>;
             get lb_http_api_common::paths::NETWORK_INFO => crate::api::handlers::libp2p_info, libp2p_info::<RuntimeServiceId>;

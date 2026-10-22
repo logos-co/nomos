@@ -19,6 +19,13 @@ impl Layer {
         }
     }
 
+    /// Serves the node's metrics on the `/metrics` HTTP route.
+    #[must_use]
+    pub const fn with_open_metrics(mut self, enabled: bool) -> Self {
+        self.enable_open_metrics = enabled;
+        self
+    }
+
     #[must_use]
     pub const fn none() -> Self {
         Self {

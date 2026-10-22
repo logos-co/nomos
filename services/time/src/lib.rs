@@ -21,7 +21,10 @@ use tokio_stream::wrappers::WatchStream;
 use crate::backends::TimeBackend;
 
 pub mod backends;
+mod clock;
 mod metrics;
+
+pub use clock::SlotClock;
 
 const LOG_TARGET: &str = log_targets_time::ROOT;
 
