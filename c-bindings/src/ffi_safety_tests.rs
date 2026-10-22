@@ -775,7 +775,7 @@ mod with_node {
 
             assert_eq!(
                 string_result("get_open_metrics", get_open_metrics(node)),
-                OperationStatusCode::NotFound
+                OperationStatusCode::Ok
             );
 
             let result = get_cryptarchia_info(node);
