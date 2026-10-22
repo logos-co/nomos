@@ -45,16 +45,12 @@ Least:
 
 ## How to exercise it
 
-The image has the checkout at `/src`, the toolchain from `rust-toolchain.toml`, cargo-nextest and clippy, and no network.
+The image has the checkout at `/src`, the toolchain from `rust-toolchain.toml` with clippy, and no network.
 Every crate, the circuit artifacts (`~/.cache/logos/blockchain`) and rapidsnark (`$RAPIDSNARK_LIB_DIR`) are already in it, and `CARGO_NET_OFFLINE=true`.
 
-Only the node is prebuilt: `target/debug/logos-blockchain-node`, in the dev profile with the `testing` feature, also at `$LOGOS_BLOCKCHAIN_NODE_BIN`. `testing` only adds serde derives to `RunConfig`: the node runs production code. Tests compile on first use, on 2 CPUs, so keep runs narrow, with `RUST_BACKTRACE=1`:
+Only the node is prebuilt: `target/release/logos-blockchain-node`, in the release profile with the `testing` feature, also at `$LOGOS_BLOCKCHAIN_NODE_BIN`. `testing` only adds serde derives to `RunConfig`: the node runs production code. Release builds are stripped, so its backtraces carry no symbols. Tests compile on first use, on 2 CPUs, so keep runs narrow, with `RUST_BACKTRACE=1`:
 
     cargo test -p <crate> <test name filter>
-    cargo nextest run -p <crate> -E 'test(<filter>)'    # with the timeouts in .config/nextest.toml
-
-This is an unoptimised build: proof verification, hashing and RocksDB are far slower than in a release build.
-Judge a denial of service by its cost relative to the attacker's effort, not by wall-clock time here.
 
 A one-node network, with its state and database in the current directory:
 
@@ -95,4 +91,3 @@ If an attack needs a large share of the stake or of the Blend nodes, say so and 
 - Keys and secrets in committed configs (`nodes/node/*.yaml`, `deployment/`, `tests/`): they are test and devnet data.
 - The circuits and rapidsnark, which come from other repositories (how this repository calls them and checks their results is in scope), and bugs in third-party crates, unless this repository uses them wrongly.
 - Panics or errors on invalid local configuration or CLI arguments.
-- Slowness that only shows in this debug build.
