@@ -12,7 +12,7 @@ What the branch adds to the node (tag 0.3.2 + instrumentation):
 | blend dispatcher | `blend_proposal_broadcast` block_id slot | `blend_proposals_broadcast_total` |
 | chain-network | `block_received` block_id slot parent delay_ms | `consensus_block_delay_seconds` |
 | chain-service | `block_processed` block_id slot parent height tip tip_slot canonical reorg_depth newly_canonical origin | `consensus_reorgs_total`, `consensus_reorg_depth`, `consensus_fork_blocks_total` |
-| node API | `GET /metrics` serves the OpenMetrics document when `tracing.metrics.enable_open_metrics` is on | |
+| node API | `GET /metrics` serves the OpenMetrics document when `tracing.metrics.enable_open_metrics` is on, or `OPEN_METRICS=true` is in the environment (`--open-metrics`) | |
 
 `delay_ms` is wall-clock time since the start of the block's slot, so it is the
 end-to-end block delay (proof + Blend + gossip) the paper's network model
@@ -53,3 +53,56 @@ Runs land under `tools/block-times-lab/runs/<scenario>/` (override with `OUT`).
 Only honest behaviour is measurable on a network; the adversary curves are
 simulation. The simulator does not reuse abandoned honest branches for the
 adversary (the paper's "boost"), so it is slightly optimistic there.
+
+## Deploying on a real network
+
+The `testnet-blend` branch's `deployment/compose.blend.setup.yml` and
+`compose.blend.run.yml` start N controlled nodes that join the network at
+`BLEND_INITIAL_PEERS`. They work unchanged with an image built from this
+branch; the instrumentation lives in the service crates the node module is
+built from, and the embedded deployment settings are 0.3.2's, so the nodes
+join the 0.3.2 network.
+
+What the controlled nodes record:
+
+- `proposal_published` on a node only for blocks it proposed itself;
+- `blend_hold_released` / `blend_proposal_broadcast` only on the core node
+  that unwraps the last layer, so with a large Blend network these sample a
+  share of the blocks;
+- `block_received` and `block_processed` on every controlled node for every
+  block, which is the complete end-to-end block delay and the block tree.
+
+Steps:
+
+1. Build the node image from this branch and point `NODE_IMAGE_LABEL` at it.
+   The stock `TOOLS_IMAGE_LABEL=0.3.2` is fine: `init-config` there writes a
+   config this node reads, and nothing in the config needs to change.
+2. Add `OPEN_METRICS: "true"` to the `x-env` block of `compose.blend.run.yml`
+   (or export it into the node containers some other way). It turns on the
+   `/metrics` route; the API ports are published on the host's loopback
+   only, so nothing else sees it. Without it only the log events exist, which
+   is enough for the report but not for Prometheus.
+3. Leave `LOG_BACKEND=file` as the compose sets it. The events are INFO
+   lines under the node's own targets, so `LOG_LEVEL=INFO` is enough;
+   `DEBUG` also works, just larger. The rolling appender keeps
+   `LOG_APPENDER_MAX_FILES` hourly files, so collect at least that often or
+   raise it.
+4. After the measurement window, on the host running the compose:
+
+   ```
+   tools/block-times-lab/deploy-collect.sh OUT_DIR --count 10 --api-base 18080
+   python3 tools/block-times-lab/collect.py OUT_DIR
+   python3 tools/block-times-lab/report.py OUT_DIR \
+       --deployment nodes/node/binary/src/config/deployment/settings.yaml
+   ```
+
+   `deploy-collect.sh` copies each node's `logos-blockchain.log.*` files out
+   of the containers and fetches `/metrics`, `/time/info` and
+   `/cryptarchia/info`. `report.py` reads f, slot duration, Blend layers and
+   the release delay from the settings file the node embeds (pass the file
+   the deployed nodes actually run with). PyYAML is needed for that path:
+   `pip install numpy matplotlib pyyaml`.
+
+Clocks: `delay_ms` is each node's own wall clock against the chain's genesis
+time, so the controlled hosts need NTP; the node's time service already uses
+it. Everything is in UTC.

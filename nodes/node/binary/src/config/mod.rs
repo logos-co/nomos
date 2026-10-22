@@ -225,6 +225,10 @@ pub struct LogArgs {
         required_if_eq("file_appender", LogFileAppenderType::RollingMaxFiles)
     )]
     pub max_files: Option<usize>,
+
+    /// Serve the node's metrics as an `OpenMetrics` document on `GET /metrics`.
+    #[clap(long = "open-metrics", env = "OPEN_METRICS")]
+    pub open_metrics: Option<bool>,
 }
 
 #[derive(Parser, Debug, Default, Clone)]
@@ -329,7 +333,12 @@ pub fn update_tracing(tracing: &mut TracingConfig, tracing_args: LogArgs) -> Res
         filter,
         file_appender,
         max_files,
+        open_metrics,
     } = tracing_args;
+
+    if let Some(enabled) = open_metrics {
+        tracing.metrics = tracing.metrics.clone().with_open_metrics(enabled);
+    }
 
     if let Some(backend_type) = backend {
         match backend_type {

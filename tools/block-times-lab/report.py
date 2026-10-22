@@ -50,16 +50,53 @@ def fmt(x, digits=2):
     return f"{x:.{digits}f}"
 
 
+def lab_from_deployment(path: Path) -> dict:
+    """The parameters report.py needs, read from a node deployment settings
+    file (the one the node embeds, or the one passed with --deployment)."""
+    import yaml  # only needed for deployments; the lab writes lab.json
+
+    class Loader(yaml.SafeLoader):
+        pass
+
+    # The genesis block carries enum tags such as `!ZkSig`; they are not needed
+    # here, so every tagged node is loaded as its plain value.
+    Loader.add_multi_constructor("!", lambda loader, suffix, node: loader.construct_mapping(node) if isinstance(node, yaml.MappingNode) else loader.construct_sequence(node) if isinstance(node, yaml.SequenceNode) else loader.construct_scalar(node))
+    settings = yaml.load(path.read_text(), Loader=Loader)
+    eras = settings["eras"]
+    era = eras[min(eras, key=int)] if isinstance(eras, dict) else eras
+    f_num = int(era["cryptarchia"]["slot_activation_coeff"]["numerator"])
+    f_den = int(era["cryptarchia"]["slot_activation_coeff"]["denominator"])
+    return {
+        "source": str(path),
+        "slot_secs": float(era["time"]["slot_duration"]),
+        "f": f"{f_num}/{f_den}",
+        "f_value": f_num / f_den,
+        "blend_layers": int(era["blend"]["common"]["num_blend_layers"]),
+        "release_delay_rounds": int(era["blend"]["core"]["scheduler"]["delayer"]["maximum_release_delay_in_rounds"]),
+        "security_param": int(era["cryptarchia"]["security_param"]),
+    }
+
+
 class Run:
-    def __init__(self, scenario: Path):
+    def __init__(self, scenario: Path, deployment: Path = None):
         self.scenario = scenario
-        self.lab = json.loads((scenario / "lab.json").read_text())
+        lab_path = scenario / "lab.json"
+        if deployment is not None:
+            self.lab = lab_from_deployment(deployment)
+        elif lab_path.exists():
+            self.lab = json.loads(lab_path.read_text())
+        else:
+            raise SystemExit(f"{lab_path} not found; pass --deployment <settings.yaml> for a deployment run")
         self.events = [json.loads(line) for line in (scenario / "events.jsonl").read_text().splitlines() if line.strip()]
-        self.nodes = sorted({e["node"] for e in self.events})
+        self.nodes = sorted({e["node"] for e in self.events}, key=lambda n: int(n.split("-")[1]) if n.split("-")[-1].isdigit() else 0)
         self.slot_secs = float(self.lab.get("slot_secs", 1))
         self.f = float(self.lab.get("f_value", 0.05))
         self.layers = int(self.lab.get("blend_layers", 1))
         self.release_rounds = int(self.lab.get("release_delay_rounds", 1))
+        self.lab.setdefault("nodes", len(self.nodes))
+        time_files = sorted(scenario.glob("time-info-node-*.json"))
+        if time_files and "time" not in self.lab:
+            self.lab["time"] = json.loads(time_files[0].read_text())
         self._index()
 
     def _index(self):
@@ -391,7 +428,8 @@ def build_report(run: Run, sim_slots: int, repeats: int, seed: int, out_dir: Pat
         ("Blend layers (hops)", run.layers),
         ("Blend max release delay (rounds; 1 round = 1 slot)", run.release_rounds),
         ("security parameter k", run.lab.get("security_param")),
-        ("run length", f"{run.lab.get('minutes')} min, slots {first_slot}-{last_slot}"),
+        ("run length", f"{fmt(run_slots * run.slot_secs / 60, 1)} min of blocks seen, slots {first_slot}-{last_slot}"),
+        ("parameters from", run.lab.get("source", "lab.json")),
         ("blocks seen (union of nodes)", n_blocks_total),
         ("fork points in the block tree", run.fork_points()),
         ("simulation length", f"{sim_slots} slots, {repeats} repeats at run length for the bands"),
@@ -493,8 +531,10 @@ def main():
     parser.add_argument("--sim-slots", type=int, default=60000)
     parser.add_argument("--repeats", type=int, default=40)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--deployment", type=Path, default=None,
+                        help="node deployment settings.yaml to read the chain parameters from (deployment runs have no lab.json)")
     args = parser.parse_args()
-    run = Run(args.scenario_dir)
+    run = Run(args.scenario_dir, args.deployment)
     summary = build_report(run, args.sim_slots, args.repeats, args.seed, args.scenario_dir / "report")
     for row in summary["checks"]:
         print(" | ".join(str(c) for c in row))

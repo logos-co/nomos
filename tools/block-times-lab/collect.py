@@ -16,6 +16,7 @@ Events kept:
 Usage: collect.py SCENARIO_DIR [-o events.jsonl]
 """
 import argparse
+import gzip
 import json
 import re
 import sys
@@ -80,10 +81,37 @@ def parse_line(line: str):
 
 
 def node_log_files(node_dir: Path):
-    files = sorted(p for p in node_dir.glob("__logs-*") if p.is_file())
+    """Log files of one node: the lab harness snapshot (`__logs-<node>`) or the
+    node's own file appender (`logos-blockchain.log.<hour>`, possibly gzipped,
+    plus a `.latest` symlink that is skipped so no file is read twice)."""
+    files = sorted(p for p in node_dir.glob("__logs-*") if p.is_file() and not p.is_symlink())
     if files:
         return files
-    return sorted(p for p in node_dir.rglob("*.log*") if p.is_file())
+    return sorted(
+        p
+        for p in node_dir.rglob("*.log*")
+        if p.is_file() and not p.is_symlink() and not p.name.endswith(".latest")
+    )
+
+
+def open_log(path: Path):
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", errors="replace")
+    return path.open(errors="replace")
+
+
+def node_dirs(scenario: Path):
+    """`node-<n>/` as written by the lab harness, or `<n>/` as laid out in the
+    deployment's node-data volume; both are reported as `node-<n>`."""
+    dirs = []
+    for p in sorted(scenario.iterdir()):
+        if not p.is_dir():
+            continue
+        if re.fullmatch(r"node-\d+", p.name):
+            dirs.append((p.name, p))
+        elif p.name.isdigit():
+            dirs.append((f"node-{p.name}", p))
+    return sorted(dirs, key=lambda d: int(d[0].split("-")[1]))
 
 
 def main() -> int:
@@ -94,20 +122,19 @@ def main() -> int:
     scenario = args.scenario_dir
     out = args.out or scenario / "events.jsonl"
 
-    node_dirs = sorted(p for p in scenario.glob("node-*") if p.is_dir())
-    if not node_dirs:
-        print(f"no node-* directories under {scenario}", file=sys.stderr)
+    dirs = node_dirs(scenario)
+    if not dirs:
+        print(f"no node-<n>/ or <n>/ directories under {scenario}", file=sys.stderr)
         return 1
 
     counts = {}
     with out.open("w") as sink:
-        for node_dir in node_dirs:
-            node = node_dir.name
+        for node, node_dir in dirs:
             files = node_log_files(node_dir)
             if not files:
                 print(f"{node}: no log files", file=sys.stderr)
             for path in files:
-                with path.open(errors="replace") as source:
+                with open_log(path) as source:
                     for line in source:
                         event = parse_line(line)
                         if event is None:
