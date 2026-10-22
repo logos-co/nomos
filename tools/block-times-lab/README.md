@@ -103,6 +103,15 @@ Steps:
    the deployed nodes actually run with). PyYAML is needed for that path:
    `pip install numpy matplotlib pyyaml`.
 
+Proposers you do not control: a stock 0.3.2 node logs
+`proposed block HeaderId(..)` at INFO on every block it proposes (and
+`leader for slot Slot(n)` at DEBUG). Copy such a node's
+`logos-blockchain.log.*` files into any extra directory under `OUT_DIR`, for
+example `OUT_DIR/bootstrap-0/`, and `collect.py` picks them up; `report.py`
+joins them on block id with the slot your nodes recorded and gets the same
+slot-start-to-proposal time as `proposal_published`, and the proof time too
+when the DEBUG line is there.
+
 Clocks: `delay_ms` is each node's own wall clock against the chain's genesis
 time, so the controlled hosts need NTP; the node's time service already uses
 it. Everything is in UTC.

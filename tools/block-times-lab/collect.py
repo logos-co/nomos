@@ -30,6 +30,14 @@ EVENTS = {
     "block_received",
     "block_processed",
 }
+# Lines a stock 0.3.2 proposer writes, so logs of uninstrumented nodes (the
+# bootstrap nodes holding most of the stake) still yield proposal times:
+#   INFO  ...chain::leader: proposed block HeaderId(<hex>) with N transactions (M removed)
+#   DEBUG ...chain::leader: leader for slot Slot(<n>), <value>/<stake>
+VANILLA = {
+    re.compile(r"^proposed block HeaderId\(([0-9a-f]+)\)"): ("proposed_block", "block_id"),
+    re.compile(r"^leader for slot Slot\((\d+)\)"): ("leader_for_slot", "slot"),
+}
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 LINE = re.compile(r"^(?P<ts>\S+)\s+(?P<level>[A-Z]+)\s+(?P<target>\S+?):\s+(?P<rest>.*)$")
 FIELD = re.compile(r"(\w+)=(HeaderId\([0-9a-f]+\)|\S+)")
@@ -69,6 +77,14 @@ def parse_line(line: str):
     first_field = FIELD.search(rest)
     message = (rest[: first_field.start()] if first_field else rest).strip()
     if message not in EVENTS:
+        for pattern, (name, key) in VANILLA.items():
+            hit = pattern.match(rest)
+            if hit:
+                try:
+                    ts_ms = parse_ts(m.group("ts"))
+                except ValueError:
+                    return None
+                return {"event": name, "ts_ms": ts_ms, "target": m.group("target"), key: parse_value(hit.group(1))}
         return None
     try:
         ts_ms = parse_ts(m.group("ts"))
@@ -102,16 +118,25 @@ def open_log(path: Path):
 
 def node_dirs(scenario: Path):
     """`node-<n>/` as written by the lab harness, or `<n>/` as laid out in the
-    deployment's node-data volume; both are reported as `node-<n>`."""
+    deployment's node-data volume (both reported as `node-<n>`), plus any other
+    directory holding log files, named after itself: that is where logs of
+    uninstrumented nodes go, e.g. `bootstrap-0/`."""
     dirs = []
     for p in sorted(scenario.iterdir()):
-        if not p.is_dir():
+        if not p.is_dir() or p.name == "report":
             continue
         if re.fullmatch(r"node-\d+", p.name):
             dirs.append((p.name, p))
         elif p.name.isdigit():
             dirs.append((f"node-{p.name}", p))
-    return sorted(dirs, key=lambda d: int(d[0].split("-")[1]))
+        elif node_log_files(p):
+            dirs.append((p.name, p))
+
+    def key(d):
+        name = d[0]
+        tail = name.rsplit("-", 1)[-1]
+        return (0, int(tail)) if name.startswith("node-") and tail.isdigit() else (1, name)
+    return sorted(dirs, key=key)
 
 
 def main() -> int:

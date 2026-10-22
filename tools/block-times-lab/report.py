@@ -124,16 +124,49 @@ class Run:
         for node in self.nodes:
             for bid, e in self.processed[node].items():
                 self.tree.setdefault(bid, {"slot": e["slot"], "parent": e["parent"], "height": e.get("height", 0)})
+        self._derive_vanilla_proposals()
+
+    def _derive_vanilla_proposals(self):
+        """Uninstrumented 0.3.2 proposers log `proposed block <id>` (INFO) and,
+        at DEBUG, `leader for slot <n>`. With the slot known from any
+        instrumented node's block_processed and the genesis time, those give
+        the same since_slot_start_ms as proposal_published; proof_ms comes
+        from the leader-for-slot line when present."""
+        time = self.lab.get("time") or {}
+        genesis_ms = time.get("genesis_time_unix_ms")
+        slot_ms = time.get("slot_duration_ms", self.slot_secs * 1000)
+        leader_at = {}  # (node, slot) -> ts_ms of the leadership check
+        for e in self.by["leader_for_slot"]:
+            leader_at.setdefault((e["node"], e["slot"]), e["ts_ms"])
+        self.derived_proposals = 0
+        for e in self.by["proposed_block"]:
+            bid = e["block_id"]
+            if bid in self.produced or bid not in self.tree or genesis_ms is None:
+                continue
+            slot = self.tree[bid]["slot"]
+            started = leader_at.get((e["node"], slot))
+            self.produced[bid] = {
+                "event": "proposal_published",
+                "node": e["node"],
+                "ts_ms": e["ts_ms"],
+                "block_id": bid,
+                "slot": slot,
+                "parent": self.tree[bid]["parent"],
+                "since_slot_start_ms": e["ts_ms"] - (genesis_ms + slot * slot_ms),
+                "proof_ms": (e["ts_ms"] - started) if started is not None else None,
+                "derived": True,
+            }
+            self.derived_proposals += 1
 
     # ---- measurements -------------------------------------------------
     def delays(self):
         return np.array([e["delay_ms"] / 1000.0 for node in self.nodes for e in self.received[node].values()])
 
     def publish_delays(self):
-        return np.array([e["since_slot_start_ms"] / 1000.0 for e in self.by["proposal_published"]])
+        return np.array([e["since_slot_start_ms"] / 1000.0 for e in self.produced.values()])
 
     def proof_times(self):
-        return np.array([e["proof_ms"] / 1000.0 for e in self.by["proposal_published"]])
+        return np.array([e["proof_ms"] / 1000.0 for e in self.produced.values() if e.get("proof_ms") is not None])
 
     def blend_legs(self):
         # Replication sends several copies of a proposal through Blend; the
@@ -503,6 +536,7 @@ delay ({fmt(p[99.9])} s → Δ = {delta_nomos}) needs α ≥ {fmt(alpha_nomos, 3
 <li>Only honest behaviour is measurable; the adversary section is the paper's model fed with measured delays.</li>
 <li>The simulator does not let the adversary reuse abandoned honest branches (the paper's "boost"), so its curves are slightly optimistic.</li>
 <li>Reorg frequency is per processed block per node; with few nodes most reorgs are depth-1 slot battles.</li>
+<li>{run.derived_proposals} proposal times were derived from stock 0.3.2 "proposed block" log lines of uninstrumented proposers, joined on block id with the slot seen by the instrumented nodes.</li>
 <li>Blend's data replication sends several copies of each proposal; the Blend leg uses the first copy to leave Blend, and <code>blend_proposal_broadcast</code> counts every copy.</li>
 </ul>
 </body></html>"""
