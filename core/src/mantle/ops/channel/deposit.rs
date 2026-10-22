@@ -27,10 +27,8 @@ use crate::{
     sdp::service_notes::ServiceNotes,
 };
 
-/// The maximum number of metadata bytes in a single deposit operation. Mantle
-/// bounds deposit metadata and inscription data by the same
-/// `MAX_OPERATION_DATA_SIZE`.
-pub const MAX_METADATA_SIZE: usize = super::inscribe::MAX_BYTES;
+/// The maximum number of metadata bytes in a single deposit operation.
+pub const MAX_METADATA_SIZE: usize = super::MAX_OPERATION_DATA_SIZE;
 pub type Metadata = UpperBoundedVec<u8, { MAX_METADATA_SIZE }>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize, BinaryCodec)]
