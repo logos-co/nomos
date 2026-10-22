@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 
 use lb_core::{
-    block::{Block, HeaderError, SignedHeader, UncleHeaders},
-    header::HeaderId,
+    block::{Block, HeaderError, UncleHeaders},
+    header::{Header, HeaderId},
 };
 use lb_cryptarchia_engine::Branch;
 
@@ -23,7 +23,7 @@ impl Cryptarchia {
     /// - Each uncle must not be on the chain that the block extends.
     /// - Each uncle's parent must be on the chain the block extends, within the
     ///   uncle reference window.
-    /// - Each uncle's header signature and `PoL` must be valid.
+    /// - Each uncle's header and `PoL` must be valid.
     pub(crate) fn verify_uncles<Tx>(&self, block: &Block<Tx>) -> Result<(), Error> {
         if block.uncle_headers().is_empty() {
             return Ok(());
@@ -42,9 +42,9 @@ impl Cryptarchia {
 
         // Each uncle's slot must be older than the block's slot.
         for uncle in block.uncle_headers().iter() {
-            if uncle.header().slot() >= slot {
+            if uncle.slot() >= slot {
                 return Err(Error::InvalidUncle {
-                    uncle: uncle.header().id(),
+                    uncle: uncle.id(),
                     reason: UncleError::NotStrictlyOlder,
                 });
             }
@@ -61,15 +61,13 @@ impl Cryptarchia {
         let window_start = slot.into_inner().saturating_sub(uncle_reference_window);
         self.verify_uncles_ancestry(block.uncle_headers(), parent, window_start)?;
 
-        // Each uncle's header (including its signature) must be valid,
-        // and its `PoL` must be valid.
+        // Each uncle's header must be valid, and its `PoL` must be valid.
         for uncle in block.uncle_headers().iter() {
-            uncle
-                .verify()
+            lb_core::block::verify_header_alone(uncle)
                 .map_err(UncleError::from)
                 .and_then(|()| self.verify_uncle_pol(uncle))
                 .map_err(|reason| Error::InvalidUncle {
-                    uncle: uncle.header().id(),
+                    uncle: uncle.id(),
                     reason,
                 })?;
         }
@@ -114,9 +112,9 @@ impl Cryptarchia {
 
         // Return an error if any uncle's parent was not found during the walk-back.
         for uncle in uncle_headers.iter() {
-            if !found_uncle_parents.contains(&uncle.header().parent()) {
+            if !found_uncle_parents.contains(&uncle.parent()) {
                 return Err(Error::InvalidUncle {
-                    uncle: uncle.header().id(),
+                    uncle: uncle.id(),
                     reason: UncleError::ParentNotOnChain,
                 });
             }
@@ -125,19 +123,15 @@ impl Cryptarchia {
     }
 
     /// Verifies the leadership proof carried by an uncle.
-    fn verify_uncle_pol(&self, uncle: &SignedHeader) -> Result<(), UncleError> {
+    fn verify_uncle_pol(&self, uncle: &Header) -> Result<(), UncleError> {
         // The proof of leadership must verify against the ledger state of the
         // uncle's parent, which must exist since the parent is on the chain.
         let parent_state = self
             .ledger
-            .state(&uncle.header().parent())
+            .state(&uncle.parent())
             .expect("ledger state of a block on the chain must exist");
         parent_state
-            .verify_proof_of_leadership::<_, HeaderId>(
-                uncle.header().slot(),
-                uncle.header().leader_proof(),
-                self.ledger.config(),
-            )
+            .verify_proof_of_leadership::<_, HeaderId>(uncle.slot(), uncle, self.ledger.config())
             .map_err(|_| UncleError::InvalidProof)
     }
 }
@@ -154,8 +148,6 @@ pub enum UncleError {
     OnChain,
     #[error("invalid uncle header")]
     InvalidHeader(#[from] HeaderError),
-    #[error("invalid header signature")]
-    InvalidSignature,
     #[error("invalid proof of leadership")]
     InvalidProof,
     #[error(transparent)]
@@ -166,7 +158,6 @@ impl From<lb_core::block::Error> for UncleError {
     fn from(error: lb_core::block::Error) -> Self {
         match error {
             lb_core::block::Error::Header(e) => Self::InvalidHeader(e),
-            lb_core::block::Error::Signature => Self::InvalidSignature,
             _ => Self::Other(error),
         }
     }
@@ -176,29 +167,27 @@ impl From<lb_core::block::Error> for UncleError {
 mod tests {
     use lb_core::{
         block::BlockTransactions,
-        header::{ContentId, Header},
+        header::ContentId,
         mantle::{
             SignedOps, ledger::verification_mode::StandardMode, transactions::states::Preverified,
         },
         proofs::leader_proof::Groth16LeaderProof,
     };
     use lb_cryptarchia_engine::Slot;
-    use lb_key_management_system_keys::keys::Ed25519Key;
     use lb_utils::bounded::BoundedVec;
-    use rand::thread_rng;
 
     use super::*;
     use crate::tests::{chain_with_fork, signed_header, try_build_block};
 
     #[test]
     fn test_accept_valid_uncle() {
-        let (mut cryptarchia, _, u1, _, zk_key, utxo) = chain_with_fork();
+        let (mut cryptarchia, _, u1, _, secret_key, note) = chain_with_fork();
 
         let (b2, _) = try_build_block(
             &cryptarchia,
             cryptarchia.tip(),
-            utxo,
-            &zk_key,
+            &note,
+            secret_key,
             u1.header().slot().strict_add(1.into()),
             UncleHeaders::new(BoundedVec::from(signed_header(&u1))),
         )
@@ -222,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_reject_uncle_not_strictly_older() {
-        let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
+        let (mut cryptarchia, _, u1, ..) = chain_with_fork();
 
         // The block is at the same slot as the uncle it references.
         let block = craft_block_with_uncles(
@@ -230,7 +219,6 @@ mod tests {
             u1.header().slot(),
             UncleHeaders::new(BoundedVec::from(signed_header(&u1))),
             u1.header().leader_proof(),
-            &u1_key,
         );
 
         let block_header_slot = block.header().slot();
@@ -248,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_reject_uncle_whose_parent_is_outside_window() {
-        let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
+        let (mut cryptarchia, _, u1, ..) = chain_with_fork();
 
         // The block is more than `uncle_reference_window` slots after the uncle's
         // parent, which puts the uncle's parent outside the window.
@@ -265,7 +253,6 @@ mod tests {
                 .strict_add((uncle_reference_window + 1).into()),
             UncleHeaders::new(BoundedVec::from(signed_header(&u1))),
             u1.header().leader_proof(),
-            &u1_key,
         );
 
         let block_header_slot = block.header().slot();
@@ -283,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_reject_uncle_on_the_chain() {
-        let (mut cryptarchia, b1, u1, u1_key, ..) = chain_with_fork();
+        let (mut cryptarchia, b1, u1, ..) = chain_with_fork();
 
         // The block references its own parent `B1` as an uncle.
         let block = craft_block_with_uncles(
@@ -291,7 +278,6 @@ mod tests {
             b1.header().slot().strict_add(1.into()),
             UncleHeaders::new(BoundedVec::from(signed_header(&b1))),
             u1.header().leader_proof(),
-            &u1_key,
         );
 
         let block_header_slot = block.header().slot();
@@ -309,7 +295,7 @@ mod tests {
 
     #[test]
     fn reject_uncle_whose_parent_is_not_on_the_chain() {
-        let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
+        let (mut cryptarchia, _, u1, ..) = chain_with_fork();
 
         // An uncle whose parent is unknown to the chain.
         let header = Header::new(
@@ -318,13 +304,11 @@ mod tests {
             u1.header().slot(),
             u1.header().leader_proof().clone(),
         );
-        let signature = header.sign(&u1_key).unwrap();
         let block = craft_block_with_uncles(
             cryptarchia.tip(),
             u1.header().slot().strict_add(1.into()),
-            UncleHeaders::new(BoundedVec::from(SignedHeader::new(header, signature))),
+            UncleHeaders::new(BoundedVec::from(header)),
             u1.header().leader_proof(),
-            &u1_key,
         );
 
         let block_header_slot = block.header().slot();
@@ -341,45 +325,11 @@ mod tests {
     }
 
     #[test]
-    fn reject_uncle_with_invalid_signature() {
-        let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
-
-        // The uncle's header is intact, but signed by a key that is not its
-        // leader.
-        let signature = u1
-            .header()
-            .sign(&Ed25519Key::generate(&mut thread_rng()))
-            .unwrap();
-        let block = craft_block_with_uncles(
-            cryptarchia.tip(),
-            u1.header().slot().strict_add(1.into()),
-            UncleHeaders::new(BoundedVec::from(SignedHeader::new(
-                u1.header().clone(),
-                signature,
-            ))),
-            u1.header().leader_proof(),
-            &u1_key,
-        );
-
-        let block_header_slot = block.header().slot();
-        let Err(err) = cryptarchia.try_apply_block(block, block_header_slot) else {
-            panic!("expected the block to be rejected");
-        };
-        assert!(matches!(
-            err,
-            Error::InvalidUncle {
-                reason: UncleError::InvalidSignature,
-                ..
-            }
-        ));
-    }
-
-    #[test]
     fn reject_uncle_with_invalid_pol() {
-        let (mut cryptarchia, _, u1, u1_key, ..) = chain_with_fork();
+        let (mut cryptarchia, _, u1, ..) = chain_with_fork();
 
         // The uncle carries `U1`'s proof at a different slot, against which
-        // the proof was not proven. The signature itself is valid.
+        // the proof was not proven.
         let wrong_uncle_slot = u1.header().slot().strict_add(1.into());
         let header = Header::new(
             HeaderId::from([0u8; 32]),
@@ -387,13 +337,11 @@ mod tests {
             wrong_uncle_slot,
             u1.header().leader_proof().clone(),
         );
-        let signature = header.sign(&u1_key).unwrap();
         let block = craft_block_with_uncles(
             cryptarchia.tip(),
             u1.header().slot().strict_add(2.into()),
-            UncleHeaders::new(BoundedVec::from(SignedHeader::new(header, signature))),
+            UncleHeaders::new(BoundedVec::from(header)),
             u1.header().leader_proof(),
-            &u1_key,
         );
 
         let block_header_slot = block.header().slot();
@@ -416,7 +364,6 @@ mod tests {
         slot: Slot,
         uncle_headers: UncleHeaders,
         proof: &Groth16LeaderProof,
-        key: &Ed25519Key,
     ) -> Block<SignedOps<Preverified, StandardMode>> {
         Block::create(
             parent,
@@ -424,7 +371,6 @@ mod tests {
             uncle_headers,
             proof.clone(),
             BlockTransactions::empty(),
-            key,
         )
         .unwrap()
     }

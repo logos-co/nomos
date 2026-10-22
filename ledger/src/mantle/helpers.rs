@@ -1,29 +1,32 @@
 use std::num::NonZeroU64;
 
 use lb_core::{
+    block::BlockNumber,
     crypto::{Hash, ZkHash},
     mantle::{
         channel::Channels,
-        ledger::{Declarations, Utxos},
+        ledger::Declarations,
+        note_set::NoteSets,
         ops::{
             channel::{ChannelId, ChannelKeyIndex},
-            leader_claim::{RewardsRoot, VoucherNullifier},
             pow::{PowNullifier, PowReward, PowTarget},
             sdp::SdpError,
         },
+        programs::Programs,
         transactions::{OperationVerificationHelper, VerificationError},
     },
-    sdp::{DeclarationId, MinStake, ServiceType, service_notes::ServiceNotes},
+    sdp::{DeclarationId, MinStake, ServiceType},
 };
 use lb_cryptarchia_engine::{Epoch, Slot};
 use lb_key_management_system_keys::keys::UnverifiedEd25519PublicKey;
-use rpds::{HashTrieMapSync, HashTrieSetSync};
+use rpds::HashTrieMapSync;
 
 use crate::mantle::LedgerState;
 
 pub struct MantleOperationVerificationHelper<'a> {
     ledger_state: &'a LedgerState,
     cryptarchia_ledger: &'a crate::CryptarchiaLedger,
+    block_number: BlockNumber,
     config: &'a crate::Config,
 }
 
@@ -32,11 +35,13 @@ impl<'a> MantleOperationVerificationHelper<'a> {
     pub const fn new(
         ledger_state: &'a LedgerState,
         cryptarchia_ledger: &'a crate::CryptarchiaLedger,
+        block_number: BlockNumber,
         config: &'a crate::Config,
     ) -> Self {
         Self {
             ledger_state,
             cryptarchia_ledger,
+            block_number,
             config,
         }
     }
@@ -47,12 +52,16 @@ impl OperationVerificationHelper for MantleOperationVerificationHelper<'_> {
         self.ledger_state.channels()
     }
 
-    fn get_service_notes(&self) -> &ServiceNotes {
-        self.ledger_state.service_notes()
+    fn get_note_sets(&self) -> &NoteSets {
+        &self.cryptarchia_ledger.note_sets
     }
 
-    fn get_utxos(&self) -> &Utxos {
-        &self.cryptarchia_ledger.utxos
+    fn get_programs(&self) -> &Programs {
+        self.ledger_state.programs()
+    }
+
+    fn get_block_number(&self) -> BlockNumber {
+        self.block_number
     }
 
     fn get_declarations_by_service(
@@ -84,32 +93,11 @@ impl OperationVerificationHelper for MantleOperationVerificationHelper<'_> {
     }
 
     fn get_epoch(&self) -> Epoch {
-        self.ledger_state.leaders.epoch()
+        self.cryptarchia_ledger.epoch_state().epoch()
     }
 
     fn get_block_slot(&self) -> Slot {
         self.cryptarchia_ledger.slot
-    }
-
-    fn get_nullifiers(&self) -> &HashTrieSetSync<VoucherNullifier> {
-        self.ledger_state.leaders.nullifiers()
-    }
-
-    fn get_claimable_vouchers_root(&self) -> &RewardsRoot {
-        self.ledger_state.vouchers_snapshot_root()
-    }
-
-    fn get_channel_transfer_threshold(
-        &self,
-        channel_id: &ChannelId,
-    ) -> Result<ChannelKeyIndex, VerificationError> {
-        self.ledger_state
-            .channels()
-            .channel_state(channel_id)
-            .ok_or(VerificationError::ChannelNotFound {
-                channel_id: *channel_id,
-            })
-            .map(|channel_state| channel_state.transfer_threshold)
     }
 
     fn get_key_from_channel_at_index(

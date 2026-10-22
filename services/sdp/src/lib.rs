@@ -15,14 +15,15 @@ use lb_chain_service::{
 use lb_core::{
     header::HeaderId,
     mantle::{
-        NoteId, SignedOps,
+        SignedOps, Value,
         ledger::verification_mode::StandardMode,
+        notes::NoteCommitment,
         traits::Hashable as _,
         transactions::{MantleTxBuilder, TxHash, states::Preverified},
     },
     sdp::{
-        ActiveMessage, ActivityMetadata, DeclarationId, DeclarationMessage, Locators, ProviderId,
-        ServiceType, WithdrawMessage, declaration_id,
+        ActiveMessage, ActivityMetadata, DeclarationId, Locators, ProviderId, ServiceType,
+        declaration_id,
     },
 };
 use lb_key_management_system_keys::keys::ZkPublicKey;
@@ -84,13 +85,36 @@ impl DeclarationConfig {
     }
 }
 
-impl From<&DeclarationMessage> for DeclarationConfig {
-    fn from(message: &DeclarationMessage) -> Self {
+// What the node asks to declare; the wallet funds the `amount` stake and
+// builds the `DeclarationMessage`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationRequest {
+    pub service_type: ServiceType,
+    pub locators: Locators,
+    pub provider_id: ProviderId,
+    pub zk_id: ZkPublicKey,
+    pub amount: Value,
+}
+
+impl DeclarationRequest {
+    #[must_use]
+    pub fn id(&self) -> DeclarationId {
+        declaration_id(
+            self.service_type,
+            &self.provider_id,
+            &self.zk_id,
+            &self.locators,
+        )
+    }
+}
+
+impl From<&DeclarationRequest> for DeclarationConfig {
+    fn from(request: &DeclarationRequest) -> Self {
         Self {
-            provider_id: message.provider_id,
-            zk_id: message.zk_id,
-            locators: message.locators.clone(),
-            service_type: message.service_type,
+            provider_id: request.provider_id,
+            zk_id: request.zk_id,
+            locators: request.locators.clone(),
+            service_type: request.service_type,
         }
     }
 }
@@ -124,7 +148,7 @@ impl StorageRecoverySettings for SdpSettings {
 pub struct RuntimeDeclaration {
     pub id: DeclarationId,
     pub zk_id: ZkPublicKey,
-    pub service_note_id: NoteId,
+    pub service_note: NoteCommitment,
     pub nonce: u64,
     pub tip: HeaderId,
 }
@@ -163,7 +187,7 @@ impl SdpSubmission {
 #[derive(Debug)]
 pub enum SdpMessage {
     PostDeclaration {
-        declaration: Box<DeclarationMessage>,
+        declaration: Box<DeclarationRequest>,
         reply_channel: oneshot::Sender<Result<SdpSubmission, DynError>>,
     },
     PostActivity {
@@ -531,7 +555,7 @@ where
             declaration: RuntimeDeclaration {
                 id: declaration_id,
                 zk_id: declaration.zk_id,
-                service_note_id: declaration.service_note_id,
+                service_note: declaration.service_note,
                 nonce: declaration.nonce,
                 tip,
             },
@@ -591,7 +615,7 @@ where
     )]
     async fn handle_post_declaration(
         &mut self,
-        declaration: Box<DeclarationMessage>,
+        declaration: Box<DeclarationRequest>,
         wallet_adapter: &WalletAdapter,
         mempool_adapter: &MempoolAdapter,
         reply_channel: oneshot::Sender<Result<SdpSubmission, DynError>>,
@@ -900,16 +924,10 @@ where
             return;
         };
 
-        let withdraw_message = WithdrawMessage {
-            declaration_id,
-            service_note_id: declaration.service_note_id,
-            nonce,
-        };
-
         let tx_builder = MantleTxBuilder::new();
 
         let signed_tx = match wallet_adapter
-            .withdraw_tx(tx_builder, withdraw_message, &self.wallet_config)
+            .withdraw_tx(tx_builder, &declaration, nonce, &self.wallet_config)
             .await
         {
             Ok(tx) => tx,
@@ -1128,13 +1146,32 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr as _;
+
     use lb_blend_proofs::{quota::VerifiedProofOfQuota, selection::VerifiedProofOfSelection};
-    use lb_core::sdp::blend::ActivityProof;
-    use lb_key_management_system_keys::keys::Ed25519Key;
+    use lb_core::sdp::{Locator, blend::ActivityProof};
+    use lb_groth16::Fr;
+    use lb_key_management_system_keys::keys::{Ed25519Key, Ed25519PublicKey};
 
     use super::*;
 
     const DECLARATION_ID: DeclarationId = DeclarationId([1; 32]);
+
+    #[test]
+    fn declaration_config_comes_from_the_request() {
+        let request = DeclarationRequest {
+            service_type: ServiceType::BlendNetwork,
+            locators: Locator::from_str("/ip4/1.1.1.1/udp/3000").unwrap().into(),
+            provider_id: ProviderId(Ed25519PublicKey::from_bytes(&[10; 32]).unwrap()),
+            zk_id: ZkPublicKey::new(Fr::from(2u64)),
+            amount: 1_000,
+        };
+        let config = DeclarationConfig::from(&request);
+        assert_eq!(
+            (config.service_type, config.provider_id, config.zk_id),
+            (request.service_type, request.provider_id, request.zk_id)
+        );
+    }
 
     #[test]
     fn restored_active_message_of_another_declaration_is_invalid() {

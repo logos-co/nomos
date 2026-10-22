@@ -12,7 +12,7 @@ use crate::{
     events::TxEvent,
     mantle::{
         Value,
-        channel::{ChannelState, Channels, Error, SlotTimeframe, SlotTimeout},
+        channel::{Channels, Error, SlotTimeframe, SlotTimeout},
         gas::{
             Gas, GasOverflow, MainnetGasProfile, OpGasCalculator, OperationGas, ThresholdSource,
         },
@@ -20,6 +20,7 @@ use crate::{
             ExecutableOperation, PreverifiableOperation, ProvableOperation, VerifiableOperation,
             verification_mode::{StandardMode, VerificationMode},
         },
+        note_set::NoteSets,
         ops::{
             SignedOperation,
             channel::{UnverifiedChannelKeys, VerifiedChannelKeys},
@@ -42,7 +43,6 @@ pub struct ChannelConfigOp {
     pub posting_timeframe: SlotTimeframe,
     pub posting_timeout: SlotTimeout,
     pub configuration_threshold: u16,
-    pub transfer_threshold: u16,
 }
 
 impl ChannelConfigOp {
@@ -67,7 +67,6 @@ impl ChannelConfigOp {
             posting_timeframe: SlotTimeframe::from(10u32),
             posting_timeout: SlotTimeout::from(11u32),
             configuration_threshold: 12,
-            transfer_threshold: 13,
         }
     }
 }
@@ -79,6 +78,7 @@ pub struct ChannelConfigValidationContext<'a> {
 
 pub struct ChannelConfigExecutionContext {
     pub channels: Channels,
+    pub note_sets: NoteSets,
     pub block_slot: Slot,
 }
 
@@ -109,10 +109,7 @@ impl PreverifiableOperation<StandardMode>
         let operation = self.operation();
 
         // Check config is well-formed
-        if operation.configuration_threshold == 0
-            || operation.transfer_threshold == 0
-            || operation.keys.is_empty()
-        {
+        if operation.configuration_threshold == 0 || operation.keys.is_empty() {
             return Err(Error::InvalidChannelConfig);
         }
 
@@ -211,6 +208,14 @@ impl<Mode: VerificationMode> ExecutableOperation
         let keys = UnverifiedChannelKeys::new_unchecked(
             operation.keys.iter().map(|k| k.into_unverified()).collect(),
         );
+        if context.channels.channel_state(&operation.channel).is_none() {
+            (context.channels, context.note_sets) = context.channels.create_channel(
+                operation.channel,
+                context.block_slot,
+                keys.clone(),
+                context.note_sets,
+            );
+        }
         if let Some(channel) = context.channels.channels.get_mut(&operation.channel) {
             channel.accredited_keys = Arc::new(keys);
             channel.configuration_threshold = operation.configuration_threshold;
@@ -218,25 +223,8 @@ impl<Mode: VerificationMode> ExecutableOperation
             channel.tip_sequencer_starting_slot = context.block_slot;
             channel.posting_timeframe = operation.posting_timeframe.clone();
             channel.posting_timeout = operation.posting_timeout.clone();
-            channel.transfer_threshold = operation.transfer_threshold;
             channel.tip_slot = context.block_slot;
             channel.config_tip_hash = operation.id();
-        } else {
-            context.channels.channels = context.channels.channels.insert(
-                operation.channel,
-                ChannelState {
-                    accredited_keys: Arc::new(keys),
-                    configuration_threshold: operation.configuration_threshold,
-                    tip_message: MsgId::root(),
-                    config_tip_hash: operation.id(),
-                    tip_slot: context.block_slot,
-                    tip_sequencer: 0,
-                    tip_sequencer_starting_slot: context.block_slot,
-                    posting_timeframe: operation.posting_timeframe.clone(),
-                    transfer_threshold: operation.transfer_threshold,
-                    posting_timeout: operation.posting_timeout.clone(),
-                },
-            );
         }
         Ok((context, Vec::new()))
     }
@@ -246,7 +234,7 @@ impl<Mode: VerificationMode> ExecutableOperation
 mod tests {
     use super::*;
     use crate::mantle::{
-        TxHash, gas::test_utils::FixedThresholds,
+        TxHash, channel::ChannelState, gas::test_utils::FixedThresholds, note_set::NoteSet,
         ops::channel::verification::test_utils::create_channel_multi_sig_proof,
         transactions::tx_list::signed_ops::test_utils::make_channel_state,
     };
@@ -261,7 +249,7 @@ mod tests {
             channel_id,
             ChannelState {
                 configuration_threshold,
-                ..make_channel_state(1, Some(keys))
+                ..make_channel_state(Some(keys))
             },
         );
         channels
@@ -284,7 +272,6 @@ mod tests {
             posting_timeframe: 0.into(),
             posting_timeout: 0.into(),
             configuration_threshold: 1,
-            transfer_threshold: 1,
         }
     }
 
@@ -336,22 +323,6 @@ mod tests {
         let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
             ChannelConfigOp {
                 configuration_threshold: 0,
-                ..ChannelConfigOp::sample()
-            },
-            ChannelMultiSigProof::sample_with_signatures(1),
-        );
-
-        assert_eq!(
-            signed_operation.preverify(&()),
-            Err(Error::InvalidChannelConfig)
-        );
-    }
-
-    #[test]
-    fn preverify_rejects_a_zero_transfer_threshold() {
-        let signed_operation = SignedOperation::<_, Unverified, StandardMode>::new(
-            ChannelConfigOp {
-                transfer_threshold: 0,
                 ..ChannelConfigOp::sample()
             },
             ChannelMultiSigProof::sample_with_signatures(1),
@@ -542,7 +513,7 @@ mod tests {
             tip_sequencer_starting_slot: block_slot,
             posting_timeframe: operation.posting_timeframe.clone(),
             posting_timeout: operation.posting_timeout.clone(),
-            transfer_threshold: operation.transfer_threshold,
+            note_set: None,
         }
     }
 
@@ -560,11 +531,19 @@ mod tests {
         let (context, events) = signed_operation
             .execute(ChannelConfigExecutionContext {
                 channels: Channels::new(),
+                note_sets: NoteSets::new(),
                 block_slot,
             })
             .expect("configuring a channel never fails");
 
-        assert_eq!(context.channels.channel_state(&channel_id), Some(&expected));
+        assert_eq!(
+            context.channels.channel_state(&channel_id),
+            Some(&ChannelState {
+                note_set: Some(2),
+                ..expected
+            })
+        );
+        assert_eq!(context.note_sets.get(2), Some(&NoteSet::empty()));
         assert_eq!(events, []);
     }
 
@@ -583,14 +562,11 @@ mod tests {
                 tip_sequencer_starting_slot: Slot::from(1u64),
                 tip_slot: Slot::from(2u64),
                 configuration_threshold: 99,
-                ..make_channel_state(
-                    98,
-                    Some(UnverifiedChannelKeys::new_unchecked(vec![
-                        Ed25519Key::from_bytes(&[42; 32])
-                            .public_key()
-                            .into_unverified(),
-                    ])),
-                )
+                ..make_channel_state(Some(UnverifiedChannelKeys::new_unchecked(vec![
+                    Ed25519Key::from_bytes(&[42; 32])
+                        .public_key()
+                        .into_unverified(),
+                ])))
             },
         );
 
@@ -601,6 +577,7 @@ mod tests {
         let (context, events) = signed_operation
             .execute(ChannelConfigExecutionContext {
                 channels,
+                note_sets: NoteSets::new(),
                 block_slot,
             })
             .expect("configuring a channel never fails");
