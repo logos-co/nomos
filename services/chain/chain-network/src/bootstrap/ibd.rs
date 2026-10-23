@@ -929,7 +929,11 @@ mod tests {
             unimplemented!()
         }
 
-        async fn enter_era(&mut self, _era: Era) {
+        async fn rotate_era(&mut self, _era: Era) {
+            unimplemented!()
+        }
+
+        async fn complete_era_transition(&mut self, _ended_era: Era) {
             unimplemented!()
         }
 

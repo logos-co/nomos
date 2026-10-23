@@ -73,6 +73,14 @@ pub struct EraTransitionEnd {
     era: Era,
 }
 
+impl EraTransitionEnd {
+    /// The era whose transition period ended.
+    #[must_use]
+    pub const fn era(&self) -> Era {
+        self.era
+    }
+}
+
 pub type EraEventStream = Pin<Box<dyn Stream<Item = EraEvent> + Send + Sync + Unpin>>;
 pub type EraTransitionEndStream =
     Pin<Box<dyn Stream<Item = EraTransitionEnd> + Send + Sync + Unpin>>;

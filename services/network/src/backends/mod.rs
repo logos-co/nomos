@@ -19,8 +19,10 @@ pub trait NetworkBackend<RuntimeServiceId> {
         overwatch_handle: OverwatchHandle<RuntimeServiceId>,
     ) -> Self;
     async fn process(&self, msg: Self::Message);
-    async fn enter_era(&mut self, era: Era);
-    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent>;
 
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
+
+    async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent>;
     async fn subscribe_to_chainsync(&mut self) -> BroadcastStream<Self::ChainSyncEvent>;
 }

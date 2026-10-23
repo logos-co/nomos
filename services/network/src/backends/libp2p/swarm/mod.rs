@@ -346,16 +346,20 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
             Command::PubSub(pubsub_cmd) => self.handle_pubsub_command(pubsub_cmd),
             Command::Discovery(discovery_cmd) => self.handle_discovery_command(discovery_cmd),
             Command::ChainSync(chainsync_cmd) => self.handle_chainsync_command(chainsync_cmd),
-            Command::EnterEra(era) => self.enter_era(era),
+            Command::StartNewEra(era) => self.start_new_era(era),
+            Command::CompleteEraTransition(ended_era) => self.complete_era_transition(ended_era),
         }
     }
 
-    /// Moves the swarm to the settings of `era`: chain sync starts from scratch
-    /// on the era's protocol, over the connections already open.
+    /// Moves the swarm to the settings of `era`: chain sync requests go over
+    /// the era's protocol from now on, over the connections already open, to
+    /// the peers that speak it. The protocol of the era before is refused from
+    /// now on, but the requests already under way on it run until
+    /// [`Self::complete_era_transition`].
     ///
     /// Eras only move forward, so an `era` that does not come after the
     /// current one is refused and the swarm stays where it is.
-    fn enter_era(&mut self, era: Era) {
+    fn start_new_era(&mut self, era: Era) {
         if era <= self.current_era {
             tracing::error!(
                 target: LOG_TARGET,
@@ -385,7 +389,23 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
         self.protocol_contract.chain_sync_protocol =
             new_era_chain_sync_protocol_name.clone().into_inner();
         self.swarm
-            .set_new_chain_sync_protocol(new_era_chain_sync_protocol_name);
+            .start_new_chain_sync_era(new_era_chain_sync_protocol_name);
+    }
+
+    /// Drops the chain sync requests still under way over the protocol of the
+    /// era before the current one, once the transition period of `ended_era`
+    /// has ended, if that is the era before the current one. Kademlia and
+    /// identify are bound to the chain, not to an era, so they are untouched.
+    fn complete_era_transition(&mut self, ended_era: Era) {
+        if self.current_era.checked_sub(1) != Some(ended_era) {
+            return;
+        }
+        tracing::info!(
+            target: LOG_TARGET,
+            "Completed the transition into era {}: chain sync dropped the requests still under way over the previous era's protocol",
+            self.current_era.into_inner()
+        );
+        self.swarm.finish_chain_sync_era_transition();
     }
 
     fn handle_network_command(&mut self, command: NetworkCommand) {
@@ -1039,7 +1059,7 @@ mod tests {
         handler.handle_identify_event(identify_event(chain_sync_peer, &["/chainsync/test"]));
         handler.handle_identify_event(identify_event(other_peer, &["/kademlia/test"]));
 
-        handler.enter_era(Era::new(1));
+        handler.start_new_era(Era::new(1));
 
         assert_eq!(
             handler.chainsync_eligible_peers(),
@@ -1054,7 +1074,7 @@ mod tests {
         let mut handler = create_handler_with_eras(two_eras());
         let previous_era_peer = PeerId::random();
         let current_era_peer = PeerId::random();
-        handler.enter_era(Era::new(1));
+        handler.start_new_era(Era::new(1));
 
         handler.handle_identify_event(identify_event(previous_era_peer, &["/chainsync/test"]));
         handler.handle_identify_event(identify_event(current_era_peer, &["/chainsync/next"]));

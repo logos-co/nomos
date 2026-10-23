@@ -89,8 +89,21 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for Libp2p {
         }
     }
 
-    async fn enter_era(&mut self, era: Era) {
-        if let Err(e) = self.commands_tx.send(Command::EnterEra(era)).await {
+    async fn rotate_era(&mut self, era: Era) {
+        if let Err(e) = self.commands_tx.send(Command::StartNewEra(era)).await {
+            tracing::error!(
+                target: LOG_TARGET,
+                "failed to send command to logos-blockchain-libp2p: {e:?}"
+            );
+        }
+    }
+
+    async fn complete_era_transition(&mut self, ended_era: Era) {
+        if let Err(e) = self
+            .commands_tx
+            .send(Command::CompleteEraTransition(ended_era))
+            .await
+        {
             tracing::error!(
                 target: LOG_TARGET,
                 "failed to send command to logos-blockchain-libp2p: {e:?}"

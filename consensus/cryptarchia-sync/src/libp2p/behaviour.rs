@@ -20,12 +20,13 @@ use libp2p::{
 };
 use libp2p_stream::{Behaviour as StreamBehaviour, Control, IncomingStreams};
 use tokio::sync::{mpsc, mpsc::Sender, oneshot};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::{
     BlocksResponse, DownloadBlocksRequest, TipResponse,
     config::Config,
     libp2p::{
+        behaviour::old_era::OldEra,
         downloader::Downloader,
         errors::ChainSyncError,
         messages::RequestMessage,
@@ -33,6 +34,8 @@ use crate::{
     },
     messages::{GetTipResponse, SerialisedBlock},
 };
+
+mod old_era;
 
 type SendingBlocksRequestsFuture = BoxFuture<'static, Result<BlocksRequestStream, ChainSyncError>>;
 
@@ -125,6 +128,9 @@ pub struct Behaviour {
     stream_behaviour: StreamBehaviour,
     /// The chain sync over the protocol spoken now.
     sync_protocol_state: SyncProtocolState,
+    /// The chain sync over the protocol of the era before, until the end of
+    /// its transition period.
+    old_era: Option<OldEra>,
     /// Configuration for the behaviour.
     config: Config,
 }
@@ -136,6 +142,14 @@ struct SyncProtocolState {
     control: Control,
     /// A handle to listen to incoming stream requests.
     incoming_streams: IncomingStreams,
+    /// The requests and responses under way on the protocol.
+    ongoing_requests: OngoingRequests,
+    /// Protocol name.
+    protocol_name: StreamProtocol,
+}
+
+/// The requests and responses under way on one protocol, in either direction.
+struct OngoingRequests {
     /// Futures for reading incoming requests. This is common to both tip and
     /// block because initially we don't know which request we receive over
     /// stream. After reading the request, we use dedicated `FuturesUnordered`,
@@ -165,8 +179,6 @@ struct SyncProtocolState {
     waker: Option<std::task::Waker>,
     /// Configuration for the behaviour.
     config: Config,
-    /// Protocol name.
-    protocol_name: StreamProtocol,
 }
 
 impl Behaviour {
@@ -181,25 +193,50 @@ impl Behaviour {
         Self {
             stream_behaviour,
             sync_protocol_state,
+            old_era: None,
             config,
         }
     }
 
-    pub fn switch_to_protocol(&mut self, new_protocol_name: StreamProtocol) {
-        if new_protocol_name == self.sync_protocol_state.protocol_name {
+    /// Starts a new era, whose chain sync speaks `new_era_protocol_name`.
+    ///
+    /// The chain sync of the era before becomes the old era until
+    /// [`Self::finish_era_transition`]: its protocol is refused from now on, but
+    /// the requests and responses already under way on it run to completion,
+    /// and every request started from now on goes over the new protocol. An old
+    /// era still open by then is ended first: its transition period is over,
+    /// and only the report of its end went missing.
+    pub fn start_new_era(&mut self, new_era_protocol_name: StreamProtocol) {
+        if new_era_protocol_name == self.sync_protocol_state.protocol_name {
             return;
         }
+        if self.old_era.is_some() {
+            warn!(
+                target: LOG_TARGET,
+                "The end of the previous era's transition period was never reported; ending it now"
+            );
+        }
+        self.finish_era_transition();
         let previous_sync_state = mem::replace(
             &mut self.sync_protocol_state,
             SyncProtocolState::new(
                 self.stream_behaviour.new_control(),
-                new_protocol_name,
+                new_era_protocol_name,
                 self.config.clone(),
             ),
         );
         // Switch to the new sync protocol right away by notifying the waker to poll the
         // swarm.
-        previous_sync_state.try_notify_waker();
+        previous_sync_state.ongoing_requests.try_notify_waker();
+        self.old_era = Some(OldEra::new(previous_sync_state));
+    }
+
+    /// Ends the transition period of the old era: the requests and responses
+    /// still under way on its protocol are dropped. The connections stay open,
+    /// since the new era's chain sync and the other protocols run over them
+    /// too.
+    pub fn finish_era_transition(&mut self) {
+        self.old_era = None;
     }
 
     pub fn request_tip(
@@ -240,16 +277,7 @@ impl SyncProtocolState {
         Self {
             control,
             incoming_streams,
-            receiving_block_responses: FuturesUnordered::new(),
-            sending_block_responses: FuturesUnordered::new(),
-            receiving_requests: FuturesUnordered::new(),
-            incoming_streams_to_close: FuturesUnordered::new(),
-            sending_block_requests: FuturesUnordered::new(),
-            sending_tip_requests: FuturesUnordered::new(),
-            receiving_tip_responses: FuturesUnordered::new(),
-            sending_tip_responses: FuturesUnordered::new(),
-            waker: None,
-            config,
+            ongoing_requests: OngoingRequests::new(config),
             protocol_name,
         }
     }
@@ -262,7 +290,7 @@ impl SyncProtocolState {
         let mut control = self.control.clone();
         let protocol_name = self.protocol_name.clone();
 
-        self.sending_tip_requests.push(
+        self.ongoing_requests.sending_tip_requests.push(
             async move {
                 Downloader::send_tip_request(peer_id, &mut control, protocol_name, reply_sender)
                     .await
@@ -270,7 +298,7 @@ impl SyncProtocolState {
             .boxed(),
         );
 
-        self.try_notify_waker();
+        self.ongoing_requests.try_notify_waker();
     }
 
     fn start_blocks_download(
@@ -291,7 +319,7 @@ impl SyncProtocolState {
         );
         let protocol_name = self.protocol_name.clone();
 
-        self.sending_block_requests.push(
+        self.ongoing_requests.sending_block_requests.push(
             Downloader::send_download_request(
                 peer_id,
                 control,
@@ -302,7 +330,39 @@ impl SyncProtocolState {
             .boxed(),
         );
 
-        self.try_notify_waker();
+        self.ongoing_requests.try_notify_waker();
+    }
+
+    /// Polls the requests and responses under way, then the streams opened
+    /// over the protocol.
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarmEvent> {
+        if let Poll::Ready(event) = self.ongoing_requests.poll(cx) {
+            return Poll::Ready(event);
+        }
+
+        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
+            self.ongoing_requests
+                .handle_incoming_stream(peer_id, stream);
+        }
+
+        Poll::Pending
+    }
+}
+
+impl OngoingRequests {
+    fn new(config: Config) -> Self {
+        Self {
+            receiving_block_responses: FuturesUnordered::new(),
+            sending_block_responses: FuturesUnordered::new(),
+            receiving_requests: FuturesUnordered::new(),
+            incoming_streams_to_close: FuturesUnordered::new(),
+            sending_block_requests: FuturesUnordered::new(),
+            sending_tip_requests: FuturesUnordered::new(),
+            receiving_tip_responses: FuturesUnordered::new(),
+            sending_tip_responses: FuturesUnordered::new(),
+            waker: None,
+            config,
+        }
     }
 
     fn handle_tip_request(&self, peer_id: PeerId, stream: Libp2pStream) -> Poll<ToSwarmEvent> {
@@ -505,10 +565,6 @@ impl SyncProtocolState {
             }
         }
 
-        if let Poll::Ready(Some((peer_id, stream))) = self.incoming_streams.poll_next_unpin(cx) {
-            self.handle_incoming_stream(peer_id, stream);
-        }
-
         Poll::Pending
     }
 }
@@ -597,6 +653,12 @@ impl NetworkBehaviour for Behaviour {
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Poll::Ready(event) = self.sync_protocol_state.poll(cx) {
+            return Poll::Ready(event);
+        }
+
+        if let Some(old_era) = &mut self.old_era
+            && let Poll::Ready(event) = old_era.poll(cx)
+        {
             return Poll::Ready(event);
         }
 
@@ -937,7 +999,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_set_protocol_over_open_connection() {
+    async fn test_new_era_over_open_connection() {
         let config = Config {
             peer_response_timeout: Duration::from_secs(1),
             max_inbound_requests: 4.try_into().unwrap(),
@@ -945,14 +1007,15 @@ mod tests {
         let (mut provider_swarm, provider_peer_id, mut downloader_swarm) =
             connect_provider_and_downloader(config).await;
 
-        // Both peers move to a new protocol after they connected.
+        // Both peers start a new era, with a new protocol, after they
+        // connected.
         let next_protocol = StreamProtocol::new("/tests/chain-sync/next");
         provider_swarm
             .behaviour_mut()
-            .switch_to_protocol(next_protocol.clone());
+            .start_new_era(next_protocol.clone());
         downloader_swarm
             .behaviour_mut()
-            .switch_to_protocol(next_protocol);
+            .start_new_era(next_protocol);
 
         tokio::spawn(run_provider(
             provider_swarm,
@@ -981,7 +1044,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_set_protocol_stops_accepting_previous_protocol() {
+    async fn test_old_era_request_under_way_is_served_during_the_transition() {
         let config = Config {
             peer_response_timeout: Duration::from_secs(1),
             max_inbound_requests: 4.try_into().unwrap(),
@@ -989,10 +1052,59 @@ mod tests {
         let (mut provider_swarm, provider_peer_id, mut downloader_swarm) =
             connect_provider_and_downloader(config).await;
 
-        // Only the provider moves to a new protocol.
+        // The provider starts a new era once the request has reached it, and
+        // only then answers it.
+        tokio::spawn(async move {
+            while let Some(event) = provider_swarm.next().await {
+                if let SwarmEvent::Behaviour(Event::ProvideBlocksRequest { reply_sender, .. }) =
+                    event
+                {
+                    provider_swarm
+                        .behaviour_mut()
+                        .start_new_era(StreamProtocol::new("/tests/chain-sync/next"));
+                    let response = StandardProvider { blocks_count: 10 }.handle_blocks_request(0);
+                    tokio::spawn(async move {
+                        reply_sender.send(response).await.unwrap();
+                    });
+                }
+            }
+        });
+
+        let streams = request_download(
+            &mut downloader_swarm,
+            1,
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            HeaderId::from([0; 32]),
+            &HashSet::new(),
+            provider_peer_id,
+        );
+
+        tokio::spawn(async move { downloader_swarm.loop_on_next().await });
+
+        let (blocks, errors) =
+            tokio::time::timeout(Duration::from_secs(10), wait_block_messages(streams))
+                .await
+                .expect("The request under way should be served");
+
+        assert_eq!(blocks.len(), 10);
+        assert_eq!(errors.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_old_era_protocol_is_refused_once_a_new_era_starts() {
+        let config = Config {
+            peer_response_timeout: Duration::from_secs(1),
+            max_inbound_requests: 4.try_into().unwrap(),
+        };
+        let (mut provider_swarm, provider_peer_id, mut downloader_swarm) =
+            connect_provider_and_downloader(config).await;
+
+        // Only the provider starts a new era: the downloader still speaks the
+        // protocol of the era before.
         provider_swarm
             .behaviour_mut()
-            .switch_to_protocol(StreamProtocol::new("/tests/chain-sync/next"));
+            .start_new_era(StreamProtocol::new("/tests/chain-sync/next"));
 
         tokio::spawn(run_provider(
             provider_swarm,
