@@ -5,13 +5,16 @@ use lb_core::{
     header::HeaderId,
     mantle::transactions::hash::{TxHash, TxHashPrefix},
 };
-use lb_cryptarchia_engine::Slot;
+use lb_cryptarchia_engine::{Era, Slot};
 use lb_tx_service::TxsWithCommonPrefix;
 
 pub mod adapter;
 
 #[async_trait]
 pub trait MempoolAdapter<Tx>: Send + Sync {
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
+
     /// Tell the mempool that the canonical chain was updated, either by growing
     /// with a new block or by a reorg.
     ///

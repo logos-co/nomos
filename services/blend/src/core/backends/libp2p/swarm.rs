@@ -11,7 +11,7 @@ use std::{
 use futures::{Stream, StreamExt as _, future::OptionFuture, stream::FuturesUnordered};
 use lb_blend::{
     message::encap::{
-        ProofsVerifier as ProofsVerifierTrait, encapsulated_message_encoded_size,
+        ProofsVerifier as ProofsVerifierTrait,
         validated::EncapsulatedMessageWithVerifiedPublicHeader,
     },
     network::core::{
@@ -31,6 +31,7 @@ use lb_libp2p::{DialError, DialErrorExt as _, DialOpts, SwarmEvent, system_dns_c
 use lb_log_targets::diagnostic::BLEND_REACHABILITY;
 use libp2p::{
     Multiaddr, PeerId, Swarm, SwarmBuilder,
+    identity::Keypair,
     swarm::{ConnectionId, dial_opts::PeerCondition},
 };
 use rand::RngCore;
@@ -40,15 +41,12 @@ use tokio::{
 };
 
 use crate::{
-    core::{
-        backends::{
-            BackendEpochInfo,
-            libp2p::{
-                LOG_TARGET, Libp2pBlendBackendSettings,
-                behaviour::{BlendBehaviour, BlendBehaviourEvent},
-            },
+    core::backends::{
+        BackendEpochInfo,
+        libp2p::{
+            LOG_TARGET, Libp2pBlendBackendEraSettings, Libp2pBlendBackendSettings,
+            behaviour::{BlendBehaviour, BlendBehaviourEvent, network_config},
         },
-        settings::RunningBlendConfig as BlendConfig,
     },
     message::{CoreInfo, NetworkInfo},
     metrics,
@@ -67,7 +65,10 @@ pub enum BlendSwarmMessage<ProofsVerifier> {
         message: Box<EncapsulatedMessageWithVerifiedPublicHeader>,
         epoch: Epoch,
     },
-    StartNewEpoch(BackendEpochInfo<PeerId, ProofsVerifier>),
+    StartNewEpoch {
+        new_epoch_info: BackendEpochInfo<PeerId, ProofsVerifier>,
+        new_era_settings: Option<Box<Libp2pBlendBackendEraSettings>>,
+    },
     CompleteEpochTransition,
     GetNetworkInfo {
         reply: oneshot::Sender<Option<NetworkInfo<PeerId>>>,
@@ -124,31 +125,6 @@ impl DialAttempt {
     }
 }
 
-/// The bytes a connection may hold for us before its sender feels backpressure.
-///
-/// One round's share, which a neighbour sending at the rate the protocol
-/// expects may have in flight before this node has read it, plus the `η` rounds
-/// that neighbour waits for a stalled connection before giving up on a message.
-/// Sized this way, a pause in reading shorter than the sender's own patience
-/// costs nothing, and one longer than it is felt within a round or two instead
-/// of being swallowed by buffer.
-fn connection_receive_window(
-    connection_share_per_round: NonZeroU64,
-    network_absorption_in_rounds: NonZeroU64,
-    num_blend_layers: NonZeroU64,
-) -> u32 {
-    let frame_size = encapsulated_message_encoded_size(num_blend_layers).get();
-
-    let rounds_of_slack = network_absorption_in_rounds.get().saturating_add(1);
-    u32::try_from(
-        connection_share_per_round
-            .get()
-            .saturating_mul(rounds_of_slack)
-            .saturating_mul(u64::try_from(frame_size).unwrap()),
-    )
-    .unwrap_or(u32::MAX)
-}
-
 type PendingRetries = FuturesUnordered<Pin<Box<dyn Future<Output = PeerId> + Send>>>;
 type FullMembershipRetry = Option<Pin<Box<dyn Future<Output = ()> + Send>>>;
 
@@ -174,8 +150,15 @@ where
     peering_degree_check_clock: Pin<Box<dyn Stream<Item = ()> + Send>>,
 }
 
-pub struct SwarmParams<'config, Rng, ProofsVerifier> {
-    pub config: &'config BlendConfig<Libp2pBlendBackendSettings>,
+pub struct SwarmParams<'settings, Rng, ProofsVerifier> {
+    pub settings: &'settings Libp2pBlendBackendSettings,
+    /// The settings of the era of the current epoch.
+    pub era_settings: &'settings Libp2pBlendBackendEraSettings,
+    pub keypair: Keypair,
+    /// The QUIC receive window. The transport is built once, when the swarm
+    /// starts, so the window is sized for the era that needs the largest (see
+    /// [`connection_receive_window`]).
+    pub receive_window_size: u32,
     pub current_epoch_info: BackendEpochInfo<PeerId, ProofsVerifier>,
     pub rng: Rng,
     pub swarm_message_receiver: mpsc::Receiver<BlendSwarmMessage<ProofsVerifier>>,
@@ -197,7 +180,10 @@ where
 {
     pub(super) fn new(
         SwarmParams {
-            config,
+            settings,
+            era_settings,
+            keypair,
+            receive_window_size: receive_window,
             current_epoch_info,
             rng,
             swarm_message_receiver: swarm_messages_receiver,
@@ -205,7 +191,8 @@ where
             minimum_network_size,
         }: SwarmParams<Rng, ProofsVerifier>,
     ) -> Self {
-        let listening_address = config.backend.listening_address.clone();
+        let listening_address = settings.listening_address.clone();
+        let local_peer_id = keypair.public().to_peer_id();
         // The read share only pushes back on a neighbour if the transport stops
         // accepting what it is not being read. libp2p-quic's default receive
         // window is 10 MB per stream, which at Blend's frame size is some five
@@ -215,13 +202,8 @@ where
         // that a neighbour sending at the rate the protocol expects never
         // stalls, and that the `η` rounds it may hold a message for are not
         // spent waiting on flow control.
-        let receive_window = connection_receive_window(
-            config.backend.connection_share_per_round,
-            config.time.network_absorption_in_rounds,
-            config.num_blend_layers,
-        );
         let (dns_config, dns_options) = system_dns_config();
-        let mut swarm = SwarmBuilder::with_existing_identity(config.keypair())
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic_config(|mut quic| {
                 quic.max_stream_data = receive_window;
@@ -233,7 +215,8 @@ where
             .with_dns_config(dns_config, dns_options)
             .with_behaviour(|_| {
                 BlendBehaviour::new(
-                    config,
+                    era_settings,
+                    local_peer_id,
                     (
                         current_epoch_info.membership.clone(),
                         current_epoch_info.epoch,
@@ -262,12 +245,12 @@ where
             incoming_message_sender,
             current_epoch_info,
             rng,
-            max_dial_attempts_per_connection: config.backend.max_dial_attempts_per_peer,
-            peer_dials: HashMap::with_capacity(config.backend.target_peering_degree.get() as usize),
+            max_dial_attempts_per_connection: settings.max_dial_attempts_per_peer,
+            peer_dials: HashMap::with_capacity(era_settings.target_peering_degree.get() as usize),
             pending_retries: FuturesUnordered::new(),
             pending_full_membership_retry: None,
             minimum_network_size,
-            peering_degree_check_clock: config.peering_degree_check_clock(),
+            peering_degree_check_clock: settings.peering_degree_check_clock(),
         };
 
         self_instance.check_and_dial_new_peers();
@@ -743,14 +726,30 @@ where
             BlendSwarmMessage::Publish { message, epoch } => {
                 self.handle_publish_swarm_message(&message, epoch);
             }
-            BlendSwarmMessage::StartNewEpoch(new_epoch_info) => {
+            BlendSwarmMessage::StartNewEpoch {
+                new_epoch_info,
+                new_era_settings,
+            } => {
                 self.current_epoch_info = new_epoch_info;
+                if let Some(new_era_settings) = &new_era_settings {
+                    self.minimum_network_size =
+                        new_era_settings.minimum_network_size.try_into().unwrap();
+                }
+                let new_era = new_era_settings.map(|new_era| {
+                    (
+                        network_config(&new_era),
+                        new_era.protocol_name.clone().into_inner(),
+                    )
+                });
                 self.swarm.behaviour_mut().blend.start_new_epoch(
                     (
                         self.current_epoch_info.membership.clone(),
                         self.current_epoch_info.epoch,
                     ),
                     self.current_epoch_info.proofs_verifier.clone(),
+                    new_era
+                        .as_ref()
+                        .map(|(config, protocol_name)| (config, protocol_name.clone())),
                 );
                 self.peer_dials.clear();
                 self.pending_retries.clear();
@@ -833,7 +832,7 @@ where
     #[cfg(test)]
     #[expect(clippy::too_many_arguments, reason = "necessary for testing")]
     pub fn new_test<BehaviourConstructor, PeeringDegreeCheckClock>(
-        identity: &libp2p::identity::Keypair,
+        identity: &Keypair,
         behaviour_constructor: BehaviourConstructor,
         swarm_messages_receiver: mpsc::Receiver<BlendSwarmMessage<ProofsVerifier>>,
         incoming_message_sender: broadcast::Sender<(

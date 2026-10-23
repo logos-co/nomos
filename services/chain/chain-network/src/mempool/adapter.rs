@@ -4,7 +4,7 @@ use lb_core::{
     header::HeaderId,
     mantle::transactions::hash::{TxHash, TxHashPrefix},
 };
-use lb_cryptarchia_engine::Slot;
+use lb_cryptarchia_engine::{Era, Slot};
 use lb_tx_service::{MempoolMsg, TxsWithCommonPrefix};
 use overwatch::services::relay::OutboundRelay;
 use tokio::sync::oneshot;
@@ -28,6 +28,10 @@ impl<Tx> MempoolAdapterTrait<Tx> for MempoolAdapter<Tx>
 where
     Tx: Send + 'static,
 {
+    async fn rotate_era(&mut self, _era: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
+
     async fn notify_canonical_chain_updated(
         &self,
         entered: HashMap<TxHash, Slot>,

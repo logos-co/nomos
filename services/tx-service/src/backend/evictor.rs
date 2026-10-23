@@ -33,8 +33,8 @@ where
     pub fn new(settings: &MempoolSettings) -> Self {
         let mut policies: Vec<Box<dyn EvictionPolicy<Tx, BlockId>>> =
             vec![Box::new(TtlPolicy::new(settings.tx_ttl))];
-        if let Some(pow_claim) = settings.pow_claim {
-            policies.push(Box::new(PowClaimPolicy::new(pow_claim)));
+        if let Some(pow_claim) = &settings.pow_claim {
+            policies.push(Box::new(PowClaimPolicy::new(pow_claim.clone())));
         }
         Self {
             policies,

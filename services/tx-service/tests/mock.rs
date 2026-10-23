@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    num::NonZeroU64,
+    num::{NonZero, NonZeroU64},
     pin::Pin,
     sync::{Arc, Mutex, atomic::AtomicBool},
     time::Duration,
@@ -41,6 +41,13 @@ use lb_storage_service::{
     recovery::{StorageRecoveryBackend, load_recovery_data},
     rocksdb,
 };
+use lb_time::{
+    Era,
+    era::{EraEntriesAfterGenesis, EraSchedule, EraTiming},
+};
+use lb_time_service::{
+    TimeService, TimeServiceEraSettings, TimeServiceSettings, backends::SystemTimeBackend,
+};
 use lb_tracing_service::{Tracing, TracingSettings};
 use lb_utils::noop_service::NoService;
 use logos_blockchain_tx_service::{
@@ -59,6 +66,7 @@ use overwatch::{
 };
 use overwatch_derive::*;
 use tempfile::TempDir;
+use time::OffsetDateTime;
 
 type MockRecoveryBackend = StorageRecoveryBackend<
     TxMempoolState<PoolRecoveryState<TxHash>, MempoolSettings, ()>,
@@ -71,6 +79,7 @@ type MockMempoolService = GenericTxMempoolService<
     MockAdapter<RuntimeServiceId>,
     MockRecoveryBackend,
     RocksStorageAdapter<Ops, TxHash>,
+    SystemTimeBackend,
     RuntimeServiceId,
 >;
 
@@ -81,9 +90,10 @@ type InMemoryPool = Mempool<HeaderId, Ops, InMemoryStorageAdapter, RuntimeServic
 #[derive_services(panic_policy = Shutdown)]
 struct MockPoolNode {
     logging: Tracing<RuntimeServiceId>,
-    network: NetworkService<Mock, RuntimeServiceId>,
+    network: NetworkService<Mock, SystemTimeBackend, RuntimeServiceId>,
     storage: StorageService<RuntimeServiceId>,
     mockpool: MockMempoolService,
+    time: TimeService<SystemTimeBackend, RuntimeServiceId>,
     no_service: NoService,
 }
 
@@ -143,6 +153,16 @@ fn mock_pool_node_settings(
                 recovery_data: RecoveryData::default(),
             },
             logging: TracingSettings::default(),
+            // The network service and the mempool follow the eras of the clock.
+            time: TimeServiceSettings {
+                backend: (),
+                era_schedule: era_schedule()
+                    // A single era: no transition period ever opens.
+                    .map(|era| TimeServiceEraSettings {
+                        timing: *era.parameters,
+                        transition_slots: 0,
+                    }),
+            },
             no_service: (),
         },
         temp_dir,
@@ -252,10 +272,15 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
     type Error = MempoolError;
 
     fn new(
+        _: Era,
         _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self::default()
     }
+
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn store_item(&mut self, key: Self::Key, item: Self::Item) -> Result<(), Self::Error> {
         self.items
@@ -329,10 +354,15 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
     type Error = MempoolError;
 
     fn new(
+        _: Era,
         _storage_relay: OutboundRelay<<StorageService<RuntimeServiceId> as ServiceData>::Message>,
     ) -> Self {
         Self
     }
+
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn store_item(&mut self, _key: Self::Key, _item: Self::Item) -> Result<(), Self::Error> {
         Err(MempoolError::StorageError(
@@ -399,17 +429,30 @@ const fn ttl_settings(tx_ttl: Duration) -> MempoolSettings {
     }
 }
 
+/// The single era the tests run in, of 100-slot epochs.
+fn era_schedule() -> EraSchedule<EraTiming> {
+    EraSchedule::new(
+        OffsetDateTime::UNIX_EPOCH,
+        EraTiming {
+            slot_duration: Duration::from_secs(1),
+            epoch_length: NonZero::new(100).unwrap(),
+        },
+        EraEntriesAfterGenesis::empty(),
+    )
+    .unwrap()
+}
+
 const TEST_SLOT_WINDOW: u64 = 10;
 
 /// Settings with only `PoW` claim eviction enabled, so the TTL cannot
 /// interfere. With a window of 10 and the grace of twice that, a claim
 /// anchored at slot 100 is accepted through slot 110 and evicted from 131.
-const fn pow_claim_settings() -> MempoolSettings {
+fn pow_claim_settings() -> MempoolSettings {
     MempoolSettings {
         tx_ttl: None,
-        pow_claim: Some(PowClaimEvictionSettings {
+        pow_claim: Some(era_schedule().map(|_| PowClaimEvictionSettings {
             slot_window: NonZeroU64::new(TEST_SLOT_WINDOW).expect("non-zero"),
-        }),
+        })),
     }
 }
 
@@ -419,7 +462,7 @@ const TEST_TX_TTL: Duration = Duration::from_hours(1);
 /// to the unix epoch, so it is expired for any reasonable TTL.
 async fn pool_with_backdated_tx(settings: MempoolSettings) -> (InMemoryPool, Ops) {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(settings, storage.clone());
+    let mut pool = InMemoryPool::new(settings.clone(), Era::genesis(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.hash();
@@ -431,13 +474,16 @@ async fn pool_with_backdated_tx(settings: MempoolSettings) -> (InMemoryPool, Ops
     let mut saved_state = pool.save();
     saved_state.pending_items.insert(tx_id, 0);
 
-    (Mempool::recover(settings, saved_state, storage), tx)
+    (
+        Mempool::recover(settings, Era::genesis(), saved_state, storage),
+        tx,
+    )
 }
 
 #[tokio::test]
 async fn expired_tx_is_evicted_on_next_sweep() {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(ttl_settings(TEST_TX_TTL), storage.clone());
+    let mut pool = InMemoryPool::new(ttl_settings(TEST_TX_TTL), Era::genesis(), storage.clone());
 
     let old_tx = sample_removed_tx();
     let old_tx_id = old_tx.hash();
@@ -455,7 +501,12 @@ async fn expired_tx_is_evicted_on_next_sweep() {
 
     let mut saved_state = pool.save();
     saved_state.pending_items.insert(old_tx_id, 0);
-    let mut pool = InMemoryPool::recover(ttl_settings(TEST_TX_TTL), saved_state, storage);
+    let mut pool = InMemoryPool::recover(
+        ttl_settings(TEST_TX_TTL),
+        Era::genesis(),
+        saved_state,
+        storage,
+    );
 
     assert_eq!(pool.pending_item_count(), 2);
     assert_eq!(pool.status(&[old_tx_id]), vec![Status::Pending]);
@@ -517,6 +568,7 @@ async fn expired_tx_is_not_evicted_when_ttl_is_disabled() {
 async fn storage_failure_does_not_mark_tx_pending() {
     let mut pool = Mempool::<HeaderId, Ops, FailingStorageAdapter, RuntimeServiceId>::new(
         MempoolSettings::default(),
+        Era::genesis(),
         FailingStorageAdapter,
     );
 
@@ -537,7 +589,7 @@ async fn storage_failure_does_not_mark_tx_pending() {
 #[tokio::test]
 async fn removed_items_are_not_pending_but_still_fetchable() {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(MempoolSettings::default(), storage.clone());
+    let mut pool = InMemoryPool::new(MempoolSettings::default(), Era::genesis(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.hash();
@@ -583,7 +635,7 @@ async fn removed_items_are_not_pending_but_still_fetchable() {
 #[tokio::test]
 async fn removed_items_remain_fetchable_after_recovery() {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(MempoolSettings::default(), storage.clone());
+    let mut pool = InMemoryPool::new(MempoolSettings::default(), Era::genesis(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.hash();
@@ -597,7 +649,12 @@ async fn removed_items_remain_fetchable_after_recovery() {
     assert!(saved_state.pending_items.is_empty());
     assert!(saved_state.removed_items.contains_key(&tx_id));
 
-    let recovered_pool = InMemoryPool::recover(MempoolSettings::default(), saved_state, storage);
+    let recovered_pool = InMemoryPool::recover(
+        MempoolSettings::default(),
+        Era::genesis(),
+        saved_state,
+        storage,
+    );
 
     assert_eq!(recovered_pool.pending_item_count(), 0);
     assert_eq!(recovered_pool.status(&[tx_id]), vec![Status::Unknown]);
@@ -624,7 +681,7 @@ async fn removed_items_remain_fetchable_after_recovery() {
 #[tokio::test]
 async fn removed_tx_resolves_until_its_grace_period_ends() {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(MempoolSettings::default(), storage.clone());
+    let mut pool = InMemoryPool::new(MempoolSettings::default(), Era::genesis(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.hash();
@@ -643,7 +700,12 @@ async fn removed_tx_resolves_until_its_grace_period_ends() {
     // Backdate the removal past the grace period, and trigger the pruning.
     let mut saved_state = pool.save();
     saved_state.removed_items.insert(tx_id, 0); // set the retirement time to 0 (1970)
-    let mut pool = InMemoryPool::recover(MempoolSettings::default(), saved_state, storage);
+    let mut pool = InMemoryPool::recover(
+        MempoolSettings::default(),
+        Era::genesis(),
+        saved_state,
+        storage,
+    );
     // Trigger pruning removed items by calling `remove`
     pool.remove(&[]).await;
 
@@ -666,6 +728,7 @@ async fn removed_tx_resolves_until_its_grace_period_ends() {
 async fn readmitted_removed_tx_is_indexed_once() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
 
@@ -694,6 +757,7 @@ async fn readmitted_removed_tx_is_indexed_once() {
 async fn removing_a_tx_the_pool_never_held_records_nothing() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
 
@@ -733,6 +797,7 @@ async fn stored_items(pool: &InMemoryPool, key: TxHash) -> Vec<Ops> {
 async fn included_tx_resolves_until_its_block_is_immutable() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("included");
@@ -771,6 +836,7 @@ async fn included_tx_resolves_until_its_block_is_immutable() {
 async fn reorged_tx_returns_to_pending() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("reorged");
@@ -797,6 +863,7 @@ async fn reorged_tx_returns_to_pending() {
 async fn reorged_tx_already_pending_is_not_readmitted() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("reorged");
@@ -824,7 +891,7 @@ async fn reorged_tx_already_pending_is_not_readmitted() {
 async fn reorged_tx_not_admitted_again_moves_to_removed_items() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
     pool.add_item(claim_id, claim.clone())
@@ -852,6 +919,7 @@ async fn reorged_tx_not_admitted_again_moves_to_removed_items() {
 async fn included_tx_is_a_duplicate_at_admission() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("included");
@@ -878,6 +946,7 @@ async fn included_tx_is_a_duplicate_at_admission() {
 async fn removed_tx_entering_the_canonical_chain_moves_to_included() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("removed then included");
@@ -903,6 +972,7 @@ async fn removed_tx_entering_the_canonical_chain_moves_to_included() {
 async fn tx_carried_by_both_branches_takes_the_adopted_block_slot() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx = tx("carried by both branches");
@@ -926,6 +996,7 @@ async fn tx_carried_by_both_branches_takes_the_adopted_block_slot() {
 async fn never_held_tx_entering_the_canonical_chain_is_not_retained() {
     let mut pool = InMemoryPool::new(
         MempoolSettings::default(),
+        Era::genesis(),
         InMemoryStorageAdapter::default(),
     );
     let tx_id = tx("unknown").hash();
@@ -941,7 +1012,7 @@ async fn never_held_tx_entering_the_canonical_chain_is_not_retained() {
 #[tokio::test]
 async fn included_tx_remains_resolvable_after_recovery() {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(MempoolSettings::default(), storage.clone());
+    let mut pool = InMemoryPool::new(MempoolSettings::default(), Era::genesis(), storage.clone());
     let tx = tx("included");
     let tx_id = tx.hash();
     pool.add_item(tx_id, tx.clone())
@@ -950,7 +1021,12 @@ async fn included_tx_remains_resolvable_after_recovery() {
     pool.on_canonical_chain_updated(HashMap::from([(tx_id, Slot::from(10u64))]), vec![])
         .await;
 
-    let pool = InMemoryPool::recover(MempoolSettings::default(), pool.save(), storage);
+    let pool = InMemoryPool::recover(
+        MempoolSettings::default(),
+        Era::genesis(),
+        pool.save(),
+        storage,
+    );
 
     assert!(pool.save().included_in_canonical.contains_key(&tx_id));
     assert_eq!(keys_with_prefix(&pool, tx_id), vec![tx_id]);
@@ -1085,7 +1161,7 @@ fn test_mock_mempool() {
 
         app.spawn(async move {
             let network_outbound = overwatch_handle
-                .relay::<NetworkService<_, _>>()
+                .relay::<NetworkService<_, _, _>>()
                 .await
                 .unwrap();
             let mempool_outbound = overwatch_handle
@@ -1252,7 +1328,7 @@ async fn processed_block(pool: &mut InMemoryPool, slot: u64) {
 async fn expired_claim_is_evicted_after_its_window_and_grace() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
@@ -1293,7 +1369,7 @@ async fn expired_claim_is_evicted_after_its_window_and_grace() {
 async fn claim_that_arrives_expired_is_refused() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
 
     // The chain is already at the claim's deadline of slot 131.
     processed_block(&mut pool, 131).await;
@@ -1321,7 +1397,7 @@ async fn claim_that_arrives_expired_is_refused() {
 
     // One slot earlier it is still admitted, and then swept at the deadline.
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
     processed_block(&mut pool, 130).await;
     pool.add_item(claim_id, claim_tx(anchor))
         .await
@@ -1334,7 +1410,11 @@ async fn claim_that_arrives_expired_is_refused() {
 #[tokio::test]
 async fn claim_with_unknown_anchor_waits_for_its_block() {
     let anchor = HeaderId::from([1u8; 32]);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), InMemoryStorageAdapter::default());
+    let mut pool = InMemoryPool::new(
+        pow_claim_settings(),
+        Era::genesis(),
+        InMemoryStorageAdapter::default(),
+    );
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();
@@ -1363,7 +1443,7 @@ async fn failed_anchor_lookup_keeps_the_resolved_anchors() {
     let storage = InMemoryStorageAdapter::default()
         .with_block(resolved, 100)
         .with_failing_block(failing);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
 
     let both = Ops::from([
         Op::ClaimPowReward(ClaimPowRewardOp {
@@ -1414,6 +1494,7 @@ async fn claim_eviction_is_disabled_without_settings() {
             tx_ttl: None,
             pow_claim: None,
         },
+        Era::genesis(),
         storage,
     );
 
@@ -1431,7 +1512,7 @@ async fn claim_eviction_is_disabled_without_settings() {
 async fn claim_included_in_a_block_is_not_evicted_twice() {
     let anchor = HeaderId::from([1u8; 32]);
     let storage = InMemoryStorageAdapter::default().with_block(anchor, 100);
-    let mut pool = InMemoryPool::new(pow_claim_settings(), storage);
+    let mut pool = InMemoryPool::new(pow_claim_settings(), Era::genesis(), storage);
 
     let claim = claim_tx(anchor);
     let claim_id = claim.hash();

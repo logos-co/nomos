@@ -8,6 +8,7 @@ use std::{collections::HashMap, pin::Pin};
 use futures::Stream;
 use lb_core::mantle::transactions::hash::PrefixedKey;
 use lb_cryptarchia_engine::Slot;
+use lb_time::Era;
 pub use policy::{EvictableTx, EvictionPolicy, PowClaimEvictionSettings};
 pub use pool::{DEFAULT_TX_TTL, Mempool, MempoolSettings, PoolRecoveryState};
 use serde::{Deserialize, Serialize};
@@ -38,7 +39,10 @@ pub trait MemPool {
     type Storage: Send;
 
     /// Construct a new empty pool with storage
-    fn new(settings: Self::Settings, storage: Self::Storage) -> Self;
+    fn new(settings: Self::Settings, current_era: Era, storage: Self::Storage) -> Self;
+
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
 
     /// Add a new item to the mempool, for example because we received it from
     /// the network. The item is stored in external storage.
@@ -128,6 +132,7 @@ pub trait RecoverableMempool: MemPool {
     /// Recover from saved state with storage
     fn recover(
         settings: <Self as MemPool>::Settings,
+        current_era: Era,
         state: Self::RecoveryState,
         storage: <Self as MemPool>::Storage,
     ) -> Self;
