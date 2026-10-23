@@ -356,12 +356,12 @@ where
                 }
                 Some(era_event) = era_events.next() => match era_event {
                     EraEvent::NewEra { era, .. } => {
-                        pool.enter_era(era).await;
-                        network_adapter.enter_era(era).await;
-                        // TODO: Implement era transition start logic.
+                        pool.rotate_era(era).await;
+                        network_adapter.rotate_era(era).await;
                     }
-                    EraEvent::TransitionPeriodExpired(_) => {
-                        // TODO: Implement era transition end logic.
+                    EraEvent::TransitionPeriodExpired(transition_end) => {
+                        pool.complete_era_transition(transition_end.era()).await;
+                        network_adapter.complete_era_transition(transition_end.era()).await;
                     }
                 },
             }

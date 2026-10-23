@@ -60,7 +60,9 @@ where
         }
     }
 
-    async fn enter_era(&mut self, _: Era) {}
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn store_item(&mut self, key: Self::Key, item: Self::Item) -> Result<(), Self::Error> {
         self.storage

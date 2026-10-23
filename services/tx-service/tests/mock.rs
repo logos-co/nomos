@@ -278,7 +278,9 @@ impl MempoolStorageAdapter<RuntimeServiceId> for InMemoryStorageAdapter {
         Self::default()
     }
 
-    async fn enter_era(&mut self, _: Era) {}
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn store_item(&mut self, key: Self::Key, item: Self::Item) -> Result<(), Self::Error> {
         self.items
@@ -358,7 +360,9 @@ impl MempoolStorageAdapter<RuntimeServiceId> for FailingStorageAdapter {
         Self
     }
 
-    async fn enter_era(&mut self, _: Era) {}
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn store_item(&mut self, _key: Self::Key, _item: Self::Item) -> Result<(), Self::Error> {
         Err(MempoolError::StorageError(

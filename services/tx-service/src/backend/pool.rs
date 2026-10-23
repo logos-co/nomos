@@ -169,8 +169,14 @@ where
         }
     }
 
-    async fn enter_era(&mut self, era: Era) {
-        self.storage_adapter.enter_era(era).await;
+    async fn rotate_era(&mut self, era: Era) {
+        self.storage_adapter.rotate_era(era).await;
+    }
+
+    async fn complete_era_transition(&mut self, ended_era: Era) {
+        self.storage_adapter
+            .complete_era_transition(ended_era)
+            .await;
     }
 
     async fn add_item<I: Into<Self::Item> + Send>(
