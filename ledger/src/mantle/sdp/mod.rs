@@ -864,7 +864,7 @@ mod tests {
             service_note_id: note_id,
             zk_id: zk_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declaration.id();
         let withdrawal_epoch = Epoch::new(1);
@@ -1650,7 +1650,7 @@ mod tests {
             service_note_id: service_note.id(),
             zk_id: declaration_key.to_public_key(),
             provider_id: ProviderId(signing_key.public_key()),
-            locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
         };
         let declaration_id = declaration_a.id();
         let epoch0 = dummy_epoch_state(0.into());
@@ -1760,7 +1760,7 @@ mod tests {
         // note, and note key. The ID remains stable while the creation epoch
         // identifies a strictly later lifecycle.
         let declaration_b = SDPDeclareOp {
-            locators: "/ip4/2.2.2.2/udp/0".parse::<Locator>().unwrap().into(),
+            locators: "/ip4/2.2.2.2/udp/3001".parse::<Locator>().unwrap().into(),
             ..declaration_a
         };
         assert_eq!(declaration_b.id(), declaration_id);
