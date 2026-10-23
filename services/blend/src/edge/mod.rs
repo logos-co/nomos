@@ -30,7 +30,7 @@ use lb_key_management_system_service::{
 use lb_log_targets::blend;
 use lb_network_service::NetworkService;
 use lb_services_utils::wait_until_services_are_ready;
-use lb_time_service::TimeService;
+use lb_time_service::{EraTransitionEnd, TimeService, api::TimeServiceApi};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -241,6 +241,12 @@ where
         // The epoch the service starts in sets the era everything starts in.
         let current_era = era_schedule.at_epoch(current_epoch_info.0.epoch);
 
+        let era_transition_ends =
+            TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(&overwatch_handle)
+                .await?
+                .subscribe_to_era_transition_ends()
+                .await?;
+
         let payload_dispatcher = {
             let network_relay = overwatch_handle
                 .relay::<NetworkService<Dispatcher::Backend, _, _>>()
@@ -274,6 +280,7 @@ where
         run::<Backend, _, ProofsGenerator, _, PolInfoProvider, _>(
             current_epoch_info,
             remaining_public_epoch_stream,
+            era_transition_ends,
             Box::pin(inbound_relay),
             local_node_id,
             era_schedule,
@@ -314,6 +321,10 @@ where
 ///   dropped with a warning if no handler is active (secret `PoL` info for the
 ///   current epoch has not yet arrived).
 ///
+/// The payload dispatcher enters the era of every epoch that opens one, and
+/// drops what it keeps of the era before when the clock reports the end of its
+/// transition period.
+///
 /// Returns an [`Error`] if a new membership does not satisfy the edge node
 /// condition.
 #[expect(
@@ -325,6 +336,7 @@ where
 async fn run<Backend, NodeId, ProofsGenerator, Dispatcher, PolInfoProvider, RuntimeServiceId>(
     current_epoch_info: BlendEpoch<NodeId>,
     mut remaining_public_epoch_stream: impl Stream<Item = EpochEvent<BlendEpoch<NodeId>>> + Unpin,
+    mut era_transition_ends: impl Stream<Item = EraTransitionEnd> + Unpin,
     mut inbound_relay: impl Stream<Item = ServiceMessage<NodeId>> + Send + Unpin,
     local_node_id: NodeId,
     era_schedule: EraSchedule<EdgeServiceEraSettings<Backend::EraSettings>>,
@@ -384,25 +396,26 @@ where
         tokio::select! {
             Some(epoch_event) = remaining_public_epoch_stream.next() => match epoch_event {
                 EpochEvent::NewEpoch(new_public_epoch_info) => {
-                    // Each epoch runs under the settings of its era. The
-                    // payload dispatcher enters it first, so that the payloads
-                    // drained on shutting down leave in it too.
+                    // Each epoch runs under the settings of its era, which the
+                    // payload dispatcher enters too. The payloads drained on
+                    // shutting down leave in the era of the epoch they were
+                    // blended in.
                     let new_era = era_schedule.at_epoch(new_public_epoch_info.0.epoch);
                     if new_era.era > era.era {
-                        payload_dispatcher.enter_era(new_era.era).await;
+                        payload_dispatcher.rotate_era(new_era.era).await;
                     }
                     match CurrentEpoch::try_new(new_public_epoch_info, new_era.parameters) {
                         Err(Error::NetworkIsTooSmall(_)) => {
                             info!(target: LOG_TARGET, "New membership does not satisfy edge node condition, edge service shutting down.");
                             if let Some(failure_detection) = failure_detection {
-                                failure_detection.drain_pending_message_queue(&payload_dispatcher).await;
+                                failure_detection.drain_pending_message_queue(&payload_dispatcher, era.era).await;
                             }
                             return Ok(());
                         }
                         Err(e) => {
                             error!(target: LOG_TARGET, "Error when handling new public epoch: {e:?}, edge service shutting down.");
                             if let Some(failure_detection) = failure_detection {
-                                failure_detection.drain_pending_message_queue(&payload_dispatcher).await;
+                                failure_detection.drain_pending_message_queue(&payload_dispatcher, era.era).await;
                             }
                             return Err(e);
                         }
@@ -420,8 +433,12 @@ where
                 // epochs until another branch completes.
                 EpochEvent::TransitionPeriodExpired => {}
             },
+            Some(transition_end) = era_transition_ends.next() => {
+                assert!(transition_end.era() < era.era, "Blend edge has not rotated before the old era's transition expired");
+                payload_dispatcher.complete_era_transition(transition_end.era()).await;
+            }
             Some(undelivered_messages) = next_undelivered_messages(failure_detection.as_mut()) => {
-                broadcast_undelivered_messages(undelivered_messages.into_iter(), &payload_dispatcher).await;
+                broadcast_undelivered_messages(undelivered_messages.into_iter(), &payload_dispatcher, era.era).await;
             }
             Some(new_secret_pol_info) = secret_pol_info_stream.next() => {
                 current_secret_epoch_info = Some(new_secret_pol_info);
@@ -483,7 +500,7 @@ where
                 // Exit cleanly instead of letting `select!` panic.
                 debug!(target: LOG_TARGET, "All input streams terminated, edge service shutting down.");
                 if let Some(failure_detection) = failure_detection {
-                    failure_detection.drain_pending_message_queue(&payload_dispatcher).await;
+                    failure_detection.drain_pending_message_queue(&payload_dispatcher, era.era).await;
                 }
                 return Ok(());
             }

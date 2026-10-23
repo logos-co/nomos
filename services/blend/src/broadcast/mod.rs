@@ -13,7 +13,7 @@ use lb_key_management_system_service::{api::KmsServiceApi, keys::PublicKeyEncodi
 use lb_log_targets::blend;
 use lb_network_service::NetworkService;
 use lb_services_utils::wait_until_services_are_ready;
-use lb_time_service::TimeService;
+use lb_time_service::{EraTransitionEnd, TimeService, api::TimeServiceApi};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -99,6 +99,10 @@ where
         })
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The service sets up its components in sequence before running."
+    )]
     async fn run(mut self) -> Result<(), DynError> {
         let Self {
             service_resources_handle:
@@ -161,6 +165,12 @@ where
         // The epoch the service starts in sets the era everything starts in.
         let current_era = era_schedule.at_epoch(epoch);
 
+        let mut era_transition_ends =
+            TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(overwatch_handle)
+                .await?
+                .subscribe_to_era_transition_ends()
+                .await?;
+
         let mut payload_dispatcher = <Dispatcher as PayloadDispatcher<RuntimeServiceId>>::new(
             overwatch_handle
                 .relay::<NetworkService<_, _, _>>()
@@ -201,6 +211,7 @@ where
         run(
             inbound_relay,
             &mut remaining_membership_stream,
+            &mut era_transition_ends,
             &mut payload_dispatcher,
             current_era.era,
             &local_node_id,
@@ -221,12 +232,14 @@ where
 /// each epoch's era.
 ///
 /// The payload dispatcher, in `era` when this starts, enters the era of every
-/// epoch that opens one.
+/// epoch that opens one, and drops what it keeps of the era before when the
+/// clock reports the end of its transition period.
 async fn run<NodeId, Dispatcher, RuntimeServiceId>(
     inbound_relay: &mut (impl Stream<Item = ServiceMessage<NodeId>> + Send + Unpin),
     membership_stream: &mut (
              impl Stream<Item = EpochEvent<(Epoch, MembershipInfo<NodeId>)>> + Send + Unpin
          ),
+    era_transition_ends: &mut (impl Stream<Item = EraTransitionEnd> + Send + Unpin),
     payload_dispatcher: &mut Dispatcher,
     mut era: Era,
     local_node_id: &NodeId,
@@ -238,7 +251,7 @@ async fn run<NodeId, Dispatcher, RuntimeServiceId>(
     loop {
         tokio::select! {
             Some(message) = inbound_relay.next() => {
-                handle_inbound_message(message, payload_dispatcher, local_node_id).await;
+                handle_inbound_message(message, payload_dispatcher, local_node_id, era).await;
             }
             Some(epoch_event) = membership_stream.next() => {
                 // A transition period expiring is not a mode change: there is
@@ -253,8 +266,12 @@ async fn run<NodeId, Dispatcher, RuntimeServiceId>(
                 }
                 if epoch_era.era > era {
                     era = epoch_era.era;
-                    payload_dispatcher.enter_era(era).await;
+                    payload_dispatcher.rotate_era(era).await;
                 }
+            }
+            Some(transition_end) = era_transition_ends.next() => {
+                assert!(transition_end.era() < era, "Blend broadcast has not rotated before the old era's transition expired");
+                payload_dispatcher.complete_era_transition(transition_end.era()).await;
             }
             else => {
                 debug!(target: LOG_TARGET, "All input streams terminated, broadcast service shutting down.");
@@ -273,14 +290,15 @@ async fn handle_inbound_message<NodeId, Dispatcher, RuntimeServiceId>(
     message: ServiceMessage<NodeId>,
     payload_dispatcher: &Dispatcher,
     local_node_id: &NodeId,
+    era: Era,
 ) where
     NodeId: Clone + Sync,
     Dispatcher: PayloadDispatcher<RuntimeServiceId> + Sync,
 {
     match message {
         // A broadcast node does no blending — it has no membership to blend
-        // through — so the payload goes straight out.
-        ServiceMessage::Blend(payload) => payload_dispatcher.dispatch(payload).await,
+        // through — so the payload goes straight out, in the era in force.
+        ServiceMessage::Blend(payload) => payload_dispatcher.dispatch(payload, era).await,
         ServiceMessage::GetNetworkInfo { reply } => {
             drop(reply.send(Some(NetworkInfo {
                 node_id: local_node_id.clone(),
@@ -349,9 +367,11 @@ mod tests {
             unimplemented!("these tests construct the dispatcher directly")
         }
 
-        async fn enter_era(&mut self, _: Era) {}
+        async fn rotate_era(&mut self, _: Era) {}
 
-        async fn dispatch(&self, payload: DataPayload) {
+        async fn complete_era_transition(&mut self, _: Era) {}
+
+        async fn dispatch(&self, payload: DataPayload, _: Era) {
             self.0.send(payload).expect("receiver kept alive");
         }
 
@@ -397,6 +417,7 @@ mod tests {
             ServiceMessage::Blend(DataPayload::BlockProposal(b"proposal".to_vec())),
             &dispatcher,
             &LOCAL,
+            Era::genesis(),
         )
         .await;
         assert_eq!(
@@ -410,6 +431,7 @@ mod tests {
             ServiceMessage::GetNetworkInfo { reply },
             &dispatcher,
             &LOCAL,
+            Era::genesis(),
         )
         .await;
         let info = response
@@ -427,6 +449,7 @@ mod tests {
             ServiceMessage::GetPendingTransactions { reply },
             &dispatcher,
             &LOCAL,
+            Era::genesis(),
         )
         .await;
         assert!(
@@ -454,6 +477,7 @@ mod tests {
             run::<_, _, ()>(
                 &mut ReceiverStream::new(inbound),
                 &mut ReceiverStream::new(epochs),
+                &mut stream::pending(),
                 &mut RecordingDispatcher(dispatched_sender),
                 Era::genesis(),
                 &LOCAL,
@@ -483,6 +507,7 @@ mod tests {
             run::<_, _, ()>(
                 &mut ReceiverStream::new(inbound),
                 &mut ReceiverStream::new(epochs),
+                &mut stream::pending(),
                 &mut RecordingDispatcher(dispatched_sender),
                 Era::genesis(),
                 &LOCAL,
@@ -515,6 +540,7 @@ mod tests {
             run::<_, _, ()>(
                 &mut ReceiverStream::new(inbound),
                 &mut ReceiverStream::new(epochs),
+                &mut stream::pending(),
                 &mut RecordingDispatcher(dispatched_sender),
                 Era::genesis(),
                 &LOCAL,

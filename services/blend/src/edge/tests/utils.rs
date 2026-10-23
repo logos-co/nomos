@@ -8,7 +8,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use futures::StreamExt as _;
+use futures::{StreamExt as _, stream};
 use lb_blend::{
     message::encap::validated::EncapsulatedMessageWithVerifiedPublicHeader,
     scheduling::{
@@ -171,6 +171,7 @@ where
         >(
             current_epoch_info,
             EpochEventStream::new(remaining_epoch_stream, Duration::ZERO),
+            stream::pending(),
             ReceiverStream::new(msg_receiver),
             local_node,
             single_era(settings),

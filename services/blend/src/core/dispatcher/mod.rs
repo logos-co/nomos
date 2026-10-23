@@ -36,10 +36,11 @@ pub trait PayloadDispatcher<RuntimeServiceId> {
         current_era: Era,
     ) -> Self;
 
-    async fn enter_era(&mut self, era: Era);
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
 
     /// Deliver a decapsulated payload to the local service that owns it.
-    async fn dispatch(&self, payload: DataPayload);
+    async fn dispatch(&self, payload: DataPayload, era: Era);
 
     /// Return a stream of payloads appearing on the broadcasting channel.
     async fn observe_broadcasts(&self) -> BoxStream<'static, DataPayload>;

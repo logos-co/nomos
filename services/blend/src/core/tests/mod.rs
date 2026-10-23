@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use futures::{
     StreamExt as _,
-    stream::{empty, repeat},
+    stream::{empty, pending, repeat},
 };
 use lb_blend::{
     message::{
@@ -1327,6 +1327,7 @@ async fn complete_old_epoch_after_main_loop_done() {
     // Run the event loop of the service in a separate task.
     let settings_cloned = settings.clone();
     let join_handle = tokio::spawn(async move {
+        let blend_configs = single_era(settings_cloned);
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
@@ -1335,7 +1336,8 @@ async fn complete_old_epoch_after_main_loop_done() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
-            &single_era(settings_cloned),
+            &mut pending(),
+            &blend_configs,
             &local_node,
             &mut backend,
             &mut TestPayloadDispatcher,
@@ -1355,11 +1357,13 @@ async fn complete_old_epoch_after_main_loop_done() {
         retire(
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
+            pending(),
             backend,
             TestPayloadDispatcher,
             sdp_relay,
             rng,
             retiring_epoch,
+            &blend_configs,
             None,
         )
         .await;
@@ -1478,6 +1482,7 @@ async fn stop_on_empty_epoch() {
     // Run the event loop of the service in a separate task.
     let settings_cloned = settings.clone();
     let join_handle = tokio::spawn(async move {
+        let blend_configs = single_era(settings_cloned);
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
@@ -1486,7 +1491,8 @@ async fn stop_on_empty_epoch() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
-            &single_era(settings_cloned),
+            &mut pending(),
+            &blend_configs,
             &local_node,
             &mut backend,
             &mut TestPayloadDispatcher,
@@ -1506,11 +1512,13 @@ async fn stop_on_empty_epoch() {
         retire(
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
+            pending(),
             backend,
             TestPayloadDispatcher,
             sdp_relay,
             rng,
             retiring_epoch,
+            &blend_configs,
             None,
         )
         .await;
@@ -1617,6 +1625,7 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
     // Run the event loop of the service in a separate task.
     let settings_cloned = settings.clone();
     let join_handle = tokio::spawn(async move {
+        let blend_configs = single_era(settings_cloned);
         let secret_pol_info_stream =
             post_initialize::<OncePolStreamProvider, RuntimeServiceId>(&overwatch_handle).await;
 
@@ -1625,7 +1634,8 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
-            &single_era(settings_cloned),
+            &mut pending(),
+            &blend_configs,
             &local_node,
             &mut backend,
             &mut TestPayloadDispatcher,
@@ -1645,11 +1655,13 @@ async fn stop_on_non_empty_epoch_without_local_core_path() {
         retire(
             blend_message_stream.map(|(msg, _)| msg),
             remaining_epoch_stream,
+            pending(),
             backend,
             TestPayloadDispatcher,
             sdp_relay,
             rng,
             retiring_epoch,
+            &blend_configs,
             None,
         )
         .await;
@@ -2325,6 +2337,7 @@ async fn spawn_core_watching_the_broadcasting_channel() -> (
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut pending(),
             &single_era(settings),
             &local_node,
             &mut backend,
@@ -2492,6 +2505,7 @@ async fn a_proposal_arriving_before_the_pol_info_is_still_sent() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut pending(),
             &single_era(settings),
             &local_node,
             &mut backend,
@@ -2635,6 +2649,7 @@ async fn the_previous_epoch_keeps_releasing_under_its_own_epoch() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut pending(),
             &single_era(settings),
             &local_node,
             &mut backend,
@@ -2782,6 +2797,7 @@ async fn a_message_that_can_never_be_sent_does_not_block_the_rest() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut pending(),
             &single_era(settings),
             &local_node,
             &mut backend,
@@ -2915,6 +2931,7 @@ async fn a_transaction_awaiting_a_pow_solution_does_not_stall_the_event_loop() {
             &mut blend_message_stream,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut pending(),
             &single_era(settings),
             &local_node,
             &mut backend,
