@@ -5,13 +5,15 @@ use lb_core::{
     header::HeaderId,
     mantle::transactions::hash::{TxHash, TxHashPrefix},
 };
-use lb_cryptarchia_engine::Slot;
+use lb_cryptarchia_engine::{Era, Slot};
 use lb_tx_service::TxsWithCommonPrefix;
 
 pub mod adapter;
 
 #[async_trait]
 pub trait MempoolAdapter<Tx>: Send + Sync {
+    async fn enter_era(&mut self, era: Era);
+
     async fn add_transaction(&self, tx: Tx) -> Result<(), overwatch::DynError>;
 
     /// Retire the transactions carried by the blocks that entered the
