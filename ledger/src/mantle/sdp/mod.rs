@@ -1823,7 +1823,7 @@ mod tests {
         for epoch in 1..=3 {
             let epoch_state = next_epoch_state(epoch.into(), &sdp_ledger, &config);
             (sdp_ledger, _) = sdp_ledger
-                .try_apply_header(&config, &previous_epoch_state, &epoch_state)
+                .try_apply_header(&config, &config, &previous_epoch_state, &epoch_state)
                 .expect("epoch transition succeeds");
             previous_epoch_state = epoch_state;
         }
