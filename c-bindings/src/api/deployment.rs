@@ -1,7 +1,8 @@
 use std::ffi::{CString, c_char};
 
 use lb_c_macros::panic_to_error;
-use lb_node::config::{DeploymentSettings, deployment::ProtocolScope};
+use lb_libp2p::protocol_name::ProtocolScope;
+use lb_node::config::DeploymentSettings;
 
 use crate::{
     OperationStatus,

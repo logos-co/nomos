@@ -324,30 +324,6 @@ where
         })
     }
 
-    /// Get the epoch and consensus configs
-    pub async fn get_epoch_config(
-        &self,
-    ) -> Result<
-        (
-            lb_cryptarchia_engine::EpochConfig,
-            lb_cryptarchia_engine::Config,
-        ),
-        ApiError,
-    > {
-        let (reply_channel, rx) = oneshot::channel();
-
-        self.relay
-            .send(Query::GetTipEpochConfig { reply_channel }.into())
-            .await
-            .map_err(|error| {
-                ApiError::CommsFailure(format!("{error} while sending GetEpochConfig"))
-            })?;
-
-        rx.await.map_err(|relay_error| {
-            ApiError::CommsFailure(format!("{relay_error} while receiving GetEpochConfig"))
-        })
-    }
-
     pub async fn get_block_events(&self, id: HeaderId) -> Result<Option<Events>, ApiError> {
         let (reply_channel, rx) = oneshot::channel();
 

@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use lb_core::{block::Proposal, header::HeaderId};
 use lb_cryptarchia_engine::time::EraSchedule;
-use lb_libp2p::{ChainSyncSettings, IdentifySettings, KademliaSettings, SwarmConfig};
+use lb_libp2p::{
+    ChainSyncSettings, IdentifySettings, KademliaSettings, SwarmConfig,
+    protocol_name::ProtocolScope,
+};
 use lb_network_service::{
     backends::libp2p::config::{Libp2pConfig, Libp2pEraConfig},
     config::NetworkConfig,
@@ -10,10 +13,7 @@ use lb_network_service::{
 use lb_tx_service::network::adapters::libp2p::MAX_TRANSACTION_GOSSIP_BINCODE_PAYLOAD_SIZE;
 use libp2p::gossipsub::{IdentTopic, TopicHash};
 
-use crate::config::{
-    deployment::{EraDefinition, ProtocolScope},
-    network::serde::Config,
-};
+use crate::config::{deployment::EraDefinition, network::serde::Config};
 
 pub mod serde;
 
@@ -26,7 +26,7 @@ pub struct ServiceConfig {
 impl ServiceConfig {
     /// The settings of the network service on the chain that starts from the
     /// genesis block `genesis_id`: the user's, and in each era of `eras` the
-    /// era's chain sync protocol and topics.
+    /// era's fork digest, chain sync protocol and topics.
     #[must_use]
     pub fn into_network_service_settings(
         self,
@@ -84,6 +84,7 @@ impl ServiceConfig {
                 era_schedule: eras.map(|era| {
                     let fork = ProtocolScope::Fork(era.parameters.fork_digest);
                     Libp2pEraConfig {
+                        fork_digest: era.parameters.fork_digest,
                         chain_sync_protocol_name: fork.to_stream_protocol_with_name("chainsync"),
                         max_data_size_by_topic: max_data_size_by_topic(
                             &fork.to_string_with_name("mempool"),

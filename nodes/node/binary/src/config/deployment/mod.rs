@@ -19,8 +19,6 @@ use serde::{Deserialize, Serialize};
 pub mod era;
 use era::GENESIS_EPOCH;
 pub use era::{EraDeclarations, EraScheduleError};
-mod protocols;
-pub use protocols::ProtocolScope;
 
 use crate::config::deployment::era::ruleset::{EraRuleset, v1};
 

@@ -15,7 +15,7 @@ use lb_core::mantle::{
 };
 use lb_cryptarchia_engine::Slot;
 use lb_log_targets::mempool;
-use lb_time::Era;
+use lb_time::{Era, era::EraSchedule};
 use serde::{Deserialize, Serialize};
 
 use super::Status;
@@ -36,33 +36,23 @@ const LOG_TARGET: &str = mempool::POOL;
 pub const DEFAULT_TX_TTL: Duration = Duration::from_hours(1);
 
 /// Settings for the [`Mempool`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MempoolSettings {
     /// How long a pending transaction is allowed to stay in the pool before
     /// it is evicted. `None` disables expiry-based eviction.
-    #[serde(default = "default_tx_ttl")]
     pub tx_ttl: Option<Duration>,
-    /// Eviction of transactions carrying an expired `PoW` reward claim.
-    /// `None` disables it.
-    #[serde(default)]
-    pub pow_claim: Option<PowClaimEvictionSettings>,
+    /// Eviction of transactions carrying an expired `PoW` reward claim, with
+    /// the settings of every era. `None` disables it.
+    pub pow_claim: Option<EraSchedule<PowClaimEvictionSettings>>,
 }
 
 impl Default for MempoolSettings {
     fn default() -> Self {
         Self {
-            tx_ttl: default_tx_ttl(),
+            tx_ttl: Some(DEFAULT_TX_TTL),
             pow_claim: None,
         }
     }
-}
-
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "Serde default for an `Option` field."
-)]
-const fn default_tx_ttl() -> Option<Duration> {
-    Some(DEFAULT_TX_TTL)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -22,6 +22,7 @@ use std::{
     time::Duration,
 };
 
+use lb_core::era::ForkDigest;
 use lb_libp2p::{
     Multiaddr, PeerId, Protocol, Swarm, SwarmEvent,
     behaviour::BehaviourEvent,
@@ -30,7 +31,7 @@ use lb_libp2p::{
         kad::QueryId,
         swarm::{ConnectionId, DialError},
     },
-    protocol_name::StreamProtocol,
+    protocol_name::{ProtocolScope, StreamProtocol},
 };
 use lb_log_targets::network_service;
 use lb_time::Era;
@@ -64,6 +65,9 @@ const LOG_TARGET: &str = network_service::backends::libp2p::ROOT;
 struct ProtocolContract {
     kademlia_protocol: Libp2pStreamProtocol,
     chain_sync_protocol: Libp2pStreamProtocol,
+    /// The protocol version identify announces, the same on every node of the
+    /// chain.
+    identify_protocol_version: String,
 }
 
 impl ProtocolContract {
@@ -71,8 +75,17 @@ impl ProtocolContract {
         Self {
             kademlia_protocol: config.kad_protocol_name.clone().into_inner(),
             chain_sync_protocol: chain_sync_protocol.clone().into_inner(),
+            identify_protocol_version: config.identify_protocol_name.to_string(),
         }
     }
+}
+
+/// The protocols a peer advertised, and the era the swarm was in when it
+/// advertised them.
+#[derive(Debug, PartialEq, Eq)]
+struct AdvertisedProtocols {
+    era: Era,
+    protocols: HashSet<Libp2pStreamProtocol>,
 }
 
 pub struct SwarmHandler<R: Clone + Send + RngCore + 'static> {
@@ -89,7 +102,7 @@ pub struct SwarmHandler<R: Clone + Send + RngCore + 'static> {
     /// The era whose settings the swarm runs with.
     current_era: Era,
     protocol_contract: ProtocolContract,
-    peer_advertised_protocols: HashMap<PeerId, HashSet<Libp2pStreamProtocol>>,
+    peer_advertised_protocols: HashMap<PeerId, AdvertisedProtocols>,
 }
 
 /// The data limit of every era's topics: the largest any era sets, for a topic
@@ -411,14 +424,56 @@ impl<R: Clone + Send + RngCore + 'static> SwarmHandler<R> {
     }
 
     fn chainsync_eligible_peers(&self) -> HashSet<PeerId> {
-        self.peers_supporting_protocol(&self.protocol_contract.chain_sync_protocol)
-    }
-
-    fn peers_supporting_protocol(&self, protocol: &Libp2pStreamProtocol) -> HashSet<PeerId> {
+        let connected_peers = self.swarm.swarm().connected_peers().collect::<HashSet<_>>();
         self.peer_advertised_protocols
             .iter()
-            .filter_map(|(peer_id, protocols)| protocols.contains(protocol).then_some(*peer_id))
+            .filter(|(peer_id, advertised)| {
+                // What a peer advertised in the current era is up to date, and
+                // so is what a connected peer advertises: Identify pushes its
+                // protocols to us whenever they change.
+                if advertised.era >= self.current_era || connected_peers.contains(peer_id) {
+                    return advertised
+                        .protocols
+                        .contains(&self.protocol_contract.chain_sync_protocol);
+                }
+                self.era_schedule.get(advertised.era).is_some_and(|era| {
+                    advertised
+                        .protocols
+                        .contains(&era.parameters.chain_sync_protocol_name.clone().into_inner())
+                })
+            })
+            .map(|(peer_id, _)| *peer_id)
             .collect()
+    }
+
+    /// The fork digests that `protocols`, advertised by a peer announcing
+    /// `protocol_version`, carry and that no era of the schedule has: a peer of
+    /// this chain advertising one runs an era schedule this node's release
+    /// lacks. A peer of another chain, which announces another version, is not
+    /// checked, and neither is the Kademlia protocol, which is bound to the
+    /// chain rather than to a fork.
+    fn unknown_received_fork_digests(
+        &self,
+        protocol_version: &str,
+        protocols: &HashSet<Libp2pStreamProtocol>,
+    ) -> impl Iterator<Item = ForkDigest> {
+        (protocol_version == self.protocol_contract.identify_protocol_version)
+            .then(|| {
+                protocols
+                    .iter()
+                    // We ignore kademlia which is chain-bound and not fork-bound.
+                    .filter(move |protocol| **protocol != self.protocol_contract.kademlia_protocol)
+                    .filter_map(|protocol| ProtocolScope::fork_digest_in(protocol.as_ref()))
+                    // We collect fork digests this node does not have in its own schedule.
+                    .filter(move |fork_digest| {
+                        !self
+                            .era_schedule
+                            .iter()
+                            .any(|era| era.parameters.fork_digest == *fork_digest)
+                    })
+            })
+            .into_iter()
+            .flatten()
     }
 
     /// A peer can be disconnected but still remain known through Kademlia and
@@ -522,6 +577,7 @@ const fn exp_backoff(retry: usize) -> Duration {
 mod tests {
     use std::{net::Ipv4Addr, num::NonZero, sync::Once, time::Instant};
 
+    use lb_core::header::HeaderId;
     use lb_time::era::{EraEntriesAfterGenesis, EraSchedule, EraTiming};
     use rand::rngs::OsRng;
     use testing_framework_tools::net::get_available_udp_port;
@@ -588,6 +644,7 @@ mod tests {
         )
         .unwrap()
         .map(move |_| Libp2pEraConfig {
+            fork_digest: ForkDigest::from([0x01; 32]),
             chain_sync_protocol_name: StreamProtocol::new("/chainsync/test"),
             max_data_size_by_topic: max_data_size_by_topic.clone(),
         })
@@ -605,12 +662,48 @@ mod tests {
         }
     }
 
+    /// A chain of two eras, the second from epoch 1, each with its own fork
+    /// digest and chain sync protocol: `/chainsync/test`, then
+    /// `/chainsync/next`.
+    fn two_eras() -> Libp2pEraSchedule {
+        let timing = EraTiming {
+            slot_duration: Duration::from_secs(1),
+            epoch_length: NonZero::new(100).unwrap(),
+        };
+        EraSchedule::new(
+            OffsetDateTime::UNIX_EPOCH,
+            timing,
+            EraEntriesAfterGenesis::from((NonZero::new(1).unwrap(), timing)),
+        )
+        .unwrap()
+        .map(|era| Libp2pEraConfig {
+            fork_digest: ForkDigest::from(if era.era == Era::genesis() {
+                [0x01; 32]
+            } else {
+                [0x02; 32]
+            }),
+            chain_sync_protocol_name: StreamProtocol::new(if era.era == Era::genesis() {
+                "/chainsync/test"
+            } else {
+                "/chainsync/next"
+            }),
+            max_data_size_by_topic: HashMap::new(),
+        })
+    }
+
     fn create_handler() -> SwarmHandler<OsRng> {
+        create_handler_with_eras(one_era(HashMap::new()))
+    }
+
+    fn create_handler_with_eras(era_schedule: Libp2pEraSchedule) -> SwarmHandler<OsRng> {
         let (tx, rx) = mpsc::channel(10);
         let (pubsub_events_tx, _) = broadcast::channel(10);
         let (chainsync_events_tx, _) = broadcast::channel(10);
-        let config =
-            create_libp2p_config(vec![], get_available_udp_port().unwrap(), HashMap::new());
+        let config = Libp2pConfig {
+            inner: create_swarm_config(get_available_udp_port().unwrap(), false),
+            initial_peers: vec![],
+            era_schedule,
+        };
 
         SwarmHandler::new(
             config,
@@ -658,13 +751,16 @@ mod tests {
         }
     }
 
-    fn advertised_protocols(
-        protocols: &[&'static str],
-    ) -> HashSet<lb_libp2p::libp2p::StreamProtocol> {
-        protocols
-            .iter()
-            .map(|protocol| lb_libp2p::libp2p::StreamProtocol::new(protocol))
-            .collect()
+    /// `protocols`, as advertised in the genesis era, the era the test handlers
+    /// start in.
+    fn advertised_protocols(protocols: &[&'static str]) -> AdvertisedProtocols {
+        AdvertisedProtocols {
+            era: Era::genesis(),
+            protocols: protocols
+                .iter()
+                .map(|protocol| lb_libp2p::libp2p::StreamProtocol::new(protocol))
+                .collect(),
+        }
     }
 
     fn create_gossipsub_handler(
@@ -929,6 +1025,105 @@ mod tests {
         assert_eq!(
             handler.chainsync_eligible_peers(),
             HashSet::from([supported])
+        );
+    }
+
+    /// A peer last identified in an earlier era, and not connected since, may
+    /// have moved on to the current era's protocol: it stays eligible, so that
+    /// a connection to it refreshes what it advertises.
+    #[tokio::test]
+    async fn a_disconnected_peer_identified_in_an_earlier_era_stays_eligible() {
+        let mut handler = create_handler_with_eras(two_eras());
+        let chain_sync_peer = PeerId::random();
+        let other_peer = PeerId::random();
+        handler.handle_identify_event(identify_event(chain_sync_peer, &["/chainsync/test"]));
+        handler.handle_identify_event(identify_event(other_peer, &["/kademlia/test"]));
+
+        handler.enter_era(Era::new(1));
+
+        assert_eq!(
+            handler.chainsync_eligible_peers(),
+            HashSet::from([chain_sync_peer])
+        );
+    }
+
+    /// Once identified in the current era, a peer has to advertise the current
+    /// era's protocol.
+    #[tokio::test]
+    async fn a_peer_identified_in_the_current_era_has_to_advertise_its_protocol() {
+        let mut handler = create_handler_with_eras(two_eras());
+        let previous_era_peer = PeerId::random();
+        let current_era_peer = PeerId::random();
+        handler.enter_era(Era::new(1));
+
+        handler.handle_identify_event(identify_event(previous_era_peer, &["/chainsync/test"]));
+        handler.handle_identify_event(identify_event(current_era_peer, &["/chainsync/next"]));
+
+        assert_eq!(
+            handler.chainsync_eligible_peers(),
+            HashSet::from([current_era_peer])
+        );
+    }
+
+    /// The digest of every scheduled era is known, that of an era not yet in
+    /// force included.
+    #[tokio::test]
+    async fn only_fork_digests_of_no_scheduled_era_are_unknown() {
+        let handler = create_handler_with_eras(two_eras());
+        let unknown_fork_digest = ForkDigest::from([0xff; 32]);
+        let protocols = handler
+            .era_schedule
+            .iter()
+            .map(|era| era.parameters.fork_digest)
+            .chain([unknown_fork_digest])
+            .map(|fork_digest| {
+                ProtocolScope::Fork(fork_digest)
+                    .to_stream_protocol_with_name("chainsync")
+                    .into_inner()
+            })
+            .collect();
+
+        assert_eq!(
+            handler
+                .unknown_received_fork_digests("/identify/test", &protocols)
+                .collect::<HashSet<_>>(),
+            HashSet::from([unknown_fork_digest])
+        );
+    }
+
+    #[tokio::test]
+    async fn fork_digests_of_a_peer_of_another_chain_are_not_checked() {
+        let handler = create_handler_with_eras(two_eras());
+        let protocols = HashSet::from([ProtocolScope::Fork(ForkDigest::from([0xff; 32]))
+            .to_stream_protocol_with_name("chainsync")
+            .into_inner()]);
+
+        assert_eq!(
+            handler
+                .unknown_received_fork_digests("/identify/other", &protocols)
+                .collect::<HashSet<_>>(),
+            HashSet::new()
+        );
+    }
+
+    /// The Kademlia protocol's name has the shape of a fork's, with the genesis
+    /// block ID in place of a digest.
+    #[tokio::test]
+    async fn the_kademlia_protocol_carries_no_fork_digest() {
+        let mut handler = create_handler_with_eras(two_eras());
+        let kademlia_protocol = ProtocolScope::Chain(HeaderId::from([0xcd; 32]))
+            .to_stream_protocol_with_name("kad")
+            .into_inner();
+        handler.protocol_contract.kademlia_protocol = kademlia_protocol.clone();
+
+        assert_eq!(
+            handler
+                .unknown_received_fork_digests(
+                    "/identify/test",
+                    &HashSet::from([kademlia_protocol])
+                )
+                .collect::<HashSet<_>>(),
+            HashSet::new()
         );
     }
 

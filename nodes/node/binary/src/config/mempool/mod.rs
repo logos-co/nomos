@@ -5,6 +5,7 @@ use lb_core::mantle::{
     transactions::{hash::TxHash, states::Preverified},
 };
 use lb_cryptarchia_engine::time::EraSchedule;
+use lb_libp2p::protocol_name::ProtocolScope;
 use lb_services_utils::overwatch::RecoveryData;
 use lb_tx_service::{
     TxMempoolSettings,
@@ -15,7 +16,7 @@ use lb_tx_service::{
 };
 
 use crate::config::{
-    deployment::{EraDefinition, ProtocolScope, era::ruleset::EraRuleset},
+    deployment::{EraDefinition, era::ruleset::EraRuleset},
     mempool::serde::Config,
 };
 
@@ -26,10 +27,9 @@ pub struct ServiceConfig {
 }
 
 impl ServiceConfig {
-    /// The settings of the mempool: the user's, the genesis era's acceptance
-    /// window for `PoW` reward claims, so the mempool and the ledger agree on
-    /// when a claim expires, and in each era of `eras` the era's transaction
-    /// topic.
+    /// The settings of the mempool: the user's, and in each era of `eras` the
+    /// era's acceptance window for `PoW` reward claims, so the mempool and the
+    /// ledger agree on when a claim expires, and the era's transaction topic.
     #[must_use]
     pub fn into_mempool_service_settings(
         self,
@@ -39,7 +39,6 @@ impl ServiceConfig {
         MempoolSettings,
         Libp2pNetworkAdapterSettings<TxHash, SignedOps<Preverified, StandardMode>>,
     > {
-        let EraRuleset::V1(genesis_parameters) = &eras.genesis().parameters.ruleset;
         TxMempoolSettings {
             network_adapter: Libp2pNetworkAdapterSettings {
                 id: SignedOps::<Preverified, StandardMode>::hash,
@@ -50,9 +49,12 @@ impl ServiceConfig {
             },
             pool: MempoolSettings {
                 tx_ttl: self.user.tx_ttl,
-                pow_claim: Some(PowClaimEvictionSettings {
-                    slot_window: genesis_parameters.cryptarchia.pow_config.reward.slot_window,
-                }),
+                pow_claim: Some(eras.map(|era| {
+                    let EraRuleset::V1(parameters) = &era.parameters.ruleset;
+                    PowClaimEvictionSettings {
+                        slot_window: parameters.cryptarchia.pow_config.reward.slot_window,
+                    }
+                })),
             },
             seen_items_subscription_channel_size: self
                 .user

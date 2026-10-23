@@ -20,12 +20,13 @@ use lb_blend_service::{
     },
     settings::{EraOrchestratorSettings, OrchestratorSettings},
 };
+use lb_libp2p::protocol_name::ProtocolScope;
 use lb_services_utils::overwatch::RecoveryData;
 use lb_time::era::EraSchedule;
 
 use crate::config::{
     blend::serde::Config,
-    deployment::{EraDefinition, ProtocolScope, era::ruleset::EraRuleset},
+    deployment::{EraDefinition, era::ruleset::EraRuleset},
 };
 
 pub mod serde;
@@ -84,7 +85,7 @@ impl ServiceConfig {
                 (&parameters.blend, &parameters.cryptarchia, &parameters.time);
             let slots_per_epoch = cryptarchia_deployment.slots_per_epoch();
             let slots_per_block = cryptarchia_deployment.average_slots_per_block();
-            let slot_duration = time_deployment.slot_duration;
+            let slot_duration = time_deployment.slot_duration();
             let num_blend_layers = deployment.common.num_blend_layers;
             let minimum_network_size = deployment.common.minimum_network_size.into();
             let time = deployment.timing_settings(slots_per_epoch, slots_per_block, &slot_duration);

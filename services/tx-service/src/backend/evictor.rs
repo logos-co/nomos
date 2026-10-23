@@ -43,8 +43,8 @@ where
 
     fn with_ttl(settings: &MempoolSettings, ttl: TtlPolicy<Tx::Hash>) -> Self {
         let mut policies: Vec<Box<dyn EvictionPolicy<Tx, BlockId>>> = vec![Box::new(ttl)];
-        if let Some(pow_claim) = settings.pow_claim {
-            policies.push(Box::new(PowClaimPolicy::new(pow_claim)));
+        if let Some(pow_claim) = &settings.pow_claim {
+            policies.push(Box::new(PowClaimPolicy::new(pow_claim.clone())));
         }
         Self {
             policies,

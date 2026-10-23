@@ -44,6 +44,12 @@ impl<EventStream> EpochEventStream<EventStream> {
             transition_period_timer: None,
         }
     }
+
+    /// Sets the transition period of the epochs to come. A transition period
+    /// already running keeps the length it started with.
+    pub const fn set_transition_period(&mut self, transition_period: Duration) {
+        self.transition_period = transition_period;
+    }
 }
 
 impl<EventStream> futures::Stream for EpochEventStream<EventStream>
@@ -163,6 +169,46 @@ mod tests {
         assert!(
             elapsed.abs_diff(epoch_duration) <= time_tolerance,
             "elapsed:{elapsed:?}, expected:{epoch_duration:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_new_transition_period_applies_from_the_next_epoch() {
+        let epoch_duration = Duration::from_millis(500);
+        let old_transition_period = Duration::from_millis(300);
+        let new_transition_period = Duration::from_millis(100);
+        let time_tolerance = Duration::from_millis(50);
+
+        let mut stream = EpochEventStream::new(
+            Box::pin(IntervalStream::new(interval(epoch_duration))),
+            old_transition_period,
+        );
+
+        // The transition already running keeps the period it started with.
+        assert!(matches!(stream.next().await, Some(EpochEvent::NewEpoch(_))));
+        stream.set_transition_period(new_transition_period);
+        let start_time = Instant::now();
+        assert!(matches!(
+            stream.next().await,
+            Some(EpochEvent::TransitionPeriodExpired)
+        ));
+        let elapsed = start_time.elapsed();
+        assert!(
+            elapsed.abs_diff(old_transition_period) <= time_tolerance,
+            "elapsed:{elapsed:?}, expected:{old_transition_period:?}",
+        );
+
+        // The transition of the next epoch lasts the new period.
+        assert!(matches!(stream.next().await, Some(EpochEvent::NewEpoch(_))));
+        let start_time = Instant::now();
+        assert!(matches!(
+            stream.next().await,
+            Some(EpochEvent::TransitionPeriodExpired)
+        ));
+        let elapsed = start_time.elapsed();
+        assert!(
+            elapsed.abs_diff(new_transition_period) <= time_tolerance,
+            "elapsed:{elapsed:?}, expected:{new_transition_period:?}",
         );
     }
 }
