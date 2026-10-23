@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use futures::{TryStreamExt as _, stream::BoxStream};
 use lb_log_targets::cryptarchia;
 use libp2p::{PeerId, Stream as Libp2pStream};
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, time};
 use tracing::{debug, error};
 
 use crate::{
@@ -33,9 +35,11 @@ impl Provider {
     pub async fn receive_request(
         peer_id: PeerId,
         mut stream: Libp2pStream,
+        timeout: Duration,
     ) -> Result<ReceivedRequest, ChainSyncError> {
-        let request: RequestMessage = unpack_from_reader(&mut stream)
+        let request: RequestMessage = time::timeout(timeout, unpack_from_reader(&mut stream))
             .await
+            .map_err(|e| ChainSyncError::from((peer_id, e)))?
             .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 
         Ok(ReceivedRequest {

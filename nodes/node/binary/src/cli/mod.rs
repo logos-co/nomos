@@ -5,6 +5,7 @@ pub mod participate;
 
 use std::{
     net::{Ipv4Addr, SocketAddr},
+    num::NonZeroU16,
     path::{Path, PathBuf},
 };
 
@@ -409,6 +410,10 @@ pub struct ParticipateArgs {
     /// is 0.0.0.0
     #[arg(long)]
     pub external_address: Option<Ipv4Addr>,
+    /// Node's public blend port, required when the blend listening address
+    /// uses port 0
+    #[arg(long)]
+    pub external_port: Option<NonZeroU16>,
 }
 
 #[derive(Parser, Debug)]
