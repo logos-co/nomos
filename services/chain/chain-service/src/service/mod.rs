@@ -24,6 +24,7 @@ use lb_core::{
 };
 use lb_cryptarchia_engine::{Epoch, PrunedBlocks, Slot};
 use lb_cryptarchia_sync::{BlocksUnavailableReason, GetTipResponseReason, ProviderResponse};
+use lb_ledger::config::{config_for_slot, stake_distribution_snapshot};
 use lb_log_targets::diagnostic::BLEND_REACHABILITY;
 use lb_network_service::message::ChainSyncEvent;
 use lb_storage_service::api::StorageApi;
@@ -49,7 +50,7 @@ pub struct ProcessBlockOutcome<Tx> {
     pub pruned_blocks: PrunedBlocks<HeaderId>,
     pub reorged_block_ids: Vec<HeaderId>,
     pub reorged_txs: Vec<Tx>,
-    pub newly_canonical_txs: Vec<TxHash>,
+    pub newly_canonical_txs: HashMap<TxHash, Slot>,
 }
 
 // Source tips normally leave this map when they pass the LIB. These small
@@ -184,6 +185,7 @@ where
                         tip: self.cryptarchia.tip(),
                         newly_canonical_txs: outcome.newly_canonical_txs,
                         reorged_txs: outcome.reorged_txs,
+                        lib_slot: self.cryptarchia.lib_branch().slot(),
                     }))
                     .unwrap_or_else(|_| {
                         error!(target: LOG_TARGET, "Could not send process block result through channel");
@@ -336,9 +338,12 @@ where
                     error!(target: LOG_TARGET, "Could not send ledger state through channel");
                 });
             }
-            Query::GetLedgerConfig { reply_channel } => {
+            Query::GetLedgerConfigAtSlot {
+                slot,
+                reply_channel,
+            } => {
                 reply_channel
-                    .send(self.cryptarchia.ledger.config().clone())
+                    .send(config_for_slot(self.cryptarchia.ledger.era_schedule(), slot).clone())
                     .unwrap_or_else(|_| {
                         error!(target: LOG_TARGET, "Could not send ledger config through channel");
                     });
@@ -406,14 +411,6 @@ where
                 reply_channel.send(result).unwrap_or_else(|_| {
                     error!(target: LOG_TARGET, "Could not send epoch state through channel");
                 });
-            }
-            Query::GetEpochConfig { reply_channel } => {
-                let config = self.cryptarchia.ledger.config();
-                reply_channel
-                    .send((config.epoch_config, config.consensus_config.clone()))
-                    .unwrap_or_else(|_| {
-                        error!(target: LOG_TARGET, "Could not send epoch config through channel");
-                    });
             }
             Query::GetBlockEvents { id, reply_channel } => {
                 let events = self.relays.storage().get_block_events(&id).await;
@@ -591,15 +588,14 @@ where
             else {
                 continue;
             };
-            let inactivity_period = cryptarchia
-                .ledger
-                .config()
-                .sdp_config
-                .service_params
-                .get(&new_declaration.service_type)
-                .map_or(0, |params| {
-                    params.inactivity_period.into_inner().into_inner()
-                });
+            let inactivity_period =
+                config_for_slot(cryptarchia.ledger.era_schedule(), block.header().slot())
+                    .sdp_config
+                    .service_params
+                    .get(&new_declaration.service_type)
+                    .map_or(0, |params| {
+                        params.inactivity_period.into_inner().into_inner()
+                    });
 
             info!(
                 target: LOG_TARGET,
@@ -733,7 +729,6 @@ fn log_canonical_blend_snapshots<Tx>(cryptarchia: &Cryptarchia, block: &Block<Tx
         );
     }
 
-    let config = cryptarchia.ledger.config();
     for epoch_state in [
         committed_state.epoch_state(),
         committed_state.next_epoch_state(),
@@ -742,7 +737,13 @@ fn log_canonical_blend_snapshots<Tx>(cryptarchia: &Cryptarchia, block: &Block<Tx
         if target_epoch <= Epoch::new(1) {
             continue;
         }
-        let snapshot_slot = config.stake_distribution_snapshot(target_epoch);
+        let snapshot_slot = stake_distribution_snapshot(
+            cryptarchia.ledger.era_schedule(),
+            target_epoch
+                .into_inner()
+                .try_into()
+                .expect("Non-genesis epoch checked."),
+        );
         if parent_state.slot() < snapshot_slot && committed_state.slot() >= snapshot_slot {
             log_blend_snapshot_provider_decisions(
                 target_epoch,
@@ -884,7 +885,7 @@ where
         }
     }
 
-    let newly_canonical_txs: Vec<_> =
+    let newly_canonical_txs: HashMap<_, _> =
         newly_canonical_txs(&block, &applied.newly_canonical_blocks, relays.storage())
             .await
             .collect();
@@ -903,11 +904,11 @@ where
     })
 }
 
-/// Transactions carried by `block_ids`, loaded from storage.
-async fn load_block_txs<'a, Tx>(
+/// Blocks of `block_ids`, loaded from storage.
+async fn load_blocks<'a, Tx>(
     block_ids: impl Iterator<Item = &'a HeaderId>,
     storage: &StorageApi<Tx>,
-) -> impl Iterator<Item = Tx>
+) -> impl Iterator<Item = Block<Tx>>
 where
     Tx: Hashable<Hash = TxHash>
         + StorageSize
@@ -929,10 +930,10 @@ where
     .await
     .into_iter()
     .flatten()
-    .flat_map(Block::into_transactions)
 }
 
-/// Tx hashes carried by `newly_canonical_blocks`.
+/// Tx hashes carried by `newly_canonical_blocks`, each with the slot of the
+/// block carrying it.
 ///
 /// If `applied_block` is among the `newly_canonical_blocks`, its txs are loaded
 /// from `applied_block` instead of storage. This saves a storage read in the
@@ -942,7 +943,7 @@ async fn newly_canonical_txs<Tx>(
     applied_block: &Block<Tx>,
     newly_canonical_blocks: &[HeaderId],
     storage: &StorageApi<Tx>,
-) -> impl Iterator<Item = TxHash>
+) -> impl Iterator<Item = (TxHash, Slot)>
 where
     Tx: Hashable<Hash = TxHash>
         + StorageSize
@@ -956,25 +957,32 @@ where
 {
     // Gather txs from all newly canonical blocks except `applied_block`.
     let applied_block_id = applied_block.header().id();
-    let early_txs = load_block_txs(
+    let early_txs = load_blocks(
         newly_canonical_blocks
             .iter()
             .filter(move |block_id| **block_id != applied_block_id),
         storage,
     )
-    .await;
+    .await
+    .flat_map(|block| {
+        let slot = block.header().slot();
+        block
+            .into_transactions()
+            .into_iter()
+            .map(move |tx| (tx.hash(), slot))
+    });
 
     // Gather txs from `applied_block` if it's among the newly canonical blocks.
+    let applied_slot = applied_block.header().slot();
     let applied_txs = newly_canonical_blocks
         .contains(&applied_block_id)
         .then(|| applied_block.transactions_iter())
         .into_iter()
-        .flatten();
+        .flatten()
+        .map(move |tx| (tx.hash(), applied_slot));
 
     // Return all gathered txs.
-    early_txs
-        .map(|tx| tx.hash())
-        .chain(applied_txs.map(Hashable::hash))
+    early_txs.chain(applied_txs)
 }
 
 /// Transactions carried by `reorged_blocks` that are not in
@@ -984,7 +992,7 @@ where
 /// blocks. Those transactions are still canonical.
 async fn reorged_txs<'a, Tx>(
     reorged_blocks: impl Iterator<Item = &'a HeaderId>,
-    newly_canonical_txs: &[TxHash],
+    newly_canonical_txs: &HashMap<TxHash, Slot>,
     storage: &StorageApi<Tx>,
 ) -> impl Iterator<Item = Tx>
 where
@@ -998,14 +1006,10 @@ where
         + Sync
         + 'static,
 {
-    let mut reorged_txs = load_block_txs(reorged_blocks, storage).await.peekable();
-    // Most blocks reorg nothing, so the set is built only when needed.
-    let newly_canonical_txs: HashSet<TxHash> = if reorged_txs.peek().is_some() {
-        newly_canonical_txs.iter().copied().collect()
-    } else {
-        HashSet::new()
-    };
-    reorged_txs.filter(move |tx| !newly_canonical_txs.contains(&tx.hash()))
+    load_blocks(reorged_blocks, storage)
+        .await
+        .flat_map(Block::into_transactions)
+        .filter(move |tx| !newly_canonical_txs.contains_key(&tx.hash()))
 }
 
 async fn log_newly_canonical_blocks<Tx>(
