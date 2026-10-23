@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use futures::{TryStreamExt as _, stream::BoxStream};
 use lb_log_targets::cryptarchia;
 use libp2p::{PeerId, Stream as Libp2pStream};
-use tokio::sync::mpsc;
-use tracing::error;
+use tokio::{sync::mpsc, time};
+use tracing::{debug, error};
 
 use crate::{
     BlocksResponse, BlocksUnavailableReason, DynError, ProviderResponse, TipResponse,
@@ -12,7 +14,7 @@ use crate::{
         packing::unpack_from_reader,
         utils::{close_stream, send_message},
     },
-    messages::{GetTipResponse, SerialisedBlock},
+    messages::{GetTipResponse, GetTipResponseReason, SerialisedBlock},
 };
 
 const LOG_TARGET: &str = cryptarchia::sync::libp2p::PROVIDER;
@@ -27,9 +29,11 @@ impl Provider {
     pub async fn process_request(
         peer_id: PeerId,
         mut stream: Libp2pStream,
+        timeout: Duration,
     ) -> Result<ReceivingRequestStream, ChainSyncError> {
-        let request: RequestMessage = unpack_from_reader(&mut stream)
+        let request: RequestMessage = time::timeout(timeout, unpack_from_reader(&mut stream))
             .await
+            .map_err(|e| ChainSyncError::from((peer_id, e)))?
             .map_err(|e| ChainSyncError::from((peer_id, e)))?;
 
         Ok((peer_id, stream, request))
@@ -40,12 +44,12 @@ impl Provider {
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive tip from channel".to_owned(),
-            ),
-        })?;
+        let response = reply_receiver.recv().await.unwrap_or_else(|| {
+            debug!(target: LOG_TARGET, %peer_id, "no tip provider answered; replying unknown error");
+            ProviderResponse::Unavailable {
+                reason: GetTipResponseReason::Unknown,
+            }
+        });
 
         let send_result = match response {
             ProviderResponse::Available(tip) => {
@@ -67,12 +71,12 @@ impl Provider {
         peer_id: PeerId,
         mut libp2p_stream: Libp2pStream,
     ) -> Result<(), ChainSyncError> {
-        let response = reply_receiver.recv().await.ok_or_else(|| ChainSyncError {
-            peer: peer_id,
-            kind: ChainSyncErrorKind::ChannelReceiveError(
-                "Failed to receive blocks stream from channel".to_owned(),
-            ),
-        })?;
+        let response = reply_receiver.recv().await.unwrap_or_else(|| {
+            debug!(target: LOG_TARGET, %peer_id, "no block provider answered; replying unknown error");
+            ProviderResponse::Unavailable {
+                reason: BlocksUnavailableReason::Unknown,
+            }
+        });
 
         match response {
             ProviderResponse::Available(stream) => {

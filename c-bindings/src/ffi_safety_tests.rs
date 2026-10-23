@@ -217,6 +217,7 @@ mod no_node {
         let id = [0u8; 32];
         let s = c"x".as_ptr();
         let null_s: *const c_char = ptr::null();
+        let null_port: *const u16 = ptr::null();
         let np = OperationStatusCode::NullPointer;
 
         unsafe {
@@ -273,9 +274,9 @@ mod no_node {
             assert_eq!(code(migrate_user_config_0_1_2(s, s, null_s)), np);
             assert_eq!(code(merge_user_config(null_s, s, null_s, NO_INSERT)), np);
             assert_eq!(code(merge_user_config(s, null_s, null_s, NO_INSERT)), np);
-            assert_eq!(code(participate(null_s, s, s, null_s)), np);
-            assert_eq!(code(participate(s, null_s, s, null_s)), np);
-            assert_eq!(code(participate(s, s, null_s, null_s)), np);
+            assert_eq!(code(participate(null_s, s, s, null_s, null_port)), np);
+            assert_eq!(code(participate(s, null_s, s, null_s, null_port)), np);
+            assert_eq!(code(participate(s, s, null_s, null_s, null_port)), np);
             assert_eq!(
                 code(generate_key(null_s, s, KeyType::Zk as u32, null_s)),
                 np
@@ -656,7 +657,7 @@ mod no_node {
                     OperationStatusCode::Ok
                 );
                 assert_ne!(
-                    code(participate(p, p, p, ptr::null())),
+                    code(participate(p, p, p, ptr::null(), ptr::null())),
                     OperationStatusCode::Ok
                 );
                 assert_ne!(
@@ -673,7 +674,18 @@ mod no_node {
                     missing.as_ptr(),
                     missing.as_ptr(),
                     missing.as_ptr(),
-                    c"not-an-ip".as_ptr()
+                    c"not-an-ip".as_ptr(),
+                    &3000,
+                )),
+                OperationStatusCode::ValidationError
+            );
+            assert_eq!(
+                code(participate(
+                    missing.as_ptr(),
+                    missing.as_ptr(),
+                    missing.as_ptr(),
+                    ptr::null(),
+                    &0
                 )),
                 OperationStatusCode::ValidationError
             );

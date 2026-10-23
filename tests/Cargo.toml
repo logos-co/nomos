@@ -31,6 +31,7 @@ educe                            = { features = ["Default"], workspace = true }
 futures                          = { workspace = true }
 futures-util                     = { workspace = true }
 hex                              = { workspace = true }
+humantime                        = { workspace = true }
 lb-api-service                   = { workspace = true }
 lb-binary-codec                  = { workspace = true }
 lb-chain-service                 = { workspace = true }
@@ -52,15 +53,12 @@ lb-tx-service                    = { workspace = true }
 lb-utils                         = { workspace = true }
 lb-wallet                        = { workspace = true }
 lb-zksign                        = { workspace = true }
-lb-zone-sdk                      = { workspace = true }
 libp2p                           = { workspace = true }
-logos-sql                        = { workspace = true }
 num-bigint                       = { workspace = true }
 rand                             = { workspace = true }
 rand_chacha                      = { workspace = true }
 reqwest                          = { features = ["json"], workspace = true }
 rpds                             = { workspace = true }
-rusqlite                         = { workspace = true }
 serde                            = { features = ["derive"], workspace = true }
 serde_json                       = { workspace = true }
 serde_yaml                       = { workspace = true }
