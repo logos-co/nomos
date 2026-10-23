@@ -38,7 +38,8 @@ pub trait MemPool {
     /// Construct a new empty pool with storage
     fn new(settings: Self::Settings, current_era: Era, storage: Self::Storage) -> Self;
 
-    async fn enter_era(&mut self, era: Era);
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
 
     /// Add a new item to the mempool, for example because we received it from
     /// the network. The item is stored in external storage.

@@ -83,7 +83,9 @@ impl<RuntimeServiceId> NetworkAdapter<RuntimeServiceId> for MockAdapter<RuntimeS
         Self { network_relay }
     }
 
-    async fn enter_era(&mut self, _era: Era) {}
+    async fn rotate_era(&mut self, _era: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn payload_stream(
         &self,
