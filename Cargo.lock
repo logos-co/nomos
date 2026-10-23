@@ -5514,7 +5514,6 @@ dependencies = [
  "logos-blockchain-binary-codec",
  "logos-blockchain-utils",
  "serde",
- "serde_with",
  "thiserror 2.0.21",
  "time",
  "utoipa",
