@@ -42,6 +42,10 @@ impl Era {
     pub const fn genesis() -> Self {
         Self(0)
     }
+
+    pub fn checked_sub(self, rhs: u16) -> Option<Self> {
+        self.0.checked_sub(rhs).map(Self)
+    }
 }
 
 /// How long the slots of an era last.

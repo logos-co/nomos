@@ -1,11 +1,15 @@
 use std::{
     fmt::{Debug, Display, Formatter},
     pin::Pin,
+    time::Duration,
 };
 
-use futures::{Stream, StreamExt as _};
+use futures::{Stream, StreamExt as _, future, stream};
 use lb_log_targets::time as log_targets_time;
-use lb_time::{Epoch, Era, Slot, era::EraTimingSchedule};
+use lb_time::{
+    Epoch, Era, Slot,
+    era::{EraSchedule, EraTiming, EraTimingSchedule, SlotDuration},
+};
 use log::error;
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
@@ -15,16 +19,21 @@ use overwatch::{
     },
 };
 use time::OffsetDateTime;
-use tokio::sync::{oneshot, watch};
-use tokio_stream::wrappers::WatchStream;
+use tokio::sync::{broadcast, oneshot, watch};
+use tokio_stream::wrappers::{BroadcastStream, WatchStream};
 
-use crate::backends::TimeBackend;
+use crate::{backends::TimeBackend, era_events::EraTransitionsTracker};
 
 pub mod api;
 pub mod backends;
+mod era_events;
 mod metrics;
 
 const LOG_TARGET: &str = log_targets_time::ROOT;
+
+/// This will always be at most two events for an era: a new era started and the
+/// old era transition period elapsed.
+const ERA_EVENTS_CAPACITY: usize = 2;
 
 /// Service-owned struct for time information
 /// This is the internal representation used by the time service
@@ -52,13 +61,21 @@ pub struct SlotTick {
 
 pub type EpochSlotTickStream = Pin<Box<dyn Stream<Item = SlotTick> + Send + Sync + Unpin>>;
 
+/// A change the clock brings to the eras.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EraTick {
-    pub era: Era,
-    pub slot: Slot,
+pub enum EraEvent {
+    NewEra { era: Era, first_slot: Slot },
+    TransitionPeriodExpired(EraTransitionEnd),
 }
 
-pub type EraTickStream = Pin<Box<dyn Stream<Item = EraTick> + Send + Sync + Unpin>>;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EraTransitionEnd {
+    era: Era,
+}
+
+pub type EraEventStream = Pin<Box<dyn Stream<Item = EraEvent> + Send + Sync + Unpin>>;
+pub type EraTransitionEndStream =
+    Pin<Box<dyn Stream<Item = EraTransitionEnd> + Send + Sync + Unpin>>;
 
 pub enum TimeServiceMessage {
     Info {
@@ -67,8 +84,13 @@ pub enum TimeServiceMessage {
     SubscribeToEpochSlots {
         sender: oneshot::Sender<EpochSlotTickStream>,
     },
+    /// The era in force, as a first new era, and the era events after it.
     SubscribeToEras {
-        sender: oneshot::Sender<EraTickStream>,
+        sender: oneshot::Sender<EraEventStream>,
+    },
+    /// The ends of the transition periods to come.
+    SubscribeToEraTransitionEnds {
+        sender: oneshot::Sender<EraTransitionEndStream>,
     },
     CurrentSlot {
         sender: oneshot::Sender<SlotTick>,
@@ -81,15 +103,33 @@ impl Debug for TimeServiceMessage {
             Self::Info { .. } => f.write_str("Info"),
             Self::SubscribeToEpochSlots { .. } => f.write_str("SubscribeToEpochSlots"),
             Self::SubscribeToEras { .. } => f.write_str("SubscribeToEras"),
+            Self::SubscribeToEraTransitionEnds { .. } => {
+                f.write_str("SubscribeToEraTransitionEnds")
+            }
             Self::CurrentSlot { .. } => f.write_str("CurrentSlot"),
         }
+    }
+}
+
+/// An era as the time service follows it: how its slots and epochs are laid
+/// out, and for how many of its slots the network keeps serving its protocols
+/// once the next era starts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeServiceEraSettings {
+    pub timing: EraTiming,
+    pub transition_slots: u64,
+}
+
+impl SlotDuration for TimeServiceEraSettings {
+    fn slot_duration(&self) -> Duration {
+        self.timing.slot_duration
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct TimeServiceSettings<BackendSettings> {
     pub backend: BackendSettings,
-    pub era_schedule: EraTimingSchedule,
+    pub era_schedule: EraSchedule<TimeServiceEraSettings>,
 }
 
 pub struct TimeService<Backend, RuntimeServiceId>
@@ -98,7 +138,7 @@ where
 {
     service_resources_handle: OpaqueServiceResourcesHandle<Self, RuntimeServiceId>,
     backend: Backend,
-    era_schedule: EraTimingSchedule,
+    era_schedule: EraSchedule<TimeServiceEraSettings>,
 }
 
 impl<Backend, RuntimeServiceId> ServiceData for TimeService<Backend, RuntimeServiceId>
@@ -130,7 +170,10 @@ where
             .settings_handle
             .notifier()
             .get_updated_settings();
-        let backend = Backend::init(backend_settings, era_schedule.clone());
+        let backend = Backend::init(
+            backend_settings,
+            era_schedule.map(|era| era.parameters.timing),
+        );
         Ok(Self {
             service_resources_handle,
             backend,
@@ -149,11 +192,9 @@ where
 
         let (watch_sender, watch_receiver) = watch::channel(current_slot_tick);
 
-        let mut current_era = current_slot_tick.era;
-        let (era_sender, era_receiver) = watch::channel(EraTick {
-            era: current_era,
-            slot: current_slot_tick.slot,
-        });
+        let mut era_transitions_tracker =
+            EraTransitionsTracker::new(current_slot_tick, &era_schedule);
+        let (era_events_sender, _) = broadcast::channel(ERA_EVENTS_CAPACITY);
 
         service_resources_handle.status_updater.notify_ready();
         tracing::info!(
@@ -168,7 +209,8 @@ where
                     handle_service_message(
                         service_message,
                         &watch_receiver,
-                        &era_receiver,
+                        &era_events_sender,
+                        &era_transitions_tracker,
                         &current_slot_tick,
                         &era_schedule,
                     );
@@ -183,15 +225,8 @@ where
                         metrics::time_broadcast_errors();
                     }
 
-                    if slot_tick.era > current_era {
-                        current_era = slot_tick.era;
-                        if let Err(e) = era_sender.send(EraTick {
-                            era: slot_tick.era,
-                            slot: slot_tick.slot,
-                        }) {
-                            error!(target: LOG_TARGET, "Error updating era tick: {e}");
-                            metrics::time_broadcast_errors();
-                        }
+                    if let Some(era_event) = era_transitions_tracker.advance(slot_tick) {
+                        let _ = era_events_sender.send(era_event);
                     }
                 }
             }
@@ -202,16 +237,17 @@ where
 fn handle_service_message(
     message: TimeServiceMessage,
     watch_receiver: &watch::Receiver<SlotTick>,
-    era_tick_receiver: &watch::Receiver<EraTick>,
+    era_events: &broadcast::Sender<EraEvent>,
+    era_transitions_tracker: &EraTransitionsTracker<'_>,
     current_slot_tick: &SlotTick,
-    era_schedule: &EraTimingSchedule,
+    era_schedule: &EraSchedule<TimeServiceEraSettings>,
 ) {
     match message {
         TimeServiceMessage::Info { sender } => {
             drop(sender.send(TimeServiceInfo {
                 current_slot: current_slot_tick.slot,
                 current_epoch: current_slot_tick.epoch,
-                era_schedules: era_schedule.clone(),
+                era_schedules: era_schedule.map(|era| era.parameters.timing),
             }));
         }
         TimeServiceMessage::SubscribeToEpochSlots { sender } => {
@@ -221,9 +257,32 @@ fn handle_service_message(
             }
         }
         TimeServiceMessage::SubscribeToEras { sender } => {
-            let stream = Pin::new(Box::new(WatchStream::new(era_tick_receiver.clone())));
+            let era_in_force = era_transitions_tracker.era_in_force();
+            let stream = Pin::new(Box::new(
+                stream::once(future::ready(EraEvent::NewEra {
+                    era: era_in_force.era,
+                    first_slot: era_in_force.first_slot,
+                }))
+                .chain(era_event_stream(era_events.subscribe())),
+            ));
             if sender.send(stream).is_err() {
                 error!(target: LOG_TARGET, "Couldn't send back a SubscribeToEras response");
+            }
+        }
+        TimeServiceMessage::SubscribeToEraTransitionEnds { sender } => {
+            let stream = Pin::new(Box::new(
+                era_event_stream(era_events.subscribe()).filter_map(|event| {
+                    future::ready(match event {
+                        EraEvent::TransitionPeriodExpired(end) => Some(end),
+                        EraEvent::NewEra { .. } => None,
+                    })
+                }),
+            ));
+            if sender.send(stream).is_err() {
+                error!(
+                    target: LOG_TARGET,
+                    "Couldn't send back a SubscribeToEraTransitionEnds response"
+                );
             }
         }
         TimeServiceMessage::CurrentSlot { sender } => {
@@ -232,4 +291,20 @@ fn handle_service_message(
             }
         }
     }
+}
+
+/// The era events `receiver` gets, the ones it misses by falling behind
+/// reported in the log.
+fn era_event_stream(receiver: broadcast::Receiver<EraEvent>) -> EraEventStream {
+    Pin::new(Box::new(BroadcastStream::new(receiver).filter_map(
+        |event| {
+            future::ready(
+                event
+                    .inspect_err(|error| {
+                        error!(target: LOG_TARGET, "An era event subscriber fell behind: {error}");
+                    })
+                    .ok(),
+            )
+        },
+    )))
 }

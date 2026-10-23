@@ -45,7 +45,9 @@ use lb_time::{
     Era,
     era::{EraEntriesAfterGenesis, EraSchedule, EraTiming},
 };
-use lb_time_service::{TimeService, TimeServiceSettings, backends::SystemTimeBackend};
+use lb_time_service::{
+    TimeService, TimeServiceEraSettings, TimeServiceSettings, backends::SystemTimeBackend,
+};
 use lb_tracing_service::{Tracing, TracingSettings};
 use lb_utils::noop_service::NoService;
 use logos_blockchain_tx_service::{
@@ -154,7 +156,12 @@ fn mock_pool_node_settings(
             // The network service and the mempool follow the eras of the clock.
             time: TimeServiceSettings {
                 backend: (),
-                era_schedule: era_schedule(),
+                era_schedule: era_schedule()
+                    // A single era: no transition period ever opens.
+                    .map(|era| TimeServiceEraSettings {
+                        timing: *era.parameters,
+                        transition_slots: 0,
+                    }),
             },
             no_service: (),
         },
