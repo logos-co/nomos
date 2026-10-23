@@ -184,10 +184,8 @@ struct ServiceState<R: Rewards> {
     /// Declarations accumulated until the current block.
     declarations: Declarations,
     /// Per-service index for provider uniqueness checks.
-    // Keep the pre-rename serialized field name for ledger snapshot compatibility.
-    #[serde(rename = "providers")]
     provider_index: ProviderIndex,
-    // Rewards calculation and tracking for this service
+    /// Rewards calculation and tracking for this service
     pub rewards: R,
 }
 

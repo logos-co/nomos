@@ -144,9 +144,10 @@ impl ServiceNotes {
 
 /// Removes declarations whose withdrawal has taken effect.
 ///
-/// Declarations are removed at `withdraw_at + 1`, releasing their provider and
-/// service-note bindings. A note-unlocked event is returned only when the
-/// removed declaration held its final service binding.
+/// Declarations are removed at `withdraw_at + 1`, along with their
+/// provider-index entries and service-note references. A note remains
+/// locked until no declaration references it, at which point an
+/// `SdpNoteUnlocked` event is emitted.
 #[must_use]
 pub fn remove_withdrawn_declarations(
     declarations: &mut Declarations,
