@@ -49,8 +49,13 @@ where
 {
     network_relay: OutboundRelay<BackendNetworkMsg<Libp2p, RuntimeServiceId>>,
     settings: LibP2pAdapterSettings,
+    /// The era the adapter is in.
+    current_era: Era,
     /// The topic of the era the adapter is in.
     current_topic: String,
+    /// The topic of the era before, which the adapter stays subscribed to
+    /// until the end of its transition period.
+    previous_topic: Option<String>,
     _phantom_tx: PhantomData<Tx>,
 }
 
@@ -259,12 +264,14 @@ where
         Self {
             network_relay,
             settings,
+            current_era,
             current_topic: topic,
+            previous_topic: None,
             _phantom_tx: PhantomData,
         }
     }
 
-    async fn enter_era(&mut self, era: Era) {
+    async fn rotate_era(&mut self, era: Era) {
         let Some(era_settings) = self.settings.era_schedule.get(era) else {
             tracing::error!(
                 target: LOG_TARGET,
@@ -273,6 +280,7 @@ where
             );
             return;
         };
+        self.current_era = era;
         let new_era_topic = &era_settings.parameters.topic;
         if new_era_topic == &self.current_topic {
             return;
@@ -282,8 +290,34 @@ where
             "Entered era {}: block proposals are gossiped on {new_era_topic}",
             era.into_inner()
         );
+        // A topic of an earlier era still held has had its transition period
+        // end already: only the report of its end went missing.
+        if let Some(lingering_topic) = self.previous_topic.take() {
+            tracing::warn!(
+                target: LOG_TARGET,
+                "The end of the previous era's transition period was never reported: block proposals are no longer received on {lingering_topic}"
+            );
+            Self::unsubscribe(&self.network_relay, &lingering_topic).await;
+        }
         let previous_topic = mem::replace(&mut self.current_topic, new_era_topic.clone());
         Self::subscribe(&self.network_relay, &self.current_topic).await;
+        // Proposals broadcast by peers that have not entered the new era yet
+        // still arrive on the previous era's topic, so the adapter stays
+        // subscribed to it until its transition period ends.
+        self.previous_topic = Some(previous_topic);
+    }
+
+    async fn complete_era_transition(&mut self, ended_era: Era) {
+        if self.current_era.checked_sub(1) != Some(ended_era) {
+            return;
+        }
+        let Some(previous_topic) = self.previous_topic.take() else {
+            return;
+        };
+        tracing::info!(
+            target: LOG_TARGET,
+            "Transition period over: block proposals are no longer received on {previous_topic}"
+        );
         Self::unsubscribe(&self.network_relay, &previous_topic).await;
     }
 
@@ -297,9 +331,10 @@ where
             return Err(Box::new(error));
         }
         // Gossipsub only hands over the messages of the topics the node is
-        // subscribed to, and the adapter is subscribed to the topic of its
-        // current era only. So the stream keeps the messages of every era's
-        // topic, and follows the adapter from era to era.
+        // subscribed to: the topic of the adapter's current era, and the topic
+        // of the era before during its transition period. So the stream keeps
+        // the messages of every era's topic, and follows the adapter from era
+        // to era.
         let topic_hashes: HashSet<TopicHash> = self
             .settings
             .era_schedule

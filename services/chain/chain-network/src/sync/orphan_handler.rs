@@ -139,8 +139,14 @@ where
         }
     }
 
-    pub async fn enter_era(&mut self, era: Era) {
-        self.network_adapter.enter_era(era).await;
+    pub async fn rotate_era(&mut self, era: Era) {
+        self.network_adapter.rotate_era(era).await;
+    }
+
+    pub async fn complete_era_transition(&mut self, ended_era: Era) {
+        self.network_adapter
+            .complete_era_transition(ended_era)
+            .await;
     }
 
     /// Marks a block as rejected so the orphan pipeline will refuse to
@@ -666,7 +672,9 @@ mod tests {
             Self::new()
         }
 
-        async fn enter_era(&mut self, _era: Era) {}
+        async fn rotate_era(&mut self, _era: Era) {}
+
+        async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
         async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
             unimplemented!()

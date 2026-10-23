@@ -31,7 +31,9 @@ impl<Tx> MempoolAdapterTrait<Tx> for MempoolAdapter<Tx>
 where
     Tx: Hashable<Hash = TxHash> + Send + 'static,
 {
-    async fn enter_era(&mut self, _era: Era) {}
+    async fn rotate_era(&mut self, _era: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn add_transaction(&self, tx: Tx) -> Result<(), overwatch::DynError> {
         let (reply_sender, reply_receiver) = oneshot::channel();

@@ -38,7 +38,7 @@ use lb_ledger::{ConsensusExcludedKeys, LedgerState, config::EraScheduledConfig};
 use lb_log_targets::{chain, diagnostic::BLEND_REACHABILITY};
 use lb_services_utils::wait_until_services_are_ready;
 use lb_storage_service::StorageService;
-use lb_time_service::{SlotTick, TimeService, TimeServiceMessage};
+use lb_time_service::{SlotTick, TimeService, TimeServiceMessage, api::TimeServiceApi};
 use lb_tx_service::{
     TxMempoolService,
     backend::{MemPool, RecoverableMempool},
@@ -360,17 +360,49 @@ where
 
     #[expect(clippy::too_many_lines, reason = "TODO: Address this at some point.")]
     async fn run(mut self) -> Result<(), DynError> {
+        // Create the API wrapper for chain service communication
+        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService>::from_overwatch_handle(
+            &self.service_resources_handle.overwatch_handle,
+        )
+        .await;
+
+        // Wait for other services to become ready, with timeout.
+        // (except Chain, ChainNetwork, and Blend)
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            Some(Duration::from_mins(1)),
+            TxMempoolService<_, _, _, _, _>,
+            TimeService<_, _>,
+            Wallet,
+            PreloadKmsService<_>
+        )
+        .await?;
+        // Wait for the remaining dependencies to become ready, without timeout
+        wait_until_services_are_ready!(
+            &self.service_resources_handle.overwatch_handle,
+            None,
+            CryptarchiaService, // becomes ready after recoverying blocks
+            ChainNetwork,       // becomes ready after IBD
+            BlendService        // becomes ready after chain becomes online
+        )
+        .await?;
+
+        // Wait until the chain becomes Online mode.
+        // We should not propose blocks while the chain is in Bootstrapping mode.
+        info!(target: LOG_TARGET, "Waiting for chain to become online");
+        cryptarchia_api
+            .wait_until_chain_becomes_online()
+            .await
+            .expect("Waiting for chain to be online should succeed");
+        info!(target: LOG_TARGET, "Chain is online. Starting block proposals.");
+
+        // Only the chain service is needed before the chain is online: the
+        // rest is set up once the leader starts proposing.
         let mut relays = CryptarchiaConsensusRelays::from_service_resources_handle::<
             Self,
             TimeBackend,
             CryptarchiaService,
         >(&self.service_resources_handle)
-        .await;
-
-        // Create the API wrapper for chain service communication
-        let cryptarchia_api = CryptarchiaServiceApi::<CryptarchiaService>::from_overwatch_handle(
-            &self.service_resources_handle.overwatch_handle,
-        )
         .await;
 
         let chain_network_api = ChainNetworkServiceApi::<ChainNetwork>::new(
@@ -408,58 +440,17 @@ where
 
         let blend_adapter = BlendAdapter::<BlendService>::new(relays.blend_relay().clone());
 
-        // Wait for other services to become ready, with timeout.
-        // (except Chain, ChainNetwork, and Blend)
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            Some(Duration::from_mins(1)),
-            TxMempoolService<_, _, _, _, _>,
-            TimeService<_, _>,
-            Wallet,
-            PreloadKmsService<_>
-        )
-        .await?;
-        // Wait for the remaining dependencies to become ready, without timeout
-        wait_until_services_are_ready!(
-            &self.service_resources_handle.overwatch_handle,
-            None,
-            CryptarchiaService, // becomes ready after recoverying blocks
-            ChainNetwork,       // becomes ready after IBD
-            BlendService        // becomes ready after chain becomes online
-        )
-        .await?;
-
-        let mut slot_timer = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::SubscribeToEpochSlots { sender })
-                .await
-                .expect("Request time subscription to time service should succeed");
-            receiver.await?
+        let (mut current_era, mut slot_timer, mut era_transition_ends) = {
+            let time_service_api =
+                TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(
+                    &self.service_resources_handle.overwatch_handle,
+                )
+                .await?;
+            let (current_slot_tick, slot_timer) =
+                time_service_api.subscribe_to_epoch_slots().await?;
+            let era_transition_ends = time_service_api.subscribe_to_era_transition_ends().await?;
+            (current_slot_tick.era, slot_timer, era_transition_ends)
         };
-
-        // The mempool adapter starts in the era the clock is in, and follows
-        // the era of every slot the clock enters after it. The slot ticks are
-        // subscribed to first, so a slot that starts in between is not missed.
-        let mut current_era = {
-            let (sender, receiver) = oneshot::channel();
-            relays
-                .time_relay()
-                .send(TimeServiceMessage::CurrentSlot { sender })
-                .await
-                .expect("Request current slot to time service should succeed");
-            receiver.await?.era
-        };
-
-        // Wait until the chain becomes Online mode.
-        // We should not propose blocks while the chain is in Bootstrapping mode.
-        info!(target: LOG_TARGET, "Waiting for chain to become online");
-        cryptarchia_api
-            .wait_until_chain_becomes_online()
-            .await
-            .expect("Waiting for chain to be online should succeed");
-        info!(target: LOG_TARGET, "Chain is online. Starting block proposals.");
 
         self.service_resources_handle.status_updater.notify_ready();
         info!(
@@ -474,7 +465,7 @@ where
                     Some(SlotTick { era, slot, epoch }) = slot_timer.next() => {
                         trace!(target: LOG_TARGET, "Received SlotTick for slot {}, ep {}", u64::from(slot), u32::from(epoch));
                         if era > current_era {
-                            relays.mempool_adapter_mut().enter_era(era).await;
+                            relays.mempool_adapter_mut().rotate_era(era).await;
                             current_era = era;
                         }
                         let Some(SlotContext { wallet_tip, epoch_state, eligible_aged, .. }) =
@@ -547,6 +538,10 @@ where
                                 }
                             }
                         }
+                    }
+
+                    Some(transition_end) = era_transition_ends.next() => {
+                        relays.mempool_adapter_mut().complete_era_transition(transition_end.era()).await;
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
