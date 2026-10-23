@@ -769,18 +769,19 @@ where
 
     let chain =
         CryptarchiaServiceApi::<Cryptarchia<RuntimeServiceId>>::from_overwatch_handle(handle).await;
-    let threshold = chain
-        .get_ledger_config()
-        .await
-        .map_err(ApiError::internal)?
-        .sdp_config
-        .min_stake
-        .threshold;
     let ledger = chain
         .get_ledger_state(tip)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::internal_message(format!("no ledger state at tip {tip:?}")))?;
+    // The minimum stake of the era of the tip the balance is read at.
+    let threshold = chain
+        .get_ledger_config(ledger.slot())
+        .await
+        .map_err(ApiError::internal)?
+        .sdp_config
+        .min_stake
+        .threshold;
     let locked = ledger.mantle_ledger().service_notes();
 
     let notes: Vec<_> = balance.notes.into_iter().collect();
