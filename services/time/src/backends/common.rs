@@ -1,4 +1,4 @@
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{future::ready, pin::Pin, sync::Arc, time::Duration};
 
 use futures::{Stream, StreamExt as _};
 use lb_time::{Slot, era::EraTimingSchedule};
@@ -10,6 +10,10 @@ use crate::{EpochSlotTickStream, SlotTick};
 
 /// Returns the current [`SlotTick`] and a stream of future [`SlotTick`]s
 /// that ticks at the start of each slot, starting from the next slot.
+///
+/// A stream that is not polled in time delivers the first slot it missed late
+/// and skips the others, so the slots after them, and the eras they start,
+/// still tick on time.
 pub fn slot_timer(
     era_schedules: Arc<EraTimingSchedule>,
     datetime: OffsetDateTime,
@@ -19,12 +23,7 @@ pub fn slot_timer(
         new_slot_tick(current_slot, &era_schedules),
         Pin::new(Box::new(
             slot_interval(&era_schedules, datetime)
-                .zip(futures::stream::iter(std::iter::successors(
-                    Some(current_slot.strict_add(1.into())), /* +1 because `slot_interval` ticks
-                                                              * from the next slot */
-                    |&slot| Some(slot.strict_add(1.into())),
-                )))
-                .map(move |(_, slot)| new_slot_tick(slot, &era_schedules)),
+                .map(move |slot| new_slot_tick(slot, &era_schedules)),
         )),
     )
 }
@@ -37,10 +36,11 @@ fn new_slot_tick(slot: Slot, era_schedules: &EraTimingSchedule) -> SlotTick {
     }
 }
 
+/// The slots from the one after `start_time` on, each when it starts.
 fn slot_interval(
     era_schedules: &EraTimingSchedule,
     start_time: OffsetDateTime,
-) -> impl Stream<Item = Instant> + use<> {
+) -> impl Stream<Item = Slot> + use<> {
     let now = Instant::now();
     let next_slot = era_schedules
         .slot_at(start_time)
@@ -66,24 +66,30 @@ fn slot_interval(
                 // This only applies to the current era, so we don't start from its first slot
                 // but from the next slot.
                 let era_first_ticking_slot = next_slot.max(era.first_slot);
-                // `era_end` is `None` for the last scheduled era. In that case `u64::MAX`
-                // means we will never stop that era tick.
-                let era_slots_count = era_end.map_or(u64::MAX, |end| {
-                    end.into_inner()
-                        .strict_sub(era_first_ticking_slot.into_inner())
-                });
                 let tick_delay_from_start =
                     era_schedules.time_of(era_first_ticking_slot) - start_time;
-                let interval = {
-                    let mut interval = interval_at(
-                        now + Duration::try_from(tick_delay_from_start)
-                            .expect("could not set slot timer duration"),
-                        era.parameters.slot_duration,
-                    );
-                    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-                    interval
-                };
-                IntervalStream::new(interval).take(era_slots_count.try_into().unwrap())
+                let first_tick = now
+                    + Duration::try_from(tick_delay_from_start)
+                        .expect("could not set slot timer duration");
+                let slot_duration = era.parameters.slot_duration;
+                let mut interval = interval_at(first_tick, slot_duration);
+                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+                // A tick missed while the stream is not polled is skipped, so the slot
+                // of a tick follows from the time it was scheduled for, not from the
+                // number of ticks before it. The era ends with the first tick at or
+                // past the first slot of the next era; `era_end` is `None` for the
+                // last scheduled era, which never ends.
+                IntervalStream::new(interval)
+                    .map(move |tick| {
+                        let slots_since_first_tick =
+                            (tick - first_tick).as_nanos() / slot_duration.as_nanos();
+                        era_first_ticking_slot.strict_add(Slot::new(
+                            slots_since_first_tick
+                                .try_into()
+                                .expect("the slots of an era fit in a `u64`"),
+                        ))
+                    })
+                    .take_while(move |slot| ready(era_end.is_none_or(|end| *slot < end)))
             })
             .collect::<Vec<_>>();
         // Reverse again, to yield intervals back in the era schedule order.
@@ -158,6 +164,38 @@ mod tests {
         assert_eq!(timer.next().await, Some(tick(1, 2, 5)));
         tokio::time::advance(Duration::from_secs(3)).await;
         assert_eq!(timer.next().await, Some(tick(1, 3, 6)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn missed_ticks_hold_back_neither_the_slots_nor_the_next_era() {
+        // Slots of 1 s in epochs of 2 slots, then from epoch 2 (slot 4) slots of
+        // 3 s in epochs of 2 slots.
+        let genesis = OffsetDateTime::UNIX_EPOCH;
+        let eras = Arc::new(
+            EraTimingSchedule::new(
+                genesis,
+                timing(Duration::from_secs(1), 2),
+                EraEntriesAfterGenesis::from((
+                    NonZero::new(2).unwrap(),
+                    timing(Duration::from_secs(3), 2),
+                )),
+            )
+            .unwrap(),
+        );
+        let now = genesis + Duration::from_millis(500);
+        let (current, mut timer) = slot_timer(Arc::clone(&eras), now, eras.slot_at(now).unwrap());
+        assert_eq!(current, tick(0, 0, 0));
+
+        // Nothing polls the stream through slots 1 to 3: slot 1 is delivered
+        // late, and slots 2 and 3 are skipped.
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert_eq!(timer.next().await, Some(tick(0, 0, 1)));
+
+        // The next era still starts on time, at slot 4, and its slots last 3 s.
+        tokio::time::advance(Duration::from_millis(500)).await;
+        assert_eq!(timer.next().await, Some(tick(1, 2, 4)));
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert_eq!(timer.next().await, Some(tick(1, 2, 5)));
     }
 
     fn timer() -> (SlotTick, EpochSlotTickStream, Arc<EraTimingSchedule>) {

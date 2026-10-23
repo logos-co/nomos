@@ -580,15 +580,16 @@ where
         // restarted node does not resume mining automatically.
         let mut is_mining = false;
 
-        // Auto-claim arms itself when the network pays rewards and targets are
-        // configured, and disarms once every target has reached its
-        // threshold, stopping mining along with it: with every target funded
-        // there is nothing left to mine for. Like `mining` it is a runtime
-        // flag, so a restart re-arms it and the thresholds are re-evaluated
-        // against fresh balances.
+        // Auto-claim arms itself when targets are configured, and disarms once
+        // every target has reached its threshold, stopping mining along with
+        // it: with every target funded there is nothing left to mine for.
+        // Whether a claim pays depends on the era, which is checked when the
+        // claim falls due, so an era that turns rewards on is claimed in
+        // without a restart. Like `mining` it is a runtime flag, so a restart
+        // re-arms it and the thresholds are re-evaluated against fresh
+        // balances.
         let mut auto_claim_settings = settings.auto_claim;
-        let mut is_auto_claiming = current_era_settings.parameters.rewards_enabled
-            && !auto_claim_settings.targets.is_empty();
+        let mut is_auto_claiming = !auto_claim_settings.targets.is_empty();
 
         // Second pacing runs on its own timer. Slot pacing counts the slot
         // clock's ticks from the slot it last claimed at, `None` until its
@@ -619,9 +620,7 @@ where
                             is_mining = false;
                         }
                         PoWServiceMessage::StartAutoClaim => {
-                            if !current_era_settings.parameters.rewards_enabled {
-                                warn!(target: LOG_TARGET, "PoW auto-claim not started: rewards disabled");
-                            } else if auto_claim_settings.targets.is_empty() {
+                            if auto_claim_settings.targets.is_empty() {
                                 warn!(target: LOG_TARGET, "PoW auto-claim not started: no claim targets configured");
                             } else {
                                 if !is_auto_claiming {

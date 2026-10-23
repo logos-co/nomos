@@ -154,15 +154,7 @@ fn mock_pool_node_settings(
             // The network service and the mempool follow the eras of the clock.
             time: TimeServiceSettings {
                 backend: (),
-                era_schedule: EraSchedule::new(
-                    OffsetDateTime::UNIX_EPOCH,
-                    EraTiming {
-                        slot_duration: Duration::from_secs(1),
-                        epoch_length: NonZero::new(100).unwrap(),
-                    },
-                    EraEntriesAfterGenesis::empty(),
-                )
-                .unwrap(),
+                era_schedule: era_schedule(),
             },
             no_service: (),
         },
@@ -426,17 +418,30 @@ const fn ttl_settings(tx_ttl: Duration) -> MempoolSettings {
     }
 }
 
+/// The single era the tests run in, of 100-slot epochs.
+fn era_schedule() -> EraSchedule<EraTiming> {
+    EraSchedule::new(
+        OffsetDateTime::UNIX_EPOCH,
+        EraTiming {
+            slot_duration: Duration::from_secs(1),
+            epoch_length: NonZero::new(100).unwrap(),
+        },
+        EraEntriesAfterGenesis::empty(),
+    )
+    .unwrap()
+}
+
 const TEST_SLOT_WINDOW: u64 = 10;
 
 /// Settings with only `PoW` claim eviction enabled, so the TTL cannot
 /// interfere. With a window of 10 and the grace of twice that, a claim
 /// anchored at slot 100 is accepted through slot 110 and evicted from 131.
-const fn pow_claim_settings() -> MempoolSettings {
+fn pow_claim_settings() -> MempoolSettings {
     MempoolSettings {
         tx_ttl: None,
-        pow_claim: Some(PowClaimEvictionSettings {
+        pow_claim: Some(era_schedule().map(|_| PowClaimEvictionSettings {
             slot_window: NonZeroU64::new(TEST_SLOT_WINDOW).expect("non-zero"),
-        }),
+        })),
     }
 }
 
@@ -446,7 +451,7 @@ const TEST_TX_TTL: Duration = Duration::from_hours(1);
 /// to the unix epoch, so it is expired for any reasonable TTL.
 async fn pool_with_backdated_tx(settings: MempoolSettings) -> (InMemoryPool, Ops) {
     let storage = InMemoryStorageAdapter::default();
-    let mut pool = InMemoryPool::new(settings, Era::genesis(), storage.clone());
+    let mut pool = InMemoryPool::new(settings.clone(), Era::genesis(), storage.clone());
 
     let tx = sample_removed_tx();
     let tx_id = tx.hash();

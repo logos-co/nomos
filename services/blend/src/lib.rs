@@ -291,7 +291,10 @@ where
                     debug!(target: LOG_TARGET, ?epoch_event, "received epoch event");
                     let epoch_event = match epoch_event {
                         EpochEvent::NewEpoch((epoch, membership_info)) => {
-                            era_minimum_network_size = era_schedule.at_epoch(epoch).parameters.minimum_network_size;
+                            let era_settings = era_schedule.at_epoch(epoch).parameters;
+                            era_minimum_network_size = era_settings.minimum_network_size;
+                            // The transition out of this epoch lasts its era's period. For same-era epoch events, this is a no-op.
+                            remaining_membership_stream.set_transition_period(era_settings.epoch_transition_period);
                             EpochEvent::NewEpoch(membership_info)
                         }
                         EpochEvent::TransitionPeriodExpired => EpochEvent::TransitionPeriodExpired,

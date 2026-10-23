@@ -412,17 +412,6 @@ where
                     error!(target: LOG_TARGET, "Could not send epoch state through channel");
                 });
             }
-            Query::GetTipEpochConfig { reply_channel } => {
-                let tip_config = config_for_slot(
-                    self.cryptarchia.ledger.era_schedule(),
-                    self.cryptarchia.tip_branch().slot(),
-                );
-                reply_channel
-                    .send((tip_config.epoch_config, tip_config.consensus_config.clone()))
-                    .unwrap_or_else(|_| {
-                        error!(target: LOG_TARGET, "Could not send epoch config through channel");
-                    });
-            }
             Query::GetBlockEvents { id, reply_channel } => {
                 let events = self.relays.storage().get_block_events(&id).await;
                 reply_channel.send(events).unwrap_or_else(|_| {

@@ -6,12 +6,12 @@ use lb_chain_network_service::network::adapters::libp2p::{
 use lb_core::{block::genesis::GenesisBlock, sdp::ServiceParameters};
 use lb_cryptarchia_engine::{EpochConfig, EraSchedule};
 use lb_ledger::mantle::sdp::ServiceRewardsParameters;
-use lb_libp2p::PeerId;
+use lb_libp2p::{PeerId, protocol_name::ProtocolScope};
 use lb_services_utils::overwatch::RecoveryData;
 
 use crate::config::{
     cryptarchia::serde::Config,
-    deployment::{EraDefinition, ProtocolScope, era::ruleset::EraRuleset},
+    deployment::{EraDefinition, era::ruleset::EraRuleset},
 };
 
 pub mod serde;
@@ -22,7 +22,7 @@ pub struct ServiceConfig {
 
 impl ServiceConfig {
     /// The settings of the chain network: the user's, and in each era of `eras`
-    /// the era's block proposal topic.
+    /// the era's block proposal topic and active slot coefficient.
     #[must_use]
     pub fn into_chain_network_settings(
         &self,
@@ -66,6 +66,12 @@ impl ServiceConfig {
                 .seen_items_subscription_channel_size
                 .try_into()
                 .unwrap(),
+            era_schedule: eras.map(|era| {
+                let EraRuleset::V1(parameters) = &era.parameters.ruleset;
+                lb_chain_network_service::ChainNetworkEraSettings {
+                    slot_activation_coeff: parameters.cryptarchia.slot_activation_coeff,
+                }
+            }),
         }
     }
 

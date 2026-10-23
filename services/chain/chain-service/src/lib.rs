@@ -207,12 +207,6 @@ pub enum Query {
         slot: Slot,
         reply_channel: oneshot::Sender<Result<EpochStateQueryResult, Error>>,
     },
-    GetTipEpochConfig {
-        reply_channel: oneshot::Sender<(
-            lb_cryptarchia_engine::EpochConfig,
-            lb_cryptarchia_engine::Config,
-        )>,
-    },
     GetBlockEvents {
         id: HeaderId,
         reply_channel: oneshot::Sender<Option<Events>>,

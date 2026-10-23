@@ -556,10 +556,12 @@ async fn initialize<
     >,
     release_delay_rng: ChaCha20Rng,
 ) -> (
-    impl Stream<Item = EpochEvent<CoreEpochStateInfo<NodeId, KmsAdapter::CorePoQGenerator>>>
-    + Unpin
-    + Send
-    + 'static,
+    EpochEventStream<
+        impl Stream<Item = CoreEpochStateInfo<NodeId, KmsAdapter::CorePoQGenerator>>
+        + Unpin
+        + Send
+        + 'static,
+    >,
     CoreEpochPublicInfo<NodeId>,
     CurrentEpochCryptographicProcessor<
         NodeId,
@@ -887,9 +889,9 @@ async fn run_event_loop<
              + 'static
          ),
     mut secret_pol_info_stream: impl Stream<Item = PolEpochInfo> + Send + Unpin,
-    remaining_epoch_stream: &mut (
-             impl Stream<Item = EpochEvent<CoreEpochStateInfo<NodeId, CorePoQGenerator>>> + Unpin + Send
-         ),
+    remaining_epoch_stream: &mut EpochEventStream<
+        impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
+    >,
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -1062,9 +1064,9 @@ async fn run_current_epoch<
              + 'static
          ),
     secret_pol_info_stream: &mut (impl Stream<Item = PolEpochInfo> + Send + Unpin),
-    remaining_epoch_stream: &mut (
-             impl Stream<Item = EpochEvent<CoreEpochStateInfo<NodeId, CorePoQGenerator>>> + Unpin + Send
-         ),
+    remaining_epoch_stream: &mut EpochEventStream<
+        impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
+    >,
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -1125,6 +1127,8 @@ where
                         recovery_checkpoint = complete_transition_period(backend, sdp_relay, recovery_checkpoint).await;
                     }
                     EpochEvent::NewEpoch(new_epoch_info) => {
+                        // The transition out of this epoch lasts its era's period. For same-era epoch events, this is a no-op.
+                        remaining_epoch_stream.set_transition_period(blend_configs.at_epoch(new_epoch_info.epoch()).parameters.time.epoch_transition_period);
                         return rotate::<_, _, _, _, _, _, _, RuntimeServiceId>(new_epoch_info, current_epoch.into_components(), latest_secret_pol_info, blend_configs, runtime_components, backend, payload_dispatcher, recovery_checkpoint).await;
                     }
                 }
@@ -1154,9 +1158,9 @@ async fn run_during_transition<
              + 'static
          ),
     secret_pol_info_stream: &mut (impl Stream<Item = PolEpochInfo> + Send + Unpin),
-    remaining_epoch_stream: &mut (
-             impl Stream<Item = EpochEvent<CoreEpochStateInfo<NodeId, CorePoQGenerator>>> + Unpin + Send
-         ),
+    remaining_epoch_stream: &mut EpochEventStream<
+        impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
+    >,
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -1238,6 +1242,8 @@ where
                         };
                     }
                     EpochEvent::NewEpoch(new_epoch_info) => {
+                        // The transition out of this epoch lasts its era's period. For same-era epoch events, this is a no-op.
+                        remaining_epoch_stream.set_transition_period(blend_configs.at_epoch(new_epoch_info.epoch()).parameters.time.epoch_transition_period);
                         return rotate::<_, _, _, _, _, _, _, RuntimeServiceId>(new_epoch_info, during_transition.into_components(), latest_secret_pol_info, blend_configs, runtime_components, backend, payload_dispatcher, recovery_checkpoint).await;
                     }
                 }

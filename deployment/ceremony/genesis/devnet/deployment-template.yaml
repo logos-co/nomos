@@ -87,4 +87,4 @@ cryptarchia:
       threshold: 1000000000
       timestamp: 0
 time:
-  slot_duration: 1s
+  slot_duration_in_seconds: 1

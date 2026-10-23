@@ -67,13 +67,19 @@ impl State {
         match cryptarchia.state {
             Self::Bootstrapping => cryptarchia.branches.lib,
             Self::Online => {
+                // The LIB moves up the local chain while it lies deeper than
+                // the `k` of the era of its own slot.
                 let tip = &cryptarchia.local_chain;
-                let k = cryptarchia
-                    .era_schedule
-                    .at_slot(tip.slot)
-                    .parameters
-                    .security_param();
-                cryptarchia.branches.nth_ancestor(tip, k.get().into()).id()
+                let is_block_within_the_k_of_its_era = |block: &Branch<Id>| {
+                    let config = cryptarchia.era_schedule.at_slot(block.slot).parameters;
+                    tip.length.saturating_sub(block.length) <= config.security_param().get().into()
+                };
+                cryptarchia
+                    .branches
+                    .lib_to_tip_blocks(tip)
+                    .find(|block| is_block_within_the_k_of_its_era(block))
+                    .expect("The tip is within the `k` of its era.")
+                    .id
             }
         }
     }
@@ -360,18 +366,23 @@ where
         })
     }
 
-    /// Returns the min(n, A)-th ancestor of the provided block, where A is the
-    /// number of ancestors of this block.
-    fn nth_ancestor<'a>(&'a self, branch: &'a Branch<Id>, mut n: u64) -> &'a Branch<Id> {
-        let mut current = branch;
-        while n > 0 {
-            n -= 1;
-            let Some(parent) = self.parent(current) else {
-                return current;
-            };
-            current = parent;
-        }
-        current
+    /// The blocks of the chain of `tip`, from the LIB up to `tip`.
+    ///
+    /// Starts at the oldest block in the tree if the LIB is not an ancestor of
+    /// `tip`.
+    fn lib_to_tip_blocks<'a>(
+        &'a self,
+        tip: &'a Branch<Id>,
+    ) -> impl Iterator<Item = &'a Branch<Id>> {
+        let tip_to_lib_blocks: Vec<_> = core::iter::successors(Some(tip), |block| {
+            if block.id == self.lib {
+                None
+            } else {
+                self.parent(block)
+            }
+        })
+        .collect();
+        tip_to_lib_blocks.into_iter().rev()
     }
 
     /// Walks back from `branch`, newest first, while the slot is newer than
@@ -1446,7 +1457,7 @@ pub mod tests {
     }
 
     #[test]
-    fn the_lib_takes_the_k_of_the_era_of_the_tip() {
+    fn the_lib_keeps_the_k_of_its_own_era_when_the_next_era_lowers_it() {
         // An online chain of 50 blocks with k=10, block `i` at slot `i`, which
         // an era with k=5 follows from slot 50.
         // b0 - ... - b39(LIB) - ... - b49
@@ -1455,15 +1466,20 @@ pub mod tests {
             create_canonical_chain_over(50.try_into().unwrap(), eras).online();
         assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        // The tip entering the next era moves the LIB to its 5th ancestor.
-        cryptarchia
-            .receive_block(hash(&50u64), hash(&49u64), 50.into(), UncleSlots::default())
-            .expect("test block to be applied successfully.");
-        assert_eq!(cryptarchia.lib(), hash(&45u64));
+        // The blocks of the first era become immutable 10 deep, so the LIB
+        // keeps following 10 blocks behind the tip, up to b49 at b59. Those of
+        // the next era become immutable 5 deep, so b60 moves it up to b55.
+        for i in 50..=60u64 {
+            cryptarchia
+                .receive_block(hash(&i), hash(&(i - 1)), i.into(), UncleSlots::default())
+                .expect("test block to be applied successfully.");
+            let expected_lib = if i < 60 { i - 10 } else { 55 };
+            assert_eq!(cryptarchia.lib(), hash(&expected_lib));
+        }
     }
 
     #[test]
-    fn the_lib_never_moves_back_when_the_k_of_the_era_of_the_tip_grows() {
+    fn the_lib_keeps_the_k_of_its_own_era_when_the_next_era_raises_it() {
         // An online chain of 50 blocks with k=10, block `i` at slot `i`, which
         // an era with k=20 follows from slot 50.
         // b0 - ... - b39(LIB) - ... - b49
@@ -1472,14 +1488,19 @@ pub mod tests {
             create_canonical_chain_over(50.try_into().unwrap(), eras).online();
         assert_eq!(cryptarchia.lib(), hash(&39u64));
 
-        // The LIB never moves back to the 20th ancestor of the tip, whose
-        // blocks are pruned: it holds at b39 up to b59, 20 blocks above it, and
-        // moves up with b60.
-        for i in 50..=60u64 {
+        // The blocks of the first era become immutable 10 deep, so the LIB
+        // keeps following 10 blocks behind the tip, up to b50 at b60. Those of
+        // the next era become immutable 20 deep, so it holds at b50 up to b70
+        // and moves up with b71.
+        for i in 50..=71u64 {
             cryptarchia
                 .receive_block(hash(&i), hash(&(i - 1)), i.into(), UncleSlots::default())
                 .expect("test block to be applied successfully.");
-            let expected_lib = if i < 60 { 39u64 } else { 40 };
+            let expected_lib = match i {
+                ..=60 => i - 10,
+                61..=70 => 50,
+                _ => 51,
+            };
             assert_eq!(cryptarchia.lib(), hash(&expected_lib));
         }
     }
@@ -1487,18 +1508,17 @@ pub mod tests {
     #[test]
     fn fork_choice_compares_chains_under_the_era_of_their_common_ancestor() {
         // An online chain of 25 blocks, block `i` at slot `i`, over an era with
-        // k=2 and, from slot 20, an era with k=10, which the tip is in.
+        // k=10 and, from slot 20, an era with k=2, which the tip is in.
         // b0 - ... - b14(LIB) - b15 - ... - b21 - ... - b24
-        let eras = schedule(20, config_with(2), [(1, config_with(10))]);
+        let eras = schedule(20, config_with(10), [(1, config_with(2))]);
         let (mut cryptarchia, _) =
             create_canonical_chain_over(25.try_into().unwrap(), eras).online();
         assert_eq!(cryptarchia.lib(), hash(&14u64));
 
-        // A longer fork off b15 is 9 blocks deep from the tip: within the k of
-        // the tip's era, but not the k=2 of the era of the common ancestor, so it
-        // is not adopted.
-        let mut parent = hash(&15u64);
-        for i in 0..10u64 {
+        // A longer fork off b21 is 3 blocks deep from the tip, beyond the k=2 of
+        // the era of the common ancestor, so it is not adopted.
+        let mut parent = hash(&21u64);
+        for i in 0..4u64 {
             let block = hash(&format!("a-{i}"));
             cryptarchia
                 .receive_block(block, parent, (25 + i).into(), UncleSlots::default())
@@ -1507,13 +1527,14 @@ pub mod tests {
         }
         assert_eq!(cryptarchia.tip(), hash(&24u64));
 
-        // A longer fork off b21 is 3 blocks deep, within the k=10 of the era of
-        // its common ancestor, and adopted.
-        let mut parent = hash(&21u64);
-        for i in 0..4u64 {
+        // A longer fork off b15 is 9 blocks deep: beyond the k=2 of the tip's
+        // era, but within the k=10 of the era of the common ancestor, and
+        // adopted.
+        let mut parent = hash(&15u64);
+        for i in 0..10u64 {
             let block = hash(&format!("b-{i}"));
             cryptarchia
-                .receive_block(block, parent, (35 + i).into(), UncleSlots::default())
+                .receive_block(block, parent, (30 + i).into(), UncleSlots::default())
                 .expect("test block to be applied successfully.");
             parent = block;
         }
