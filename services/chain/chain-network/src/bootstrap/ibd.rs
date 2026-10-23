@@ -836,7 +836,9 @@ mod tests {
             unimplemented!()
         }
 
-        async fn enter_era(&mut self, _era: Era) {}
+        async fn rotate_era(&mut self, _era: Era) {}
+
+        async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
         async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
             unimplemented!()

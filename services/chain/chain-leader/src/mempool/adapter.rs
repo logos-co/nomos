@@ -28,7 +28,9 @@ impl<Tx> MempoolAdapterTrait<Tx> for MempoolAdapter<Tx>
 where
     Tx: Hashable<Hash = TxHash> + Send + 'static,
 {
-    async fn enter_era(&mut self, _: Era) {}
+    async fn rotate_era(&mut self, _: Era) {}
+
+    async fn complete_era_transition(&mut self, _: Era) {}
 
     async fn get_mempool_view(
         &self,

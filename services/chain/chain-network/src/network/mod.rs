@@ -28,7 +28,8 @@ pub trait NetworkAdapter<RuntimeServiceId> {
         network_relay: OutboundRelay<BackendNetworkMsg<Self::Backend, RuntimeServiceId>>,
     ) -> Self;
 
-    async fn enter_era(&mut self, era: Era);
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
 
     async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError>;
 

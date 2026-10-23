@@ -12,7 +12,8 @@ pub mod adapter;
 
 #[async_trait]
 pub trait MempoolAdapter<Tx>: Send + Sync {
-    async fn enter_era(&mut self, era: Era);
+    async fn rotate_era(&mut self, era: Era);
+    async fn complete_era_transition(&mut self, ended_era: Era);
 
     async fn add_transaction(&self, tx: Tx) -> Result<(), overwatch::DynError>;
 

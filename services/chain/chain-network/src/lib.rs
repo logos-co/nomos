@@ -6,7 +6,7 @@ pub mod network;
 mod relays;
 mod sync;
 
-use core::{fmt::Debug, num::NonZeroUsize};
+use core::{fmt::Debug, num::NonZeroUsize, pin::pin};
 use std::{
     fmt::Display,
     hash::Hash,
@@ -342,15 +342,16 @@ where
         )
         .await?;
 
-        // The adapters start in the era of the slot the clock is in, and
-        // follow the eras its slot ticks enter after it.
+        // The adapters start in the era of the slot the clock is in, follow
+        // the eras its slot ticks enter after it, and drop what they keep of
+        // the era before when its transition period ends.
+        let time_service_api = TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(
+            &self.service_resources_handle.overwatch_handle,
+        )
+        .await?;
         let (current_slot_tick, mut slot_ticks) =
-            TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(
-                &self.service_resources_handle.overwatch_handle,
-            )
-            .await?
-            .subscribe_to_epoch_slots()
-            .await?;
+            time_service_api.subscribe_to_epoch_slots().await?;
+        let mut era_transition_ends = time_service_api.subscribe_to_era_transition_ends().await?;
         let mut current_era = current_slot_tick.era;
 
         let mut network_adapter =
@@ -364,10 +365,29 @@ where
             network_adapter.clone(),
         );
 
-        match initial_block_download
-            .run(bootstrap_config.ibd, &sync_config.orphan)
-            .await
-        {
+        // The adapters keep following the clock while the initial block
+        // download runs, so they never fall behind its eras. The download
+        // works on its own copies of them, through chain sync only.
+        let mut initial_block_download_task =
+            pin!(initial_block_download.run(bootstrap_config.ibd, &sync_config.orphan));
+        let initial_block_download_result = loop {
+            tokio::select! {
+                result = &mut initial_block_download_task => break result,
+                Some(tick) = slot_ticks.next() => {
+                    if tick.era > current_era {
+                        current_era = tick.era;
+                        network_adapter.rotate_era(current_era).await;
+                        relays.mempool_adapter_mut().rotate_era(current_era).await;
+                    }
+                }
+                Some(transition_end) = era_transition_ends.next() => {
+                    network_adapter.complete_era_transition(transition_end.era()).await;
+                    relays.mempool_adapter_mut().complete_era_transition(transition_end.era()).await;
+                }
+            }
+        };
+
+        match initial_block_download_result {
             Ok(_) => {
                 info!(target: LOG_TARGET, "Initial Block Download completed successfully");
                 // Notify chain-service that IBD is complete so it can start the prolonged
@@ -511,9 +531,9 @@ where
                     Some(tick) = slot_ticks.next() => {
                         if tick.era > current_era {
                             current_era = tick.era;
-                            network_adapter.enter_era(current_era).await;
-                            orphan_downloader.as_mut().get_mut().enter_era(current_era).await;
-                            relays.mempool_adapter_mut().enter_era(current_era).await;
+                            network_adapter.rotate_era(current_era).await;
+                            orphan_downloader.as_mut().get_mut().rotate_era(current_era).await;
+                            relays.mempool_adapter_mut().rotate_era(current_era).await;
                         }
 
                         let Some(params) = tip_poll_params
@@ -545,6 +565,12 @@ where
                                 error!(target: LOG_TARGET, %e, "the polled-tip receiver has been dropped");
                             }
                         }));
+                    }
+
+                    Some(transition_end) = era_transition_ends.next() => {
+                        network_adapter.complete_era_transition(transition_end.era()).await;
+                        orphan_downloader.as_mut().get_mut().complete_era_transition(transition_end.era()).await;
+                        relays.mempool_adapter_mut().complete_era_transition(transition_end.era()).await;
                     }
 
                     Some(msg) = self.service_resources_handle.inbound_relay.next() => {
@@ -1254,7 +1280,9 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MempoolAdapterTrait<HashOnlyTx> for FixedCandidates {
-        async fn enter_era(&mut self, _era: Era) {}
+        async fn rotate_era(&mut self, _era: Era) {}
+
+        async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
         async fn add_transaction(&self, _tx: HashOnlyTx) -> Result<(), DynError> {
             unimplemented!("resolution never adds")
@@ -1483,7 +1511,9 @@ mod tests {
             unimplemented!()
         }
 
-        async fn enter_era(&mut self, _era: Era) {}
+        async fn rotate_era(&mut self, _era: Era) {}
+
+        async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
         async fn proposals_stream(&self) -> Result<BoxedStream<Self::Proposal>, DynError> {
             unimplemented!()
