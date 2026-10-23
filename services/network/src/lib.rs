@@ -120,12 +120,9 @@ where
                     Self::handle_network_service_message(msg, &mut backend).await;
                 }
                 Some(era_event) = era_events.next() => match era_event {
-                    EraEvent::NewEra { era, .. } => {
-                        backend.enter_era(era).await;
-                        // TODO: Implement era transition start logic.
-                    }
-                    EraEvent::TransitionPeriodExpired(_) => {
-                        // TODO: Implement era transition end logic.
+                    EraEvent::NewEra { era, .. } => backend.rotate_era(era).await,
+                    EraEvent::TransitionPeriodExpired(transition_end) => {
+                        backend.complete_era_transition(transition_end.era()).await;
                     }
                 },
             }

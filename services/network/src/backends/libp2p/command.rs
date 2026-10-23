@@ -26,8 +26,12 @@ pub enum Command {
     Discovery(DiscoveryCommand),
     Network(NetworkCommand),
     ChainSync(ChainSyncCommand),
-    /// The chain entered `Era`: the swarm moves to that era's settings.
-    EnterEra(Era),
+    /// The chain entered `Era`: the swarm moves to that era's settings, and
+    /// keeps the era before around until its transition period ends.
+    StartNewEra(Era),
+    /// The transition period of `Era` ended: the swarm drops what it kept of
+    /// it, if it is the era before the current one.
+    CompleteEraTransition(Era),
 }
 
 #[derive(Debug)]

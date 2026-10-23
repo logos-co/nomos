@@ -380,7 +380,9 @@ impl<RuntimeServiceId> NetworkBackend<RuntimeServiceId> for TestNetworkBackend {
 
     async fn process(&self, _msg: Self::Message) {}
 
-    async fn enter_era(&mut self, _era: Era) {}
+    async fn rotate_era(&mut self, _era: Era) {}
+
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
 
     async fn subscribe_to_pubsub(&mut self) -> BroadcastStream<Self::PubSubEvent> {
         BroadcastStream::new(self.pubsub_sender.subscribe())
