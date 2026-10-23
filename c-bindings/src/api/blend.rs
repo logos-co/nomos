@@ -1,5 +1,6 @@
 use std::ffi::{CString, c_char};
 
+use lb_api_service::http::blend;
 use lb_blend_service::message::NetworkInfo;
 use lb_c_macros::panic_to_error;
 use lb_chain_service::Epoch;
@@ -7,24 +8,22 @@ use lb_core::{
     mantle::NoteId,
     sdp::{self, Locator, SNAPSHOT_FINALIZATION_DELAY, ServiceType, WITHDRAWAL_UNLOCK_DELAY},
 };
-use lb_groth16::fr_from_bytes;
-use lb_key_management_system_keys::keys::ZkPublicKey;
-use lb_ledger::mantle::sdp::rewards::blend;
+use lb_groth16::{fr_from_bytes, fr_to_bytes};
 use lb_node::{
     RuntimeServiceId, config::deployment::EraParameters, generic_services::blend::BlendService,
 };
 use lb_sdp_service::{SdpMessage, SdpSubmission};
 use multiaddr::PeerId;
 use overwatch::overwatch::OverwatchHandle;
-use serde::Serialize;
 
 use crate::{
     LogosBlockchainNode,
     api::{
-        chain::api::ChainFfiApi, common::json::into_json_c_string, cryptarchia::TxHash,
-        sdp::make_sdp_request, time::get_time_info_sync,
+        chain::api::ChainFfiApi, cryptarchia::TxHash, sdp::make_sdp_request,
+        time::get_time_info_sync, types::value::Value,
     },
     errors::{OperationStatus, OperationStatusCode},
+    option::FfiOption,
     result::{FfiStatusResult, StatusResult},
     return_error_if_null_pointer, unwrap_or_return_error,
 };
@@ -107,10 +106,11 @@ pub unsafe extern "C" fn blend_join_as_core_node(
 
     let runtime_handle = unwrap_or_return_error!(node.get_runtime_handle());
     let result: StatusResult<SdpSubmission> = runtime_handle.block_on(async {
-        lb_api_service::http::blend::blend_join_network::<
-            BlendService<RuntimeServiceId>,
-            RuntimeServiceId,
-        >(node.get_overwatch_handle(), locator, service_note_id)
+        blend::blend_join_network::<BlendService<RuntimeServiceId>, RuntimeServiceId>(
+            node.get_overwatch_handle(),
+            locator,
+            service_note_id,
+        )
         .await
         .map_err(|error| {
             OperationStatus::error(
@@ -128,7 +128,7 @@ pub unsafe extern "C" fn blend_join_as_core_node(
 /// Gets the current Blend network information.
 ///
 /// This is a synchronous wrapper around the asynchronous
-/// [`blend_info`](lb_api_service::http::blend::blend_info) function.
+/// [`blend_info`](blend::blend_info) function.
 ///
 /// # Arguments
 ///
@@ -146,7 +146,7 @@ pub(crate) fn blend_info_sync(
     let overwatch_handle = node.get_overwatch_handle();
 
     runtime_handle
-        .block_on(lb_api_service::http::blend::blend_info::<
+        .block_on(blend::blend_info::<
             BlendService<RuntimeServiceId>,
             RuntimeServiceId,
         >(overwatch_handle))
@@ -401,49 +401,58 @@ pub unsafe extern "C" fn blend_withdraw(
     blend_withdraw_sync(node).into()
 }
 
-#[derive(Serialize)]
-struct Network {
-    size: u64,
-    proofs: u64,
+/// A node's estimated Blend reward for the activity epoch, based on the proofs
+/// submitted so far.
+#[repr(C)]
+#[derive(Default)]
+pub struct BlendRewardEstimate {
+    /// The epoch the reward is for, when the blending was done.
+    pub activity_epoch: u32,
+    /// Blend income to be split.
+    pub pool_so_far: Value,
+    /// Number of core nodes in the activity epoch.
+    pub network_size: u64,
+    /// Number of activity proofs submitted.
+    pub proofs_submitted: u64,
+    /// Whether the node submitted its activity proof.
+    pub my_proof_submitted: bool,
+    /// Whether the node earns the double reward.
+    pub premium: bool,
+    /// What the node would be paid.
+    pub estimated_reward: Value,
 }
 
-impl From<blend::Network> for Network {
-    fn from(value: blend::Network) -> Self {
+impl From<blend::BlendRewardEstimate> for BlendRewardEstimate {
+    fn from(estimate: blend::BlendRewardEstimate) -> Self {
         Self {
-            size: value.size,
-            proofs: value.proofs,
+            activity_epoch: estimate.activity_epoch,
+            pool_so_far: estimate.pool_so_far,
+            network_size: estimate.network_size,
+            proofs_submitted: estimate.proofs_submitted,
+            my_proof_submitted: estimate.my_proof_submitted,
+            premium: estimate.premium,
+            estimated_reward: estimate.estimated_reward,
         }
     }
 }
 
-#[derive(Serialize)]
-struct BlendRewardEstimate {
-    activity_epoch: Epoch,
-    pool: u64,
-    network: Network,
-    did_submit_proof: bool,
-    is_premium: bool,
-    estimated_reward: u64,
-}
-
-impl From<blend::RewardEstimate> for BlendRewardEstimate {
-    fn from(value: blend::RewardEstimate) -> Self {
-        Self {
-            activity_epoch: value.activity_epoch,
-            pool: value.pool,
-            network: value.network.into(),
-            did_submit_proof: value.did_submit_proof,
-            is_premium: value.is_premium,
-            estimated_reward: value.estimated_reward,
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct BlendRewards {
-    reward_key: ZkPublicKey,
+/// A node's Blend rewards.
+#[repr(C)]
+#[derive(Default)]
+pub struct BlendRewards {
+    /// The key the rewards are minted to, as 32 little-endian bytes.
+    pub reward_key: [u8; KEY_SIZE],
     /// `None` while no epoch is being paid out.
-    estimate: Option<BlendRewardEstimate>,
+    pub estimate: FfiOption<BlendRewardEstimate>,
+}
+
+impl From<blend::BlendRewards> for BlendRewards {
+    fn from(rewards: blend::BlendRewards) -> Self {
+        Self {
+            reward_key: fr_to_bytes(rewards.reward_key.as_fr()),
+            estimate: rewards.estimate.map(BlendRewardEstimate::from).into(),
+        }
+    }
 }
 
 /// Estimates this node's Blend reward for the epoch being paid out.
@@ -454,10 +463,10 @@ struct BlendRewards {
 ///
 /// # Returns
 ///
-/// The estimate on success, or an [`OperationStatus`] error on failure. Fails
+/// The rewards on success, or an [`OperationStatus`] error on failure. Fails
 /// with [`OperationStatusCode::NotFound`] if the node has no declaration in
 /// the ledger, and right away if the node is not `Online`.
-fn blend_rewards_sync(node: &LogosBlockchainNode) -> StatusResult<BlendRewards> {
+fn blend_rewards_sync(node: &LogosBlockchainNode) -> StatusResult<blend::BlendRewards> {
     let overwatch_handle = node.get_overwatch_handle();
     node.get_runtime_handle()?.block_on(async {
         let chain_ffi_api = ChainFfiApi::from_overwatch_handle(overwatch_handle).await?;
@@ -477,17 +486,13 @@ fn blend_rewards_sync(node: &LogosBlockchainNode) -> StatusResult<BlendRewards> 
         let rewards = chain_ffi_api
             .get_blend_rewards(participation.declaration_id())
             .await?;
-        Ok(BlendRewards {
-            reward_key: rewards.reward_key,
-            estimate: rewards.estimate.map(BlendRewardEstimate::from),
-        })
+        Ok(rewards.into())
     })
 }
 
-pub type FfiBlendRewardsResult = FfiStatusResult<*mut c_char>;
+pub type FfiBlendRewardsResult = FfiStatusResult<BlendRewards>;
 
-/// Estimates this node's Blend reward for the epoch being paid out, as a JSON
-/// string.
+/// Estimates this node's Blend reward for the epoch being paid out.
 ///
 /// Blend rewards are minted to the declaration's `zk_id` one epoch later, with
 /// no claim needed. This is the estimate before that happens, based on the
@@ -500,18 +505,13 @@ pub type FfiBlendRewardsResult = FfiStatusResult<*mut c_char>;
 ///
 /// # Returns
 ///
-/// A [`FfiBlendRewardsResult`] containing a pointer to an allocated JSON C
-/// string on success, or an [`OperationStatus`] error on failure. Fails right
-/// away if the node is not `Online`.
+/// A [`FfiBlendRewardsResult`] containing the [`BlendRewards`] on success, or
+/// an [`OperationStatus`] error on failure. Fails right away if the node is not
+/// `Online`.
 ///
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers.
-///
-/// # Memory Management
-///
-/// The caller must free the returned string with
-/// [`free_cstring`](super::free_cstring).
 #[must_use]
 #[panic_to_error]
 #[unsafe(no_mangle)]
@@ -519,6 +519,5 @@ pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiB
     return_error_if_null_pointer!(node);
 
     let node = unsafe { &*node };
-    let rewards = unwrap_or_return_error!(blend_rewards_sync(node));
-    FfiBlendRewardsResult::ok(unwrap_or_return_error!(into_json_c_string(&rewards)))
+    blend_rewards_sync(node).map(BlendRewards::from).into()
 }
