@@ -9,6 +9,7 @@ use futures::{
     Stream, StreamExt as _,
     stream::{BoxStream, Fuse},
 };
+use lb_cryptarchia_engine::Era;
 use tokio::time::{Instant, Sleep, sleep_until};
 
 use crate::{
@@ -94,10 +95,12 @@ impl FailureDetector {
     }
 
     /// Waits out the delivery deadlines this node still owes, broadcasting in
-    /// the clear each payload whose deadline expires.
+    /// the clear, over the identifiers of `era`, each payload whose deadline
+    /// expires.
     pub async fn drain_pending_message_queue<Dispatcher, RuntimeServiceId>(
         mut self,
         payload_dispatcher: &Dispatcher,
+        era: Era,
     ) where
         Dispatcher: PayloadDispatcher<RuntimeServiceId> + Sync,
     {
@@ -116,7 +119,7 @@ impl FailureDetector {
             let Some(undelivered) = expired else {
                 return;
             };
-            broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher).await;
+            broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher, era).await;
         }
     }
 }
@@ -163,6 +166,7 @@ mod tests {
     };
 
     use futures::{Stream as _, StreamExt as _, stream, task::noop_waker_ref};
+    use lb_cryptarchia_engine::Era;
     use tokio::{sync::mpsc, time::Instant};
     use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -433,7 +437,7 @@ mod tests {
 
         tokio::time::timeout(
             ROUND,
-            detection.drain_pending_message_queue::<_, ()>(&dispatcher),
+            detection.drain_pending_message_queue::<_, ()>(&dispatcher, Era::genesis()),
         )
         .await
         .expect("a set of nothing but delivered payloads has nothing left to wait for");

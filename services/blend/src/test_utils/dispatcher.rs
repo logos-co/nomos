@@ -70,9 +70,11 @@ where
         Self::new().0
     }
 
-    async fn enter_era(&mut self, _era: Era) {}
+    async fn rotate_era(&mut self, _era: Era) {}
 
-    async fn dispatch(&self, payload: DataPayload) {
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
+
+    async fn dispatch(&self, payload: DataPayload, _era: Era) {
         drop(self.dispatched.send(payload));
     }
 

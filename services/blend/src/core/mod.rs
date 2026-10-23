@@ -67,7 +67,7 @@ use lb_services_utils::{
     overwatch::{RecoveryOperator, recovery::operators::RecoveryBackend as RecoveryBackendTrait},
     wait_until_services_are_ready,
 };
-use lb_time_service::TimeService;
+use lb_time_service::{EraTransitionEnd, TimeService, api::TimeServiceApi};
 use overwatch::{
     OpaqueServiceResourcesHandle,
     overwatch::OverwatchHandle,
@@ -435,6 +435,12 @@ where
         )
         .await;
 
+        let mut era_transition_ends =
+            TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(overwatch_handle)
+                .await?
+                .subscribe_to_era_transition_ends()
+                .await?;
+
         let mut payload_dispatcher = async {
             let network_relay = overwatch_handle
                 .relay::<NetworkService<_, _, _>>()
@@ -487,6 +493,7 @@ where
             &mut blend_messages,
             secret_pol_info_stream,
             &mut remaining_epoch_stream,
+            &mut era_transition_ends,
             &blend_configs,
             &runtime_components,
             &mut backend,
@@ -513,11 +520,13 @@ where
             // past epoch.
             blend_messages.map(|(message, _)| message),
             remaining_epoch_stream,
+            era_transition_ends,
             backend,
             payload_dispatcher,
             sdp_relay,
             rng,
             retiring_epoch,
+            &blend_configs,
             failure_detector.take(),
         )
         .await;
@@ -892,6 +901,7 @@ async fn run_event_loop<
     remaining_epoch_stream: &mut EpochEventStream<
         impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
     >,
+    era_transition_ends: &mut (impl Stream<Item = EraTransitionEnd> + Send + Unpin),
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -923,6 +933,7 @@ where
                     blend_messages,
                     &mut secret_pol_info_stream,
                     remaining_epoch_stream,
+                    era_transition_ends,
                     blend_configs,
                     runtime_components,
                     backend,
@@ -943,6 +954,7 @@ where
                     blend_messages,
                     &mut secret_pol_info_stream,
                     remaining_epoch_stream,
+                    era_transition_ends,
                     blend_configs,
                     runtime_components,
                     backend,
@@ -1067,6 +1079,7 @@ async fn run_current_epoch<
     remaining_epoch_stream: &mut EpochEventStream<
         impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
     >,
+    era_transition_ends: &mut (impl Stream<Item = EraTransitionEnd> + Send + Unpin),
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -1097,23 +1110,22 @@ where
     ProofsVerifier: ProofsVerifierTrait + Send + Sync,
     RuntimeServiceId: Sync + Send,
 {
-    let blend_config = blend_configs
-        .at_epoch(current_epoch.epoch_info().epoch)
-        .parameters;
+    let epoch_era = blend_configs.at_epoch(current_epoch.epoch_info().epoch);
+    let blend_config = epoch_era.parameters;
     loop {
         tokio::select! {
             Some(msg) = inbound_relay.next() => {
                 recovery_checkpoint = handle_service_message(msg, current_epoch.proposals_mut(), pending_transactions, blend_config, backend, recovery_checkpoint).await;
             }
             Some(undelivered) = next_undelivered_messages(failure_detector.as_deref_mut()) => {
-                broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher).await;
+                broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher, epoch_era.era).await;
             }
             Some(incoming_message) = blend_messages.next() => {
                 let (scheduler, crypto) = current_epoch.decapsulation_borrows();
                 recovery_checkpoint = handle_incoming_blend_message(incoming_message, scheduler, None, crypto.receiver(), None, recovery_checkpoint);
             }
             event = current_epoch.next_event(pending_transactions) => {
-                recovery_checkpoint = handle_current_epoch_event(event, &mut current_epoch, pending_transactions, blend_config, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), recovery_checkpoint).await;
+                recovery_checkpoint = handle_current_epoch_event(event, &mut current_epoch, pending_transactions, blend_configs, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), recovery_checkpoint).await;
             }
             Some(pol_secret_info) = secret_pol_info_stream.next() => {
                 apply_or_hold_secret_pol_info(pol_secret_info, &mut current_epoch, latest_secret_pol_info);
@@ -1132,6 +1144,10 @@ where
                         return rotate::<_, _, _, _, _, _, _, RuntimeServiceId>(new_epoch_info, current_epoch.into_components(), latest_secret_pol_info, blend_configs, runtime_components, backend, payload_dispatcher, recovery_checkpoint).await;
                     }
                 }
+            }
+            Some(transition_end) = era_transition_ends.next() => {
+                assert!(transition_end.era() < epoch_era.era, "Blend core has not rotated before the old era's transition expired");
+                payload_dispatcher.complete_era_transition(transition_end.era()).await;
             }
         }
     }
@@ -1161,6 +1177,7 @@ async fn run_during_transition<
     remaining_epoch_stream: &mut EpochEventStream<
         impl Stream<Item = CoreEpochStateInfo<NodeId, CorePoQGenerator>> + Unpin + Send,
     >,
+    era_transition_ends: &mut (impl Stream<Item = EraTransitionEnd> + Send + Unpin),
     blend_configs: &EraSchedule<CoreServiceEraSettings>,
     runtime_components: &RuntimeComponents,
     backend: &mut Backend,
@@ -1197,16 +1214,15 @@ where
     ProofsVerifier: ProofsVerifierTrait + Send + Sync,
     RuntimeServiceId: Sync + Send,
 {
-    let blend_config = blend_configs
-        .at_epoch(during_transition.current().epoch_info().epoch)
-        .parameters;
+    let epoch_era = blend_configs.at_epoch(during_transition.current().epoch_info().epoch);
+    let blend_config = epoch_era.parameters;
     loop {
         tokio::select! {
             Some(msg) = inbound_relay.next() => {
                 recovery_checkpoint = handle_service_message(msg, during_transition.current_mut().proposals_mut(), pending_transactions, blend_config, backend, recovery_checkpoint).await;
             }
             Some(undelivered) = next_undelivered_messages(failure_detector.as_deref_mut()) => {
-                broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher).await;
+                broadcast_undelivered_messages(undelivered.into_iter(), payload_dispatcher, epoch_era.era).await;
             }
             Some(incoming_message) = blend_messages.next() => {
                 let (scheduler, previous_scheduler, crypto, previous_crypto) = during_transition.decapsulation_borrows();
@@ -1215,10 +1231,10 @@ where
             event = during_transition.next_event(pending_transactions) => {
                 match event {
                     DuringTransitionEvent::Current(event) => {
-                        recovery_checkpoint = handle_current_epoch_event(event, during_transition.current_mut(), pending_transactions, blend_config, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), recovery_checkpoint).await;
+                        recovery_checkpoint = handle_current_epoch_event(event, during_transition.current_mut(), pending_transactions, blend_configs, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), recovery_checkpoint).await;
                     }
                     DuringTransitionEvent::PreviousEpochReleaseRound(round_info, previous_epoch) => {
-                        handle_release_round_for_old_epoch(round_info, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), previous_epoch).await;
+                        handle_release_round_for_old_epoch(round_info, rng, backend, payload_dispatcher, failure_detector.as_deref_mut(), previous_epoch, blend_configs).await;
                     }
                 }
             }
@@ -1247,6 +1263,12 @@ where
                         return rotate::<_, _, _, _, _, _, _, RuntimeServiceId>(new_epoch_info, during_transition.into_components(), latest_secret_pol_info, blend_configs, runtime_components, backend, payload_dispatcher, recovery_checkpoint).await;
                     }
                 }
+            }
+            // Only the payload dispatcher follows the era: the epoch being drained
+            // still goes when its own transition period ends.
+            Some(transition_end) = era_transition_ends.next() => {
+                assert!(transition_end.era() < epoch_era.era, "Blend core has not rotated before the old era's transition expired");
+                payload_dispatcher.complete_era_transition(transition_end.era()).await;
             }
         }
     }
@@ -1319,7 +1341,7 @@ async fn handle_current_epoch_event<
         Rng,
     >,
     pending_transactions: &mut PendingTransactions,
-    blend_config: &CoreServiceEraSettings,
+    blend_configs: &EraSchedule<CoreServiceEraSettings>,
     rng: &mut Rng,
     backend: &Backend,
     payload_dispatcher: &Dispatcher,
@@ -1340,7 +1362,10 @@ where
                 let LocalEncapsulation { message, kind } = *encapsulation;
                 // What the epoch releases is owed the delivery deadline of its
                 // era, wherever the transition into the next one stands.
-                let delivery_deadline = blend_config.max_data_message_delay();
+                let delivery_deadline = blend_configs
+                    .at_epoch(current_epoch.epoch_info().epoch)
+                    .parameters
+                    .max_data_message_delay();
                 let (proposals, crypto_processor, scheduler) = current_epoch.scheduling_borrows();
                 match kind {
                     MessageKind::Proposal => {
@@ -1391,6 +1416,7 @@ where
             handle_release_round(
                 round_info,
                 current_epoch.crypto_processor_mut(),
+                blend_configs,
                 rng,
                 backend,
                 payload_dispatcher,
@@ -1486,9 +1512,9 @@ where
     // epoch releases.
     let new_epoch_era = blend_configs.at_epoch(new_epoch_info.epoch());
     let current_epoch_era = blend_configs.at_epoch(public_info.epoch);
-    let is_new_era = new_epoch_era.era != current_epoch_era.era;
+    let is_new_era = new_epoch_era.era > current_epoch_era.era;
     if is_new_era {
-        payload_dispatcher.enter_era(new_epoch_era.era).await;
+        payload_dispatcher.rotate_era(new_epoch_era.era).await;
     }
     match handle_epoch_event(
         new_epoch_info,
@@ -1679,11 +1705,13 @@ async fn retire<
         Item = EpochEvent<CoreEpochStateInfo<NodeId, CorePoQGenerator>>,
     > + Send
     + Unpin,
+    mut era_transition_ends: impl Stream<Item = EraTransitionEnd> + Send + Unpin,
     mut backend: Backend,
-    payload_dispatcher: Dispatcher,
+    mut payload_dispatcher: Dispatcher,
     sdp_relay: OutboundRelay<SdpMessage>,
     mut rng: Rng,
     mut retiring_epoch: RetiringEpoch<Rng, ProofsVerifier>,
+    blend_configs: &EraSchedule<CoreServiceEraSettings>,
     mut failure_detector: Option<FailureDetector>,
 ) where
     NodeId: Clone + Eq + Hash + Send + Sync + 'static,
@@ -1695,6 +1723,7 @@ async fn retire<
     RuntimeServiceId: Send + Sync,
 {
     let epoch = retiring_epoch.epoch();
+    let era = blend_configs.at_epoch(epoch).era;
     loop {
         tokio::select! {
             Some(incoming_message) = blend_messages.next() => {
@@ -1702,10 +1731,10 @@ async fn retire<
                 handle_incoming_blend_message_from_old_epoch(incoming_message, message_scheduler, crypto_processor, blending_token_collector);
             }
             Some(round_info) = retiring_epoch.scheduler_mut().next() => {
-                handle_release_round_for_old_epoch(round_info, &mut rng, &backend, &payload_dispatcher, failure_detector.as_mut(), epoch).await;
+                handle_release_round_for_old_epoch(round_info, &mut rng, &backend, &payload_dispatcher, failure_detector.as_mut(), epoch, blend_configs).await;
             }
             Some(undelivered) = next_undelivered_messages(failure_detector.as_mut()) => {
-                broadcast_undelivered_messages(undelivered.into_iter(), &payload_dispatcher).await;
+                broadcast_undelivered_messages(undelivered.into_iter(), &payload_dispatcher, era).await;
             }
             // Matched in full on purpose: a `select!` pattern that only named
             // the expiry would consume and drop anything else the stream
@@ -1719,6 +1748,11 @@ async fn retire<
                         panic!("New epoch started before the retiring epoch's transition period expired");
                     }
                 }
+            }
+            // Only the payload dispatcher follows the era: the retiring epoch
+            // still goes when its own transition period ends.
+            Some(transition_end) = era_transition_ends.next() => {
+                payload_dispatcher.complete_era_transition(transition_end.era()).await;
             }
         }
     }
@@ -1737,7 +1771,7 @@ async fn retire<
     // still owed.
     if let Some(failure_detector) = failure_detector {
         failure_detector
-            .drain_pending_message_queue(&payload_dispatcher)
+            .drain_pending_message_queue(&payload_dispatcher, era)
             .await;
     }
 }
@@ -2446,6 +2480,7 @@ where
 /// using the configured network adapter. For encapsulated messages as well as
 /// the optional cover message, they are forwarded to the rest of the connected
 /// Blend peers.
+#[expect(clippy::too_many_arguments, reason = "categorize args")]
 async fn handle_release_round<
     NodeId,
     Rng,
@@ -2466,6 +2501,7 @@ async fn handle_release_round<
         ProofsGenerator,
         ProofsVerifier,
     >,
+    blend_configs: &EraSchedule<CoreServiceEraSettings>,
     rng: &mut Rng,
     backend: &Backend,
     payload_dispatcher: &Dispatcher,
@@ -2514,6 +2550,7 @@ where
         Some(&mut state_updater),
         failure_detector,
         current_epoch,
+        blend_configs,
     );
 
     let mut message_futures = data_messages_relay_futures
@@ -2568,6 +2605,7 @@ async fn handle_release_round_for_old_epoch<
     payload_dispatcher: &Dispatcher,
     mut failure_detector: Option<&mut FailureDetector>,
     epoch: Epoch,
+    blend_configs: &EraSchedule<CoreServiceEraSettings>,
 ) where
     NodeId: Eq + Hash + 'static,
     Rng: RngCore + Send,
@@ -2609,6 +2647,7 @@ async fn handle_release_round_for_old_epoch<
             None,
             failure_detector,
             epoch,
+            blend_configs,
         ))
         .collect::<Vec<_>>();
     futures.shuffle(rng);
@@ -2660,12 +2699,16 @@ fn build_futures_to_release_processed_messages<
     mut state_updater: Option<&mut ServiceStateUpdater<Backend::Settings, Dispatcher::Settings>>,
     mut failure_detector: Option<&mut FailureDetector>,
     epoch: Epoch,
+    blend_configs: &EraSchedule<CoreServiceEraSettings>,
 ) -> Vec<BoxFuture<'fut, ()>>
 where
     NodeId: Eq + Hash + 'static,
     Backend: BlendBackend<NodeId, ChaCha20Rng, ProofsVerifier, RuntimeServiceId> + Sync,
     Dispatcher: PayloadDispatcher<RuntimeServiceId> + Sync,
 {
+    // A released payload goes out in the era of the connection its message
+    // arrived on, the era of the epoch it is released for.
+    let era = blend_configs.at_epoch(epoch).era;
     processed_messages_to_release
         .into_iter()
         .inspect(|processed_message_to_release| {
@@ -2699,7 +2742,7 @@ where
                                 "Blend scheduler released fully decapsulated block proposal for ordinary broadcast"
                             );
                         }
-                        payload_dispatcher.dispatch(payload).boxed()
+                        payload_dispatcher.dispatch(payload, era).boxed()
                     }
                     ProcessedMessage::Encapsulated(encapsulated_message) => {
                         backend.publish(*encapsulated_message, epoch).boxed()

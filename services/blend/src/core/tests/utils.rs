@@ -342,9 +342,11 @@ where
         Self
     }
 
-    async fn enter_era(&mut self, _era: Era) {}
+    async fn rotate_era(&mut self, _era: Era) {}
 
-    async fn dispatch(&self, _payload: DataPayload) {
+    async fn complete_era_transition(&mut self, _ended_era: Era) {}
+
+    async fn dispatch(&self, _payload: DataPayload, _era: Era) {
         note_outgoing_message();
     }
 

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use futures::{Stream, StreamExt as _, stream::BoxStream};
 use lb_blend::message::MessageIdentifier;
 use lb_chain_service::Epoch;
+use lb_cryptarchia_engine::Era;
 use tokio::time::Instant;
 
 use crate::{
@@ -100,11 +101,12 @@ impl FailureDetector {
     pub async fn drain_pending_message_queue<Dispatcher, RuntimeServiceId>(
         self,
         payload_dispatcher: &Dispatcher,
+        era: Era,
     ) where
         Dispatcher: PayloadDispatcher<RuntimeServiceId> + Sync,
     {
         self.inner
-            .drain_pending_message_queue(payload_dispatcher)
+            .drain_pending_message_queue(payload_dispatcher, era)
             .await;
     }
 }
