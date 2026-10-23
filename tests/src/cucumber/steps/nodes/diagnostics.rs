@@ -230,46 +230,28 @@ impl BlendDiagnosticParameterSet {
     }
 
     fn apply_to(&self, settings: &mut DeploymentSettings) {
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .security_param = NonZero::new(self.security_parameter)
-            .expect("named Blend diagnostic security parameter must be non-zero");
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .uncle_reference_window_in_block =
-            NonZeroU32::new(self.uncle_reference_window_in_block())
-                .expect("named Blend diagnostic uncle reference window must be non-zero");
-        settings.genesis_era_parameters_mut().time.slot_duration =
-            Duration::from_secs(self.slot_duration_secs);
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .epoch_config
-            .epoch_stake_distribution_stabilization =
-            NonZero::new(self.epoch_stake_distribution_stabilization)
+        settings.update_genesis_era_parameters(|parameters| {
+            parameters.cryptarchia.security_param = NonZero::new(self.security_parameter)
+                .expect("named Blend diagnostic security parameter must be non-zero");
+            parameters.cryptarchia.uncle_reference_window_in_block =
+                NonZeroU32::new(self.uncle_reference_window_in_block())
+                    .expect("named Blend diagnostic uncle reference window must be non-zero");
+            parameters.time.slot_duration = Duration::from_secs(self.slot_duration_secs);
+            let epoch_config = &mut parameters.cryptarchia.epoch_config;
+            epoch_config.epoch_stake_distribution_stabilization =
+                NonZero::new(self.epoch_stake_distribution_stabilization)
+                    .expect("named Blend diagnostic phase must be non-zero");
+            epoch_config.epoch_period_nonce_buffer = NonZero::new(self.epoch_period_nonce_buffer)
                 .expect("named Blend diagnostic phase must be non-zero");
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .epoch_config
-            .epoch_period_nonce_buffer = NonZero::new(self.epoch_period_nonce_buffer)
-            .expect("named Blend diagnostic phase must be non-zero");
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .epoch_config
-            .epoch_period_nonce_stabilization = NonZero::new(self.epoch_period_nonce_stabilization)
-            .expect("named Blend diagnostic phase must be non-zero");
-        settings
-            .genesis_era_parameters_mut()
-            .cryptarchia
-            .slot_activation_coeff = NonNegativeRatio::new(
-            1,
-            NonZeroU32::new(self.slot_activation_coeff_denominator)
-                .expect("named Blend diagnostic slot coefficient denominator must be non-zero"),
-        );
+            epoch_config.epoch_period_nonce_stabilization =
+                NonZero::new(self.epoch_period_nonce_stabilization)
+                    .expect("named Blend diagnostic phase must be non-zero");
+            parameters.cryptarchia.slot_activation_coeff = NonNegativeRatio::new(
+                1,
+                NonZeroU32::new(self.slot_activation_coeff_denominator)
+                    .expect("named Blend diagnostic slot coefficient denominator must be non-zero"),
+            );
+        });
     }
 
     fn effective_deployment_settings(self) -> DeploymentSettings {
@@ -1435,7 +1417,7 @@ fn log_diagnostic_identities(world: &CucumberWorld) -> StepResult {
         append_timeline_record(world, &record);
     }
     let declared_provider_ids = deployment
-        .genesis_block
+        .genesis_block()
         .genesis_tx()
         .sdp_declarations()
         .filter(|declaration| declaration.operation().service_type == ServiceType::BlendNetwork)
