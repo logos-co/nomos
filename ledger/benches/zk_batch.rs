@@ -199,7 +199,7 @@ static TX_POOL: LazyLock<TxPool> = LazyLock::new(|| {
         .collect();
 
     TxPool {
-        genesis: LedgerState::from_utxos(utxos, &config, &ConsensusExcludedKeys::empty()),
+        genesis: LedgerState::from_utxos(utxos, &config, 0, &ConsensusExcludedKeys::empty()),
         eras: single_era(config),
         txs,
     }
@@ -321,8 +321,6 @@ fn config() -> Config {
             // `rate_num = 0` pays no reward, which keeps the benchmark measuring
             // transaction processing only.
             reward: RewardPoWConfig {
-                reward_pool_genesis: 1_000_000_000,
-                epoch_reward_genesis: 1_000_000,
                 minimum_difficulty: ModulusShift::new::<26>(),
                 ema_smoothing_factor: 9,
                 ema_smoothing_precision: NonZero::new(10).unwrap(),

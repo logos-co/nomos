@@ -481,8 +481,6 @@ mod tests {
 
     fn disabled_reward_config() -> RewardPoWConfig {
         RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
@@ -560,6 +558,7 @@ mod tests {
                     },
                 },
             },
+            0,
             &ConsensusExcludedKeys::empty(),
         )
     }

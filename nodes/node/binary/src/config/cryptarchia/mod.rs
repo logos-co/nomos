@@ -3,7 +3,9 @@ use std::sync::Arc;
 use lb_chain_network_service::network::adapters::libp2p::{
     LibP2pAdapterEraSettings, LibP2pAdapterSettings,
 };
-use lb_core::{block::genesis::GenesisBlock, sdp::ServiceParameters};
+use lb_core::{
+    block::genesis::GenesisBlock, mantle::traits::GenesisTx as _, sdp::ServiceParameters,
+};
 use lb_cryptarchia_engine::{EpochConfig, EraSchedule};
 use lb_ledger::mantle::sdp::ServiceRewardsParameters;
 use lb_libp2p::{PeerId, protocol_name::ProtocolScope};
@@ -75,8 +77,9 @@ impl ServiceConfig {
         }
     }
 
-    /// The settings of the chain service and the leader: the user's, and the
-    /// ledger config of every era of `eras`, which both share.
+    /// The settings of the chain service and the leader: the user's, the
+    /// ledger config of every era of `eras`, which both share, and for the
+    /// leader the consensus-excluded keys of `genesis_block`.
     #[must_use]
     pub fn into_cryptarchia_services_settings(
         self,
@@ -89,14 +92,6 @@ impl ServiceConfig {
     ) {
         let user = self.user;
         let era_schedule = Arc::new(eras.map(|era| ledger_config_for_era(era.parameters)));
-        // The same in every era, so the genesis era's.
-        let consensus_excluded_keys = {
-            let EraRuleset::V1(genesis_parameters) = &eras.genesis().parameters.ruleset;
-            genesis_parameters
-                .cryptarchia
-                .consensus_excluded_keys
-                .clone()
-        };
         let chain_service_settings = lb_chain_service::CryptarchiaSettings {
             bootstrap: lb_chain_service::BootstrapConfig {
                 force_bootstrap: user.service.bootstrap.force_bootstrap,
@@ -111,7 +106,6 @@ impl ServiceConfig {
                 },
             },
             era_schedule: Arc::clone(&era_schedule),
-            consensus_excluded_keys: consensus_excluded_keys.clone(),
             recovery_data: recovery_data.clone(),
             starting_state: genesis_block.clone().into(),
             sync: lb_chain_service::SyncConfig {
@@ -122,7 +116,10 @@ impl ServiceConfig {
         };
         let chain_leader_settings = lb_chain_leader_service::LeaderSettings {
             era_schedule,
-            consensus_excluded_keys,
+            consensus_excluded_keys: genesis_block
+                .genesis_tx()
+                .genesis_parameters()
+                .consensus_excluded_keys,
             wallet_config: lb_chain_leader_service::LeaderWalletConfig {
                 funding_pk: user.leader.wallet.funding_pk,
                 max_tx_fee: user.leader.wallet.max_tx_fee,

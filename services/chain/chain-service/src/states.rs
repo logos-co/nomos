@@ -1,6 +1,6 @@
 use std::{collections::HashSet, time::SystemTime};
 
-use lb_core::{header::HeaderId, mantle::traits::GenesisTx as _};
+use lb_core::header::HeaderId;
 use lb_ledger::LedgerState;
 use overwatch::{DynError, services::state::ServiceState};
 use serde::{Deserialize, Serialize};
@@ -81,13 +81,9 @@ impl ServiceState for CryptarchiaConsensusState {
     ) -> Result<Self, <Self as ServiceState>::Error> {
         let StartingState::Genesis { genesis_block } = &settings.starting_state;
         let genesis_id = genesis_block.header().id();
-        let genesis_tx = genesis_block.genesis_tx();
-        let epoch_nonce = genesis_tx.cryptarchia_parameter().epoch_nonce;
         let (lib_ledger_state, _events) = LedgerState::from_genesis_tx(
-            genesis_tx.clone(),
+            genesis_block.genesis_tx().clone(),
             settings.era_schedule.genesis().parameters,
-            &settings.consensus_excluded_keys,
-            epoch_nonce,
         )?;
 
         Ok(Self {
@@ -134,8 +130,6 @@ mod tests {
     /// deployment config in tests.
     fn disabled_reward_config() -> RewardPoWConfig {
         RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
@@ -305,7 +299,7 @@ mod tests {
         // Empty ledger state.
         let ledger_state = lb_ledger::Ledger::new(
             cryptarchia_engine.lib(),
-            LedgerState::from_utxos([], &ledger_config, &ConsensusExcludedKeys::empty()),
+            LedgerState::from_utxos([], &ledger_config, 0, &ConsensusExcludedKeys::empty()),
             single_era(ledger_config),
         );
 
@@ -428,7 +422,7 @@ mod tests {
             consensus: engine.clone(),
             ledger: lb_ledger::Ledger::new(
                 lib_id,
-                LedgerState::from_utxos([], &ledger_config, &ConsensusExcludedKeys::empty()),
+                LedgerState::from_utxos([], &ledger_config, 0, &ConsensusExcludedKeys::empty()),
                 single_era(ledger_config.clone()),
             ),
             genesis_id: genesis_header_id,

@@ -1,10 +1,9 @@
 use std::num::{NonZero, NonZeroU32, NonZeroU64, NonZeroU128};
 
-use lb_binary_codec::canonical::{BTreeSet, BinaryEncode, codec_fixtures};
-use lb_core::mantle::{Value, ops::pow::PowReward};
+use lb_binary_codec::canonical::{BinaryEncode, codec_fixtures};
+use lb_core::mantle::Value;
 use lb_cryptarchia_engine::{Epoch, EraSchedule, Slot};
 pub use lb_groth16::ModulusShift;
-use lb_key_management_system_keys::keys::ZkPublicKey;
 use lb_pol::LotteryConstants;
 use lb_time::era::EpochLength;
 
@@ -12,7 +11,7 @@ use lb_time::era::EpochLength;
 /// of its slot, and each epoch is settled under the config of its era.
 pub type EraScheduledConfig = EraSchedule<Config>;
 
-pub type ConsensusExcludedKeys = BTreeSet<ZkPublicKey>;
+pub use lb_core::mantle::ConsensusExcludedKeys;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Config {
@@ -151,8 +150,9 @@ pub struct PoWConfig {
 
 /// Deployment-configurable parameters for the token-reward `PoW` role.
 ///
-/// Covers the genesis endowment, the reward-difficulty (`d_reward`) EMA
-/// controller, the per-epoch payout rate, and the claim acceptance window.
+/// Covers the reward-difficulty (`d_reward`) EMA controller, the per-epoch
+/// payout rate, and the claim acceptance window. The pool the payout draws on
+/// starts with the genesis parameters' `pow_reward_pool`.
 /// There is deliberately no `Default`: every value must be supplied by the
 /// deployment configuration. A `rate_num` of `0` disables claiming entirely;
 /// the shipped deployments enable it.
@@ -162,10 +162,6 @@ pub struct PoWConfig {
 // instead of panicking later while processing consensus state.
 #[serde(try_from = "RewardPoWConfigFields")]
 pub struct RewardPoWConfig {
-    /// `R_PoW` genesis: initial balance of the reward pool.
-    pub reward_pool_genesis: PowReward,
-    /// `sigma_e` genesis: initial per-claim reward.
-    pub epoch_reward_genesis: PowReward,
     /// `d_reward` floor, as the exponent `n` in `p / 2^n` — the same way
     /// [`BlendPoWConfig::base_difficulty`] states the Blend threshold. It is
     /// both the genesis difficulty and the minimum: the retarget controller
@@ -212,8 +208,6 @@ pub struct RewardPoWConfig {
 /// invariants can be checked before a validated [`RewardPoWConfig`] is built.
 #[derive(serde::Deserialize)]
 struct RewardPoWConfigFields {
-    reward_pool_genesis: PowReward,
-    epoch_reward_genesis: PowReward,
     minimum_difficulty: ModulusShift,
     ema_smoothing_factor: u64,
     ema_smoothing_precision: NonZeroU64,
@@ -231,8 +225,6 @@ impl TryFrom<RewardPoWConfigFields> for RewardPoWConfig {
 
     fn try_from(fields: RewardPoWConfigFields) -> Result<Self, Self::Error> {
         let config = Self {
-            reward_pool_genesis: fields.reward_pool_genesis,
-            epoch_reward_genesis: fields.epoch_reward_genesis,
             minimum_difficulty: fields.minimum_difficulty,
             ema_smoothing_factor: fields.ema_smoothing_factor,
             ema_smoothing_precision: fields.ema_smoothing_precision,
@@ -394,8 +386,6 @@ impl BinaryEncode for RewardPoWConfig {
         // We destructure (in declaration order) so we know we are not forgetting to
         // encode new fields.
         let Self {
-            reward_pool_genesis,
-            epoch_reward_genesis,
             minimum_difficulty,
             ema_smoothing_factor,
             ema_smoothing_precision,
@@ -407,9 +397,7 @@ impl BinaryEncode for RewardPoWConfig {
             share_den,
             slot_window,
         } = self;
-        reward_pool_genesis.encoded_length()
-            + epoch_reward_genesis.encoded_length()
-            + minimum_difficulty.encoded_length()
+        minimum_difficulty.encoded_length()
             + ema_smoothing_factor.encoded_length()
             + ema_smoothing_precision.encoded_length()
             + target_claims_per_block.encoded_length()
@@ -423,8 +411,6 @@ impl BinaryEncode for RewardPoWConfig {
 
     fn encode_into(&self, out: &mut Vec<u8>) {
         let Self {
-            reward_pool_genesis,
-            epoch_reward_genesis,
             minimum_difficulty,
             ema_smoothing_factor,
             ema_smoothing_precision,
@@ -436,8 +422,6 @@ impl BinaryEncode for RewardPoWConfig {
             share_den,
             slot_window,
         } = self;
-        reward_pool_genesis.encode_into(out);
-        epoch_reward_genesis.encode_into(out);
         minimum_difficulty.encode_into(out);
         ema_smoothing_factor.encode_into(out);
         ema_smoothing_precision.encode_into(out);
@@ -452,14 +436,12 @@ impl BinaryEncode for RewardPoWConfig {
 }
 
 /// The encoding of the fixture below, one field per group.
-const REWARD_POW_CONFIG_HEX: &str = "1e00000000000000 1f00000000000000 20000000 2100000000000000 2200000000000000 2300000000000000 2400000000000000 2500000000000000 2600000000000000 2700000000000000 2800000000000000 2900000000000000";
+const REWARD_POW_CONFIG_HEX: &str = "20000000 2100000000000000 2200000000000000 2300000000000000 2400000000000000 2500000000000000 2600000000000000 2700000000000000 2800000000000000 2900000000000000";
 
 codec_fixtures!(
     RewardPoWConfig,
     encode_only,
     RewardPoWConfig {
-        reward_pool_genesis: 30,
-        epoch_reward_genesis: 31,
         minimum_difficulty: ModulusShift::new::<32>(),
         ema_smoothing_factor: 33,
         ema_smoothing_precision: NonZeroU64::new(34).unwrap(),
@@ -528,8 +510,6 @@ mod tests {
     /// deployment config in tests that don't exercise the reward parameters.
     fn disabled_reward_config() -> RewardPoWConfig {
         RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),

@@ -952,7 +952,7 @@ mod tests {
         let ledger_config = ledger_config();
         lb_chain_service::Cryptarchia::from_genesis(
             [GENESIS_ID; 32].into(),
-            LedgerState::from_utxos(empty(), &ledger_config, &ConsensusExcludedKeys::empty()),
+            LedgerState::from_utxos(empty(), &ledger_config, 0, &ConsensusExcludedKeys::empty()),
             single_era(ledger_config),
             lb_cryptarchia_engine::State::Bootstrapping,
         )
@@ -978,8 +978,6 @@ mod tests {
     /// deployment config in tests.
     fn disabled_reward_config() -> RewardPoWConfig {
         RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),

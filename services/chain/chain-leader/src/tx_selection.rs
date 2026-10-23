@@ -237,6 +237,7 @@ mod tests {
         let ledger_state = LedgerState::from_utxos(
             funding_utxos.into_iter().flatten(),
             &config,
+            0,
             &ConsensusExcludedKeys::empty(),
         );
         let gas_context = ledger_state.tx_context().gas_context;
