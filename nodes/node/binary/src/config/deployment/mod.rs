@@ -91,6 +91,19 @@ impl DeploymentSettings {
         self.eras.genesis_era_parameters()
     }
 
+    /// The parameters of the era active at `epoch`.
+    #[must_use]
+    pub fn era_parameters(&self, epoch: Epoch) -> &EraParameters {
+        self.eras
+            .iter()
+            .take_while(|(first_epoch, _era_parameters)| first_epoch <= &epoch)
+            .last()
+            .map_or_else(
+                || self.genesis_era_parameters(),
+                |(_first_epoch, era_parameters)| era_parameters,
+            )
+    }
+
     pub const fn genesis_era_parameters_mut(&mut self) -> &mut EraParameters {
         self.eras.genesis_era_parameters_mut()
     }
