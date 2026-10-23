@@ -5,7 +5,9 @@ pub mod openapi {
 }
 
 use std::{
+    collections::HashMap,
     fmt::{Debug, Display},
+    iter,
     marker::PhantomData,
     pin::Pin,
     time::Duration,
@@ -19,6 +21,7 @@ use lb_core::{
         transactions::hash::PrefixedKey,
     },
 };
+use lb_cryptarchia_engine::Slot;
 use lb_log_targets::mempool;
 use lb_network_service::NetworkService;
 use lb_services_utils::{
@@ -415,9 +418,16 @@ where
                 pool.remove(&ids).await;
                 state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
             }
-            MempoolMsg::RetireEnteredCanonical { txs } => {
-                pool.retire_entered_canonical(txs).await;
-                state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
+            MempoolMsg::CanonicalChainUpdated { entered, reorged } => {
+                Self::handle_canonical_chain_updated_message(
+                    pool,
+                    entered,
+                    reorged,
+                    network_adapter,
+                    &state_updater,
+                    accepted_items_channel_sender,
+                )
+                .await;
             }
             MempoolMsg::ProcessedBlock {
                 block_id,
@@ -444,6 +454,29 @@ where
                     tracing::warn!(target: LOG_TARGET, "Subscriber hung up before it could be given the accepted-item stream.");
                 }
             }
+        }
+    }
+
+    async fn handle_canonical_chain_updated_message(
+        pool: &mut Pool,
+        entered: HashMap<Pool::Key, Slot>,
+        reorged: Vec<Pool::Item>,
+        network_adapter: &NetworkAdapter,
+        state_updater: &MempoolStateUpdater<Pool, NetworkAdapter, RuntimeServiceId>,
+        accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
+    ) where
+        Pool::Settings: Send + Sync,
+        NetworkAdapter::Settings: Send + Sync,
+    {
+        let readmitted = pool.on_canonical_chain_updated(entered, reorged).await;
+        state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
+
+        // Txs admitted again after a reorg are broadcast, like local submissions.
+        for item in &readmitted {
+            Self::notify_about_accepted_item(accepted_items_channel_sender, item.clone());
+        }
+        if !readmitted.is_empty() {
+            Self::broadcast_items(network_adapter.clone(), readmitted);
         }
     }
 
@@ -559,13 +592,23 @@ where
     ) {
         state_updater.update(Some(<Pool as RecoverableMempool>::save(pool).into()));
 
-        spawn("logos/mempool/transaction-broadcast", async move {
-            network_adapter.send(item_for_broadcast).await;
-        });
+        Self::broadcast_items(network_adapter, iter::once(item_for_broadcast));
 
         if let Err(e) = reply_channel.send(Ok(())) {
             tracing::debug!(target: LOG_TARGET, "Failed to send add reply: {:?}", e);
         }
+    }
+
+    fn broadcast_items(
+        network_adapter: NetworkAdapter,
+        items: impl IntoIterator<Item = Pool::Item, IntoIter: Send + 'static>,
+    ) {
+        let items = items.into_iter();
+        spawn("logos/mempool/transaction-broadcast", async move {
+            for item in items {
+                network_adapter.send(item).await;
+            }
+        });
     }
 
     fn handle_add_error(

@@ -4,13 +4,14 @@ use std::{
     num::NonZeroU64,
 };
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use lb_core::mantle::traits::Hashable;
 use lb_cryptarchia_engine::Slot;
 use lb_time::era::EraSchedule;
 
-use crate::backend::policy::{
-    BlockSlots, EvictableTx, EvictionPolicy, PolicyClock, PolicySnapshot,
+use crate::backend::{
+    AdmissionTime,
+    policy::{BlockSlots, EvictableTx, EvictionPolicy, PolicyClock},
 };
 
 /// Settings for [`PowClaimPolicy`] in an era.
@@ -207,7 +208,11 @@ where
         }
     }
 
-    fn select(&self, clock: &PolicyClock) -> Vec<Tx::Hash> {
+    fn select(
+        &self,
+        clock: &PolicyClock,
+        _pending_txs: &IndexMap<Tx::Hash, AdmissionTime>,
+    ) -> Vec<Tx::Hash> {
         let Some(slot) = clock.slot else {
             return Vec::new();
         };
@@ -215,10 +220,6 @@ where
             .range(..=slot)
             .flat_map(|(_, keys)| keys.iter().cloned())
             .collect()
-    }
-
-    fn save(&self) -> PolicySnapshot<Tx::Hash> {
-        PolicySnapshot::Stateless
     }
 }
 
@@ -299,7 +300,7 @@ mod tests {
     }
 
     fn select(policy: &Policy, slot: u64) -> Vec<TxHash> {
-        EvictionPolicy::<Ops, HeaderId>::select(policy, &clock(Some(slot)))
+        EvictionPolicy::<Ops, HeaderId>::select(policy, &clock(Some(slot)), &IndexMap::new())
     }
 
     #[test]
@@ -399,7 +400,7 @@ mod tests {
         add(&mut policy, &tx, &known(&[(anchor, 0)]));
 
         assert_eq!(
-            EvictionPolicy::<Ops, HeaderId>::select(&policy, &clock(None)),
+            EvictionPolicy::<Ops, HeaderId>::select(&policy, &clock(None), &IndexMap::new()),
             NONE
         );
     }
