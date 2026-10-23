@@ -27,7 +27,7 @@ use lb_blend::{
     },
 };
 use lb_chain_service::Epoch;
-use lb_libp2p::{DialError, DialErrorExt as _, DialOpts, SwarmEvent};
+use lb_libp2p::{DialError, DialErrorExt as _, DialOpts, SwarmEvent, system_dns_config};
 use lb_log_targets::diagnostic::BLEND_REACHABILITY;
 use libp2p::{Multiaddr, PeerId, Swarm, SwarmBuilder, swarm::dial_opts::PeerCondition};
 use rand::RngCore;
@@ -197,6 +197,7 @@ where
             config.time.network_absorption_in_rounds,
             config.num_blend_layers,
         );
+        let (dns_config, dns_options) = system_dns_config();
         let mut swarm = SwarmBuilder::with_existing_identity(config.keypair())
             .with_tokio()
             .with_quic_config(|mut quic| {
@@ -206,8 +207,7 @@ where
                 quic.max_connection_data = receive_window.saturating_mul(2);
                 quic
             })
-            .with_dns()
-            .expect("DNS transport should be supported")
+            .with_dns_config(dns_config, dns_options)
             .with_behaviour(|_| {
                 BlendBehaviour::new(
                     config,
