@@ -600,8 +600,6 @@ mod tests {
                     target_transactions_per_block: 1.try_into().unwrap(),
                 },
                 reward: RewardPoWConfig {
-                    reward_pool_genesis: 1_000_000_000,
-                    epoch_reward_genesis: 1_000_000,
                     minimum_difficulty: ModulusShift::new::<26>(),
                     ema_smoothing_factor: 9,
                     ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
@@ -655,7 +653,8 @@ mod tests {
         };
 
         let genesis = HeaderId::from([0; 32]);
-        let ledger = LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+        let ledger =
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let (sender, _receiver) = tokio::sync::watch::channel(None);
         let updater = StateUpdater::new(Arc::new(sender));
 

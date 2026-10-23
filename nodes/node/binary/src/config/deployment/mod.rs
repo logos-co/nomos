@@ -58,10 +58,7 @@ impl DeploymentSettings {
     pub fn new(eras: &EraDeclarations, genesis_block: GenesisBlock) -> Self {
         let (genesis_id, genesis_time) = (
             genesis_block.header().id(),
-            genesis_block
-                .genesis_tx()
-                .cryptarchia_parameter()
-                .genesis_time,
+            genesis_block.genesis_tx().genesis_parameters().start_time,
         );
         let mut era_digests = Vec::with_capacity(1);
         // Called in activation order: the fork digest of an era is over the
@@ -107,7 +104,7 @@ impl DeploymentSettings {
     pub fn chain_id(&self) -> ChainId {
         self.genesis_block
             .genesis_tx()
-            .cryptarchia_parameter()
+            .genesis_parameters()
             .chain_id
     }
 
@@ -116,8 +113,8 @@ impl DeploymentSettings {
     pub fn genesis_time(&self) -> GenesisTime {
         self.genesis_block
             .genesis_tx()
-            .cryptarchia_parameter()
-            .genesis_time
+            .genesis_parameters()
+            .start_time
     }
 
     /// The ID of the genesis block this deployment's chain starts from.
@@ -279,26 +276,6 @@ mod tests {
         assert_ne!(
             changed.genesis_fork_digest(),
             settings.genesis_fork_digest()
-        );
-    }
-
-    #[test]
-    fn genesis_epoch_reward_matches_the_payout_rate() {
-        // `epoch_reward_genesis` is not free: it must be the `sigma_e` the
-        // first epoch boundary would compute for the genesis pool, or genesis
-        // and steady state disagree. That is
-        // `W0 * rate_num / (rate_den * target_claim_per_block * N_b)`, and
-        // `N_b` follows from the consensus schedule — so changing
-        // `security_param` or `slot_activation_coeff` moves this value too.
-        let settings = DeploymentSettings::default();
-        let cryptarchia = &settings.genesis_era_parameters().cryptarchia;
-        let reward = &cryptarchia.pow_config.reward;
-        let denominator = u128::from(reward.rate_den.get())
-            * u128::from(reward.target_claim_per_block.get())
-            * u128::from(cryptarchia.expected_blocks_per_epoch().get());
-        assert_eq!(
-            u128::from(reward.epoch_reward_genesis),
-            u128::from(reward.reward_pool_genesis) * u128::from(reward.rate_num) / denominator,
         );
     }
 }

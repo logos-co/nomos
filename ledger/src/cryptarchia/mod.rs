@@ -1148,13 +1148,14 @@ pub mod tests {
         }
     }
 
+    /// The balance the `PoW` reward pool of a test chain starts with.
+    pub const GENESIS_POW_REWARD_POOL: lb_core::mantle::ops::pow::PowReward = 1_000_000_000;
+
     /// A reward config with claiming disabled, standing in for a real
     /// deployment config in tests that don't exercise the reward parameters.
     #[must_use]
     pub fn disabled_reward_config() -> crate::config::RewardPoWConfig {
         crate::config::RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
@@ -1168,10 +1169,10 @@ pub mod tests {
         }
     }
 
-    /// Genesis `PoW` state built from [`disabled_reward_config`].
+    /// Genesis `PoW` state built from [`config`].
     #[must_use]
     pub fn pow_state() -> PowState {
-        PowState::from_reward_config(&disabled_reward_config())
+        PowState::from_reward_pool_and_config(GENESIS_POW_REWARD_POOL, &config())
     }
 
     #[must_use]
@@ -1227,7 +1228,11 @@ pub mod tests {
     }
 
     fn full_ledger_state(cryptarchia_ledger: LedgerState, config: &Config) -> crate::LedgerState {
-        let mantle_ledger = mantle::LedgerState::new(config, cryptarchia_ledger.epoch_state());
+        let mantle_ledger = mantle::LedgerState::new(
+            config,
+            GENESIS_POW_REWARD_POOL,
+            cryptarchia_ledger.epoch_state(),
+        );
         crate::LedgerState {
             block_number: 0,
             cryptarchia_ledger,

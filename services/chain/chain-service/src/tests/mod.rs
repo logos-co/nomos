@@ -69,7 +69,7 @@ fn cryptarchia_switch_to_online() {
     let genesis_id: HeaderId = [0; 32].into();
     let mut cryptarchia = Cryptarchia::from_genesis(
         genesis_id,
-        LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty()),
+        LedgerState::from_utxos([utxo], &config, 0, &ConsensusExcludedKeys::empty()),
         single_era(config),
         lb_cryptarchia_engine::State::Bootstrapping,
     );
@@ -147,7 +147,7 @@ async fn get_block_ids_from_memory_and_storage() {
     let (zk_key, utxo) = utxo();
     let mut cryptarchia = Cryptarchia::from_genesis(
         genesis_id,
-        LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty()),
+        LedgerState::from_utxos([utxo], &config, 0, &ConsensusExcludedKeys::empty()),
         single_era(config),
         lb_cryptarchia_engine::State::Online,
     );
@@ -667,6 +667,7 @@ async fn fork_switch_reports_newly_canonical_and_reorged_transactions() {
         LedgerState::from_utxos(
             [leader_utxo, funding_utxo_a, funding_utxo_b, funding_utxo_c],
             &config,
+            0,
             &ConsensusExcludedKeys::empty(),
         ),
         single_era(config),
@@ -761,7 +762,7 @@ fn ledger_is_not_committed_if_block_contains_invalid_deferred_proof() {
     let genesis_id: HeaderId = [0; 32].into();
     let mut cryptarchia = Cryptarchia::from_genesis(
         genesis_id,
-        LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty()),
+        LedgerState::from_utxos([utxo], &config, 0, &ConsensusExcludedKeys::empty()),
         single_era(config),
         lb_cryptarchia_engine::State::Bootstrapping,
     );
@@ -842,7 +843,7 @@ fn test_chain_with_next_block() -> (Cryptarchia, Block<SignedOps<Preverified, St
     let (zk_key, utxo) = utxo();
     let cryptarchia = Cryptarchia::from_genesis(
         genesis_id,
-        LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty()),
+        LedgerState::from_utxos([utxo], &config, 0, &ConsensusExcludedKeys::empty()),
         single_era(config),
         lb_cryptarchia_engine::State::Online,
     );
@@ -863,8 +864,6 @@ fn test_chain_with_next_block() -> (Cryptarchia, Block<SignedOps<Preverified, St
 /// config in tests.
 fn disabled_reward_config() -> RewardPoWConfig {
     RewardPoWConfig {
-        reward_pool_genesis: 1_000_000_000,
-        epoch_reward_genesis: 1_000_000,
         minimum_difficulty: ModulusShift::new::<26>(),
         ema_smoothing_factor: 9,
         ema_smoothing_precision: core::num::NonZeroU64::new(10).unwrap(),
@@ -1142,7 +1141,7 @@ pub fn genesis_cryptarchia_on(utxo: Utxo, era_schedule: Arc<EraScheduledConfig>)
     let genesis_config = era_schedule.genesis().parameters.clone();
     Cryptarchia::from_genesis(
         GENESIS_ID.into(),
-        LedgerState::from_utxos([utxo], &genesis_config, &ConsensusExcludedKeys::empty()),
+        LedgerState::from_utxos([utxo], &genesis_config, 0, &ConsensusExcludedKeys::empty()),
         era_schedule,
         lb_cryptarchia_engine::State::Bootstrapping,
     )

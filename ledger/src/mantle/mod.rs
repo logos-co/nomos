@@ -19,7 +19,7 @@ use lb_core::{
                 inscribe::{InscriptionExecutionContext, InscriptionOp},
             },
             leader_claim::{LeaderClaimError, RewardsRoot, VoucherCm},
-            pow::ClaimPowRewardError,
+            pow::{ClaimPowRewardError, PowReward},
             sdp::{SDPActiveOp, SDPDeclareOp, SDPWithdrawOp},
             transfer::TransferError,
         },
@@ -75,13 +75,13 @@ pub struct LedgerState {
 
 impl LedgerState {
     #[must_use]
-    pub fn new(config: &Config, epoch_state: &EpochState) -> Self {
+    pub fn new(config: &Config, pow_reward_pool: PowReward, epoch_state: &EpochState) -> Self {
         Self {
             channels: channel::Channels::new(),
             sdp: sdp::SdpLedger::new(epoch_state.epoch())
                 .with_blend_service(&config.sdp_config.service_rewards_params.blend, epoch_state),
             leaders: leader::LeaderState::new(),
-            pow: pow::PowState::from_reward_config(&config.pow_config.reward),
+            pow: pow::PowState::from_reward_pool_and_config(pow_reward_pool, config),
         }
     }
 
@@ -89,6 +89,7 @@ impl LedgerState {
         signed_operation_inscription: SignedOperation<InscriptionOp, Verified, GenesisMode>,
         signed_operation_declarations: GenesisDeclarations,
         config: &Config,
+        pow_reward_pool: PowReward,
         utxo_tree: &UtxoTree,
         epoch_state: &EpochState,
     ) -> Result<(Self, Vec<TxEvent>), Error> {
@@ -111,7 +112,7 @@ impl LedgerState {
                 channels,
                 sdp,
                 leaders: leader::LeaderState::new(),
-                pow: pow::PowState::from_reward_config(&config.pow_config.reward),
+                pow: pow::PowState::from_reward_pool_and_config(pow_reward_pool, config),
             },
             tx_events,
         ))

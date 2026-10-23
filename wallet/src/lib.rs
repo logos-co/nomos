@@ -942,6 +942,7 @@ mod tests {
                 Utxo::new(tx_hash(0), 2, Note::new(4, alice)),
             ],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
 
@@ -999,7 +1000,7 @@ mod tests {
         let (voucher_cm, voucher_nf) = voucher(1, 0);
         let mut state = WalletState::from_ledger(
             &HashMap::<ZkPublicKey, u64>::new(),
-            &LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty()),
+            &LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty()),
         );
         state.vouchers = MerkleMountainRange::new().push(voucher_cm).unwrap();
         state.voucher_paths = rpds::HashTrieMapSync::new_sync()
@@ -1053,7 +1054,7 @@ mod tests {
         let genesis = HeaderId::from([0; 32]);
 
         let genesis_ledger =
-            LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
 
         let (v1_cm, v1_nf) = voucher(1, 0);
         let (v2_cm, v2_nf) = voucher(1, 1);
@@ -1215,7 +1216,7 @@ mod tests {
         let bob = pk(2);
         let genesis = HeaderId::from([0; 32]);
         let genesis_ledger =
-            LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let (v_cm, _v_nf) = voucher(1, 0);
 
         let mut wallet = Wallet::<_, TestVoucherId>::from_lib_ledger_state(
@@ -1277,7 +1278,7 @@ mod tests {
         let bob = pk(2);
         let genesis = HeaderId::from([0; 32]);
         let genesis_ledger =
-            LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let (v_cm, _v_nf) = voucher(1, 0);
 
         let mut wallet = Wallet::<_, TestVoucherId>::from_lib_ledger_state(
@@ -1373,7 +1374,8 @@ mod tests {
         let alice = pk(1);
         let bob = pk(2);
         let genesis = HeaderId::from([0; 32]);
-        let ledger = LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+        let ledger =
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let (voucher_cm, _voucher_nf) = voucher(1, 0);
 
         // A wallet that only knows alice's key.
@@ -1422,6 +1424,7 @@ mod tests {
         let ledger_state = LedgerState::from_utxos(
             [utxo1, utxo2],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
 
@@ -1479,7 +1482,7 @@ mod tests {
         let alice = pk(1);
         let utxo = Utxo::new(tx_hash(0), 0, Note::new(5000, alice));
         let ledger_state =
-            LedgerState::from_utxos([utxo], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([utxo], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let wallet_state =
             WalletState::from_ledger(&HashMap::from_iter([(alice, 1)]), &ledger_state);
 
@@ -1549,7 +1552,7 @@ mod tests {
         // The wallet has a spendable note available...
         let utxo = Utxo::new(tx_hash(0), 0, Note::new(5000, alice));
         let ledger_state =
-            LedgerState::from_utxos([utxo], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([utxo], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
         let wallet_state =
             WalletState::from_ledger(&HashMap::from_iter([(alice, 1)]), &ledger_state);
 
@@ -1600,6 +1603,7 @@ mod tests {
                 Utxo::new(tx_hash(0), 3, Note::new(100, alice)),
             ],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
 
@@ -1640,7 +1644,7 @@ mod tests {
     fn test_fund_tx_zero_funds() {
         let alice = pk(1);
         let ledger_state =
-            LedgerState::from_utxos([], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
 
         let wallet_state =
             WalletState::from_ledger(&HashMap::from_iter([(alice, 1)]), &ledger_state);
@@ -1668,7 +1672,7 @@ mod tests {
         let alice = pk(1);
         let utxo = Utxo::new(tx_hash(0), 0, Note::new(5000, alice));
         let ledger_state =
-            LedgerState::from_utxos([utxo], &ledger_config(), &ConsensusExcludedKeys::empty());
+            LedgerState::from_utxos([utxo], &ledger_config(), 0, &ConsensusExcludedKeys::empty());
 
         let mut wallet_state =
             WalletState::from_ledger(&HashMap::from_iter([(alice, 1)]), &ledger_state);
@@ -1700,6 +1704,7 @@ mod tests {
         let ledger_state = LedgerState::from_utxos(
             [Utxo::new(tx_hash(0), 0, Note::new(1_000_000, bob))],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
 
@@ -1758,6 +1763,7 @@ mod tests {
             &LedgerState::from_utxos(
                 [Utxo::new(tx_hash(0), 0, Note::new(754, alice))],
                 &ledger_config(),
+                0,
                 &ConsensusExcludedKeys::empty(),
             ),
         );
@@ -1798,6 +1804,7 @@ mod tests {
                 &LedgerState::from_utxos(
                     [Utxo::new(tx_hash(0), 0, Note::new(value, alice))],
                     &ledger_config(),
+                    0,
                     &ConsensusExcludedKeys::empty(),
                 ),
             );
@@ -1823,6 +1830,7 @@ mod tests {
             &LedgerState::from_utxos(
                 [Utxo::new(tx_hash(0), 0, Note::new(795, alice))],
                 &ledger_config(),
+                0,
                 &ConsensusExcludedKeys::empty(),
             ),
         );
@@ -1845,8 +1853,6 @@ mod tests {
     /// deployment config in tests.
     fn disabled_reward_config() -> RewardPoWConfig {
         RewardPoWConfig {
-            reward_pool_genesis: 1_000_000_000,
-            epoch_reward_genesis: 1_000_000,
             minimum_difficulty: ModulusShift::new::<26>(),
             ema_smoothing_factor: 9,
             ema_smoothing_precision: NonZeroU64::new(10).unwrap(),
@@ -1970,6 +1976,7 @@ mod tests {
         let genesis_ledger = LedgerState::from_utxos(
             [alice_utxo],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
         let (v_cm, _) = voucher(1, 0);
@@ -2050,6 +2057,7 @@ mod tests {
         let genesis_ledger = LedgerState::from_utxos(
             [pk1_utxo],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
         let (v_cm_1, _) = voucher(1, 0);
@@ -2141,6 +2149,7 @@ mod tests {
         let genesis_ledger = LedgerState::from_utxos(
             [alice_utxo],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
         let (v_cm_1, _) = voucher(1, 0);
@@ -2216,6 +2225,7 @@ mod tests {
         let genesis_ledger = LedgerState::from_utxos(
             [alice_utxo],
             &ledger_config(),
+            0,
             &ConsensusExcludedKeys::empty(),
         );
         let (v_cm_1, _) = voucher(1, 0);

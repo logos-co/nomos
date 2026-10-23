@@ -47,7 +47,7 @@ use crate::{
     cryptarchia::{
         EpochState, LedgerState, UtxoTree,
         block_density::BlockDensity,
-        tests::{config, generate_proof},
+        tests::{GENESIS_POW_REWARD_POOL, config, generate_proof},
     },
     mantle::sdp::SdpLedger,
     test_utils::single_era,
@@ -240,7 +240,11 @@ fn genesis_ledger(config: &Config, leader_utxo: Utxo) -> Ledger<HeaderId> {
     };
     let state = crate::LedgerState {
         block_number: 0,
-        mantle_ledger: crate::mantle::LedgerState::new(config, cryptarchia_ledger.epoch_state()),
+        mantle_ledger: crate::mantle::LedgerState::new(
+            config,
+            GENESIS_POW_REWARD_POOL,
+            cryptarchia_ledger.epoch_state(),
+        ),
         cryptarchia_ledger,
     };
     Ledger::new(GENESIS, state, Arc::new(single_era(config.clone())))

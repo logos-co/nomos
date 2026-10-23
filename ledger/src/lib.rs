@@ -26,7 +26,7 @@ use lb_core::{
     crypto::Hash as BlockHash,
     events::{Events, HeaderEvent, TxEvent, TxEventPayload},
     mantle::{
-        NoteId, Utxo, Value, VerificationError,
+        GenesisParameters, NoteId, Utxo, Value, VerificationError,
         batch::DeferredProofs,
         gas::{Gas, GasCost, GasOverflow, GasProfile},
         ledger::verification_mode::StandardMode,
@@ -37,7 +37,7 @@ use lb_core::{
                 deposit::DepositExecutionContext, withdraw::WithdrawExecutionContext,
             },
             leader_claim::LeaderClaimExecutionContext,
-            pow::ClaimPoWRewardExecutionContext,
+            pow::{ClaimPoWRewardExecutionContext, PowReward},
             sdp::{SDPActiveOp, SDPDeclareOp},
         },
         traits::{GenesisTx, PreverifiedMantleTransaction, StorageSize, genesis::GenesisOps},
@@ -572,11 +572,13 @@ impl LedgerState {
     pub fn from_utxos(
         utxos: impl IntoIterator<Item = Utxo>,
         config: &Config,
+        pow_reward_pool: PowReward,
         consensus_excluded_keys: &ConsensusExcludedKeys,
     ) -> Self {
         let cryptarchia_ledger =
             CryptarchiaLedger::from_utxos(utxos, config, consensus_excluded_keys, Fr::ZERO);
-        let mantle_ledger = MantleLedger::new(config, cryptarchia_ledger.epoch_state());
+        let mantle_ledger =
+            MantleLedger::new(config, pow_reward_pool, cryptarchia_ledger.epoch_state());
         // Seed the genesis epoch-state membership snapshots from the genesis SDP
         // ledger, which only exists after the mantle ledger is built.
         let cryptarchia_ledger = cryptarchia_ledger.with_genesis_sdp(&mantle_ledger.sdp, config);
@@ -587,12 +589,19 @@ impl LedgerState {
         }
     }
 
+    /// The ledger state a chain starts from: its genesis transaction applied
+    /// under `config`, the genesis era's, with the genesis parameters it
+    /// inscribes.
     pub fn from_genesis_tx<Id>(
         tx: impl GenesisTx,
         config: &Config,
-        consensus_excluded_keys: &ConsensusExcludedKeys,
-        epoch_nonce: Fr,
     ) -> Result<(Self, Vec<TxEvent>), LedgerError<Id>> {
+        let GenesisParameters {
+            epoch_nonce,
+            pow_reward_pool,
+            consensus_excluded_keys,
+            ..
+        } = tx.genesis_parameters();
         let GenesisOps {
             transfer,
             inscription,
@@ -601,13 +610,14 @@ impl LedgerState {
         let cryptarchia_ledger = CryptarchiaLedger::from_genesis_tx(
             &transfer,
             config,
-            consensus_excluded_keys,
+            &consensus_excluded_keys,
             epoch_nonce,
         )?;
         let (mantle_ledger, events) = MantleLedger::from_genesis_tx(
             inscription,
             declarations,
             config,
+            pow_reward_pool,
             cryptarchia_ledger.latest_utxos(),
             cryptarchia_ledger.epoch_state(),
         )?;
@@ -1006,7 +1016,7 @@ impl LedgerState {
 
 #[cfg(test)]
 mod tests {
-    use cryptarchia::tests::{config, generate_proof, utxo};
+    use cryptarchia::tests::{GENESIS_POW_REWARD_POOL, config, generate_proof, utxo};
     use lb_core::{
         events::DepositNote,
         mantle::{
@@ -1083,8 +1093,12 @@ mod tests {
     pub fn create_test_ledger() -> (Ledger<HeaderId>, HeaderId, Utxo) {
         let config = config();
         let utxo = utxo();
-        let genesis_state =
-            LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty());
+        let genesis_state = LedgerState::from_utxos(
+            [utxo],
+            &config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let ledger = Ledger::new([0; 32], genesis_state, Arc::new(single_era(config)));
         (ledger, [0; 32], utxo)
     }
@@ -1095,7 +1109,12 @@ mod tests {
     #[test]
     fn genesis_seeds_epoch_state_sdp_from_mantle() {
         let config = config();
-        let ledger = LedgerState::from_utxos([utxo()], &config, &ConsensusExcludedKeys::empty());
+        let ledger = LedgerState::from_utxos(
+            [utxo()],
+            &config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
 
         let expected_for_epoch_0 = ledger
             .mantle_ledger
@@ -1342,8 +1361,12 @@ mod tests {
     fn test_channel_inscribe_operation() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([2; 32]);
 
@@ -1375,8 +1398,12 @@ mod tests {
     fn test_channel_config_operation() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([3; 32]);
 
@@ -1421,8 +1448,12 @@ mod tests {
     fn test_jit_config_requires_zero_parent() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (_, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1473,8 +1504,12 @@ mod tests {
     fn test_channel_config_valid_after_inscriptions() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let mut state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let mut state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1545,8 +1580,12 @@ mod tests {
     fn test_channel_config_rejected_after_later_config() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let mut state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let mut state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1612,8 +1651,12 @@ mod tests {
     fn test_inscription_valid_after_config() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let mut state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let mut state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1679,8 +1722,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let mut ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let mut ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([4; 32]);
 
@@ -1776,8 +1823,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let mut ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let mut ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([9; 32]);
 
@@ -1855,8 +1906,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1927,8 +1982,12 @@ mod tests {
     fn test_fee_estimate_covers_inscribe_then_config_in_one_tx() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -1992,8 +2051,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -2056,8 +2119,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([0u8; 32]);
 
@@ -2120,8 +2187,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let mut ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let mut ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([9; 32]);
 
@@ -2178,8 +2249,12 @@ mod tests {
         let test_config = config();
         let eras = single_era(test_config.clone());
         let (sk, utxo) = utxo_with_sk();
-        let mut ledger_state =
-            LedgerState::from_utxos([utxo], &test_config, &ConsensusExcludedKeys::empty());
+        let mut ledger_state = LedgerState::from_utxos(
+            [utxo],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([10; 32]);
 
@@ -2255,8 +2330,12 @@ mod tests {
     fn test_invalid_parent_error() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let mut state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let mut state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let channel_id = ChannelId::from([5; 32]);
 
@@ -2331,8 +2410,12 @@ mod tests {
     fn test_unauthorized_signer_error() {
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let mut state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let mut state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (signing_key, verifying_key) = create_test_keys();
         let (unauthorized_signing_key, unauthorized_verifying_key) = create_test_keys_with_seed(3);
         let channel_id = ChannelId::from([6; 32]);
@@ -2387,8 +2470,12 @@ mod tests {
         // Post another inscription in channel 1
         let test_config = config();
         let eras = single_era(test_config.clone());
-        let state =
-            LedgerState::from_utxos([utxo()], &test_config, &ConsensusExcludedKeys::empty());
+        let state = LedgerState::from_utxos(
+            [utxo()],
+            &test_config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         let (sk1, vk1) = create_test_keys_with_seed(1);
         let (sk2, vk2) = create_test_keys_with_seed(2);
         let (sk3, vk3) = create_test_keys_with_seed(3);
@@ -2593,7 +2680,12 @@ mod tests {
         let utxo = utxo();
         let config = config();
         let eras = single_era(config.clone());
-        let mut ledger = LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty());
+        let mut ledger = LedgerState::from_utxos(
+            [utxo],
+            &config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         update_ledger_prices(&mut ledger, 1, 1);
 
         let mut output_note = Note::new(1, ZkPublicKey::new(BigUint::from(0u8).into()));
@@ -2640,7 +2732,12 @@ mod tests {
         let utxo = utxo();
         let config = config();
         let eras = single_era(config.clone());
-        let mut ledger = LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty());
+        let mut ledger = LedgerState::from_utxos(
+            [utxo],
+            &config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
 
         let mut output_note = Note::new(1, ZkPublicKey::new(BigUint::from(0u8).into()));
         let sk = ZkKey::from(BigUint::from(0u8));
@@ -2710,7 +2807,12 @@ mod tests {
         let utxo = utxo();
         let config = config();
         let eras = single_era(config.clone());
-        let mut ledger = LedgerState::from_utxos([utxo], &config, &ConsensusExcludedKeys::empty());
+        let mut ledger = LedgerState::from_utxos(
+            [utxo],
+            &config,
+            GENESIS_POW_REWARD_POOL,
+            &ConsensusExcludedKeys::empty(),
+        );
         update_ledger_prices(&mut ledger, 1, 1);
 
         // No outputs: the whole input covers the gas cost and the remainder is
@@ -2857,8 +2959,6 @@ mod tests {
         /// for a real deployment config.
         fn disabled_reward_config() -> RewardPoWConfig {
             RewardPoWConfig {
-                reward_pool_genesis: 1_000_000_000,
-                epoch_reward_genesis: 1_000_000,
                 minimum_difficulty: ModulusShift::new::<26>(),
                 ema_smoothing_factor: 9,
                 ema_smoothing_precision: NonZeroU64::new(10).expect("10 is non-zero"),
@@ -2892,8 +2992,12 @@ mod tests {
         /// a seeded reward difficulty.
         fn pow_ledger_state(reward_difficulty: u64) -> (LedgerState, Config) {
             let config = config();
-            let mut state =
-                LedgerState::from_utxos([utxo()], &config, &ConsensusExcludedKeys::empty());
+            let mut state = LedgerState::from_utxos(
+                [utxo()],
+                &config,
+                GENESIS_POW_REWARD_POOL,
+                &ConsensusExcludedKeys::empty(),
+            );
             state
                 .mantle_ledger
                 .pow
@@ -3023,8 +3127,12 @@ mod tests {
             // the full wiring: preverification, the stateful
             // `ClaimPowReward` arm and the helper-built context.
             let config = config();
-            let mut state =
-                LedgerState::from_utxos([utxo()], &config, &ConsensusExcludedKeys::empty());
+            let mut state = LedgerState::from_utxos(
+                [utxo()],
+                &config,
+                GENESIS_POW_REWARD_POOL,
+                &ConsensusExcludedKeys::empty(),
+            );
             // The default reward config disables claiming (`rate_num = 0`).
             state
                 .mantle_ledger
@@ -3329,8 +3437,12 @@ mod tests {
             let mut config = config();
             config.pow_config.reward.pow_share = 10;
             config.pow_config.reward.share_den = NonZeroU64::new(100).unwrap();
-            let mut state =
-                LedgerState::from_utxos([utxo()], &config, &ConsensusExcludedKeys::empty());
+            let mut state = LedgerState::from_utxos(
+                [utxo()],
+                &config,
+                GENESIS_POW_REWARD_POOL,
+                &ConsensusExcludedKeys::empty(),
+            );
             let pool_before = state.mantle_ledger.pow.reward_pool();
 
             state = state
@@ -3359,8 +3471,12 @@ mod tests {
             // With `pow_share = 0` every collected fee is pooled for block
             // rewards and nothing accrues to the PoW refill.
             let config = config();
-            let mut state =
-                LedgerState::from_utxos([utxo()], &config, &ConsensusExcludedKeys::empty());
+            let mut state = LedgerState::from_utxos(
+                [utxo()],
+                &config,
+                GENESIS_POW_REWARD_POOL,
+                &ConsensusExcludedKeys::empty(),
+            );
             let pool_before = state.mantle_ledger.pow.reward_pool();
 
             state = state
