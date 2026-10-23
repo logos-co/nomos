@@ -306,7 +306,7 @@ where
             .notifier()
             .get_updated_settings();
 
-        // Wait for services (except Chain) to become ready, with timeout
+        // Bounded infrastructure dependencies.
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_mins(1)),
@@ -315,11 +315,11 @@ where
             TimeService<_, _>
         )
         .await?;
-        // Wait for Chain service to become ready, without timeout
+        // Chain recovery can exceed the infrastructure readiness deadline.
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             None,
-            Cryptarchia // becomes ready after recoverying blocks
+            Cryptarchia // becomes ready after recovering persisted blocks
         )
         .await?;
 

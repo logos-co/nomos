@@ -186,6 +186,7 @@ where
 
         let settings = settings_handle.notifier().get_updated_settings();
 
+        // Bounded infrastructure readiness; membership initialization follows.
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_mins(1)),

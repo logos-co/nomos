@@ -409,11 +409,13 @@ where
             PreloadKmsService<_>
         )
         .await?;
-        // Wait for the remaining dependencies to become ready, without timeout
+
+        // Recovery-dependent readiness has no deadline.
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             None,
-            CryptarchiaService, // becomes ready after recoverying blocks
+            Wallet,             // becomes ready after chain recovery and wallet backfill
+            CryptarchiaService, // becomes ready after recovering persisted blocks
             ChainNetwork,       // becomes ready after IBD
             BlendService,       // becomes ready after chain becomes online
             Wallet              // becomes ready after Chain

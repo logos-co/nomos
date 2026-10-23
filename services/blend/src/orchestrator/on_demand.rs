@@ -40,11 +40,12 @@ where
             target: LOG_TARGET,
             "Waiting until service {service_id:} is ready"
         );
+        // This mode was explicitly started above; bound its own initialization.
         if let Err(e) =
             wait_until_services_are_ready!(&overwatch_handle, Some(Duration::from_mins(1)), Service)
                 .await
         {
-            debug!(target: LOG_TARGET, "Service took too long to start. Shutting it down again...");
+            debug!(target: LOG_TARGET, "Service did not become ready. Shutting it down...");
             kill_service(&overwatch_handle).await;
             return Err(e.into());
         }
@@ -86,8 +87,8 @@ where
     ///
     /// # Errors
     ///
-    /// Fails if the service does not stop in time or if the status watcher
-    /// cannot be requested.
+    /// Fails if the service does not stop in time, fails before stopping, the
+    /// status notifications close, or the status watcher cannot be requested.
     async fn wait_until_stopped(
         &self,
         timeout: Duration,
@@ -97,10 +98,9 @@ where
             .wait_for(ServiceStatus::Stopped, Some(timeout))
             .await
             .map(|_| ())
-            .map_err(|current_service_status| {
+            .map_err(|wait_error| {
                 overwatch::overwatch::Error::Any(
-                    format!("Service did not stop in time, last status: {current_service_status}")
-                        .into(),
+                    format!("Service stop wait failed: {wait_error}").into(),
                 )
             })
     }

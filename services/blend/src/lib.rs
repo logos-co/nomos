@@ -201,6 +201,16 @@ where
         )
         .await?;
 
+        // Chain-dependent readiness has no deadline.
+        wait_until_services_are_ready!(
+            &overwatch_handle,
+            None,
+            SdpService, // becomes ready after declaration validation and state restoration
+            <EdgeService as EdgeServiceComponents>::ChainService  /* becomes ready after chain
+                         * recovery */
+        )
+        .await?;
+
         let sdp_service_api =
             SdpServiceApi::<SdpService>::from_overwatch_handle(overwatch_handle).await;
 
