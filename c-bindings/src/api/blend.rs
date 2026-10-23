@@ -541,6 +541,8 @@ pub unsafe extern "C" fn blend_rewards(node: *const LogosBlockchainNode) -> FfiB
 }
 
 /// Where the node's Blend declaration is in its lifecycle.
+///
+/// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Default)]
 pub enum DeclarationState {
@@ -574,6 +576,8 @@ impl From<status::DeclarationState> for DeclarationState {
 }
 
 /// The state of the node's activity proof for the activity epoch.
+///
+/// cbindgen:prefix-with-name
 #[repr(C)]
 #[derive(Default)]
 pub enum ProofState {
