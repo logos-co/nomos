@@ -522,7 +522,7 @@ mod tests {
         let signing_key = Ed25519Key::from_bytes(&[1; 32]);
         let declare_op = SDPDeclareOp {
             service_type: ServiceType::BlendNetwork,
-            locators: vec!["/ip4/1.1.1.1/udp/0".parse().unwrap()]
+            locators: vec!["/ip4/1.1.1.1/udp/3000".parse().unwrap()]
                 .try_into()
                 .unwrap(),
             provider_id: signing_key.public_key().into(),
