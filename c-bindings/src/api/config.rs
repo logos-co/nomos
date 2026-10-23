@@ -1,6 +1,7 @@
 use std::{
     ffi::{CStr, CString, c_char},
     net::Ipv4Addr,
+    num::NonZeroU16,
     path::PathBuf,
     ptr, slice,
     str::FromStr as _,
@@ -468,6 +469,9 @@ pub unsafe extern "C" fn merge_user_config(
 /// - `output_dir`: Output directory for `participation_data.yaml`.
 /// - `external_address`: Optional (nullable) public IPv4 address of the node,
 ///   required when the blend listening address is unspecified (0.0.0.0).
+/// - `external_port`: Optional (nullable) public blend port of the node,
+///   required when the blend listening address uses port 0. The port must not
+///   be 0.
 ///
 /// # Returns
 ///
@@ -476,7 +480,8 @@ pub unsafe extern "C" fn merge_user_config(
 /// # Safety
 ///
 /// This function is unsafe because it dereferences raw pointers. The caller
-/// must ensure that all non-null pointers are valid NUL-terminated C strings.
+/// must ensure that all non-null string pointers are valid NUL-terminated C
+/// strings, and that `external_port`, if non-null, points to a valid `u16`.
 #[must_use]
 #[panic_to_error]
 #[unsafe(no_mangle)]
@@ -485,6 +490,7 @@ pub unsafe extern "C" fn participate(
     keystore_path: *const c_char,
     output_dir: *const c_char,
     external_address: *const c_char,
+    external_port: *const u16,
 ) -> OperationStatus {
     return_error_if_null_pointer!(config_path);
     return_error_if_null_pointer!(keystore_path);
@@ -505,11 +511,24 @@ pub unsafe extern "C" fn participate(
         }
     };
 
+    let external_port = if external_port.is_null() {
+        None
+    } else {
+        let Some(port) = NonZeroU16::new(unsafe { *external_port }) else {
+            return OperationStatus::error(
+                OperationStatusCode::ValidationError,
+                "Invalid external port '0': the port must not be 0",
+            );
+        };
+        Some(port)
+    };
+
     let args = ParticipateArgs {
         config: unsafe { cstr_to_path(config_path) },
         keystore: unsafe { cstr_to_path(keystore_path) },
         output: unsafe { cstr_to_path(output_dir) },
         external_address,
+        external_port,
     };
 
     match lb_node::cli::participate::run(&args) {
@@ -620,12 +639,14 @@ mod test {
         let output_dir = temp_dir.path().join("participation");
         let output_c = cstring(&output_dir);
         let external_address = CString::new("203.0.113.7").expect("Valid CString");
+        let external_port = 3000u16;
         let status = unsafe {
             participate(
                 config_c.as_ptr(),
                 keystore_c.as_ptr(),
                 output_c.as_ptr(),
                 external_address.as_ptr(),
+                &raw const external_port,
             )
         };
         assert!(

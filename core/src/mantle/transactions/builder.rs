@@ -644,7 +644,7 @@ mod tests {
             .unwrap()
             .push_op(Op::SDPDeclare(SDPDeclareOp {
                 service_type: ServiceType::BlendNetwork,
-                locators: "/ip4/1.1.1.1/udp/0".parse::<Locator>().unwrap().into(),
+                locators: "/ip4/1.1.1.1/udp/3000".parse::<Locator>().unwrap().into(),
                 provider_id: ProviderId(Ed25519Key::from_bytes(&[0; 32]).public_key()),
                 zk_id: ZkPublicKey::zero(),
                 service_note_id: declare_service_note,

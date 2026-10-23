@@ -125,8 +125,8 @@ type BoundedMultiaddrBytes = BoundedVec<u8, 0, MAX_LOCATOR_BYTE_SIZE>;
 ///
 /// The shared `lb_utils::bounded` wrapper enforces the byte-length invariant
 /// using `Multiaddr::len()`. `Locator::try_from` performs the additional
-/// locator-specific validation below, such as rejecting unspecified, loopback,
-/// multicast, documentation, and link-local addresses.
+/// locator-specific validation below: it rejects unspecified addresses, port 0
+/// and peer IDs.
 type BoundedMultiaddr = lb_utils::bounded::multiaddr::BoundedMultiaddr<0, MAX_LOCATOR_BYTE_SIZE>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -202,6 +202,11 @@ impl TryFrom<Multiaddr> for Locator {
                 Protocol::Ip6(ip) if ip.is_unspecified() => {
                     return Err(format!(
                         "Locator multiaddr must not contain an unspecified IPv6 address: {value}"
+                    ));
+                }
+                Protocol::Tcp(0) | Protocol::Udp(0) => {
+                    return Err(format!(
+                        "Locator multiaddr must not contain port 0: {value}"
                     ));
                 }
                 Protocol::P2p(_) => {
@@ -809,6 +814,20 @@ mod tests {
                 .unwrap_err()
                 .contains("must not contain an unspecified IPv6 address")
         );
+    }
+
+    #[test]
+    fn locator_rejects_multiaddr_with_port_zero() {
+        for addr in [
+            "/ip4/159.195.5.169/udp/0/quic-v1",
+            "/ip4/159.195.5.169/tcp/0",
+        ] {
+            assert!(
+                addr.parse::<Locator>()
+                    .unwrap_err()
+                    .contains("must not contain port 0")
+            );
+        }
     }
 
     #[test]
