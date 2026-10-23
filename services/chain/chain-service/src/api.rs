@@ -214,11 +214,18 @@ where
         })
     }
 
-    pub async fn get_ledger_config(&self) -> Result<lb_ledger::Config, ApiError> {
+    /// The ledger config of the era of `slot`.
+    pub async fn get_ledger_config(&self, slot: Slot) -> Result<lb_ledger::Config, ApiError> {
         let (reply_channel, rx) = oneshot::channel();
 
         self.relay
-            .send(Query::GetLedgerConfig { reply_channel }.into())
+            .send(
+                Query::GetLedgerConfigAtSlot {
+                    slot,
+                    reply_channel,
+                }
+                .into(),
+            )
             .await
             .map_err(|error| {
                 ApiError::CommsFailure(format!("{error} while sending GetLedgerConfig"))
@@ -330,7 +337,7 @@ where
         let (reply_channel, rx) = oneshot::channel();
 
         self.relay
-            .send(Query::GetEpochConfig { reply_channel }.into())
+            .send(Query::GetTipEpochConfig { reply_channel }.into())
             .await
             .map_err(|error| {
                 ApiError::CommsFailure(format!("{error} while sending GetEpochConfig"))
