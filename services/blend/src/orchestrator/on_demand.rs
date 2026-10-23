@@ -40,16 +40,12 @@ where
             target: LOG_TARGET,
             "Waiting until service {service_id:} is ready"
         );
+        // This mode was explicitly started above; bound its own initialization.
         if let Err(e) =
             wait_until_services_are_ready!(&overwatch_handle, Some(Duration::from_mins(1)), Service)
                 .await
         {
-            debug!(
-                target: LOG_TARGET,
-                service_id = %service_id,
-                error = %e,
-                "Service did not become ready. Shutting it down again..."
-            );
+            debug!(target: LOG_TARGET, "Service did not become ready. Shutting it down...");
             kill_service(&overwatch_handle).await;
             return Err(e.into());
         }

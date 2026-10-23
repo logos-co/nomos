@@ -110,13 +110,14 @@ where
 
         let settings = settings_handle.notifier().get_updated_settings();
 
+        // Bounded mode dependencies; the orchestrator already awaited chain Online.
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_mins(1)),
             NetworkService<_, _>,
             TimeService<_, _>,
             PreloadKmsService<_>,
-            ChainService
+            ChainService // becomes ready after chain recovery, already awaited by the orchestrator
         )
         .await?;
 

@@ -739,6 +739,7 @@ where
             .notifier()
             .get_updated_settings();
 
+        // Bounded infrastructure dependencies; persisted-chain recovery follows.
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             Some(Duration::from_mins(1)),

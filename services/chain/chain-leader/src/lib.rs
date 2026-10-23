@@ -413,10 +413,10 @@ where
         wait_until_services_are_ready!(
             &self.service_resources_handle.overwatch_handle,
             None,
-            Wallet,
-            CryptarchiaService,
-            ChainNetwork,
-            BlendService
+            Wallet,             // becomes ready after chain recovery and wallet backfill
+            CryptarchiaService, // becomes ready after recovering persisted blocks
+            ChainNetwork,       // becomes ready after IBD
+            BlendService        // becomes ready after chain Online and membership initialization
         )
         .await?;
 

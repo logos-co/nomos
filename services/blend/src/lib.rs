@@ -184,6 +184,7 @@ where
         let settings = settings_handle.notifier().get_updated_settings();
         let minimal_network_size = settings.common.minimum_network_size;
 
+        // Bounded KMS readiness.
         wait_until_services_are_ready!(
             &overwatch_handle,
             Some(Duration::from_mins(1)),
@@ -191,11 +192,13 @@ where
         )
         .await?;
 
+        // Chain-dependent readiness has no deadline.
         wait_until_services_are_ready!(
             &overwatch_handle,
             None,
-            SdpService,
-            <EdgeService as EdgeServiceComponents>::ChainService
+            SdpService, // becomes ready after declaration validation and state restoration
+            <EdgeService as EdgeServiceComponents>::ChainService  /* becomes ready after chain
+                         * recovery */
         )
         .await?;
 

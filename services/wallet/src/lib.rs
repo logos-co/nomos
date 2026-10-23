@@ -439,7 +439,7 @@ where
             ..
         } = self;
 
-        // Wait for services (except Chain) to become ready, with timeout
+        // Bounded storage and KMS dependencies.
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             Some(Duration::from_mins(1)),
@@ -447,11 +447,11 @@ where
             Kms
         )
         .await?;
-        // Wait for Chain service to become ready, without timeout
+        // Chain recovery can take longer than the infrastructure deadline.
         wait_until_services_are_ready!(
             &service_resources_handle.overwatch_handle,
             None,
-            Cryptarchia // becomes ready after recovering blocks
+            Cryptarchia // becomes ready after recovering persisted blocks
         )
         .await?;
 
