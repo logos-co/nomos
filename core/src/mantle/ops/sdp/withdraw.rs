@@ -91,14 +91,15 @@ impl VerifiableOperation<StandardMode>
         }
 
         // The note is obtained from the stored declaration and must still be
-        // locked for its service.
+        // bound to this exact declaration in the service-note index.
         let Some(note) = context.service_notes.get(&service_note_id) else {
             return Err(SdpError::NotAServiceNote(service_note_id));
         };
-        if !context
-            .service_notes
-            .is_used_for_service(&service_note_id, &declaration.service_type)
-        {
+        if !context.service_notes.is_used_by_declaration(
+            &service_note_id,
+            &declaration.service_type,
+            &operation.declaration_id,
+        ) {
             return Err(SdpError::NoteNotUsedForService {
                 note_id: service_note_id,
                 service_type: declaration.service_type,
@@ -183,7 +184,7 @@ mod tests {
         ZkKey::from(BigUint::from(2u8))
     }
 
-    fn locked_notes(service_note_id: &NoteId, _declaration_id: DeclarationId) -> ServiceNotes {
+    fn locked_notes(service_note_id: &NoteId, declaration_id: DeclarationId) -> ServiceNotes {
         ServiceNotes::new()
             .lock(
                 &MinStake {
@@ -191,6 +192,7 @@ mod tests {
                     timestamp: 0,
                 },
                 ServiceType::BlendNetwork,
+                declaration_id,
                 Note::new(10_000, note_key().to_public_key()),
                 service_note_id,
             )
@@ -399,6 +401,34 @@ mod tests {
             SdpError::InvalidServiceNote {
                 note_id: operation_note_id,
                 expected: expected_note_id,
+            }
+        );
+    }
+
+    #[test]
+    fn verify_rejects_a_service_note_bound_to_another_declaration() {
+        let note_id = DeclarationMessage::sample().service_note_id;
+        let declaration = declaration(note_id);
+        let operation = operation_for(&declaration, Nonce::new(declaration.created, 29));
+        let service_notes = locked_notes(&note_id, DeclarationId([99; 32]));
+        let epoch = declaration.created;
+        let declarations = declarations(&operation, declaration);
+
+        let signed_view = TxHashView::from(TxHash::from([9u8; 32]));
+        let signed_operation = preverified(operation, &signed_view);
+
+        assert_eq!(
+            signed_operation
+                .verify(&SDPWithdrawValidationContext {
+                    declaration: only_declaration(&declarations),
+                    epoch,
+                    service_notes: &service_notes,
+                    tx_hash_view: &signed_view,
+                })
+                .unwrap_err(),
+            SdpError::NoteNotUsedForService {
+                note_id,
+                service_type: ServiceType::BlendNetwork,
             }
         );
     }
