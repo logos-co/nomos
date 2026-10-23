@@ -252,7 +252,6 @@ mod tests {
     };
 
     use super::*;
-    use crate::TimeServiceSettings;
 
     /// One era from the Unix epoch, with slots of 1 s in epochs of 3 slots.
     fn test_eras() -> EraTimingSchedule {
@@ -859,11 +858,7 @@ mod tests {
             },
             update_interval: Duration::from_millis(1),
         };
-        let settings = TimeServiceSettings {
-            backend: backend_settings,
-            era_schedule: test_eras(),
-        };
-        poll_ntp_backend_stream(settings, 25).await;
+        poll_ntp_backend_stream(backend_settings, 25).await;
         // If we reach here, tick_stream handled polling and edge cases robustly
     }
 
@@ -879,19 +874,12 @@ mod tests {
             },
             update_interval: Duration::from_millis(50),
         };
-        let settings = TimeServiceSettings {
-            backend: backend_settings,
-            era_schedule: test_eras(),
-        };
-        poll_ntp_backend_stream(settings, 25).await;
+        poll_ntp_backend_stream(backend_settings, 25).await;
         // If we reach here, tick_stream handled polling and edge cases robustly
     }
 
-    async fn poll_ntp_backend_stream(
-        settings: TimeServiceSettings<NtpTimeBackendSettings>,
-        poll_count: u8,
-    ) {
-        let backend = NtpTimeBackend::init(settings.backend, settings.era_schedule);
+    async fn poll_ntp_backend_stream(backend_settings: NtpTimeBackendSettings, poll_count: u8) {
+        let backend = NtpTimeBackend::init(backend_settings, test_eras());
         let (_initial_tick, mut stream) = backend.tick_stream();
         let mut previous_tick: Option<SlotTick> = None;
         for _ in 0..poll_count {

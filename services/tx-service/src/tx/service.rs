@@ -26,7 +26,7 @@ use lb_services_utils::{
     wait_until_services_are_ready,
 };
 use lb_storage_service::{StorageService, recovery::StorageRecoveryBackend};
-use lb_time_service::{EraTickStream, TimeService, api::TimeServiceApi};
+use lb_time_service::{EraEvent, EraEventStream, TimeService, api::TimeServiceApi};
 use lb_utils::tokio::task::spawn;
 use overwatch::{
     OpaqueServiceResourcesHandle,
@@ -236,7 +236,7 @@ where
         )
         .await?;
 
-        let (current_era, mut era_ticks) =
+        let (current_era, mut era_events) =
             TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(overwatch_handle)
                 .await?
                 .subscribe_to_eras()
@@ -304,7 +304,7 @@ where
             &mut pool,
             &mut network_adapter,
             &mut network_items,
-            &mut era_ticks,
+            &mut era_events,
             &accepted_items_channel_sender,
         )
         .await
@@ -337,7 +337,7 @@ where
         pool: &mut Pool,
         network_adapter: &mut NetworkAdapter,
         network_items: &mut Box<dyn futures::Stream<Item = (Pool::Key, Pool::Item)> + Unpin + Send>,
-        era_ticks: &mut EraTickStream,
+        era_events: &mut EraEventStream,
         accepted_items_channel_sender: &broadcast::Sender<Pool::Item>,
     ) -> Result<(), overwatch::DynError>
     where
@@ -354,10 +354,16 @@ where
                 Some((key, item)) = network_items.next() => {
                     Self::handle_network_item(pool, key, item, &self.service_resources_handle.state_updater, accepted_items_channel_sender).await;
                 }
-                Some(era_tick) = era_ticks.next() => {
-                    pool.enter_era(era_tick.era).await;
-                    network_adapter.enter_era(era_tick.era).await;
-                }
+                Some(era_event) = era_events.next() => match era_event {
+                    EraEvent::NewEra { era, .. } => {
+                        pool.enter_era(era).await;
+                        network_adapter.enter_era(era).await;
+                        // TODO: Implement era transition start logic.
+                    }
+                    EraEvent::TransitionPeriodExpired(_) => {
+                        // TODO: Implement era transition end logic.
+                    }
+                },
             }
         }
     }

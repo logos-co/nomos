@@ -8,7 +8,7 @@ use backends::NetworkBackend;
 use futures::StreamExt as _;
 use lb_log_targets::network_service;
 use lb_services_utils::wait_until_services_are_ready;
-use lb_time_service::{TimeService, api::TimeServiceApi};
+use lb_time_service::{EraEvent, TimeService, api::TimeServiceApi};
 use overwatch::{
     DynError, OpaqueServiceResourcesHandle,
     services::{
@@ -81,7 +81,7 @@ where
         )
         .await?;
 
-        let (current_era, mut era_ticks) =
+        let (current_era, mut era_events) =
             TimeServiceApi::<TimeService<TimeBackend, RuntimeServiceId>>::new(&overwatch_handle)
                 .await?
                 .subscribe_to_eras()
@@ -119,9 +119,15 @@ where
                     };
                     Self::handle_network_service_message(msg, &mut backend).await;
                 }
-                Some(era_tick) = era_ticks.next() => {
-                    backend.enter_era(era_tick.era).await;
-                }
+                Some(era_event) = era_events.next() => match era_event {
+                    EraEvent::NewEra { era, .. } => {
+                        backend.enter_era(era).await;
+                        // TODO: Implement era transition start logic.
+                    }
+                    EraEvent::TransitionPeriodExpired(_) => {
+                        // TODO: Implement era transition end logic.
+                    }
+                },
             }
         }
 

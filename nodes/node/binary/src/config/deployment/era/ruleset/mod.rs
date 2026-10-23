@@ -40,4 +40,16 @@ impl EraRuleset {
                 .expect("an epoch has at least one slot: its phases and base period are not zero"),
         }
     }
+
+    /// For how many of its slots the network keeps serving the era's protocols
+    /// once the next era starts: Blend's epoch transition period, which the
+    /// era's messages still in flight need to arrive.
+    #[must_use]
+    pub const fn era_transition_slots(&self) -> u64 {
+        match self {
+            Self::V1(parameters) => parameters
+                .blend
+                .epoch_transition_slots(parameters.cryptarchia.average_slots_per_block()),
+        }
+    }
 }

@@ -9,7 +9,10 @@ use overwatch::{
 };
 use tokio::sync::oneshot;
 
-use crate::{EpochSlotTickStream, EraTickStream, SlotTick, TimeServiceMessage};
+use crate::{
+    EpochSlotTickStream, EraEvent, EraEventStream, EraTransitionEndStream, SlotTick,
+    TimeServiceMessage,
+};
 
 /// Marker trait for the time service, used to parametrize [`TimeServiceApi`]
 /// over the concrete service type while pinning its message type.
@@ -42,18 +45,25 @@ where
         Ok(Self { relay })
     }
 
-    /// The era the clock is in, and a stream of the eras it enters after it.
-    pub async fn subscribe_to_eras(&self) -> Result<(Era, EraTickStream), DynError> {
-        let mut era_ticks = self
+    /// The era the clock is in, and a stream of the era events after it: the
+    /// eras it enters, and the transition periods that expire.
+    pub async fn subscribe_to_eras(&self) -> Result<(Era, EraEventStream), DynError> {
+        let mut era_events = self
             .request(|sender| TimeServiceMessage::SubscribeToEras { sender })
             .await?;
-        // The service's era stream opens with the era the clock is in.
-        let current_era = era_ticks
-            .next()
+        // The service opens the stream with the era in force.
+        let Some(EraEvent::NewEra { era, .. }) = era_events.next().await else {
+            panic!("The era event stream did not open with the era in force.")
+        };
+        Ok((era, era_events))
+    }
+
+    /// A stream of the transition periods that expire from now on.
+    pub async fn subscribe_to_era_transition_ends(
+        &self,
+    ) -> Result<EraTransitionEndStream, DynError> {
+        self.request(|sender| TimeServiceMessage::SubscribeToEraTransitionEnds { sender })
             .await
-            .expect("The era tick stream ended before its first tick")
-            .era;
-        Ok((current_era, era_ticks))
     }
 
     /// The slot the clock is in, and a stream of the slots it ticks after it.
