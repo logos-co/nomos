@@ -1144,7 +1144,6 @@ mod tests {
         let withdraw_op = SDPWithdrawOp {
             declaration_id,
             nonce: Nonce::new(Epoch::new(0), 1),
-            service_note_id: note_id,
         };
         let proof = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
         let signed_operation_withdraw =
@@ -1493,7 +1492,6 @@ mod tests {
         let withdraw_op = SDPWithdrawOp {
             declaration_id: declaration_id_a,
             nonce: Nonce::new(Epoch::new(0), 1),
-            service_note_id: utxo_a.id(),
         };
         let accepted_nonce = withdraw_op.nonce;
         let proof_withdraw = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
@@ -1627,7 +1625,6 @@ mod tests {
             SDPWithdrawOp {
                 declaration_id: declaration_id_a,
                 nonce: accepted_nonce,
-                service_note_id: utxo_a.id(),
             },
             ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128])),
         )
@@ -1699,7 +1696,6 @@ mod tests {
         let stale_operation = SDPWithdrawOp {
             declaration_id,
             nonce: Nonce::new(created_a, 2),
-            service_note_id: declaration_a.service_note_id,
         };
         let stale_tx_hash = withdraw_tx_hash_view(stale_operation);
         let stale_withdraw =
@@ -1730,7 +1726,6 @@ mod tests {
         let accepted_operation = SDPWithdrawOp {
             declaration_id,
             nonce: Nonce::new(created_a, 1),
-            service_note_id: stale_operation.service_note_id,
         };
         let accepted_tx_hash = withdraw_tx_hash_view(accepted_operation);
         let accepted_withdraw = signed_withdraw(
@@ -1893,7 +1888,6 @@ mod tests {
         let withdraw_op = SDPWithdrawOp {
             declaration_id,
             nonce: Nonce::new(Epoch::new(0), 1),
-            service_note_id: note_id,
         };
         let proof_withdraw = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
         let signed_operation_withdraw =
@@ -2018,7 +2012,6 @@ mod tests {
         let withdraw_op = SDPWithdrawOp {
             declaration_id,
             nonce: Nonce::new(Epoch::new(0), 1),
-            service_note_id: note_id,
         };
         let proof_withdraw = ZkSignature::new(CompressedGroth16Proof::from_bytes(&[0u8; 128]));
         let signed_operation_withdraw =
